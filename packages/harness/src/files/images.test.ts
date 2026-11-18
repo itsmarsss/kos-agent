@@ -117,6 +117,18 @@ describe("hostile pictures", () => {
     expect(process.memoryUsage().arrayBuffers - before).toBeLessThan(10 * MB);
   });
 
+  it("refuses a WebP or AVIF past the cap from its header, before a decoder that sizes nothing allocates", async () => {
+    // RIFF, WEBP, then an extended header whose canvas is 60000 by 60000.
+    const webp = Buffer.alloc(30);
+    webp.write("RIFF", 0, "latin1");
+    webp.writeUInt32LE(22, 4);
+    webp.write("WEBPVP8X", 8, "latin1");
+    webp.writeUInt32LE(10, 16);
+    webp.writeUIntLE(59_999, 24, 3);
+    webp.writeUIntLE(59_999, 27, 3);
+    await expect(pixels.open(webp, "image/webp", 50_000_000)).rejects.toThrow(/60000 by 60000, past the 50 megapixels/);
+  });
+
   it("refuses a picture whose header gives no size", async () => {
     await expect(forModel(Buffer.from("\x89PNG\r\n\x1a\n\0\0\0\0", "latin1"), untouched)).rejects.toThrow(/size could not be read/);
   });

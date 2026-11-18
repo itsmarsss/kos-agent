@@ -4,7 +4,7 @@ import { parentPort, workerData } from "node:worker_threads";
 
 import type { HeifImage } from "libheif-js/wasm-bundle.js";
 
-import type { ImageType } from "./headers.js";
+import type { ImageType, PictureSize } from "./headers.js";
 import type { ModelImageType } from "./images.js";
 
 /**
@@ -19,7 +19,7 @@ import type { ModelImageType } from "./images.js";
 
 /** What the main thread asks: read a picture, then write it out at a size. */
 export type PixelsRequest =
-  | { op: "open"; bytes: Uint8Array; type: ImageType; maxPixels: number }
+  | { op: "open"; bytes: Uint8Array; type: ImageType; maxPixels: number; size?: PictureSize }
   | { op: "encode"; to: ModelImageType; edge: number; quality: number };
 
 export type PixelsReply =
@@ -84,7 +84,7 @@ function tooBig(width: number, height: number, maxPixels: number): void {
   if (width * height > maxPixels) throw new Error(`it is ${width} by ${height}, past the ${maxPixels / 1_000_000} megapixels KOS reads`);
 }
 
-async function decode(bytes: Buffer, type: ImageType, maxPixels: number): Promise<Rgba> {
+async function decode(bytes: Buffer, type: ImageType, maxPixels: number, size: PictureSize | undefined): Promise<Rgba> {
   switch (type) {
     case "image/jpeg":
       return (await import("jpeg-js")).decode(bytes, { useTArray: true, formatAsRGBA: true, maxResolutionInMP: maxPixels / 1_000_000, maxMemoryUsageInMB: 1024 });
@@ -100,6 +100,8 @@ async function decode(bytes: Buffer, type: ImageType, maxPixels: number): Promis
     }
     case "image/webp":
     case "image/avif": {
+      // These decoders size nothing before they allocate: the header's size, read by the main thread, is checked first.
+      if (size) tooBig(size.width, size.height, maxPixels);
       const read = await (await squash(type === "image/webp" ? "webp" : "avif"))(arrayBuffer(bytes));
       if (!read) throw new Error("the decoder could not read it");
       return { width: read.width, height: read.height, data: new Uint8Array(read.data.buffer, read.data.byteOffset, read.data.byteLength) };
@@ -212,7 +214,7 @@ let image: Rgba | undefined;
 async function answer(request: PixelsRequest): Promise<{ reply: PixelsReply; transfer: ArrayBuffer[] }> {
   if (request.op === "open") {
     const bytes = Buffer.from(request.bytes.buffer, request.bytes.byteOffset, request.bytes.byteLength);
-    image = await decode(bytes, request.type, request.maxPixels);
+    image = await decode(bytes, request.type, request.maxPixels, request.size);
     tooBig(image.width, image.height, request.maxPixels);
     return { reply: { ok: true, width: image.width, height: image.height, alpha: seeThrough(image) }, transfer: [] };
   }

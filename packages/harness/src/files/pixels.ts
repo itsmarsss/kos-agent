@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
-import type { ImageType } from "./headers.js";
+import { pictureSize, type ImageType } from "./headers.js";
 import type { Converter, ModelImageType, OpenPicture } from "./images.js";
 import type { PixelsReply, PixelsRequest } from "./pixelsworker.js";
 
@@ -21,7 +21,12 @@ const PIXELS_WORKER = "kos-pixels";
  * time is ended, and the picture refused with why.
  */
 
-/** The heap a picture's worker may use: a 50 megapixel picture is 200 MB of pixels, decoded and brought down. */
+/**
+ * The JavaScript heap a picture's worker may use: what pngjs, jpeg-js and the
+ * rest build as they decode. Pixel buffers and WebAssembly memory live
+ * outside the heap and are not bounded by it; they are bounded by the 50
+ * megapixel cap, checked from the header before decoding.
+ */
 export const WORKER_HEAP_MB = 1024;
 /** How long one step (a read, or a write at one size) may take; a 50 megapixel TIFF reads in a few seconds. */
 export const WORKER_STEP_MS = 30_000;
@@ -40,7 +45,12 @@ class PictureWorker {
   private readonly worker = new Worker(workerUrl(), { workerData: PIXELS_WORKER, resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB }, stdout: true, stderr: true });
   private ended = false;
 
-  constructor(private readonly stepMs: number) {}
+  constructor(private readonly stepMs: number) {
+    // Always heard, between asks too: a worker's error with nobody listening would take KOS down with it.
+    this.worker.on("error", () => {
+      this.ended = true;
+    });
+  }
 
   ask(request: PixelsRequest, transfer: ArrayBuffer[] = []): Promise<Exclude<PixelsReply, { ok: false }>> {
     if (this.ended) return Promise.reject(new Error("the picture's reader has ended"));
@@ -84,7 +94,9 @@ export function pixelsConverter(stepMs = WORKER_STEP_MS): Converter {
       try {
         // A copy is handed over, so the caller keeps its own bytes.
         const copy = new Uint8Array(bytes);
-        const read = await worker.ask({ op: "open", bytes: copy, type, maxPixels }, [copy.buffer]);
+        // The size its header gives, for the decoders that size nothing before they allocate.
+        const size = type === "image/webp" || type === "image/avif" ? pictureSize(bytes, type) : undefined;
+        const read = await worker.ask({ op: "open", bytes: copy, type, maxPixels, ...(size ? { size } : {}) }, [copy.buffer]);
         if (!("width" in read)) throw new Error("its decoder said nothing of its size");
         return {
           width: read.width,

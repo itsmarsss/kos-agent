@@ -61,7 +61,9 @@ async function withPdf<T>(bytes: Uint8Array, use: (doc: PdfDocument) => Promise<
     timer = setTimeout(() => reject(new Error(`reading the PDF took more than ${PDF_READ_MS / 1000} s`)), PDF_READ_MS);
   });
   try {
-    // A file built to stall the reader is given up on at the deadline, and the reader torn down.
+    // A file built to stall the reader is given up on at the deadline, and the reader torn down. The deadline
+    // is heard only between pdfjs's own awaits: one step that never yields (a parse that loops) is not cut short
+    // by it, as pdfjs runs in KOS's thread, not in a worker as pictures are.
     return await Promise.race([task.promise.then(use), late]);
   } finally {
     clearTimeout(timer);
