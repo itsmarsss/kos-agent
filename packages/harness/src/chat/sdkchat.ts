@@ -581,8 +581,11 @@ export async function runSdkChat(
           const event = m["event"] as { delta?: { type?: string; text?: string; thinking?: string } };
           const delta = event?.delta;
           if (delta?.text && !inSubagent) {
+            // A block's first piece is joined to what came before as the
+            // stored reply joins whole blocks, so the live text reads the same.
+            const piece = streamed ? delta.text : joinSaid(text, delta.text).slice(text.length);
             streamed += delta.text;
-            options.onDelta?.({ kind: "text", text: delta.text });
+            options.onDelta?.({ kind: "text", text: piece });
           }
           if (delta?.thinking) {
             options.onDelta?.({ kind: "reasoning", text: delta.thinking });
