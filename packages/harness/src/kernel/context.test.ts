@@ -20,6 +20,14 @@ describe("assembleSystemPrompt", () => {
     expect(system).not.toMatch(/—/);
   });
 
+  it("tells KOS to write drafts and structured things as typed blocks", () => {
+    const { system } = assembleSystemPrompt({ baseSystem: "You are KOS.", profile: DEFAULT_PROFILE, projects: [], recall: { facts: [], events: [] } });
+    expect(system).toContain("## Typed blocks");
+    expect(system).toContain("kos:email (to, cc, bcc, subject)");
+    // In the fixed half, ahead of the workspace, so it caches with the rest.
+    expect(system.indexOf("## Typed blocks")).toBeLessThan(system.indexOf("## Profile"));
+  });
+
   it("includes profile, projects, and memory", () => {
     const prompt = assembleSystemPrompt({
       baseSystem: "You are KOS.",

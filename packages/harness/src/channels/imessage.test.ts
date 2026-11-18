@@ -62,6 +62,11 @@ describe("rendering for a surface with no furniture", () => {
     expect(renderForText({ text: "Here.", files: [{ name: "a.pdf", mediaType: "application/pdf", data: "AA==" }, { name: "b.png", mediaType: "image/png", data: "AA==" }] })).toBe("Here.\n\nFiles: a.pdf, b.png");
   });
 
+  it("says a typed block in plain words, and leaves a malformed one as written", () => {
+    const text = "Drafted:\n\n```kos:email\nto: sam@example.com\nsubject: Saturday at 4\n---\nHi Sam,\nStill on?\n```\n\n```kos:email\nHi\n```";
+    expect(renderForText({ text })).toBe("Drafted:\n\nDraft email\nTo: sam@example.com\nSubject: Saturday at 4\n\nHi Sam,\nStill on?\n\n```kos:email\nHi\n```");
+  });
+
   it("opens with the blob's name when a blob is speaking", () => {
     expect(renderForText({ text: "Done for today.", from: { name: "Recap", colour: "#3b82f6" } })).toBe("Recap: Done for today.");
     expect(renderForText({ text: "", from: { name: "Recap" } })).toBe("");
