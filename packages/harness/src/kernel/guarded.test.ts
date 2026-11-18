@@ -158,11 +158,11 @@ describe("GuardedTools", () => {
     });
 
     it("never covers what KOS's own rules hold back: a permanent delete, a message to others", async () => {
-      risky("chats.delete", "notify");
+      risky("chats.delete", "discord.audience");
       const tools = auto();
       expect((await tools.execute("chats.delete", { id: "c2" })).content).toMatch(/Queued for approval/);
-      expect((await tools.execute("notify", { text: "hi", to: "channel:1" })).content).toMatch(/Queued for approval/);
-      expect((await tools.execute("notify", { text: "hi" })).content).toBe(`${AUTO_PREFIX}\ndone`);
+      expect((await tools.execute("discord.audience", { channel: "x", audience: "everyone" })).content).toMatch(/Queued for approval/);
+      expect((await tools.execute("discord.audience", { channel: "x", audience: "owner" })).content).toBe(`${AUTO_PREFIX}\ndone`);
     });
 
     it("asks for a step on a page that reads as a checkout, which its arguments cannot show", async () => {

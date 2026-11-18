@@ -32,10 +32,6 @@ describe("beyondAutoRule", () => {
   });
 
   it("holds back a message to anyone but the owner, and a place opened to others", () => {
-    expect(beyondAutoRule("notify", { text: "hi" })).toBe(false);
-    expect(beyondAutoRule("notify", { text: "hi", to: "owner" })).toBe(false);
-    expect(beyondAutoRule("notify", { text: "hi", to: "channel:123" })).toBe("messages someone besides you");
-    expect(beyondAutoRule("notify", { text: "hi", to: "user:9" })).toBe("messages someone besides you");
     expect(beyondAutoRule("discord.audience", { channel: "x", audience: "owner" })).toBe(false);
     expect(beyondAutoRule("discord.audience", { channel: "x", audience: "everyone" })).toBeTruthy();
     expect(beyondAutoRule("files.write", {})).toBe(false);

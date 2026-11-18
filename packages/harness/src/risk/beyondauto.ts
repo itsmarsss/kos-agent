@@ -31,21 +31,15 @@ const PERMANENT: Record<string, string> = {
   "modules.instantiate": "adds a module to KOS",
 };
 
-/** Whether a notify reaches someone besides the owner: a channel or another user. */
-function notifiesOthers(input: Record<string, unknown>): boolean {
-  const to = typeof input["to"] === "string" ? input["to"].trim() : "";
-  return to.startsWith("channel:") || to.startsWith("user:");
-}
-
 /**
  * Why Auto never covers this call of one of KOS's own tools, or false. A
- * message to anyone but the owner, a place opened to others, and what
- * deletes for good or changes KOS itself ask as they would in Ask.
+ * place opened to others, and what deletes for good or changes KOS itself
+ * ask as they would in Ask. A message to anyone but the owner is notify's
+ * own rule (sendsElsewhere), so the two never disagree.
  */
 export function beyondAutoRule(tool: string, input: Record<string, unknown>): string | false {
   const permanent = PERMANENT[tool];
   if (permanent) return permanent;
-  if (tool === "notify" && notifiesOthers(input)) return "messages someone besides you";
   if (tool === "discord.audience" && input["audience"] !== "owner") return "lets people besides you see a channel";
   if (tool === "discord.access") return "changes who may see a place on the server";
   return false;
