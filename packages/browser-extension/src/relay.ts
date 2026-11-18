@@ -215,6 +215,27 @@ export function forwarded(method: string, params: Record<string, unknown>, open:
   return params;
 }
 
+/**
+ * What may change the page or where it is: KOS's hands (every Input command), going places, the
+ * focus and the scroll, a dialog's answer, and running script, which can do
+ * anything. None of it while the owner has the tab; a picture, the tree and
+ * the page's own reports are reads, and stay open.
+ */
+const CHANGES_PAGE: ReadonlySet<string> = new Set([
+  "Page.navigate",
+  "Page.reload",
+  "Page.navigateToHistoryEntry",
+  "Page.handleJavaScriptDialog",
+  "DOM.focus",
+  "DOM.scrollIntoViewIfNeeded",
+  "Runtime.callFunctionOn",
+  "Runtime.evaluate",
+]);
+
+export function changesPage(method: string): boolean {
+  return method.startsWith("Input.") || CHANGES_PAGE.has(method);
+}
+
 /** Pointer and key commands, which are KOS's own hands: told apart from the owner's. */
 export function isInput(method: string): boolean {
   return method === "Input.dispatchMouseEvent" || method === "Input.dispatchKeyEvent" || method === "Input.insertText" || method === "Input.dispatchDragEvent";

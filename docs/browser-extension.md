@@ -175,8 +175,23 @@ While KOS works in your Chrome:
   face and Stop, one press, beside the border and KOS's cursor; Take over
   is your own click, and the KOS icon and the side panel still say KOS is
   working;
-- KOS's own cursor glides to each point it acts at and ripples as it
-  presses, as on the Mac;
+- KOS's own cursor is KOS for Mac's, drawn and moved the same: the arrow
+  in KOS's blue with its halo and KOS tag, gliding along the Mac's shallow
+  arc, in the Mac's quick time (45 to 135 ms by distance). It is on the page
+  from the session's start, in the middle until KOS points somewhere. It
+  gets to each point before KOS acts there (a click, the field it types in,
+  a hover, a drag), and ripples as it presses; it rests on what KOS scrolls
+  to.
+  It stays put between steps and across a new page in the tab, as a pointer
+  does while the page scrolls under it. It goes while you have the tab and
+  comes back on Hand back, and never takes your clicks. Your hand on the tab
+  while it is on its way stops KOS's act, and nothing that could change the
+  page is sent while you have it. Only its arrow is in KOS's own pictures,
+  as the Mac's pointer is in its. It glides only on a tab in front, so it
+  does while you type beside Chrome. The bar is drawn in the top
+  layer, over what a page puts there, though a page's modal dialog still
+  holds it, as it holds the rest of the page (the popup and the side panel
+  stop KOS then);
 - the pictures KOS takes never redraw the page you are looking at: a tab
   on screen is pictured from the frame Chrome already drew, made small as
   it is taken, and one that is not is captured as it is and made smaller

@@ -396,6 +396,44 @@ export const GridIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
   </Glyph>
 );
 
+/** Columns: a folder's path as panes side by side, as Finder draws them. */
+export const ColumnsIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 4v16M15 4v16" />
+  </Glyph>
+);
+
+/** About this one: its facts. */
+export const InfoIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5.5M12 7.6v.01" />
+  </Glyph>
+);
+
+export const UploadIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M12 17V5M6 9l6-6 6 6M4 21h16" />
+  </Glyph>
+);
+
+/** A folder with a plus: a new folder. */
+export const FolderPlusIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M3 7a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.6.8l1 1.2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+    <path d="M12 10.5v5M9.5 13h5" />
+  </Glyph>
+);
+
+/** A clock: what changed lately. */
+export const ClockIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </Glyph>
+);
+
 /** A window: a running site, or an app's window. */
 export const WindowIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
   <Glyph size={size}>

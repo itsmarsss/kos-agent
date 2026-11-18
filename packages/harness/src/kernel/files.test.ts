@@ -1,11 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { writeZip } from "../files/zip.js";
-import { copyEntry, deleteEntry, isImage, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
+import { trashEntry } from "./filetrash.js";
+import { copyEntry, dispositionOf, foldName, isImage, isReserved, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
 
 describe("workspace file browsing", () => {
   let root: string;
@@ -178,20 +179,41 @@ describe("managing files by hand", () => {
     expect(() => copyEntry(ws, "projects/budget/notes", "projects/budget/notes/again")).toThrow(/into itself/);
   });
 
-  it("deletes a file or a whole folder, and makes folders", () => {
+  it("trashes a file or a whole folder, and makes folders", () => {
     expect(makeDir(ws, "projects/budget/out")).toEqual({ path: "projects/budget/out" });
     expect(() => makeDir(ws, "projects/budget/out")).toThrow(/already exists/);
-    expect(deleteEntry(ws, "projects/budget/notes")).toEqual({ path: "projects/budget/notes" });
+    expect(trashEntry(ws, "projects/budget/notes")).toMatchObject({ path: "projects/budget/notes" });
     expect(listDirectory(ws, "projects/budget").map((e) => e.name)).toEqual(["out", "spec.json"]);
   });
 
   it("leaves the workspace's own files and the root alone, and stays in the jail", () => {
-    expect(() => deleteEntry(ws, ".")).toThrow(/workspace itself/);
-    expect(() => deleteEntry(ws, "mcp.json")).toThrow(/workspace's own/);
-    expect(() => deleteEntry(ws, "projects")).toThrow(/layout/);
+    expect(() => trashEntry(ws, ".")).toThrow(/workspace itself/);
+    expect(() => trashEntry(ws, "mcp.json")).toThrow(/workspace's own/);
+    expect(() => trashEntry(ws, "projects")).toThrow(/layout/);
     expect(() => renameEntry(ws, "projects", "stuff")).toThrow(/layout/);
     expect(() => renameEntry(ws, "projects/budget/spec.json", "kos.sqlite")).toThrow(/workspace's own/);
     expect(() => renameEntry(ws, "projects/budget/spec.json", "../outside.json")).toThrow();
+  });
+
+  it("tests a path as the jail resolves it, however it is written", () => {
+    writeFileSync(join(ws.root, "kos.sqlite-wal"), "");
+    mkdirSync(join(ws.root, ".kos", "trash"), { recursive: true });
+    for (const path of ["./kos.sqlite", "./KOS.sqlite-wal", "kos.sqlite/", ".//kos.sqlite", "./.kos/evil", ".kos/x", "./.kos/trash/", "./mcp.json"]) {
+      expect(() => trashEntry(ws, path), path).toThrow(/workspace's own/);
+      expect(() => renameEntry(ws, path, "projects/budget/x"), path).toThrow(/workspace's own/);
+      expect(() => renameEntry(ws, "projects/budget/spec.json", path), path).toThrow(/workspace's own/);
+      expect(() => copyEntry(ws, path), path).toThrow(/workspace's own/);
+      expect(() => copyEntry(ws, "projects/budget/spec.json", path), path).toThrow(/workspace's own/);
+      expect(() => makeDir(ws, `${path}/sub`), path).toThrow(/workspace's own/);
+    }
+    for (const path of ["./projects", "projects/", "./projects/", "projects/./", "./notes.md"]) {
+      expect(() => trashEntry(ws, path), path).toThrow(/layout/);
+      expect(() => renameEntry(ws, path, "projects/budget/moved"), path).toThrow(/layout/);
+    }
+    for (const path of [".", "./", "", "/"]) expect(() => trashEntry(ws, path), path).toThrow(/workspace itself/);
+    expect(existsSync(join(ws.root, "kos.sqlite"))).toBe(true);
+    // A doubled slash names the same file, and is recorded as it is.
+    expect(trashEntry(ws, "projects//budget/spec.json").path).toBe("projects/budget/spec.json");
   });
 
   it("hands a file's bytes over for saving, with its name and a type", () => {
@@ -200,5 +222,27 @@ describe("managing files by hand", () => {
     expect(raw.contentType).toBe("application/octet-stream");
     expect(raw.bytes.toString("utf8")).toBe('{"a":1}');
     expect(() => readBytes(ws, "projects/budget")).toThrow(/not a file/);
+  });
+
+  it("refuses the workspace's own files however they are spelled, as APFS folds them", () => {
+    writeFileSync(join(ws.root, "kos.sqlite-wal"), "");
+    writeFileSync(join(ws.root, "profile.json"), "{}");
+    mkdirSync(join(ws.root, "locks"), { recursive: true });
+    mkdirSync(join(ws.root, ".kos"), { recursive: true });
+    for (const path of [".ko\u017f/x", "kos.\u017fqlite-wal", "pro\ufb01le.json", "lock\u017f", "KOS.SQLITE", "Pro\uFB01le.JSON", ".\uFF4Bos/x"]) {
+      expect(foldName(path.split("/")[0]!), path).toMatch(/^(\.kos|kos\.sqlite(-wal)?|profile\.json|locks)$/);
+      expect(isReserved(ws.root, path), path).toBe(true);
+      expect(() => trashEntry(ws, path), path).toThrow(/workspace's own/);
+      expect(() => renameEntry(ws, "projects/budget/spec.json", path), path).toThrow(/workspace's own/);
+      expect(() => makeDir(ws, `${path}/sub`), path).toThrow(/workspace's own/);
+    }
+    expect(isReserved(ws.root, "projects/kos.sqlite")).toBe(false);
+  });
+
+  it("names a file in its Content-Disposition, plainly and in full", () => {
+    expect(dispositionOf("inline", "site survey.pdf")).toBe(`inline; filename="site survey.pdf"; filename*=UTF-8''site%20survey.pdf`);
+    expect(dispositionOf("inline", "Résumé ✓.pdf")).toBe(`inline; filename="R_sum_ _.pdf"; filename*=UTF-8''R%C3%A9sum%C3%A9%20%E2%9C%93.pdf`);
+    expect(dispositionOf("inline", 'a "quoted" \\ name\r\nx.pdf')).toBe(`inline; filename="a _quoted_ _ name__x.pdf"; filename*=UTF-8''a%20%22quoted%22%20%5C%20name%0D%0Ax.pdf`);
+    expect(dispositionOf("attachment", "it's (1).pdf")).toBe(`attachment; filename="it's (1).pdf"; filename*=UTF-8''it%27s%20%281%29.pdf`);
   });
 });

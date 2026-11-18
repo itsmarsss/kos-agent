@@ -120,12 +120,13 @@ describe("the design tokens", () => {
   });
 
   it("are the colours of the bar the extension draws into a page", () => {
-    const host = /:host \{([^}]*)\}/.exec(OVERLAY)?.[1] ?? "";
+    const host = /const dark = important\(`([^`]*)`\)/.exec(OVERLAY)?.[1] ?? "";
+    expect(OVERLAY).toContain(":host { ${dark} }");
     for (const [name, token] of Object.entries(BAR_TOKENS)) expect(rgbOf(declared(host, name)), `overlay --${name}`).toBe(COLOURS[token]);
   });
 
   it("are the light colours of the bar the extension draws into a page", () => {
-    const light = /const light = `([^`]*)`/.exec(OVERLAY)?.[1] ?? "";
+    const light = /const light = important\(`([^`]*)`\)/.exec(OVERLAY)?.[1] ?? "";
     for (const [name, token] of Object.entries(BAR_TOKENS)) expect(rgbOf(declared(light, name)), `overlay light --${name}`).toBe(LIGHT_COLOURS[token]);
     expect(OVERLAY).toContain(':host([data-theme="light"]) { ${light} }');
     expect(OVERLAY).toContain('@media (prefers-color-scheme: light) { :host([data-theme="system"]) { ${light} } }');

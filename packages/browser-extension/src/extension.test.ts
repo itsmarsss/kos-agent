@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -6,7 +9,9 @@ import { CallError, deviceProof, fromBase64, hostProof, readFrame, toBase64 } fr
 import { Link, said, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
+import { CURSOR } from "./cursorlook.js";
 import { installOverlay } from "./overlay.js";
+import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { checkCommand, forwarded, isWebUrl, Worlds } from "./relay.js";
 import { GRACE_MS, Session } from "./session.js";
@@ -238,6 +243,94 @@ describe("the look", () => {
     expect(source).toContain(kos.ink);
     // Told no theme, the bar is the page's own appearance, as the pages are before KOS sends one.
     expect(source).toMatch(/state\.theme \?\? "system"/);
+  });
+});
+
+describe("KOS's cursor", () => {
+  it("goes to each point KOS's hands act at: gliding for a move, a press or a wheel, following a drag", () => {
+    const mouse = (type: string, extra: Record<string, unknown> = {}) => aimOf("Input.dispatchMouseEvent", { type, x: 10, y: 20, ...extra });
+    expect(mouse("mouseMoved")).toEqual({ at: { x: 10, y: 20 }, how: "move" });
+    expect(mouse("mouseWheel", { deltaY: 300 })).toEqual({ at: { x: 10, y: 20 }, how: "move" });
+    expect(mouse("mousePressed", { button: "left" })).toEqual({ at: { x: 10, y: 20 }, how: "press" });
+    expect(mouse("mouseMoved", { buttons: 1 })).toEqual({ at: { x: 10, y: 20 }, how: "drag" });
+    expect(mouse("mouseReleased")).toEqual({ at: { x: 10, y: 20 }, how: "drag" });
+    expect(aimOf("Input.dispatchDragEvent", { type: "drop", x: 10, y: 20 })).toEqual({ at: { x: 10, y: 20 }, how: "drag" });
+    expect(aimOf("Input.dispatchMouseEvent", { type: "mouseMoved" })).toBeUndefined();
+  });
+
+  it("goes to an element focused or scrolled to, and says KOS is typing for keys and text", () => {
+    expect(aimOf("DOM.focus", { backendNodeId: 7 })).toEqual({ node: { backendNodeId: 7 }, how: "move" });
+    // Scrolled to on the way to a press elsewhere (a drag's far end): rested there, not glided to and back.
+    expect(aimOf("DOM.scrollIntoViewIfNeeded", { backendNodeId: 7 })).toEqual({ node: { backendNodeId: 7 }, how: "rest" });
+    expect(aimOf("DOM.focus", { nodeId: 7 })).toBeUndefined();
+    expect(aimOf("Input.insertText", { text: "a" })).toEqual({ typing: true });
+    expect(aimOf("Input.dispatchKeyEvent", { type: "keyDown", key: "a" })).toEqual({ typing: true });
+    expect(aimOf("Input.dispatchKeyEvent", { type: "keyUp", key: "a" })).toBeUndefined();
+    expect(aimOf("Runtime.evaluate", { expression: "1" })).toBeUndefined();
+  });
+
+  it("takes an element's middle from its first box with any area", () => {
+    expect(middleOf([[0, 0, 0, 0, 0, 0, 0, 0], [10, 20, 30, 20, 30, 40, 10, 40]])).toEqual({ x: 20, y: 30 });
+    expect(middleOf([])).toBeUndefined();
+    expect(middleOf(undefined)).toBeUndefined();
+  });
+
+  it("is KOS for Mac's cursor: the numbers it is drawn and moved by, read from the Mac's own code", () => {
+    const swift = (path: string): string => readFileSync(fileURLToPath(new URL(`../../${path}`, import.meta.url)), "utf8");
+    const mac = swift("device-macos/Sources/KOSDevice/Overlay/KOSCursor.swift");
+    const palette = swift("device-macos/Sources/KOSDevice/Overlay/Palette.swift");
+    const glide = swift("device-shared/Sources/DeviceCore/Glide.swift");
+    /** The number a pattern's first group finds in the Swift. */
+    const num = (text: string, pattern: RegExp, radix = 10): number => {
+      const m = pattern.exec(text);
+      if (!m?.[1]) throw new Error(`not in the Swift: ${pattern}`);
+      return radix === 10 ? Number(m[1]) : parseInt(m[1], radix);
+    };
+    const outline = /outline: \[CGPoint\] = \[([^\]]+)\]/.exec(mac)![1]!;
+    expect([...outline.matchAll(/CGPoint\(x: ([\d.]+), y: ([\d.]+)\)/g)].map((m) => [Number(m[1]), Number(m[2])])).toEqual(CURSOR.outline);
+    expect(num(mac, /static let scale: CGFloat = ([\d.]+)/)).toBe(CURSOR.scale);
+    expect(num(mac, /haloRadius: CGFloat = ([\d.]+)/)).toBe(CURSOR.halo.radius);
+    expect(num(mac, /halo\.fillColor = Palette\.accent\.withAlphaComponent\(([\d.]+)\)/)).toBe(CURSOR.halo.fill);
+    expect(num(mac, /halo\.strokeColor = Palette\.accent\.withAlphaComponent\(([\d.]+)\)/)).toBe(CURSOR.halo.edge);
+    expect(num(mac, /halo\.lineWidth = ([\d.]+)/)).toBe(CURSOR.halo.line);
+    expect(num(mac, /arrow\.lineWidth = ([\d.]+)/)).toBe(CURSOR.stroke);
+    expect(num(mac, /arrow\.shadowOpacity = ([\d.]+)/)).toBe(CURSOR.glow.opacity);
+    expect(num(mac, /arrow\.shadowRadius = ([\d.]+)/)).toBe(CURSOR.glow.radius);
+    expect(num(mac, /label\.fontSize = ([\d.]+)/)).toBe(CURSOR.tag.font);
+    expect(mac).toMatch(/systemFont\(ofSize: 10, weight: \.semibold\)/);
+    expect(CURSOR.tag.weight).toBe(600);
+    expect(num(mac, /tag\.cornerRadius = ([\d.]+)/)).toBe(CURSOR.tag.radius);
+    expect(num(mac, /tag\.shadowOpacity = ([\d.]+)/)).toBe(CURSOR.tag.shadow);
+    expect(num(mac, /\.width\) \+ (\d+)/) / 2).toBe(CURSOR.tag.padding);
+    // The tag's frame, in the arrow's bottom-left layer space: from its top-left, as the page draws it.
+    const frame = (part: "x" | "y" | "height"): number => num(mac, new RegExp(`tag\\.frame = CGRect\\(.*\\b${part}: (-?[\\d.]+)`));
+    const tall = num(mac, /size = CGSize\(width: 13 \* scale, height: (\d+) \* scale\)/) * CURSOR.scale;
+    expect({ left: frame("x"), top: tall - (frame("y") + frame("height")), height: frame("height") }).toEqual({ left: CURSOR.tag.left, top: CURSOR.tag.top, height: CURSOR.tag.height });
+    expect(num(mac, /let radius: CGFloat = ([\d.]+)/)).toBe(CURSOR.ripple.radius);
+    expect(num(mac, /ring\.fillColor = Palette\.accent\.withAlphaComponent\(([\d.]+)\)/)).toBe(CURSOR.ripple.fill);
+    expect(num(mac, /ring\.lineWidth = ([\d.]+)/)).toBe(CURSOR.ripple.line);
+    expect(num(mac, /grow\.fromValue = ([\d.]+)/)).toBe(CURSOR.ripple.from);
+    expect(num(mac, /grow\.toValue = ([\d.]+)/)).toBe(CURSOR.ripple.to);
+    expect(num(mac, /group\.duration = ([\d.]+)/) * 1000).toBe(CURSOR.ripple.ms);
+    /** A colour's channels: from the Swift's hex, and from the CSS's. */
+    const swiftRgb = (name: string): number[] => ["srgbRed", "green", "blue"].map((c) => num(palette, new RegExp(`static let ${name} = NSColor\\(.*\\b${c}: 0x([0-9A-Fa-f]{2}) / 255`), 16));
+    const cssRgb = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    expect(swiftRgb("accent")).toEqual(cssRgb(CURSOR.blue));
+    expect(swiftRgb("ink")).toEqual(cssRgb(CURSOR.ink));
+    // The glide: KOS for Chrome's hands always take the quick one, which on the Mac is the owner's choice.
+    expect({
+      rate: num(glide, /static let rate = ([\d.]+)/),
+      shortest: num(glide, /shortest = ([\d.]+)/),
+      longest: num(glide, /longest = ([\d.]+)/),
+      far: num(glide, /farDistance = ([\d.]+)/),
+      quickShare: num(glide, /quickShare = ([\d.]+)/),
+      bendMost: num(glide, /let bend = min\(([\d.]+), distance \* [\d.]+\)/),
+      bendShare: num(glide, /let bend = min\([\d.]+, distance \* ([\d.]+)\)/),
+    }).toEqual(CURSOR.glide);
+    expect(glide).toContain("t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2");
+    const source = installOverlay.toString();
+    expect(source).toContain("t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2");
+    expect(source).toMatch(/\.cursor \{ --kos-blue: [^\n]*position: fixed;[^\n]*pointer-events: none; \}/);
   });
 });
 
