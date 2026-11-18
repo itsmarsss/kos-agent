@@ -4,7 +4,7 @@ import { kosAddress, parsePairing, type Pairing } from "./address.js";
 import { forgetKeys, keepKeys, keysFor, newKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
-import { note, recent } from "./log.js";
+import { note, recent, saveLog } from "./log.js";
 import { iconPixels } from "./icon.js";
 import { installOverlay, type OverlayState } from "./overlay.js";
 import { readPage } from "./page.js";
@@ -304,6 +304,7 @@ async function maybeReload(): Promise<void> {
   const link = links.get(due.kos);
   link?.event("update.state", { build: due.build, state: "reloading" });
   await link?.sent();
+  await saveLog();
   chrome.runtime.reload();
 }
 
