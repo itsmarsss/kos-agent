@@ -48,14 +48,17 @@ describe("SecretsRegistry", () => {
       KOS_DASHBOARD_TOKEN: "dash-token-value",
       DISCORD_BOT_TOKEN: "discord-token-value",
       SOME_SERVICE_PASSWORD: "service-password-value",
+      DEBUG_KEY: "verbose",
       PATH: "/usr/bin:/bin:/usr/sbin",
     } as NodeJS.ProcessEnv);
     reg.watch("device_host_key", "device-key-value");
     expect(reg.has("kos_dashboard_token")).toBe(false);
+    // A short value is a setting, not a credential: "verbose" is left in ordinary text.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(reg.scrub("dash-token-value discord-token-value service-password-value device-key-value /usr/bin:/bin:/usr/sbin")).toBe(
       "[secret kos_dashboard_token] [secret discord_bot_token] [secret some_service_password] [secret device_host_key] /usr/bin:/bin:/usr/sbin",
     );
+    expect(reg.scrub("verbose logging is on")).toBe("verbose logging is on");
     reg.adopt(SecretsRegistry.fromEnv({} as NodeJS.ProcessEnv));
     expect(reg.scrub("dash-token-value device-key-value")).toBe("dash-token-value [secret device_host_key]");
     warn.mockRestore();

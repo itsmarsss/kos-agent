@@ -40,6 +40,9 @@ const HARNESS_ENV = ["DISCORD_BOT_TOKEN", "DISCORD_TOKEN", "KOS_DASHBOARD_TOKEN"
 /** Any other env var named like a credential is scrubbed too. */
 const CREDENTIAL_NAMED = /(TOKEN|KEY|SECRET|PASSWORD)$/;
 
+/** A watched value shorter than this is a flag or a name, not a credential, and would scrub ordinary words. */
+const WATCHED_MIN = 16;
+
 /** Where a secret may go. */
 export interface SecretBinding {
   /** Hosts http.fetch may send it to. */
@@ -88,7 +91,7 @@ export class SecretsRegistry {
     const placed = new Set(Object.values(entries));
     const watched: Record<string, string> = {};
     for (const [key, value] of Object.entries(env)) {
-      if (!value || placed.has(value) || key.startsWith(KOS_SECRET_PREFIX)) continue;
+      if (!value || value.length < WATCHED_MIN || placed.has(value) || key.startsWith(KOS_SECRET_PREFIX)) continue;
       if (HARNESS_ENV.includes(key) || CREDENTIAL_NAMED.test(key)) watched[key.toLowerCase()] = value;
     }
     return new SecretsRegistry(entries, bindings, watched);
