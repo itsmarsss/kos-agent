@@ -58,11 +58,13 @@ function scrubbing(db: Database.Database, scrubOf: () => Scrub | undefined): Dat
     });
     return proxy;
   };
+  // The class's own prepare, so a stand-in set on the handle (a test's spy) that calls back through the proxy does not loop.
+  const prepare = Database.prototype.prepare;
   const proxy: Database.Database = new Proxy(db, {
     get(target, prop) {
       const value = Reflect.get(target, prop, target) as unknown;
       if (typeof value !== "function") return value;
-      if (prop === "prepare") return (source: string) => statement(target.prepare(source));
+      if (prop === "prepare") return Object.hasOwn(target, "prepare") ? value : (source: string) => statement(prepare.call(target, source));
       return (...args: unknown[]) => forward(target, proxy, value as (...a: unknown[]) => unknown, args);
     },
   });
