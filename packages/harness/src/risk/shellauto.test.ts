@@ -14,7 +14,6 @@ describe("which shell lines a chat's Auto runs", () => {
       "find . -name '*.ts' -type f",
       "git status && git log -3 --oneline && git diff HEAD~1",
       "git add -A && git commit -m 'save'",
-      "git fetch origin; git pull --ff-only",
       "git checkout -b feat/x",
       "git switch main",
       "git branch",
@@ -34,7 +33,7 @@ describe("which shell lines a chat's Auto runs", () => {
       "mkdir -p out/a && touch out/a/.keep",
       "cp notes.md backup/notes.md",
       "mv a.txt b.txt",
-      "FOO=1 make test",
+      "CI=1 NODE_ENV=test LC_ALL=C make test",
       "make 2>&1 | tee scratch/log.txt",
       "pnpm build > /dev/null 2>&1",
       "echo hi >> notes.md",
@@ -100,9 +99,45 @@ describe("which shell lines a chat's Auto runs", () => {
       "cat notes.md > /etc/passwd",
       "cat << EOF\nx\nEOF",
       "echo 'unclosed",
+      // The auditor's two: git told to run what the agent wrote, by the environment or by --config-env.
+      "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0='touch pwned' git status",
+      "git --config-env=core.pager=EVIL log",
+      "PATH=. ls",
+      "LD_PRELOAD=x.so ls",
+      "FOO=1 make test",
+      "./ls",
+      "/tmp/x/cat notes.md",
+      "bin/make",
+      "git fetch origin",
+      "git pull --ff-only",
+      "git clone https://example.com/x",
+      "pnpm install",
+      "npm i left-pad",
+      "git switch -f main",
+      "git switch --discard-changes main",
+      "git log --output=/etc/x",
+      "git diff --output=notes.md",
+      "sort --output=/etc/x notes.md",
+      "ls --color=/etc/x",
     ]) {
       expect(beyond(line), JSON.stringify(line)).toBeTruthy();
     }
+  });
+
+  it("says the network is why a line that needs it asks", () => {
+    expect(beyond("git fetch origin")).toMatch(/needs the network/);
+    expect(beyond("pnpm install")).toMatch(/needs the network/);
+  });
+
+  it("finds every way a line writes a file that is there", () => {
+    const exists = (p: string): boolean => p === "notes.md";
+    for (const line of ["echo hi >&notes.md", "echo hi &>notes.md", "sort -o notes.md a.txt", "sort -onotes.md a.txt", "uniq a.txt notes.md", "tree -o notes.md", "cp a.txt notes.md", "mv a.txt notes.md", "ls | tee notes.md"]) {
+      expect(beyond(line, exists), line).toBe("overwrites notes.md");
+    }
+    for (const line of ["echo hi >&2", "echo hi 2>&1", "exec >&-", "cp a.txt new.md", "ls | tee -a notes.md", "find . -fprint notes.md"]) {
+      expect(beyond(line, exists) === "overwrites notes.md", line).toBe(false);
+    }
+    expect(beyond("find . -fprint0 x", exists)).toMatch(/find/);
   });
 
   it("says a redirect onto a file that exists outside scratch overwrites it, and an append does not", () => {

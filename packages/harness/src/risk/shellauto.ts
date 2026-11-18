@@ -100,40 +100,89 @@ function withoutRedirects(call: Call): { words: string[]; targets: { path: strin
       continue;
     }
     const target = m[4] || call[++i] || "";
-    if (m[2] !== "<" && m[3] !== "&" && !/^\d+$/.test(target)) targets.push({ path: target, truncates: m[2] === ">" });
+    // >&2 and >&- name a descriptor; >&file, like &>file, is a file.
+    if (m[2] !== "<" && !(m[3] === "&" && /^(\d+|-)$/.test(target))) targets.push({ path: target, truncates: m[2] === ">" });
   }
   return { words, targets };
 }
 
+/**
+ * The files a call writes by its own operands, judged as a redirect is: tee's
+ * files, -o of sort, uniq and tree, uniq's output operand, the target of cp
+ * and mv, and an option's value that names a path (--output=/x).
+ */
+function writesOf(words: string[]): { path: string; truncates: boolean }[] {
+  const at = words.findIndex((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
+  if (at < 0) return [];
+  const program = words[at]!;
+  const args = words.slice(at + 1);
+  const operands = args.filter((a) => !a.startsWith("-"));
+  const out: { path: string; truncates: boolean }[] = [];
+  // An option's value that is a path outside the workspace, whatever the option.
+  for (const a of args) {
+    const v = /^--?[A-Za-z][\w-]*=(.+)$/.exec(a)?.[1];
+    if (v && !inWorkspace(v)) out.push({ path: v, truncates: false });
+  }
+  if (program === "tee") {
+    const append = args.some((a) => a === "-a" || a === "--append");
+    for (const w of operands) out.push({ path: w, truncates: !append });
+  }
+  if (program === "sort" || program === "uniq" || program === "tree") {
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i]!;
+      if (a === "-o" || a === "--output") out.push({ path: args[i + 1] ?? "", truncates: true });
+      else if (/^-o.+/.test(a)) out.push({ path: a.slice(2), truncates: true });
+      else if (a.startsWith("--output=")) out.push({ path: a.slice("--output=".length), truncates: true });
+    }
+    if (program === "uniq" && operands.length >= 2) out.push({ path: operands[1]!, truncates: true });
+  }
+  if ((program === "cp" || program === "mv") && operands.length >= 2) out.push({ path: operands.at(-1)!, truncates: true });
+  return out;
+}
+
+/** Assignments before a program that change nothing about what runs. */
+const SAFE_ASSIGNMENTS = /^(CI|NODE_ENV|FORCE_COLOR|NO_COLOR|TZ|LANG|LC_[A-Z_]+|DEBUG)$/;
+
 /** Programs that read, and nothing else, however they are called. */
 const READS = new Set(["ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq", "diff", "echo", "printf", "pwd", "true", "false", "test", "[", "which", "file", "stat", "du", "df", "date", "basename", "dirname", "realpath", "tr", "cut", "nl", "tree", "cmp", "comm"]);
 /** Programs that build or test the workspace, called plainly. */
-const BUILDS = new Set(["pytest", "make", "tsc", "mkdir", "touch"]);
+const BUILDS = new Set(["pytest", "make", "tsc", "mkdir", "touch", "tee"]);
 /** The package managers' scripts that build, test or check. */
 const SCRIPTS = new Set(["build", "test", "lint", "typecheck", "check", "format"]);
 /** What git may do unasked: read, and record work locally. */
-const GIT_OK = new Set(["status", "log", "diff", "show", "add", "commit", "fetch", "pull", "switch", "rev-parse", "ls-files", "blame", "shortlog", "describe"]);
+const GIT_OK = new Set(["status", "log", "diff", "show", "add", "commit", "switch", "rev-parse", "ls-files", "blame", "shortlog", "describe"]);
+/** Git that reaches out: under Auto a line runs with no network, so these ask, saying why. */
+const GIT_NETWORK = new Set(["fetch", "pull", "clone", "push", "ls-remote", "submodule"]);
 
 /** Why one call is beyond Auto, or false. */
 function callBeyond(call: Call): string | false {
-  // An assignment before the program (FOO=1 make) changes only its environment.
+  // An assignment before the program changes its environment, and some (GIT_CONFIG_*, PATH, LD_PRELOAD) change what runs: only a few harmless ones are covered.
   let at = 0;
-  while (at < call.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(call[at]!)) at++;
+  while (at < call.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(call[at]!)) {
+    const name = call[at]!.slice(0, call[at]!.indexOf("="));
+    if (!SAFE_ASSIGNMENTS.test(name)) return `sets ${name}, which a chat's Auto does not set unasked`;
+    at++;
+  }
   const words = call.slice(at);
   if (!words.length) return false;
-  const program = words[0]!.split("/").pop()!;
+  // A program named by its path is not the one on the list, whatever it is called.
+  if (words[0]!.includes("/")) return `runs ${words[0]}, a program by its path`;
+  const program = words[0]!;
   const args = words.slice(1);
   const runs = `runs ${program}, which a chat's Auto does not run unasked`;
   if (READS.has(program) || BUILDS.has(program)) return false;
   switch (program) {
     case "find":
-      return args.some((a) => /^-(exec|execdir|ok|okdir|delete|fprint|fprintf|fls)$/.test(a)) ? "find that runs or deletes" : false;
+      return args.some((a) => /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/.test(a)) ? "find that runs or deletes" : false;
     case "git": {
-      if (args.some((a) => /^(-C|-c|--git-dir|--work-tree|--exec-path)/.test(a))) return "git pointed elsewhere or reconfigured";
+      if (args.some((a) => /^(-C|-c|--git-dir|--work-tree|--exec-path|--config-env|--namespace|--super-prefix)/.test(a))) return "git pointed elsewhere or reconfigured";
       const sub = args.find((a) => !a.startsWith("-"));
       if (sub === "checkout") return args.includes("-b") ? false : "git checkout, which can throw work away";
       if (sub === "branch") return args.some((a) => /^-[a-zA-Z]*[dDmMcC]/.test(a) || a === "--delete" || a === "--force") ? "git branch that deletes or moves one" : false;
       if (sub === "stash") return ["list", "show", "push", "save", undefined].includes(args[args.indexOf("stash") + 1]) ? false : "git stash that drops work";
+      if (sub && GIT_NETWORK.has(sub)) return `git ${sub} needs the network, which a line Auto runs does not have`;
+      if (sub === "switch" && args.some((a) => a === "-f" || a === "--force" || a === "--discard-changes")) return "git switch that throws away changes";
+      if (args.some((a) => a === "--output" || a.startsWith("--output="))) return "git writing its output to a file";
       return sub && GIT_OK.has(sub) ? false : `git ${sub ?? ""}, which a chat's Auto does not run unasked`.replace("  ", " ");
     }
     case "node":
@@ -147,6 +196,7 @@ function callBeyond(call: Call): string | false {
     case "yarn": {
       const plain = args.filter((a) => !a.startsWith("-"));
       const script = plain[0] === "run" ? plain[1] : plain[0];
+      if (plain[0] === "install" || plain[0] === "i" || plain[0] === "add" || plain[0] === "ci") return `${program} ${plain[0]} needs the network, which a line Auto runs does not have`;
       return script && SCRIPTS.has(script) ? false : `${program} ${plain.join(" ")}, which a chat's Auto does not run unasked`;
     }
     case "cargo":
@@ -167,17 +217,12 @@ function callBeyond(call: Call): string | false {
  * workspace or onto a file that exists outside scratch (`overwrites`).
  */
 export function shellBeyondAuto(line: string, overwrites: (path: string) => boolean): string | false {
+  // overwrites: a file (not a folder) is there now outside scratch, so writing it loses what it held.
   const calls = callsOf(line);
   if (typeof calls === "string") return `${calls}, which hides what runs`;
   for (const call of calls) {
     const { words, targets } = withoutRedirects(call);
-    // tee writes its files as a redirect does: judged as one.
-    if (words[0]?.split("/").pop() === "tee") {
-      const append = words.some((w) => w === "-a" || w === "--append");
-      for (const w of words.slice(1)) if (!w.startsWith("-")) targets.push({ path: w, truncates: !append });
-      words.splice(1);
-      words[0] = "true";
-    }
+    targets.push(...writesOf(words));
     for (const { path, truncates } of targets) {
       if (path === "/dev/null" || path === "/dev/stdout" || path === "/dev/stderr") continue;
       if (!inWorkspace(path)) return `writes ${path}, outside the workspace`;

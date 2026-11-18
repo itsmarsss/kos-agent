@@ -10,7 +10,7 @@ import { beyondAutoRule } from "../risk/beyondauto.js";
 import type { RiskAssessment } from "../risk/tiers.js";
 import { hasSecretRef, placeSecrets, secretsNamed } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, type GuestOrigin, type TurnOrigin } from "./caller.js";
+import { attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, underAuto, type GuestOrigin, type TurnOrigin } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -528,7 +528,7 @@ export class GuardedTools implements ToolBox {
           AUTO_DECIDER,
         );
         this.deps.onAutoRan?.();
-        const ran = await run(name, input);
+        const ran = await underAuto.run(true, () => run(name, input));
         audit.record({ tool: name, args: input, result: ran.content, isError: ran.isError, riskTier: "risky", approvedBy: AUTO_DECIDER, ...(userId ? { userId } : {}) });
         this.deps.onExecuted?.(name, ran);
         return autoResult(ran);

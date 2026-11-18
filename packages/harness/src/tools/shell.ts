@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { guestOrigin, turnStop } from "../kernel/caller.js";
+import { guestOrigin, turnStop, underAuto } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
 import { RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
@@ -65,15 +65,31 @@ const UNWRITTEN = [...RESERVED].filter((name) => name !== ".kos");
 
 export type ShellResult = CapturedRun;
 
+/**
+ * What git is told for a line a chat's Auto runs: no hooks, no fsmonitor, no
+ * pager, as command-line config that a repository's own cannot override, so a
+ * config or a hook the agent wrote runs nothing on a git status.
+ */
+export const AUTO_GIT_CONFIG: Record<string, string> = {
+  GIT_CONFIG_COUNT: "3",
+  GIT_CONFIG_KEY_0: "core.hooksPath",
+  GIT_CONFIG_VALUE_0: "/dev/null",
+  GIT_CONFIG_KEY_1: "core.fsmonitor",
+  GIT_CONFIG_VALUE_1: "false",
+  GIT_CONFIG_KEY_2: "core.pager",
+  GIT_CONFIG_VALUE_2: "cat",
+};
+
 export function runShell(
   command: string,
-  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal },
+  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal; auto?: boolean },
 ): Promise<ShellResult> {
   const tmp = join(opts.workspaceRoot, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
-  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)) }), {
+  // A line Auto let run: the jail, not the list, is the boundary, so it runs with no network and git held to itself.
+  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)), ...(opts.auto ? { network: false } : {}) }), {
     cwd: opts.cwd,
-    env: childEnv({ home: opts.workspaceRoot, tmp }),
+    env: { ...childEnv({ home: opts.workspaceRoot, tmp }), ...(opts.auto ? AUTO_GIT_CONFIG : {}) },
     timeoutMs: opts.timeoutMs,
     maxOutput: opts.maxOutput,
     ...stopOf(opts.signal),
@@ -115,7 +131,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           const cwdRel = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
           const cwd = ws.resolve(cwdRel);
           const seconds = typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], 3600) : timeoutSeconds;
-          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()) });
+          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()), ...(underAuto.getStore() ? { auto: true } : {}) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads
@@ -134,10 +150,10 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           beyondAuto: (input) => {
             const command = typeof input["command"] === "string" ? input["command"] : "";
             const cwd = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
-            // A file that exists outside scratch, where the line runs: one the jail would not let it reach is not there for it.
+            // A file (not a folder) that is there outside scratch, where the line runs: one the jail would not let it reach is not there for it.
             const exists = (path: string): boolean => {
               try {
-                return outsideScratch(join(cwd, path)) && existsSync(ws.resolve(join(cwd, path)));
+                return outsideScratch(join(cwd, path)) && statSync(ws.resolve(join(cwd, path))).isFile();
               } catch {
                 return false;
               }

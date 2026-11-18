@@ -7,6 +7,7 @@ import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
+import { underAuto } from "../kernel/caller.js";
 import { programOf } from "../risk/rules.js";
 import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, type ShellResult } from "./shell.js";
 
@@ -56,6 +57,23 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     ws.close();
     rmSync(root, { recursive: true, force: true });
     rmSync(outsideHome, { force: true });
+  });
+
+  it("runs a line Auto let through with git held to itself: no fsmonitor, no hooks, no network", async () => {
+    const repo = join(ws.root, "repo");
+    mkdirSync(repo, { recursive: true });
+    await run({ command: "git init -q && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m one", cwd: "repo" });
+    // What the agent wrote into the repository: an fsmonitor and a hook that leave a mark when they run.
+    await run({ command: "git config core.fsmonitor 'touch ../fsmonitor-ran; false' && mkdir -p .git/hooks && printf '#!/bin/sh\ntouch ../hook-ran\n' > .git/hooks/post-index-change && chmod +x .git/hooks/post-index-change", cwd: "repo" });
+    const status = await underAuto.run(true, () => run({ command: "git status --short && git add -A", cwd: "repo" }));
+    expect(status.isError).toBe(false);
+    expect(existsSync(join(ws.root, "fsmonitor-ran"))).toBe(false);
+    expect(existsSync(join(ws.root, "hook-ran"))).toBe(false);
+    const net = await underAuto.run(true, () => run({ command: "curl -s -m 3 https://example.com >/dev/null && echo reached || echo refused" }));
+    expect(net.stdout.trim()).toBe("refused");
+    // The same line the owner allowed runs as git would: the fsmonitor runs, which is what Auto keeps out.
+    await run({ command: "git status --short", cwd: "repo" });
+    expect(existsSync(join(ws.root, "fsmonitor-ran"))).toBe(true);
   });
 
   it("runs a command in the workspace and hands back what it said", async () => {

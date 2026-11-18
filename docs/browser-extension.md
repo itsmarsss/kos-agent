@@ -361,7 +361,16 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
   subscribe), and a browser step whose tab or target address is a checkout
   or payment path, or whose page has a card field (`autocomplete` `cc-*`)
   or reads as a checkout (checkout, place order, buy now, pay now, payment);
-- deleting for good: `files.rm` of a whole folder; a shell line with
+- a shell line unless every program in it is on a short list of reading,
+  building and testing programs, called plainly (by name, not by a path;
+  with no assignment before it but CI, NODE_ENV, FORCE_COLOR, NO_COLOR, TZ,
+  LANG, LC_* or DEBUG), writing no file that is there outside scratch
+  (`risk/shellauto.ts`). The list is not the boundary, the jail is: a line
+  Auto lets through runs with no network at all, and git with hooks, the
+  fsmonitor and the pager off, so `git fetch`, `pull`, `clone` and installs
+  ask, saying they need the network;
+- deleting for good: `files.rm` of a whole folder, `files.mv` onto a file
+  that is there; a shell line with
   `rm -r`, a forced push, `git reset --hard`, `git clean`, `dd`, `mkfs`,
   a recursive `chmod` or `chown`, or a `>` onto an existing file outside
   scratch; `systems.project_delete`, `chats.delete`, `blobs.remove`,
