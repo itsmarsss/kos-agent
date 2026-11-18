@@ -29,7 +29,7 @@ import {
   storedBehaviour,
 } from "./behaviour.js";
 import { BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
-import { parseAttachments } from "./attachments.js";
+import { FILE_MAX_BYTES, parseAttachments } from "./attachments.js";
 import cron from "node-cron";
 import type { CreateCronInput, ToolCall } from "../cron/types.js";
 import { findMentions, type MentionKind,
@@ -3368,21 +3368,81 @@ async function loadPageData(kernel: Kernel, spec: PageSpec): Promise<PageData> {
   return { data, errors };
 }
 
-async function readRaw(stream: NodeJS.ReadableStream): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(chunk as Buffer);
-  return Buffer.concat(chunks).toString("utf8");
+/**
+ * The most a request carrying files may send: three of the largest file KOS
+ * takes, as base64, and room for the words. Not four: a body is parsed as one
+ * string, and V8 makes none past about 512 MB.
+ */
+export const FILES_BODY_MAX = 3 * Math.ceil(FILE_MAX_BYTES / 3) * 4 + 1024 * 1024;
+/** The most any other request may send: words, settings, an artifact's page. */
+export const BODY_MAX = 16 * 1024 * 1024;
+/** The most the SMS provider's webhook sends: a form of a text message's fields. */
+export const SMS_BODY_MAX = 64 * 1024;
+/** The routes that carry files: a chat's message, and an upload. */
+const FILE_ROUTES = /^\/api\/(message|orchestrator|files\/upload|projects\/[^/]+\/files)$/;
+
+class BodyTooLarge extends Error {}
+
+/** The most a route's body may be. */
+export function bodyMax(path: string): number {
+  return FILE_ROUTES.test(path) ? FILES_BODY_MAX : BODY_MAX;
 }
 
-async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(chunk as Buffer);
-  if (chunks.length === 0) return undefined;
+/**
+ * Whether a request may have its body read at all: it carries what its
+ * route checks first (the dashboard token, a hook's secret, a caller's
+ * bearer) and is not another site's page asking a change, or the route is
+ * open. One that does not is answered without its
+ * body being read, so nobody without the token makes KOS hold their upload.
+ */
+export function mayReadBody(kernel: Kernel, req: ApiRequest, options: DashboardServerOptions): boolean {
+  if (req.path.startsWith(HOOKS_PREFIX)) return !!options.hookSecret && authorized(req, options.hookSecret);
+  if (req.path.startsWith(CALLER_PREFIX)) {
+    const bearer = bearerOf(req);
+    return !!bearer && kernel.callers.authenticate(bearer) !== undefined;
+  }
+  if (options.extensions?.some((e) => e.open?.includes(req.path))) return true;
+  // In the order the routes check it: another site's page in the owner's browser is refused before the token.
+  if (crossSiteWrite(req, options.allowedOrigins)) return false;
+  return !options.token || authorized(req, options.token);
+}
+
+/** A request's bytes, refused (BodyTooLarge) past `max`, by what it says it carries and then by what it sends. */
+function readCapped(req: IncomingMessage, max: number): Promise<Buffer> {
+  if (Number(req.headers["content-length"] ?? 0) > max) return Promise.reject(new BodyTooLarge());
+  // Read by hand, not with for await: leaving that loop destroys the socket, and the 413 with it.
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    const onData = (chunk: Buffer): void => {
+      total += chunk.byteLength;
+      if (total <= max) {
+        chunks.push(chunk);
+        return;
+      }
+      req.off("data", onData).off("end", onEnd).off("error", reject);
+      req.pause();
+      reject(new BodyTooLarge());
+    };
+    const onEnd = (): void => resolve(Buffer.concat(chunks));
+    req.on("data", onData).on("end", onEnd).on("error", reject);
+  });
+}
+
+async function readBody(req: IncomingMessage, max: number): Promise<unknown> {
+  const raw = await readCapped(req, max);
+  if (raw.byteLength === 0) return undefined;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return JSON.parse(raw.toString("utf8"));
   } catch {
     return undefined;
   }
+}
+
+/** Refuse a body past what its route takes, and close the connection rather than read the rest. */
+function tooLarge(req: IncomingMessage, res: ServerResponse, options: DashboardServerOptions, why: string): void {
+  res.writeHead(413, { "content-type": "application/json", connection: "close", ...corsHeaders(req, options) });
+  res.end(JSON.stringify({ error: why }));
 }
 
 
@@ -3684,7 +3744,14 @@ export function createDashboardServer(
           res.end(JSON.stringify({ error: "no sms surface" }));
           return;
         }
-        const raw = await readRaw(req);
+        let raw: string;
+        try {
+          raw = (await readCapped(req, SMS_BODY_MAX)).toString("utf8");
+        } catch (err) {
+          if (!(err instanceof BodyTooLarge)) throw err;
+          tooLarge(req, res, options, `a text message's webhook sends at most ${SMS_BODY_MAX / 1024} KB`);
+          return;
+        }
         const params = Object.fromEntries(new URLSearchParams(raw));
         const proto = String(req.headers["x-forwarded-proto"] ?? "http").split(",")[0]!.trim();
         const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "");
@@ -3702,18 +3769,23 @@ export function createDashboardServer(
       }
 
       if (path.startsWith("/api")) {
-        const body = method === "GET" || method === "HEAD" ? undefined : await readBody(req);
-        const result = await handleApiRequest(
-          kernel,
-          {
-            method,
-            path,
-            body,
-            url: rawUrl,
-            headers: req.headers as Record<string, string | string[] | undefined>,
-          },
-          options,
-        );
+        const asked: ApiRequest = { method, path, url: rawUrl, headers: req.headers as Record<string, string | string[] | undefined> };
+        let body: unknown;
+        const bodied = method !== "GET" && method !== "HEAD";
+        // Unread when its caller may not send one: the route answers it as it would, from its headers.
+        const unread = bodied && !mayReadBody(kernel, asked, options);
+        if (bodied && !unread) {
+          try {
+            body = await readBody(req, bodyMax(path));
+          } catch (err) {
+            if (!(err instanceof BodyTooLarge)) throw err;
+            tooLarge(req, res, options, `the request is past the ${Math.round(bodyMax(path) / 1024 / 1024)} MB this route takes; a file can be up to ${FILE_MAX_BYTES / 1024 / 1024} MB`);
+            return;
+          }
+        }
+        const result = await handleApiRequest(kernel, { ...asked, body }, options);
+        // A body left unread is not waited for: the connection closes with the answer.
+        if (unread) res.setHeader("connection", "close");
         res.writeHead(result.status, {
           "content-type": "application/json",
           ...corsHeaders(req, options),

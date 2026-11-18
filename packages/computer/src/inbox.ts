@@ -1,4 +1,4 @@
-import { isReadable, type Attachment } from "@kos/harness";
+import { FILE_MAX_BYTES, imageTypeOf, isReadable, type Attachment } from "@kos/harness";
 
 /**
  * Files a device sends with the owner's words: a picture, a PDF, a text file.
@@ -14,21 +14,21 @@ import { isReadable, type Attachment } from "@kos/harness";
 
 /** Base64 characters in one part: well inside the Wi-Fi listener's frame with the event around it. */
 export const ATTACH_PART_CHARS = 256 * 1024;
-/** Bytes in one file, as the model's path takes them (harness attachments.ts). */
-export const ATTACH_FILE_BYTES = 5 * 1024 * 1024;
+/** Bytes in one file, as KOS takes them from every surface (harness attachments.ts). */
+export const ATTACH_FILE_BYTES = FILE_MAX_BYTES;
 /** Files with one message, and held for one device at once. */
 export const ATTACH_FILES = 4;
 /** How long a file waits for the words it goes with. */
 export const ATTACH_KEPT_MS = 5 * 60_000;
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
-/** The pictures a model takes, by what their bytes begin with; the phone sends its photos as JPEG. */
-const PICTURES: { type: string; is: (b: Buffer) => boolean }[] = [
-  { type: "image/jpeg", is: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
-  { type: "image/png", is: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
-  { type: "image/gif", is: (b) => b.subarray(0, 4).toString("latin1") === "GIF8" },
-  { type: "image/webp", is: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP" },
-];
+/**
+ * The pictures KOS takes, by the type claimed. Any of them goes when its bytes are a picture of a kind KOS reads: KOS
+ * goes by the bytes, so a HEIC that is really a PNG is read as the PNG it is (harness files/images.ts).
+ */
+const PICTURES: { type: string; is: (b: Buffer) => boolean }[] = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif", "image/avif", "image/tiff", "image/bmp"].map(
+  (type) => ({ type, is: (b) => imageTypeOf(b) !== undefined }),
+);
 const OFFICE = /\.(docx|xlsx|pptx)$/i;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const NAME_MAX = 200;
@@ -43,7 +43,7 @@ function contentRefusal(name: string, mediaType: string, data: string): string |
   const head = Buffer.from(data.slice(0, 5_464), "base64");
   if (mediaType.startsWith("image/")) {
     const picture = PICTURES.find((p) => p.type === (mediaType === "image/jpg" ? "image/jpeg" : mediaType));
-    if (!picture) return `KOS takes pictures as JPEG, PNG, GIF or WebP, so ${name} cannot go.`;
+    if (!picture) return `KOS takes pictures as JPEG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF or BMP, so ${name} cannot go.`;
     return picture.is(head) ? undefined : `${name} is not the picture it says it is.`;
   }
   if (mediaType === "application/pdf" || /\.pdf$/i.test(name)) return head.subarray(0, 5).toString("latin1") === "%PDF-" ? undefined : `${name} is not the PDF it says it is.`;
@@ -57,6 +57,43 @@ const tooBig = (name: string): string => `${name} is more than KOS takes: files 
 /** The base64 of the largest file, and the parts it takes. */
 const FILE_CHARS = Math.ceil(ATTACH_FILE_BYTES / 3) * 4;
 const PARTS_MAX = Math.ceil(FILE_CHARS / ATTACH_PART_CHARS);
+
+/**
+ * What every device together may make KOS hold of files waiting for their
+ * words, as base64: one message of the largest files goes whole, about
+ * 560 MB, and devices sending at once share it. A file reserves its whole
+ * size (its parts, full) when its first part comes.
+ */
+export const ATTACH_HELD_CHARS = ATTACH_FILES * PARTS_MAX * ATTACH_PART_CHARS;
+
+/** The room for held files, shared by every inbox it is handed to: one for the process, across every panel. */
+export class AttachmentBudget {
+  private readonly inboxes = new Set<WeakRef<AttachmentInbox>>();
+
+  constructor(readonly chars: number = ATTACH_HELD_CHARS) {}
+
+  /** An inbox whose held files count against this budget. */
+  share(inbox: AttachmentInbox): void {
+    this.inboxes.add(new WeakRef(inbox));
+  }
+
+  /** Characters still free. */
+  room(): number {
+    let used = 0;
+    for (const ref of this.inboxes) {
+      const inbox = ref.deref();
+      if (inbox) used += inbox.heldChars();
+      else this.inboxes.delete(ref);
+    }
+    return this.chars - used;
+  }
+}
+
+/** The process's one budget, shared by every panel's inbox. */
+export const attachmentBudget = new AttachmentBudget();
+
+/** What a file holds: its parts, each full, from its first; nothing once refused. */
+const reserved = (file: Arriving): number => file.parts.length * ATTACH_PART_CHARS;
 
 interface Arriving {
   name: string;
@@ -72,7 +109,12 @@ interface Arriving {
 export class AttachmentInbox {
   private readonly byDevice = new Map<string, Map<string, Arriving>>();
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly budget: AttachmentBudget = new AttachmentBudget(),
+  ) {
+    budget.share(this);
+  }
 
   /** One part of a file, as `chat.attach` carries it. A bad part refuses its file. */
   part(device: string, data: Record<string, unknown>): void {
@@ -80,14 +122,19 @@ export class AttachmentInbox {
     if (typeof id !== "string" || !ID.test(id)) return;
     const held = this.held(device);
     let file = held.get(id);
-    if (!file) {
-      if (held.size >= ATTACH_FILES) return;
+    // A new file, or a file's first part again, which is the file sent again (after a dropped line, say): it starts over.
+    if (!file || data["part"] === 0) {
+      if (!file && held.size >= ATTACH_FILES) return;
+      // What it replaces no longer counts against the room it needs.
+      held.delete(id);
       file = this.begin(data);
+      if (!file.refused && reserved(file) > this.budget.room()) {
+        file.refused = `KOS is holding as many files as it can now. Attach ${file.name} again in a moment.`;
+        file.parts = [];
+      }
       held.set(id, file);
-    } else if (data["part"] === 0) {
-      // A file's first part again is the file sent again (after a dropped line, say): it starts over.
-      file = this.begin(data);
-      held.set(id, file);
+      // Counting the room drops a hold left empty, this one too, so it is put back with the file in it.
+      this.byDevice.set(device, held);
     }
     if (file.refused) return;
     const refused = this.add(file, data);
@@ -106,10 +153,14 @@ export class AttachmentInbox {
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) return { refused: "The files with that message were not named right. Attach them again." };
     if (ids.length > ATTACH_FILES) return { refused: `At most ${ATTACH_FILES} files go with one message.` };
     const held = this.held(device);
-    const files: Attachment[] = [];
-    for (const id of ids as string[]) {
+    // Every file named is off the hold before any is checked, so a refusal frees them all.
+    const named = (ids as string[]).map((id) => {
       const file = held.get(id);
       held.delete(id);
+      return file;
+    });
+    const files: Attachment[] = [];
+    for (const file of named) {
       if (!file || file.got < file.parts.length || file.parts.length === 0) {
         return { refused: file?.refused ?? `${file?.name ?? "A file"} did not arrive whole. Attach it again.` };
       }
@@ -126,12 +177,28 @@ export class AttachmentInbox {
     for (const device of this.byDevice.keys()) if (!online.has(device)) this.byDevice.delete(device);
   }
 
+  /** The characters this inbox's files hold, or have reserved, and have not gone stale. */
+  heldChars(): number {
+    this.dropStale();
+    let chars = 0;
+    for (const held of this.byDevice.values()) for (const file of held.values()) chars += reserved(file);
+    return chars;
+  }
+
+  /** Stale files dropped from every device's hold, and a hold left empty with them: room counted is memory freed. */
+  private dropStale(): void {
+    const now = this.now();
+    for (const [device, held] of this.byDevice) {
+      for (const [id, file] of held) if (now - file.at > ATTACH_KEPT_MS) held.delete(id);
+      if (held.size === 0) this.byDevice.delete(device);
+    }
+  }
+
   /** The device's hold, stale files dropped. */
   private held(device: string): Map<string, Arriving> {
+    this.dropStale();
     const held = this.byDevice.get(device) ?? new Map<string, Arriving>();
     this.byDevice.set(device, held);
-    const now = this.now();
-    for (const [id, file] of held) if (now - file.at > ATTACH_KEPT_MS) held.delete(id);
     return held;
   }
 
@@ -143,7 +210,7 @@ export class AttachmentInbox {
     const file: Arriving = { name: name || "file", mediaType, parts: [], got: 0, chars: 0, at: this.now() };
     if (!name) file.refused = "A file came with no name. Attach it again.";
     else if (!isReadable(mediaType, name)) file.refused = `KOS cannot read ${name}: send a picture, a PDF, an Office file or a text file.`;
-    else if (mediaType.startsWith("image/") && !PICTURES.some((p) => p.type === mediaType || (mediaType === "image/jpg" && p.type === "image/jpeg"))) file.refused = `KOS takes pictures as JPEG, PNG, GIF or WebP, so ${name} cannot go.`;
+    else if (mediaType.startsWith("image/") && !PICTURES.some((p) => p.type === mediaType || (mediaType === "image/jpg" && p.type === "image/jpeg"))) file.refused = `KOS takes pictures as JPEG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF or BMP, so ${name} cannot go.`;
     else if (typeof parts !== "number" || !Number.isInteger(parts) || parts < 1 || parts > PARTS_MAX) file.refused = tooBig(name);
     else file.parts = Array.from({ length: parts });
     return file;
@@ -162,6 +229,8 @@ export class AttachmentInbox {
     if (file.chars > FILE_CHARS) return tooBig(file.name);
     file.parts[part] = chunk;
     file.got += 1;
+    // Waited for from its last part: a slow upload does not go stale while it is still arriving.
+    file.at = this.now();
     return undefined;
   }
 }

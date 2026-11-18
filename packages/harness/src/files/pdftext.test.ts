@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { toPdf } from "../tools/pdf.js";
-import { isPdf, pdfText } from "./pdftext.js";
+import { isPdf, pdfPages, pdfText } from "./pdftext.js";
 
 describe("the words in a PDF", () => {
   it("reads a PDF back as its lines, page by page", async () => {
@@ -26,6 +26,16 @@ describe("the words in a PDF", () => {
     const cut = await pdfText(bytes, 300);
     expect(cut.truncated).toBe(true);
     expect(cut.text.length).toBeLessThanOrEqual(310);
+  });
+
+  it("walks at most so many pages a read, saying where to read on", async () => {
+    const rows = Array.from({ length: 300 }, (_, i) => ({ item: `thing ${i}`, price: String(i) }));
+    const bytes = new Uint8Array(toPdf(rows, "Long"));
+    const got = await pdfText(bytes, undefined, { from: 2 }, 2);
+    expect(got).toMatchObject({ from: 2, to: 3, truncated: true, next: 4 });
+    expect(got.text).toContain("--- page 3 of ");
+    expect(got.text).not.toContain("--- page 4 of ");
+    expect(await pdfPages(bytes)).toBe(got.pages);
   });
 
   it("refuses what is not a PDF before opening it", async () => {

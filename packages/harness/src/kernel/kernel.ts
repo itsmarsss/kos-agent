@@ -141,7 +141,7 @@ import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
 import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
-import { assertFits, attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
+import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId, primarySessionId, upkeepSessionId } from "./session.js";
 import type { TurnMade } from "./turnmade.js";
@@ -978,20 +978,22 @@ export class Kernel {
     // the file outlives the turn: a later turn, another chat or a blob can
     // open it by path, and a surface showing the chat elsewhere can show it.
     if (opts.attachments?.length) {
-      // Past its kind's ceiling, a file is refused before it is kept.
+      // Past what KOS takes of a file, it is refused before it is kept.
       for (const file of opts.attachments) assertFits(file);
-      const kept = this.keepAttachments(sessionId, opts.attachments);
+      // One that knows its path was kept when it first came, and is replayed
+      // as it was made for the model: kept again, a HEIC sent as a JPEG would
+      // land beside the photo as a copy of it.
+      const fresh = this.keepAttachments(sessionId, opts.attachments.filter((a) => !a.path));
       // Each attachment learns where it was kept, so the transcript can open
       // the file itself rather than the words it was read as.
-      const paths = new Map(kept.map((k) => [k.name, k.path]));
-      opts = { ...opts, attachments: opts.attachments.map((a) => (paths.has(a.name) ? { ...a, path: paths.get(a.name)! } : a)), kept };
-    }
-    // A document among the attachments (a PDF, a Word, Excel or PowerPoint
-    // file) becomes the text it reads as, once, here: every door (dashboard,
-    // surface, API) comes through this method, and what is parked, recorded
-    // and sent is then only pictures and text.
-    if (opts.attachments?.some((a) => isDocument(a.mediaType, a.name))) {
-      opts = { ...opts, attachments: await readAttachments(opts.attachments) };
+      const paths = new Map(fresh.map((k) => [k.name, k.path]));
+      const attachments = opts.attachments.map((a) => (!a.path && paths.has(a.name) ? { ...a, path: paths.get(a.name)! } : a));
+      const kept = attachments.flatMap((a) => (a.path ? [{ name: a.name, path: a.path }] : []));
+      // Made as the model takes them (a picture a JPEG or PNG that fits, a
+      // document its text, a file too big a note of where it is), once,
+      // here: every door (dashboard, surface, API) comes through this method,
+      // and what is parked, recorded and sent is then only that.
+      opts = { ...opts, attachments: await readAttachments(attachments), kept };
     }
 
     // A turn runs one at a time, so a second message waits. It is parked

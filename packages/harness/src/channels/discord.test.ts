@@ -1524,6 +1524,27 @@ describe("DiscordAdapter authorization", () => {
     expect(seen[3]?.roomTalk).toMatch(/- bo: see @file:blobs\/noter\/notes.md$/);
   });
 
+  it("names a guest's files to the turn without fetching them", async () => {
+    // A guest's files are never kept or read, so nothing of theirs is downloaded either.
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "project:club" });
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    const seen: InboundMessage[] = [];
+    adapter.onMessage((m) => {
+      seen.push(m);
+    });
+    const fetched = vi.spyOn(globalThis, "fetch");
+    try {
+      const open = { id: "c1", isThread: () => false, topic: "kos:project:club · Club", isSendable: () => true };
+      const attachments = new Map([["a", { name: "IMG_1.HEIC", url: "http://127.0.0.1:9/never", size: 2_000_000, contentType: "image/heic" }]]);
+      await adapter.receiveMessage({ guild: { id: "g1" }, channel: open, author: { id: "u1", username: "ana_b", bot: false }, member: null, content: "look", attachments } as unknown as Message);
+      expect(seen[0]?.guest).toMatchObject({ id: "u1" });
+      expect(seen[0]?.attachments).toEqual([{ name: "IMG_1.HEIC", mediaType: "image/heic", data: "" }]);
+      expect(fetched).not.toHaveBeenCalled();
+    } finally {
+      fetched.mockRestore();
+    }
+  });
+
   it("takes a guest's words and presses in a room opened to guests, as the guest's, and nobody else's anywhere else", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "project:club" });
     adapter.setAuthorizer((senderId) => senderId === "owner-id");

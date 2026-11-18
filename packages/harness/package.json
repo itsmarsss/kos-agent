@@ -11,21 +11,32 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.252",
     "@anthropic-ai/sdk": "^0.106.0",
+    "@jsquash/avif": "^2.1.1",
+    "@jsquash/webp": "^1.5.0",
     "@kos/browser": "workspace:*",
     "@kos/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "better-sqlite3": "^11.7.0",
+    "bmp-js": "^0.1.0",
     "discord.js": "^14.26.0",
+    "jpeg-js": "^0.4.4",
+    "libheif-js": "^1.23.5",
     "node-cron": "^4.5.0",
+    "omggif": "^1.0.10",
     "openai": "^6.10.0",
     "parse5": "8.0.1",
     "pdfjs-dist": "^6.4.299",
+    "pngjs": "^7.0.0",
     "sqlite-vec": "^0.1.9",
+    "utif2": "^4.1.0",
     "ws": "^8.21.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
+    "@types/bmp-js": "^0.1.2",
+    "@types/omggif": "^1.0.5",
+    "@types/pngjs": "^6.0.5",
     "@types/ws": "^8.18.1"
   }
 }

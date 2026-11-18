@@ -61,4 +61,5 @@ export { TurnNarrator, STEP_MARK } from "./channels/narrate.js";
 export type { ProgressEvent, ProgressListener } from "./kernel/progress.js";
 export type { Sender } from "./channels/types.js";
 export type { MessageFrom, MessageOrigin, MessageRoom, Quote } from "./models/types.js";
-export { isReadable, type Attachment } from "./kernel/attachments.js";
+export { FILE_MAX_BYTES, isReadable, type Attachment } from "./kernel/attachments.js";
+export { imageTypeOf } from "./files/images.js";

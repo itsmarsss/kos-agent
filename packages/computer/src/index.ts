@@ -10,7 +10,7 @@ export { OwnerChrome } from "./chrome.js";
 export { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, appNote, phoneNote, alwaysWords, besideNote, panelLines, type Glance, type PanelChat, type PanelChatItem, type PanelPlaceOf, type PanelDeps, type PanelModels, type PanelPlace } from "./panel.js";
 export { ARTIFACT_DOCUMENT_BYTES, ARTIFACTS_LISTED, type ArtifactTheme, type PanelArtifact, type PanelArtifacts, type PanelArtifactView } from "./artifacts.js";
 export { DASHBOARD_IN_FLIGHT, DashboardRelay, admit, type DashboardAsk, type DashboardDeps, type PanelDashboard } from "./dashboard.js";
-export { ATTACH_FILE_BYTES, ATTACH_FILES, ATTACH_PART_CHARS, AttachmentInbox } from "./inbox.js";
+export { ATTACH_FILE_BYTES, ATTACH_FILES, ATTACH_HELD_CHARS, ATTACH_PART_CHARS, AttachmentBudget, AttachmentInbox } from "./inbox.js";
 export { COMPUTER_MANIFEST, computerModule, pageText, refusalText, type ComputerToolsDeps } from "./tools.js";
 export { PREFIX, deviceRoutes, deviceSocketServer, isForwarded, isLoopback, type DeviceSocketServer, type LanControl } from "./routes.js";
 export { DeviceLan, RateLimit, isPrivateAddress, type LanOptions, type LanPairing, type LanStatus } from "./lan.js";

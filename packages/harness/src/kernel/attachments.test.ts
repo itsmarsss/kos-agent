@@ -1,34 +1,22 @@
 import { describe, expect, it } from "vitest";
 
+import { PICTURES } from "../files/images.fixture.js";
+import { imageTypeOf } from "../files/images.js";
+import { pdfOf } from "../files/pdf.fixture.js";
 import { toPdf } from "../tools/pdf.js";
-import { DOCUMENT_MAX_BYTES, attachmentBlocks, isReadable, parseAttachments, readAttachments } from "./attachments.js";
+import { DOCUMENT_MAX_BYTES, FILE_MAX_BYTES, attachmentBlocks, isReadable, parseAttachments, readAttachments } from "./attachments.js";
 
 const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
 const MB = 1024 * 1024;
 
-/**
- * A real PDF grown to about `bytes` by an incremental update that adds one
- * unreferenced stream, as a scan's images make a short document large.
- */
-function pdfOf(bytes: number): string {
-  const pdf = toPdf([{ item: "kettle", price: "42" }], "Shopping");
-  const head = pdf.toString("latin1");
-  const prev = Number(/startxref\n(\d+)/.exec(head)![1]);
-  const size = Number(/\/Size (\d+)/.exec(head)![1]);
-  const fill = Math.max(0, bytes - pdf.byteLength - 300);
-  const object = `${size} 0 obj\n<< /Length ${fill} >>\nstream\n`;
-  const tail = (xref: number): string =>
-    `\nendstream\nendobj\nxref\n0 1\n0000000000 65535 f \n${size} 1\n${String(pdf.byteLength).padStart(10, "0")} 00000 n \ntrailer\n<< /Size ${size + 1} /Root 1 0 R /Prev ${prev} >>\nstartxref\n${xref}\n%%EOF\n`;
-  const xref = pdf.byteLength + object.length + fill + "\nendstream\nendobj\n".length;
-  return Buffer.concat([pdf, Buffer.from(object, "latin1"), Buffer.alloc(fill, 0x20), Buffer.from(tail(xref), "latin1")]).toString("base64");
-}
+const utf8 = (data: string): string => Buffer.from(data, "base64").toString("utf8");
 
 describe("readAttachments", () => {
   it("turns a PDF into the text file it reads as, and leaves the rest alone", async () => {
     // A PDF was refused as a type the model could not read; the owner's bills
     // and papers are PDFs.
     const pdf = toPdf([{ item: "kettle", price: "42" }], "Shopping").toString("base64");
-    const picture = { name: "a.png", mediaType: "image/png", data: "AAAA" };
+    const picture = { name: "a.png", mediaType: "image/png", data: PICTURES["image/png"] };
     const out = await readAttachments([{ name: "bill.pdf", mediaType: "application/pdf", data: pdf }, picture, { name: "scan.PDF", mediaType: "", data: pdf }]);
     expect(out[1]).toEqual(picture);
     expect(out[0]).toMatchObject({ name: "bill.pdf", mediaType: "text/plain" });
@@ -51,12 +39,84 @@ describe("readAttachments", () => {
     }
   });
 
-  it("refuses a PDF past 32 MB, saying the limit and why", async () => {
-    const data = pdfOf(40 * MB);
-    await expect(readAttachments([{ name: "docs.pdf", mediaType: "application/pdf", data }])).rejects.toThrow(
-      /docs\.pdf is 40\.0 MB; a document can be up to 32 MB, the most the model providers take of a PDF in one request/,
+  it("names a 60 MB PDF to the model where it was kept, with its pages, rather than reading it in", async () => {
+    const rows = Array.from({ length: 300 }, (_, i) => ({ item: `thing ${i}`, price: String(i) }));
+    const [note] = await readAttachments([{ name: "manual.pdf", mediaType: "application/pdf", data: pdfOf(60 * MB, rows), path: "uploads/manual.pdf" }]);
+    expect(note).toMatchObject({ name: "manual.pdf", mediaType: "text/plain", path: "uploads/manual.pdf" });
+    expect(utf8(note!.data)).toMatch(
+      /^\[manual\.pdf: a 60\.0 MB PDF of \d+ pages, kept at uploads\/manual\.pdf\. Too big to read in whole here \(a document is read in up to 32 MB.*\); read it from there with files\.read, some pages at a time \(from, to\)\.\]$/,
     );
+    expect(utf8(note!.data)).not.toContain("thing 0");
     expect(DOCUMENT_MAX_BYTES).toBe(32 * MB);
+  });
+
+  it("refuses a PDF past 32 MB it could not keep, as there is nowhere to read it from", async () => {
+    await expect(readAttachments([{ name: "docs.pdf", mediaType: "application/pdf", data: pdfOf(40 * MB) }])).rejects.toThrow(
+      /docs\.pdf is 40\.0 MB; a document is read in up to 32 MB.*could not be kept in the workspace/,
+    );
+  });
+
+  it("refuses a file of 120 MB, saying the limit and why", async () => {
+    const data = Buffer.alloc(120 * MB).toString("base64");
+    await expect(readAttachments([{ name: "video.mov", mediaType: "video/quicktime", data, path: "uploads/video.mov" }])).rejects.toThrow(
+      /video\.mov is 120\.0 MB; a file can be up to 100 MB, the most KOS takes of one/,
+    );
+    expect(FILE_MAX_BYTES).toBe(100 * MB);
+  });
+
+  it("names a text file past 5 MB to the model where it was kept", async () => {
+    const data = Buffer.alloc(6 * MB, 0x61).toString("base64");
+    const [note] = await readAttachments([{ name: "server.log", mediaType: "text/plain", data, path: "uploads/server.log" }]);
+    expect(utf8(note!.data)).toMatch(/^\[server\.log: a 6\.0 MB, kept at uploads\/server\.log\. .*with search\.grep, or files\.read a part at a time \(offset, limit\)\.\]$/);
+  });
+});
+
+describe("pictures at the door", () => {
+  it("sends an iPhone's HEIC as a JPEG, under the name it came with", async () => {
+    // Reported: "HEIC not supported", for a photo straight off the owner's phone.
+    const [photo] = await readAttachments([{ name: "IMG_0042.HEIC", mediaType: "image/heic", data: PICTURES["image/heic"], path: "uploads/IMG_0042.HEIC" }]);
+    expect(photo).toMatchObject({ name: "IMG_0042.HEIC", mediaType: "image/jpeg", path: "uploads/IMG_0042.HEIC" });
+    expect(imageTypeOf(Buffer.from(photo!.data, "base64"))).toBe("image/jpeg");
+    expect(attachmentBlocks([photo!])[0]).toMatchObject({ type: "image", mediaType: "image/jpeg" });
+  });
+
+  it("goes by the bytes, not the name or the type claimed", async () => {
+    // A .heic that is really a PNG is a PNG; a picture sent as text is a picture.
+    const [fake, untyped] = await readAttachments([
+      { name: "IMG_1.heic", mediaType: "image/heic", data: PICTURES["image/png"] },
+      { name: "scan", mediaType: "application/octet-stream", data: PICTURES["image/tiff"] },
+    ]);
+    expect(fake).toEqual({ name: "IMG_1.heic", mediaType: "image/png", data: PICTURES["image/png"] });
+    expect(untyped!.mediaType === "image/png" || untyped!.mediaType === "image/jpeg").toBe(true);
+  });
+
+  it("names a picture it cannot show to the model, keeping the words and the rest", async () => {
+    // One bad picture used to refuse the whole message.
+    const [bad, broken, notes] = await readAttachments([
+      { name: "receipt.png", mediaType: "image/png", data: Buffer.from("not really a png").toString("base64"), path: "uploads/receipt.png" },
+      { name: "IMG_2.HEIC", mediaType: "image/heic", data: PICTURES["image/heic"].slice(0, 200), path: "uploads/IMG_2.HEIC" },
+      { name: "notes.txt", mediaType: "text/plain", data: b64("milk") },
+    ]);
+    expect(utf8(bad!.data)).toMatch(/^\[receipt\.png: kept at uploads\/receipt\.png, but not shown to the model: its bytes are not a picture KOS reads/);
+    expect(attachmentBlocks([bad!])[0]).toMatchObject({ type: "file", name: "receipt.png" });
+    expect(utf8(broken!.data)).toMatch(/^\[IMG_2\.HEIC: kept at uploads\/IMG_2\.HEIC, but not shown to the model: /);
+    expect(notes).toEqual({ name: "notes.txt", mediaType: "text/plain", data: b64("milk") });
+  });
+
+  it("reads as text what its name says is text, whatever its first bytes look like", async () => {
+    // "BM" opens a bitmap, and also a note about a car.
+    const words = Buffer.concat([Buffer.from("BM"), Buffer.alloc(12), Buffer.from([40, 0, 0, 0]), Buffer.from(" service notes, all of them text")]).toString("base64");
+    const [notes] = await readAttachments([{ name: "bmw.txt", mediaType: "", data: words }]);
+    expect(notes).toMatchObject({ name: "bmw.txt", data: words });
+  });
+
+  it("reads an SVG as the text it is", async () => {
+    const [svg] = await readAttachments([{ name: "icon.svg", mediaType: "image/svg+xml", data: Buffer.from("<svg/>").toString("base64") }]);
+    expect(attachmentBlocks([svg!])[0]).toEqual({ type: "file", name: "icon.svg", text: "<svg/>" });
+  });
+
+  it("knows a picture by its name when a surface gives no type", () => {
+    for (const name of ["IMG_1.HEIC", "a.heif", "b.avif", "c.tif", "d.bmp", "e.webp"]) expect(isReadable("", name)).toBe(true);
   });
 });
 
@@ -111,11 +171,11 @@ describe("attachmentBlocks", () => {
     ).toThrow(/a\.zip .* cannot be read/);
   });
 
-  it("refuses an image past what a provider takes of one picture", () => {
+  it("refuses a picture past what a provider takes of one, should one get past the door", () => {
     const huge = "A".repeat(8 * 1024 * 1024);
     expect(() =>
       attachmentBlocks([{ name: "big.png", mediaType: "image/png", data: huge }]),
-    ).toThrow(/big\.png is 6\.0 MB; an image can be up to 5 MB, the most the model providers take of one picture/);
+    ).toThrow(/big\.png is 6\.0 MB; a picture is sent to the model at up to 5 MB/);
   });
 });
 

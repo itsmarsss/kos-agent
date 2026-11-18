@@ -9,8 +9,9 @@ import { JailError } from "../jail/resolvePath.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { filesModule, outsideScratch } from "./files.js";
+import { TEXT_READ_MAX, filesModule, outsideScratch, wholeCharacters } from "./files.js";
 import { toPdf } from "./pdf.js";
+import { pdfOf } from "../files/pdf.fixture.js";
 
 describe("outsideScratch", () => {
   it("recognizes the scratch area", () => {
@@ -82,6 +83,43 @@ describe("filesModule", () => {
     expect(read.isError).toBe(false);
     expect(read.content.startsWith("[PDF, 1 page]\n")).toBe(true);
     expect(read.content).toContain("kettle 42");
+  });
+
+  it("reads some pages of a long PDF, as a kept 60 MB one is read", async () => {
+    const rows = Array.from({ length: 300 }, (_, i) => ({ item: `thing ${i}`, price: String(i) }));
+    writeFileSync(join(ws.root, "manual.pdf"), Buffer.from(pdfOf(60 * 1024 * 1024, rows), "base64"));
+    const read = await registry.execute("files.read", { path: "manual.pdf", from: 2, to: 3 });
+    expect(read.isError).toBe(false);
+    expect(read.content).toMatch(/^\[PDF, (\d+) pages, pages 2 to 3\]\n--- page 2 of \1 ---\n/);
+    expect(read.content).toContain("--- page 3 of ");
+    expect(read.content).not.toMatch(/--- page [14] of /);
+    expect((await registry.execute("files.read", { path: "manual.pdf", from: 0 })).content).toMatch(/from must be a page number, from 1/);
+    expect((await registry.execute("files.read", { path: "manual.pdf", from: 999 })).content).toMatch(/pages 999 to \d+ are not in it: it has \d+ pages/);
+  });
+
+  it("reads a long text file a part at a time, saying where to read on", async () => {
+    const lines = Array.from({ length: 30_000 }, (_, i) => `line ${i}`).join("\n");
+    writeFileSync(join(ws.root, "server.log"), lines);
+    const size = Buffer.byteLength(lines);
+    const first = (await registry.execute("files.read", { path: "server.log" })).content;
+    expect(first.startsWith(`[text, ${size} bytes, bytes 0 to ${TEXT_READ_MAX}; read on with offset: ${TEXT_READ_MAX}]\nline 0\n`)).toBe(true);
+    const part = (await registry.execute("files.read", { path: "server.log", offset: 7, limit: 6 })).content;
+    expect(part).toBe(`[text, ${size} bytes, bytes 7 to 13; read on with offset: 13]\nline 1`);
+    const last = (await registry.execute("files.read", { path: "server.log", offset: size - 10 })).content;
+    expect(last).toBe(`[text, ${size} bytes, bytes ${size - 10} to ${size}]\n${lines.slice(-10)}`);
+    expect((await registry.execute("files.read", { path: "server.log", limit: 10 * TEXT_READ_MAX })).content.length).toBeLessThan(TEXT_READ_MAX + 200);
+    expect((await registry.execute("files.read", { path: "server.log", offset: -1 })).content).toMatch(/offset must be a byte offset, from 0/);
+  });
+
+  it("ends a part of a text file on a whole character", async () => {
+    // "naïve": the ï is two bytes, at 2 and 3; a part ending at 3 would split it.
+    writeFileSync(join(ws.root, "word.txt"), "naïve");
+    const part = (await registry.execute("files.read", { path: "word.txt", offset: 0, limit: 3 })).content;
+    expect(part).toBe("[text, 6 bytes, bytes 0 to 2; read on with offset: 2]\nna");
+    const rest = (await registry.execute("files.read", { path: "word.txt", offset: 2 })).content;
+    expect(rest).toBe("[text, 6 bytes, bytes 2 to 6]\nïve");
+    expect(wholeCharacters(Buffer.from("a😀", "utf8").subarray(0, 3))).toEqual(Buffer.from("a"));
+    expect(wholeCharacters(Buffer.from("😀", "utf8").subarray(0, 2))).toHaveLength(2);
   });
 
   it("edits a file by string replacement", async () => {
