@@ -243,6 +243,24 @@ describe("GuardedTools", () => {
     expect(entry?.args).toContain("{{secret:openai}}"); // audit stays redacted
   });
 
+  it("scrubs the error of a call that failed after its turn was stopped", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    registry.register({ name: "probe", description: "p", inputSchema: { type: "object" } }, () => "ok");
+    const stop = new AbortController();
+    const finished: string[] = [];
+    const res = await guarded({
+      signal: stop.signal,
+      running: () => {
+        stop.abort();
+        throw new Error("lost the line to sk-real");
+      },
+      onFinishedAfterStop: (_tool, result) => finished.push(result.content),
+    }).execute("probe", {});
+    expect(res.content).toBe(STOPPED_RESULT);
+    await vi.waitFor(() => expect(finished).toEqual(["lost the line to [secret openai]"]));
+    warn.mockRestore();
+  });
+
   it("refuses a secret given to a tool that declares no slot, before it runs or asks", async () => {
     const ran: unknown[] = [];
     registry.register({ name: "notify", description: "n", inputSchema: { type: "object" } }, (input) => {
