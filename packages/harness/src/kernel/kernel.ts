@@ -15,6 +15,7 @@ import { FrameStore } from "../ops/frames.js";
 import { SeenPages } from "./seen.js";
 import { toolUse } from "./caller.js";
 import { ChatModes } from "./chatmodes.js";
+import { ownerLinesIn } from "./transcript.js";
 
 /** KOS's browser tools: they act on the caller's tab and share its site trust. */
 const BROWSER_PREFIX = "browser.";
@@ -5303,15 +5304,12 @@ export class Kernel {
     if (!source) throw new Error(`no such conversation: ${sessionId}`);
 
     const history = this.sessions.get(sessionId);
-    // Owner turns are the anchors: a tool result is also a "user" message on
-    // the wire, so only messages carrying text count as something they said.
+    // The owner's lines are the anchors, counted exactly as the transcript
+    // shows them: a tool result, an approval's resume and room talk are
+    // "user" messages on the wire too, and none is a line they can press.
     const anchors: number[] = [];
     history.forEach((m, i) => {
-      if (m.role !== "user") return;
-      if (!m.content.some((b) => b.type === "text" || b.type === "file" || b.type === "image")) {
-        return;
-      }
-      anchors.push(i);
+      for (let n = ownerLinesIn(m); n > 0; n--) anchors.push(i);
     });
     const at = anchors[userTurnIndex];
     if (at === undefined) throw new Error(`no message #${userTurnIndex} to rewind to`);
@@ -5355,9 +5353,12 @@ export class Kernel {
 
     // Work a guest's turn passed on stays under their room, whoever sends it again; new words are the sender's own.
     const guested = opts.text === undefined ? original?.origin?.guested : undefined;
+    // Words another chat or a door passed on stay passed on when sent again: never the owner's own words in this chat.
+    const passedOn = opts.text === undefined && from && !guest ? { from } : {};
     const res = await this.handleMessage(said, {
       sessionId: target,
       userId: source.userId,
+      ...passedOn,
       ...(guested ? { guested } : {}),
       ...(guest
         ? { guest, ...(original?.origin?.via ? { channel: original.origin.via } : {}), ...(original?.origin?.room ? { room: original.origin.room } : {}) }

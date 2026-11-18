@@ -99,7 +99,8 @@ function decidedNote(line: string): string | null {
 function approvalNote(text: string): string | null {
   if (text.startsWith(RESUME_HEAD)) {
     const notes = text.split("\n").flatMap((line) => decidedNote(line) ?? []);
-    return notes.length ? notes.join("; ") : null;
+    // Always the harness's line, never the owner's, even in a shape not read here: Retry must never send it again.
+    return notes.length ? notes.join("; ") : "Carried on after a decision";
   }
   // The oldest shape: one action per resume.
   const approved = /^System: the owner approved pending action #(\d+)\./.exec(text);
@@ -113,6 +114,16 @@ function approvalNote(text: string): string | null {
 
 function textOf(content: ModelMessage["content"]): string {
   return saidText(content).trim();
+}
+
+/**
+ * How many of the owner's lines a stored message is on the page: what a
+ * Retry or an Edit counts by, so its index means the line the owner pressed
+ * and never an approval's resume, room talk or a tool's result.
+ */
+export function ownerLinesIn(message: ModelMessage): number {
+  if (message.role !== "user") return 0;
+  return conversationEvents([message]).filter((e) => e.kind === "message" && e.role === "you").length;
 }
 
 /**

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Inference } from "../agent/loop.js";
 import type { ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { RESUME_HEAD } from "./decisions.js";
 import { AUTO_PREFIX } from "./guarded.js";
 import { Kernel } from "./kernel.js";
 import { handleApiRequest } from "./server.js";
@@ -79,6 +80,30 @@ describe("a chat's mode, through the kernel", () => {
     await kernel.deny(kernel.approvals.pending()[0]!.id);
     await sent;
     expect(kernel.approvals.decided()[0]).toMatchObject({ status: "denied" });
+  });
+
+  it("asks again for a dispatched message sent again, which stays passed on", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Target" });
+    await setMode(chat.id, { mode: "auto" });
+    const sent = kernel.dispatchTo(chat.id, "clear it", "orchestrator:owner", { attended: true, owner: true });
+    await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(1));
+    await kernel.deny(kernel.approvals.pending()[0]!.id);
+    await sent;
+    const again = kernel.rewind(chat.id, 0, { owner: true });
+    await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(1));
+    await kernel.deny(kernel.approvals.pending()[0]!.id);
+    await again;
+  });
+
+  it("counts the owner's lines as the page does, so Retry never reruns an approval's resume", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Resume" });
+    kernel.sessions.set(chat.id, [
+      { role: "user", content: [{ type: "text", text: "clear it" }] },
+      { role: "assistant", content: [{ type: "text", text: "asked" }] },
+      { role: "user", content: [{ type: "text", text: `${RESUME_HEAD} the pending action:\n#7 danger.run approved, ran` }] },
+      { role: "assistant", content: [{ type: "text", text: "done" }] },
+    ]);
+    await expect(kernel.rewind(chat.id, 1, { owner: true })).rejects.toThrow(/no message #1/);
   });
 
   it("ends every chat's Auto when the kill switch is thrown", async () => {
