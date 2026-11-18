@@ -332,7 +332,7 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   const mechanics = stepMechanics(a.tool, a.args, HOST_KEYS);
   // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
   const asksAlways = hasSecretRef(parsedArgs(a.args));
-  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, names, where, platform: HOST_KEYS });
+  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, ...(a.beyondAuto ? { beyondAuto: true } : {}), names, where, platform: HOST_KEYS });
   return {
     ...a,
     // It places a secret: asked about every time, never remembered.

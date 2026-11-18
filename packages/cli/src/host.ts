@@ -480,6 +480,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(action.rule ? { rule: action.rule } : {}),
       ...(action.yours ? { yours: true } : {}),
       ...(hasSecretRef(JSON.parse(action.args)) ? { asksAlways: true } : {}),
+      ...(action.beyondAuto ? { beyondAuto: true } : {}),
     };
   };
   /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */

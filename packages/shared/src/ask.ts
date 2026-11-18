@@ -58,6 +58,8 @@ export interface AskInput {
   yours?: boolean;
   /** It always asks (it places a secret): no remembered yes, whatever its rule. Read from the arguments when not said. */
   asksAlways?: boolean;
+  /** Asked though the chat is in Auto, for what Auto never covers: no remembered yes, and the card says why. */
+  beyondAuto?: boolean;
   names?: ActionNames;
   /** Where the asking turn's paths start, so a file tool's title names the path it really reaches. */
   where?: ActionHome;
@@ -228,6 +230,9 @@ export function alwaysTip(rule: AskRule, names?: ActionNames): string {
   return `Approves this, and from now on ${keeps} ${UNDO}`;
 }
 
+/** Said on a card asked in a chat set to Auto, for what Auto never covers. */
+export const BEYOND_AUTO_NOTE = "Auto never covers this: it asks each time";
+
 /** An ask, as every card lays it out. */
 export function askView(input: AskInput): AskView {
   const { tool, args, reason, rule, names, where, platform } = input;
@@ -253,6 +258,13 @@ export function askView(input: AskInput): AskView {
     ...(steps ? { steps } : {}),
     ...(risk ? { risk } : {}),
     // A call that places a secret is asked about every time: nothing is remembered for it, so nothing is offered.
-    ...(!always ? { alwaysNote: "Secrets always ask" } : rule ? { always: alwaysWords(rule.scope, names), alwaysTip: alwaysTip(rule, names) } : {}),
+    // Nor for what a chat's Auto never covers, asked in one: the owner decides it each time.
+    ...(!always
+      ? { alwaysNote: "Secrets always ask" }
+      : input.beyondAuto
+        ? { alwaysNote: BEYOND_AUTO_NOTE }
+        : rule
+          ? { always: alwaysWords(rule.scope, names), alwaysTip: alwaysTip(rule, names) }
+          : {}),
   };
 }
