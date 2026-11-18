@@ -175,6 +175,8 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public let always: String?
   /// What that yes keeps, exactly, and where to take it back.
   public let alwaysTip: String?
+  /// Why there is no remembered yes, when the ask could otherwise have one: "Secrets always ask".
+  public let alwaysNote: String?
   /// Who asks, by the name the owner knows the chat by.
   public let asker: String?
   /// When it is decided for the owner if they do not, epoch milliseconds.
@@ -183,7 +185,7 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public init(
     id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
     steps: [StepLine]? = nil, place: String? = nil, site: String? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
-    always: String? = nil, alwaysTip: String? = nil, asker: String? = nil, expiresAt: Double? = nil
+    always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expiresAt: Double? = nil
   ) {
     self.id = id
     self.tool = tool
@@ -199,6 +201,7 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
     self.reason = reason
     self.always = always
     self.alwaysTip = alwaysTip
+    self.alwaysNote = alwaysNote
     self.asker = asker
     self.expiresAt = expiresAt
   }

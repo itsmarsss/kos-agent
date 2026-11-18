@@ -1,3 +1,5 @@
+import { hasSecretRef } from "@kos/shared";
+
 import { MIN_SCANNED } from "./scrub.js";
 import type { SecretsRegistry } from "./secrets.js";
 
@@ -26,13 +28,7 @@ export interface SecretSlots {
 /** The arguments with every reference expanded, or why the call is refused. */
 export type Placed = { input: Record<string, unknown> } | { refused: string };
 
-/** True if the value contains any `{{secret:...}}` reference. */
-export function hasSecretRef(value: unknown): boolean {
-  if (typeof value === "string") return /\{\{secret:[a-z0-9_.-]+\}\}/i.test(value);
-  if (Array.isArray(value)) return value.some(hasSecretRef);
-  if (value && typeof value === "object") return Object.values(value).some(hasSecretRef);
-  return false;
-}
+export { hasSecretRef };
 
 function matches(pattern: string, path: string[]): boolean {
   const parts = pattern.split(".");

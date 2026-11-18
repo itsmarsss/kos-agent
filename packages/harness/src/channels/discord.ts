@@ -22,7 +22,7 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { blocksToText, CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
+import { blocksToText, CHANNEL_TOKEN, detailLines, hasSecretRef, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
@@ -3184,15 +3184,14 @@ export class DiscordAdapter implements ChannelAdapter {
 
   private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
     const ids = approvalCustomIds(req.id);
+    // A call that places a secret asks every time: no Always, since nothing would be kept.
+    const remembers = !hasSecretRef(req.args ?? {});
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(ids.approve)
         .setLabel("Approve")
         .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(ids.always)
-        .setLabel("Always")
-        .setStyle(ButtonStyle.Primary),
+      ...(remembers ? [new ButtonBuilder().setCustomId(ids.always).setLabel("Always").setStyle(ButtonStyle.Primary)] : []),
       new ButtonBuilder()
         .setCustomId(ids.deny)
         .setLabel("Deny")

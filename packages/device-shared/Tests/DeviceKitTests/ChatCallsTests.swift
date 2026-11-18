@@ -77,13 +77,13 @@ struct ChatCallsTests {
     try draw(model, "chat.show", #"{"chat":"c1","title":"Chat","messages":[]}"#)
     try draw(
       model, "chat.ask",
-      #"{"chat":"c1","approval":{"id":"14","tool":"browser.act","title":"Zoom out","steps":[[{"text":"Press "},{"key":"⌘−"},{"text":" 4 times, then "},{"key":"⌘Home"}]],"place":"In your Chrome on docs.google.com","site":"docs.google.com","risk":"Clicks, types or fills on the page","always":"Always allow on docs.google.com","alwaysTip":"Undo it in Settings, Permissions.","asker":"Docs"}}"#)
+      #"{"chat":"c1","approval":{"id":"14","tool":"browser.act","title":"Zoom out","steps":[[{"text":"Press "},{"key":"⌘−"},{"text":" 4 times, then "},{"key":"⌘Home"}]],"place":"In your Chrome on docs.google.com","site":"docs.google.com","risk":"Clicks, types or fills on the page","always":"Always allow on docs.google.com","alwaysTip":"Undo it in Settings, Permissions.","alwaysNote":"Secrets always ask","asker":"Docs"}}"#)
     let ask = try #require(model.asks.first)
     #expect(ask.heading == "Zoom out")
     #expect(ask.stepLines == [[.text("Press "), .key("⌘−"), .text(" 4 times, then "), .key("⌘Home")]])
     #expect(ask.place == "In your Chrome on docs.google.com" && ask.site == "docs.google.com")
     #expect(ask.risk == "Clicks, types or fills on the page" && ask.asker == "Docs")
-    #expect(ask.alwaysTip == "Undo it in Settings, Permissions.")
+    #expect(ask.alwaysTip == "Undo it in Settings, Permissions." && ask.alwaysNote == "Secrets always ask")
   }
 
   @Test func theChatsComeWithWhereEachLives() throws {

@@ -72,6 +72,19 @@ describe("an ask, as a card lays it out", () => {
     expect(one.steps).toBeUndefined();
   });
 
+  it("offers no Always for a call that places a secret, and says why", () => {
+    const view = askView({
+      tool: "http.fetch",
+      args: { url: "https://api.example.com/v1", headers: { authorization: "Bearer {{secret:example_key}}" } },
+      reason: "sends secret example_key to api.example.com",
+      rule: { tool: "http.fetch", scope: "host:api.example.com" },
+    });
+    expect(view.always).toBeUndefined();
+    expect(view.alwaysTip).toBeUndefined();
+    expect(view.alwaysNote).toBe("Secrets always ask");
+    expect(view.risk).toBe("Sends secret example_key to api.example.com");
+  });
+
   it("says no Always where nothing can be remembered", () => {
     const view = askView({ tool: "shell.run", args: { command: "rm -rf build" }, reason: "risky tool" });
     expect(view.always).toBeUndefined();

@@ -160,3 +160,12 @@ describe("the approval card's sheet", () => {
     expect(/\.ask-details-scroll \{[^}]*max-height: 240px; overflow: auto/.test(css)).toBe(true);
   });
 });
+
+describe("an ask that places a secret", () => {
+  it("offers no remembered yes, and says why beside the buttons", () => {
+    const secret = askView({ tool: "http.fetch", args: { url: "https://api.example.com", headers: { authorization: "Bearer {{secret:k}}" } }, rule: { tool: "http.fetch", scope: "host:api.example.com" } });
+    const { container } = render(<AskCard view={secret} tool="http.fetch" onDecide={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /Always/ })).toBeNull();
+    expect(container.querySelector(".kos-ask-actions .kos-ask-note")?.textContent).toBe("Secrets always ask");
+  });
+});

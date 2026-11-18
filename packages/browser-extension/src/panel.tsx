@@ -848,10 +848,10 @@ function Extra({ extra }: { extra: Extra }): ReactElement {
 
 /** An approval, as the dashboard draws it: the kit's AskCard, laid out by the host. */
 function Ask({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean) => void }): ReactElement {
-  const { title, summary, tool, place, site, steps, always, alwaysTip } = approval;
+  const { title, summary, tool, place, site, steps, always, alwaysTip, alwaysNote } = approval;
   // An older host sends the rule's words alone.
   const risk = approval.risk ?? askRisk(approval.reason);
-  const view: AskView = { title: title ?? summary ?? tool, ...(place ? { place } : {}), ...(site ? { site } : {}), ...(steps ? { steps } : {}), ...(risk ? { risk } : {}), ...(always ? { always, ...(alwaysTip ? { alwaysTip } : {}) } : {}) };
+  const view: AskView = { title: title ?? summary ?? tool, ...(place ? { place } : {}), ...(site ? { site } : {}), ...(steps ? { steps } : {}), ...(risk ? { risk } : {}), ...(always ? { always, ...(alwaysTip ? { alwaysTip } : {}) } : {}), ...(alwaysNote ? { alwaysNote } : {}) };
   return (
     <m.div layout {...enter}>
       <AskCard view={view} tool={approval.tool} args={approval.args} why={approval.why} asker={approval.asker} expiresAt={approval.expiresAt} onDecide={decide} />

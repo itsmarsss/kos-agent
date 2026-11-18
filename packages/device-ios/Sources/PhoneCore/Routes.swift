@@ -39,12 +39,13 @@ public enum Routes {
     /// What a remembered yes covers, as its button says it, when one may be, and exactly what it keeps.
     public let always: String?
     public let alwaysTip: String?
+    public let alwaysNote: String?
 
     public init(
       id: Int, tool: String, args: String? = nil, reason: String? = nil, summary: String? = nil, mechanics: String? = nil, title: String? = nil,
       steps: [StepLine]? = nil, place: String? = nil, site: String? = nil, risk: String? = nil, why: String? = nil,
       conversationId: String? = nil, asker: String? = nil, requestedAt: Double, expiresAt: Double? = nil, always: String? = nil,
-      alwaysTip: String? = nil
+      alwaysTip: String? = nil, alwaysNote: String? = nil
     ) {
       self.id = id
       self.tool = tool
@@ -64,6 +65,7 @@ public enum Routes {
       self.expiresAt = expiresAt
       self.always = always
       self.alwaysTip = alwaysTip
+      self.alwaysNote = alwaysNote
     }
   }
 

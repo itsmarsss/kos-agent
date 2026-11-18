@@ -36,5 +36,10 @@ enum AskCases {
       args: #"{"intent":"Save the export and close the dialog","actions":[{"action":"left_click","coordinate":[812,440]},{"action":"key","text":"cmd+s"},{"action":"type","text":"Q3 numbers.csv"},{"action":"key","text":"Return"},{"action":"key","text":"Escape"}]}"#,
       steps: [[.text("Click")], [.text("Press "), .key("⌘S")], [.text("Type “Q3 numbers.csv”")], [.text("Press "), .key("⏎"), .text(", then "), .key("Esc")]],
       place: "On your Mac", risk: "Uses your Mac", asker: "Numbers", expires: expires)),
+    ("secret", .init(
+      id: "106", tool: "http.fetch", title: "HTTP fetch https://api.example.com/v1/invoices",
+      args: #"{"url":"https://api.example.com/v1/invoices","headers":{"authorization":"Bearer {{secret:billing_key}}"}}"#,
+      place: "On api.example.com", site: "api.example.com", risk: "Sends secret billing_key to api.example.com",
+      alwaysNote: "Secrets always ask", asker: "Billing", expires: expires)),
   ]
 }

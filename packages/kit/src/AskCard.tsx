@@ -130,6 +130,8 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           {working("no", labels?.no ?? "Deny")}
         </button>
         {extra}
+        {/* Why there is no remembered yes, beside the buttons where it would have been. */}
+        {!always && !noRemember && view.alwaysNote && <span className="kos-ask-note">{view.alwaysNote}</span>}
       </div>
     </section>
   );

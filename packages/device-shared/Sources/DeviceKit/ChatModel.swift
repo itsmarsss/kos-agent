@@ -81,6 +81,8 @@ public final class ChatModel: ObservableObject {
     /// The words of a yes that is remembered, when one may be, and exactly what it keeps.
     public let always: String?
     public let alwaysTip: String?
+    /// Why there is no remembered yes, when there could have been one.
+    public let alwaysNote: String?
     /// Who asks, by the chat's name.
     public let asker: String?
     /// When it times out if the owner does not answer, when it does.
@@ -91,7 +93,8 @@ public final class ChatModel: ObservableObject {
     public init(
       id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
       steps: [StepLine]? = nil, place: String? = nil, site: String? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
-      always: String? = nil, alwaysTip: String? = nil, asker: String? = nil, expires: Date? = nil, chat: String? = nil
+      always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expires: Date? = nil,
+      chat: String? = nil
     ) {
       self.id = id
       self.summary = summary
@@ -108,6 +111,7 @@ public final class ChatModel: ObservableObject {
       self.reason = reason
       self.always = always
       self.alwaysTip = alwaysTip
+      self.alwaysNote = alwaysNote
       self.asker = asker
       self.expires = expires
     }

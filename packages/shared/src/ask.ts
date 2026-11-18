@@ -6,6 +6,7 @@
  */
 
 import { actionSteps, summarizeAction, type ActionNames, type StepLine } from "./format-action.js";
+import { hasSecretRef } from "./secretref.js";
 import type { KeyPlatform } from "./keys.js";
 
 /** What a yes-and-remember keeps: the tool or its family, the scope it covers, the project it holds in. */
@@ -37,6 +38,8 @@ export interface AskView {
   always?: string;
   /** What that yes keeps, exactly, and where to take it back. */
   alwaysTip?: string;
+  /** Why there is no remembered yes, when the ask could otherwise have one: "Secrets always ask". */
+  alwaysNote?: string;
 }
 
 export interface AskInput {
@@ -213,6 +216,7 @@ export function askView(input: AskInput): AskView {
     ...(place ? { place: place.words, ...(place.site ? { site: place.site } : {}) } : {}),
     ...(steps ? { steps } : {}),
     ...(risk ? { risk } : {}),
-    ...(rule ? { always: alwaysWords(rule.scope), alwaysTip: alwaysTip(rule) } : {}),
+    // A call that places a secret is asked about every time: nothing is remembered for it, so nothing is offered.
+    ...(hasSecretRef(argsOf(args)) ? { alwaysNote: "Secrets always ask" } : rule ? { always: alwaysWords(rule.scope), alwaysTip: alwaysTip(rule) } : {}),
   };
 }

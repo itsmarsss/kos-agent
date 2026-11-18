@@ -515,6 +515,7 @@ struct AskCard: View {
       }
       AskSummary(ask)
       if let args = ask.args { AskDetails(tool: ask.tool, args: args) }
+      if ask.always == nil, let note = ask.alwaysNote { Text(note).font(.kos(.detail)).foregroundStyle(Theme.faint) }
       // One row at the foot when it fits; else one to a row, full width, Approve first.
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 6) {

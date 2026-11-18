@@ -58,7 +58,8 @@ public enum ChatCalls {
   public static func ask(_ a: ChatApproval, chat: String?) -> ChatModel.Ask {
     .init(
       id: a.id, tool: a.tool, summary: a.summary, title: a.title, args: a.args, mechanics: a.mechanics, steps: a.steps, place: a.place,
-      site: a.site, risk: a.risk, why: a.why, reason: a.reason, always: a.always, alwaysTip: a.alwaysTip, asker: a.asker,
+      site: a.site, risk: a.risk, why: a.why, reason: a.reason, always: a.always, alwaysTip: a.alwaysTip,
+      alwaysNote: a.alwaysNote, asker: a.asker,
       expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }, chat: chat)
   }
 

@@ -63,6 +63,7 @@ struct AskBody: View {
       .scrollIndicators(.hidden)
 
       if let expires = ask.expires { Lapse(until: expires) }
+      if ask.always == nil, let note = ask.alwaysNote { Text(note).font(.kos(.detail)).foregroundStyle(Theme.faint) }
       VStack(spacing: 8) {
         Button("Approve") { answer(true, false) }
           .buttonStyle(KOSButtonStyle(.primary, large: true))
