@@ -133,6 +133,8 @@ export class AttachmentInbox {
         file.parts = [];
       }
       held.set(id, file);
+      // Counting the room drops a hold left empty, this one too, so it is put back with the file in it.
+      this.byDevice.set(device, held);
     }
     if (file.refused) return;
     const refused = this.add(file, data);
@@ -151,10 +153,14 @@ export class AttachmentInbox {
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) return { refused: "The files with that message were not named right. Attach them again." };
     if (ids.length > ATTACH_FILES) return { refused: `At most ${ATTACH_FILES} files go with one message.` };
     const held = this.held(device);
-    const files: Attachment[] = [];
-    for (const id of ids as string[]) {
+    // Every file named is off the hold before any is checked, so a refusal frees them all.
+    const named = (ids as string[]).map((id) => {
       const file = held.get(id);
       held.delete(id);
+      return file;
+    });
+    const files: Attachment[] = [];
+    for (const file of named) {
       if (!file || file.got < file.parts.length || file.parts.length === 0) {
         return { refused: file?.refused ?? `${file?.name ?? "A file"} did not arrive whole. Attach it again.` };
       }
@@ -173,18 +179,26 @@ export class AttachmentInbox {
 
   /** The characters this inbox's files hold, or have reserved, and have not gone stale. */
   heldChars(): number {
-    const now = this.now();
+    this.dropStale();
     let chars = 0;
-    for (const held of this.byDevice.values()) for (const file of held.values()) if (now - file.at <= ATTACH_KEPT_MS) chars += reserved(file);
+    for (const held of this.byDevice.values()) for (const file of held.values()) chars += reserved(file);
     return chars;
+  }
+
+  /** Stale files dropped from every device's hold, and a hold left empty with them: room counted is memory freed. */
+  private dropStale(): void {
+    const now = this.now();
+    for (const [device, held] of this.byDevice) {
+      for (const [id, file] of held) if (now - file.at > ATTACH_KEPT_MS) held.delete(id);
+      if (held.size === 0) this.byDevice.delete(device);
+    }
   }
 
   /** The device's hold, stale files dropped. */
   private held(device: string): Map<string, Arriving> {
+    this.dropStale();
     const held = this.byDevice.get(device) ?? new Map<string, Arriving>();
     this.byDevice.set(device, held);
-    const now = this.now();
-    for (const [id, file] of held) if (now - file.at > ATTACH_KEPT_MS) held.delete(id);
     return held;
   }
 
@@ -215,6 +229,8 @@ export class AttachmentInbox {
     if (file.chars > FILE_CHARS) return tooBig(file.name);
     file.parts[part] = chunk;
     file.got += 1;
+    // Waited for from its last part: a slow upload does not go stale while it is still arriving.
+    file.at = this.now();
     return undefined;
   }
 }

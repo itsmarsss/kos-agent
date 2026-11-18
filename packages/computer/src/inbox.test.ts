@@ -122,6 +122,32 @@ describe("the attachment inbox", () => {
     expect(mac.take("dev_b", ["f3"])).toMatchObject({ files: [{ name: "notes.txt" }] });
   });
 
+  it("drops a quiet device's stale files, freeing memory and room together", () => {
+    let now = 0;
+    const budget = new AttachmentBudget(2 * ATTACH_PART_CHARS);
+    const inbox = new AttachmentInbox(() => now, budget);
+    inbox.part("dev_a", { id: "f1", name: "scan.pdf", mediaType: "application/pdf", part: 0, parts: 2, data: "JVBERi0x" });
+    expect(budget.room()).toBe(0);
+    // A slow upload is not stale while its parts still come.
+    now = ATTACH_KEPT_MS - 1;
+    inbox.part("dev_a", { id: "f1", part: 1, data: "LjcK" });
+    now += ATTACH_KEPT_MS;
+    expect(inbox.heldChars()).toBe(2 * ATTACH_PART_CHARS);
+    // Then the device goes quiet, on its line: past the wait, its file is gone from memory as from the count.
+    now += 1;
+    expect(budget.room()).toBe(2 * ATTACH_PART_CHARS);
+    expect((inbox as unknown as { byDevice: Map<string, unknown> }).byDevice.size).toBe(0);
+  });
+
+  it("frees every file a refused message named", () => {
+    const budget = new AttachmentBudget(2 * ATTACH_PART_CHARS);
+    const inbox = new AttachmentInbox(Date.now, budget);
+    inbox.part("dev_a", { id: "f1", name: "a.txt", mediaType: "text/plain", part: 0, parts: 1, data: Buffer.from([0x7f, 0, 1]).toString("base64") });
+    inbox.part("dev_a", { id: "f2", name: "b.txt", mediaType: "text/plain", part: 0, parts: 1, data: "bWlsaw==" });
+    expect(inbox.take("dev_a", ["f1", "f2"])).toEqual({ refused: "a.txt is not the text file it says it is." });
+    expect(budget.room()).toBe(2 * ATTACH_PART_CHARS);
+  });
+
   it("holds a message of four of the largest files whole", () => {
     expect(ATTACH_HELD_CHARS).toBeLessThan(600 * 1024 * 1024);
     const inbox = new AttachmentInbox(Date.now, new AttachmentBudget());
