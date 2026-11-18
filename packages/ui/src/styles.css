@@ -3182,7 +3182,9 @@ li:hover .chats-item-when { opacity: 0; }
   cursor: pointer;
 }
 .toolcall-head:hover { background: var(--panel-2); }
-.toolcall-caret { color: var(--faint); width: 0.8rem; display: inline-flex; align-items: center; justify-content: center; }
+.toolcall-caret { color: var(--faint); width: 0.8rem; display: inline-flex; align-items: center; justify-content: center; transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.toolcall-caret.is-open { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .toolcall-caret { transition: none; } }
 .toolcall-name { font-family: var(--mono); color: var(--accent); flex-shrink: 0; }
 .toolcall-summary {
   flex: 1;
@@ -3192,10 +3194,13 @@ li:hover .chats-item-when { opacity: 0; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.toolcall-state { color: var(--faint); font-size: var(--text-base); }
+.toolcall-state { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--faint); font-size: var(--text-base); }
+.toolcall-waited { margin: -0.15rem 0 0.35rem 2rem; color: var(--faint); font-size: var(--text-sm); }
 .is-error .toolcall-state { color: var(--danger); }
 
-.toolcall-body { border-top: 1px solid var(--line); padding: 0.5rem 0.6rem; }
+/* Opens to its height (ToolCall's motion); the padding is inside, so nothing jumps as it grows. */
+.toolcall-body { overflow: hidden; }
+.toolcall-body-inner { border-top: 1px solid var(--line); padding: 0.5rem 0.6rem; }
 
 /* —— an artifact a turn wrote, in place of its step (ArtifactStep.tsx) ——
    A card, as the gallery's is: its capture or its kind's mark, its title,
@@ -3357,9 +3362,6 @@ li:hover .chats-item-when { opacity: 0; }
 /* The browser after a step, under its card: a thumbnail, or the whole thing. */
 /* The step's picture (kit StepPicture), under the call's name. */
 .toolcall-frame { margin-left: 1.4rem; }
-/* The page an approval is about: a small picture beats a description. */
-.approval-pic { display: block; max-width: min(28rem, 100%); margin: 0.4rem 0 0.2rem; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); }
-.approval-pic--strip { max-width: min(32rem, 100%); }
 
 /* —— file browser —— */
 .files-crumbs {
@@ -7760,3 +7762,31 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   .artifact-view-head { top: 3.25rem; }
 }
 .chats-inline .artifact-view-head { top: 0; }
+
+/* —— a step's picture full size (Lightbox.tsx): over a dimmed page, its words under it, the turn's others a step away —— */
+.picture-gallery { display: contents; }
+.lightbox { position: fixed; inset: 0; z-index: 200; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; outline: none; }
+.lightbox-dim { position: absolute; inset: 0; background: color-mix(in srgb, #000 78%, transparent); }
+.lightbox-bar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: max(0.75rem, env(safe-area-inset-top)) 1rem 0.5rem; color: #f2f4f8; }
+.lightbox-count { font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: color-mix(in srgb, #fff 75%, transparent); }
+.lightbox-actions { display: flex; gap: 0.35rem; }
+.lightbox .icon-btn { color: #f2f4f8; background: color-mix(in srgb, #fff 10%, transparent); }
+.lightbox .icon-btn:hover:not(:disabled) { background: color-mix(in srgb, #fff 20%, transparent); }
+.lightbox .icon-btn:disabled { opacity: 0.3; }
+.lightbox-stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 0 4.5rem; pointer-events: none; }
+.lightbox-frame { display: flex; align-items: center; justify-content: center; max-width: 100%; max-height: 100%; }
+.lightbox-img { display: block; max-width: 100%; max-height: calc(100vh - 9rem); object-fit: contain; border-radius: var(--r-sm); box-shadow: 0 12px 40px rgb(0 0 0 / 0.45); cursor: zoom-in; touch-action: none; user-select: none; pointer-events: auto; transition: transform 160ms ease-out; }
+.lightbox-img.is-zoomed { cursor: grab; transition: none; }
+.lightbox-prev, .lightbox-next { position: absolute; top: 50%; z-index: 1; width: 2.5rem; height: 2.5rem; transform: translateY(-50%); }
+.lightbox-prev { left: 1rem; }
+.lightbox-next { right: 1rem; }
+.lightbox-caption { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.25rem 0.6rem; margin: 0; padding: 0.6rem 1rem max(0.9rem, env(safe-area-inset-bottom)); color: #f2f4f8; font-size: var(--text-base); text-align: center; }
+.lightbox-time { color: color-mix(in srgb, #fff 60%, transparent); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .lightbox-img { transition: none; } }
+/* A phone: the picture edge to edge, the arrows over its foot, a swipe to move. */
+@media (max-width: 600px) {
+  .lightbox-dim { background: #000; }
+  .lightbox-stage { padding: 0; }
+  .lightbox-img { max-height: calc(100vh - 8rem); border-radius: 0; box-shadow: none; }
+  .lightbox-prev, .lightbox-next { top: auto; bottom: 3.4rem; transform: none; }
+}

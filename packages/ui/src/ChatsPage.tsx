@@ -13,6 +13,7 @@ import { runningTail, stepMechanics, summarizeAction } from "@kos/shared";
 import { ArchiveIcon, type BlockActions, QuoteLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { ChatWords } from "./ChatWords.js";
+import { PictureGallery } from "./Lightbox.js";
 import { PendingAsk } from "./PendingAsk.js";
 import { VoiceInput } from "./VoiceInput.js";
 
@@ -2319,6 +2320,8 @@ export function ChatsPage({
               {/* The thread knows the chats and agents by name, so a chip can
                   read "Lane A" rather than the id it is addressed by. */}
               <MentionNames resolve={nameFor} hrefOf={channelHref}>
+              {/* Its step pictures open in the Lightbox, the turn's others a step away. */}
+              <PictureGallery>
               <div className="chats-thread" ref={threadScroll}>
                 {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
                 {(() => {
@@ -2568,6 +2571,7 @@ export function ChatsPage({
                   ))}
                 </AnimatePresence>
               </div>
+              </PictureGallery>
               </MentionNames>
 
               <div

@@ -1,7 +1,9 @@
 import { useState, type ReactElement } from "react";
 
-import { pathsIn, stepMechanics } from "@kos/shared";
-import { ChevronDown, ChevronRight, StepPicture } from "@kos/kit";
+import { AnimatePresence, m, useReducedMotion } from "motion/react";
+
+import { pathsIn, stepMechanics, waitWords } from "@kos/shared";
+import { ChevronRight, inPlace, spring, StepPicture, StepTime } from "@kos/kit";
 
 import type { ChatEvent, PendingAction } from "./api.js";
 import { ArtifactStep, writtenArtifact } from "./ArtifactStep.js";
@@ -67,6 +69,8 @@ export function ToolCall({
   deciding?: ReadonlySet<number>;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  // Reduced motion opens it at once; otherwise it opens to its height, as the kit's drawers do.
+  const still = useReducedMotion() === true;
   // An artifact written is shown as itself, not as the step that wrote it.
   const written = writtenArtifact(event);
   if (written) return <ArtifactStep art={written} />;
@@ -100,19 +104,25 @@ export function ToolCall({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="toolcall-caret">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+        <span className={`toolcall-caret${open ? " is-open" : ""}`}>
+          <ChevronRight size={12} />
+        </span>
         <code className="toolcall-name">{event.name}</code>
         <span className="toolcall-summary">
           <Summary text={event.summary} />
         </span>
-        <span className="toolcall-state">{state}</span>
+        <span className="toolcall-state">
+          <StepTime running={running} startedAt={event.startedAt} ms={event.ms} />
+          {state}
+        </span>
       </button>
+      {event.waitedMs !== undefined && event.waitedMs >= 1_000 && <p className="toolcall-waited">{waitWords(event.waitedMs)}</p>}
 
       {/* What the step saw (the browser's tab, a computer's screen): the
           evidence for what the reply says it read, small until clicked. */}
       {event.frameId !== undefined && (
         <div className="toolcall-frame">
-          <StepPicture src={`/api/frames/${event.frameId}`} />
+          <StepPicture src={`/api/frames/${event.frameId}`} caption={event.summary} at={event.startedAt} />
         </div>
       )}
 
@@ -120,13 +130,20 @@ export function ToolCall({
         <div className="toolcall-approve">
           <PendingAsk ask={ask} deciding={deciding} onDecide={(id, ok, remember) => (remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} bare>
             {/* The page a browser action is aimed at, when there is one. */}
-            {ask.picture && <img className="approval-pic approval-pic--strip" src={`/api/approvals/${ask.id}/picture`} alt="The page this would act on" />}
+            {ask.picture && <StepPicture src={`/api/approvals/${ask.id}/picture`} alt="The page this would act on" caption={ask.title ?? ask.summary ?? ask.tool} />}
           </PendingAsk>
         </div>
       )}
 
-      {open && (
-        <div className="toolcall-body">
+      <AnimatePresence initial={false}>
+        {open && (
+        <m.div
+          className="toolcall-body"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1, transition: still ? { duration: 0 } : { height: spring, opacity: inPlace.enter } }}
+          exit={{ height: 0, opacity: 0, transition: still ? { duration: 0 } : { height: spring, opacity: inPlace.exit } }}
+        >
+          <div className="toolcall-body-inner">
           {mechanics && (
             <div className="toolcall-part">
               <span className="toolcall-label">Steps</span>
@@ -145,8 +162,10 @@ export function ToolCall({
               <pre>{event.result}</pre>
             </div>
           )}
-        </div>
-      )}
+          </div>
+        </m.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

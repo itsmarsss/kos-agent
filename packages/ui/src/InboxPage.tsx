@@ -1,10 +1,11 @@
 import { useEffect, useRef, type ReactElement } from "react";
 
-import { Count, Empty, Tag } from "@kos/kit";
+import { Count, Empty, StepPicture, Tag } from "@kos/kit";
 
 import { api, type FailingJob, type InboxData } from "./api.js";
 import { InboxDecided } from "./InboxDecided.js";
 import { MemoryDecision } from "./MemoryPage.js";
+import { PictureGallery } from "./Lightbox.js";
 import { PageHead } from "./PageHead.js";
 import { PendingAsk } from "./PendingAsk.js";
 import { agoWords as ago } from "./schedulewords.js";
@@ -78,6 +79,7 @@ export function InboxPage({
           <h2 className="inbox-group-title">
             Tool approvals <Count n={approvals.length} />
           </h2>
+          <PictureGallery>
           <ul className="panel-list inbox-box">
             {approvals.map((a) => (
               <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`inbox-approval${a.id === highlight ? " is-highlit" : ""}`}>
@@ -107,11 +109,12 @@ export function InboxPage({
                     ) : undefined
                   }
                 >
-                  {a.picture && <img className="approval-pic" src={`/api/approvals/${a.id}/picture`} alt="The page this would act on" />}
+                  {a.picture && <StepPicture src={`/api/approvals/${a.id}/picture`} alt="The page this would act on" caption={a.title ?? a.summary ?? a.tool} />}
                 </PendingAsk>
               </li>
             ))}
           </ul>
+          </PictureGallery>
         </section>
       )}
 
