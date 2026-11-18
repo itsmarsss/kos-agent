@@ -167,4 +167,19 @@ describe("what a reader who arrives mid-turn is told", () => {
     bus.emit({ kind: "delta", conversationId: "ghost", of: "text", text: "orphan" });
     expect(bus.snapshot()).toEqual([]);
   });
+
+  it("takes secrets out of every event's words before a reader or a late reader sees them", () => {
+    const bus = new ProgressBus((text) => text.replaceAll("sk-live", "[secret k]"));
+    const heard: ProgressEvent[] = [];
+    bus.subscribe((e) => heard.push(e));
+    bus.emit({ kind: "turn-start", conversationId: "c", said: "use sk-live", at: 1 });
+    bus.emit({ kind: "tool-start", conversationId: "c", tool: "http.fetch", summary: "fetch ?k=sk-live", input: { headers: { a: "sk-live" } } });
+    bus.emit({ kind: "tool-end", conversationId: "c", tool: "http.fetch", isError: false, result: "echo sk-live" });
+    bus.emit({ kind: "delta", conversationId: "c", of: "text", text: "it was sk-live" });
+    bus.emit({ kind: "heard", conversationId: "c", said: "and sk-live" });
+    for (const seen of [heard, bus.snapshot()]) {
+      expect(JSON.stringify(seen)).not.toContain("sk-live");
+      expect(JSON.stringify(seen).match(/\[secret k\]/g)).toHaveLength(6);
+    }
+  });
 });

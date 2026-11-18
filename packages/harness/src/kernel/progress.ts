@@ -1,4 +1,5 @@
 import type { MessageOrigin } from "../models/types.js";
+import { scrubDeep } from "../secrets/scrub.js";
 
 /**
  * What a turn is doing, while it does it.
@@ -136,6 +137,28 @@ const MAX_REPLAY_TEXT = 40_000;
 /** How much of a call's input a replayed step keeps: a file being written is words too. */
 const MAX_REPLAY_INPUT = 2_000;
 
+/**
+ * An event with every secret value taken out of the words it carries: what
+ * was said, a step's summary, input and result, and the answer as it streams.
+ * Everything a reader sees and a late reader is replayed passes through here.
+ */
+function scrubbed(event: ProgressEvent, scrub: (text: string) => string): ProgressEvent {
+  switch (event.kind) {
+    case "turn-start":
+    case "heard":
+      return event.said === undefined ? event : { ...event, said: scrub(event.said) };
+    case "tool-start":
+      return { ...event, summary: scrub(event.summary), ...(event.input ? { input: scrubDeep(event.input, scrub) } : {}) };
+    case "tool-end":
+      return event.result === undefined ? event : { ...event, result: scrub(event.result) };
+    case "delta":
+    case "note":
+      return { ...event, text: scrub(event.text) };
+    default:
+      return event;
+  }
+}
+
 /** A step's input as a replay keeps it: whole when small, each long string cut, and none past that. */
 function replayedInput(input: Record<string, unknown>): Record<string, unknown> | undefined {
   if (JSON.stringify(input).length <= MAX_REPLAY_INPUT) return input;
@@ -162,6 +185,9 @@ export class ProgressBus {
   /** Events of the in-flight turn, per conversation. */
   private readonly inFlight = new Map<string, ProgressEvent[]>();
   private readonly textSize = new Map<string, number>();
+
+  /** `scrub` takes secret values out of an event's words before anyone sees or keeps them. */
+  constructor(private readonly scrub: (text: string) => string = (text) => text) {}
 
   subscribe(listener: ProgressListener): () => void {
     this.listeners.add(listener);
@@ -237,7 +263,8 @@ export class ProgressBus {
 
   emit(given: ProgressEvent): void {
     // When a turn began, so a reader joining it later counts from then, not from when it joined.
-    const event = given.kind === "turn-start" && given.at === undefined ? { ...given, at: Date.now() } : given;
+    const stamped = given.kind === "turn-start" && given.at === undefined ? { ...given, at: Date.now() } : given;
+    const event = scrubbed(stamped, this.scrub);
     this.remember(event);
     for (const listener of this.listeners) {
       try {
