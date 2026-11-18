@@ -507,9 +507,9 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .kos-ask-steps--one { padding: 0; }
 .keycap { display: inline-block; min-width: 1.5em; margin: 0 1px; padding: 0 0.35em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-xs); background: var(--panel-2); color: var(--text); font: 500 0.88em/1.45 var(--mono); text-align: center; vertical-align: 0.05em; white-space: nowrap; }
 .kos-ask-risk { display: flex; }
-.tag--warn { gap: 5px; max-width: 100%; border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-dim); color: var(--warn); white-space: normal; }
-.tag--warn svg { flex: none; }
+.tag--warn { max-width: 100%; border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-dim); color: var(--warn); white-space: normal; }
 .kos-ask-meta { margin: 0; color: var(--faint); font-size: var(--text-sm); }
+.kos-ask-meta button { font-size: inherit; }
 .kos-ask-tip { display: block; max-width: 18rem; text-align: left; font-size: var(--text-sm); font-weight: 400; line-height: 1.45; }
 .kos-ask-actions { display: flex; flex-flow: row-reverse wrap; justify-content: flex-start; gap: 6px; margin-top: 6px; }
 .kos-ask-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding-block: 0; white-space: nowrap; }

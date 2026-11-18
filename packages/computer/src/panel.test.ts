@@ -992,10 +992,11 @@ describe("a Chrome's side panel", () => {
       },
     });
     // A step said by its purpose carries its actions, in full, beside the arguments cut to fit.
-    const actions = Array.from({ length: 10 }, (_, i) => ({ action: "type", text: `${i} ${"x".repeat(80)}` }));
+    const actions = Array.from({ length: 10 }, (_, i) => ({ action: "type", text: `${i} ${"x".repeat(400)}` }));
     await panel.requestApproval("owner", { id: "11", text: "x", tool: "computer.act", args: { intent: "Note: just closing the popup", actions }, asker: { name: "Chrome", conversationId: "chrome:owner" } });
     const sent = (chrome.calls.filter((c) => c.method === "chat.ask").at(-1)?.params as { approval: { args: string; mechanics: string } }).approval;
-    expect(sent.args.endsWith("…")).toBe(true);
+    // Still JSON for the card's Details, each long string cut.
+    expect((JSON.parse(sent.args) as { actions: { text: string }[] }).actions[0]!.text).toBe(`0 ${"x".repeat(238)}…`);
     expect(sent.mechanics.split(", type").length).toBe(10);
     expect(sent.mechanics.startsWith("Type “0 xxx")).toBe(true);
     const decided: unknown[] = [];

@@ -122,7 +122,7 @@ const QUOTE_FROM_MAX = 300;
 /** The longest message the panel sends, and how much of the chat it is shown. */
 const MAX_TEXT = 20_000;
 const SHOWN = 200;
-const MAX_ARGS = 600;
+const MAX_ARGS = 4_000;
 /** How many waiting asks a glance carries. */
 const GLANCE_ASKS = 10;
 /** How many of the newest step pictures ride with the chat as it is drawn; older ones come from the device's own cache, or not at all. */
@@ -917,9 +917,32 @@ function glanceAsks(asks: Glance["asks"]): Record<string, unknown>[] {
     .map((a) => ({ ...(a.chat ? { chat: a.chat } : {}), approval: approvalOf(a.request) }));
 }
 
+/** A string in the arguments past this is cut, so the card's Details still read them as fields. */
+const MAX_ARG_STRING = 240;
+
+/** Each long string in a value cut to fit, the value's shape kept. */
+function cutStrings(v: unknown): unknown {
+  if (typeof v === "string") return v.length > MAX_ARG_STRING ? `${v.slice(0, MAX_ARG_STRING)}…` : v;
+  if (Array.isArray(v)) return v.map(cutStrings);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cutStrings(x)]));
+  return v;
+}
+
+/**
+ * The arguments as the panel's Details show them: still JSON, each long
+ * string cut, so they read as fields; cut as text only past that.
+ */
 function argsText(args: ApprovalRequest["args"]): string {
   if (args === undefined) return "";
-  const text = typeof args === "string" ? args : JSON.stringify(args);
+  let value: unknown = args;
+  if (typeof args === "string") {
+    try {
+      value = JSON.parse(args) as unknown;
+    } catch {
+      value = undefined;
+    }
+  }
+  const text = value === undefined ? String(args) : JSON.stringify(cutStrings(value));
   return text.length > MAX_ARGS ? `${text.slice(0, MAX_ARGS)}…` : text;
 }
 

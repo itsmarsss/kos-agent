@@ -2,7 +2,7 @@ import { useEffect, useState, type KeyboardEvent, type ReactElement, type ReactN
 
 import type { AskView, StepLine } from "@kos/shared";
 
-import { AlertIcon, CheckIcon, ChevronDown, ChevronRight, CopyIcon, GlobeIcon, MailIcon, PageIcon, ServerIcon, WindowIcon } from "./icons.js";
+import { CheckIcon, ChevronDown, ChevronRight, CopyIcon, GlobeIcon, MailIcon, PageIcon, ServerIcon, WindowIcon } from "./icons.js";
 import { Collapse, Countdown, Tag } from "./kit.js";
 import { useOverlayScroll } from "./OverlayScroll.js";
 import { Tooltip } from "./Tooltip.js";
@@ -105,10 +105,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       {view.steps && <AskStepList steps={view.steps} />}
       {view.risk && (
         <span className="kos-ask-risk">
-          <Tag tone="warn">
-            <AlertIcon size={12} title="" />
-            {view.risk}
-          </Tag>
+          <Tag tone="warn">{view.risk}</Tag>
         </span>
       )}
       {children}
@@ -272,7 +269,7 @@ function LongText({ text }: { text: string }): ReactElement {
     <span className="ask-value">
       {long && !all ? `${text.slice(0, LONG)}…` : text}
       {long && (
-        <button type="button" className="link ask-value-more" onClick={() => setAll((v) => !v)}>
+        <button type="button" className="ask-value-more" onClick={() => setAll((v) => !v)}>
           {all ? "Show less" : "Show all"}
         </button>
       )}
