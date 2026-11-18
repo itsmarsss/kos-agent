@@ -682,7 +682,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await devtools.evaluate(panel, "document.querySelector('.send')?.getAttribute('aria-label')")).toBe("Stop");
     await devtools.evaluate(panel, "document.querySelector('.send--stop').click()");
     await until(() => events.some((e) => e.name === "chat.stop"));
-    expect(events.find((e) => e.name === "chat.stop")?.data).toEqual({ chat: "chrome:owner" });
+    expect(events.find((e) => e.name === "chat.stop")?.data).toMatchObject({ chat: "chrome:owner", waited: expect.any(Number) });
     // Another chat's status, from a turn the owner moved away from, is not drawn here.
     expect(await call("chat.status", { chat: "cm1:owner", conversation: "cm1:owner", said: "elsewhere", story: "› Not here" })).toMatchObject({ ok: true });
     await until(() => false, 200);
