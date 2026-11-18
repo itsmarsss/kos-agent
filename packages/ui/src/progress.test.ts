@@ -61,6 +61,16 @@ describe("progress handover", () => {
     expect(result.current["c1"]).toMatchObject({ said: "and the red one", pendingId: 9 });
   });
 
+  it("counts a turn from when the host says it began, so a replay after a reconnect keeps its clock", () => {
+    const { result } = renderHook(() => useProgress());
+    const began = Date.now() - 90_000;
+    deliver({ kind: "turn-start", conversationId: "c1", at: began });
+    expect(result.current["c1"]?.since).toBe(began);
+    // A clock ahead of this page's never starts the turn in the future.
+    deliver({ kind: "turn-start", conversationId: "c1", at: Date.now() + 60_000 });
+    expect(result.current["c1"]!.since).toBeLessThanOrEqual(Date.now());
+  });
+
   it("puts a step's picture on the latest step of its tool, as the transcript will", () => {
     const { result } = renderHook(() => useProgress());
     deliver({ kind: "turn-start", conversationId: "c1" });

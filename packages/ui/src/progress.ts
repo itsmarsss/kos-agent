@@ -15,7 +15,7 @@ import { socket } from "./socket.js";
  */
 
 export type ProgressEvent =
-  | { kind: "turn-start"; conversationId: string; said?: string; from?: string; origin?: MessageOrigin; files?: { name: string; path: string }[]; pendingId?: number }
+  | { kind: "turn-start"; conversationId: string; said?: string; from?: string; origin?: MessageOrigin; files?: { name: string; path: string }[]; pendingId?: number; at?: number }
   | {
       kind: "tool-start";
       conversationId: string;
@@ -290,7 +290,8 @@ class ProgressStore {
           [id]: {
             steps: [],
             text: "",
-            since: Date.now(),
+            // When the host says it began: a reconnect replays the turn, and its clock keeps counting from there.
+            since: Math.min(Date.now(), event.at ?? Date.now()),
             ...(event.pendingId !== undefined ? { pendingId: event.pendingId } : {}),
             ...(event.said
               ? { said: event.said, ...(event.from ? { from: event.from } : {}), ...(event.origin ? { origin: event.origin } : {}), ...(event.files?.length ? { files: event.files } : {}) }

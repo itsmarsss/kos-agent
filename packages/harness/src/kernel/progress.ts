@@ -37,6 +37,8 @@ export type ProgressEvent =
       from?: string;
       /** The waiting row those words were, when they waited behind another turn. */
       pendingId?: number;
+      /** When it began, epoch ms; stamped by the bus when the sender leaves it out. */
+      at?: number;
     }
   | {
       kind: "tool-start";
@@ -118,13 +120,10 @@ export type ProgressEvent =
 export type ProgressListener = (event: ProgressEvent) => void;
 
 /**
- * How much of one turn is kept so a reader arriving late can catch up.
- *
- * A turn is a few dozen events. The cap is a backstop against a runaway loop
- * filling memory, not an expected limit.
+ * How much of a turn's streamed words are kept so a reader arriving late can
+ * catch up. Reasoning arrives as many small deltas; each run of them is kept
+ * as one entry, and past this the oldest words go first.
  */
-const MAX_REPLAY_EVENTS = 400;
-/** Reasoning arrives as many small deltas; this bounds the text kept per turn. */
 const MAX_REPLAY_TEXT = 40_000;
 
 /**
@@ -135,6 +134,9 @@ const MAX_REPLAY_TEXT = 40_000;
  * gone, and the page showed a spinner over an empty space until the turn
  * happened to finish. What is kept is only the turn in progress, discarded
  * when it ends, because from that point the transcript is the record.
+ *
+ * Every step is kept: a cap on events, filled by deltas within a few steps,
+ * replayed a long turn as its first few steps alone. Only words are capped.
  */
 export class ProgressBus {
   private readonly listeners = new Set<ProgressListener>();
@@ -176,16 +178,41 @@ export class ProgressBus {
     }
     const kept = this.inFlight.get(id);
     if (!kept) return;
-    if (kept.length >= MAX_REPLAY_EVENTS) return;
-    if (event.kind === "delta") {
-      const size = (this.textSize.get(id) ?? 0) + event.text.length;
-      if (size > MAX_REPLAY_TEXT) return;
-      this.textSize.set(id, size);
+    if (event.kind !== "delta") {
+      kept.push(event);
+      return;
     }
-    kept.push(event);
+    // A run of words between two steps is one entry, as a reader draws it.
+    const last = kept.at(-1);
+    if (last?.kind === "delta" && last.of === event.of) kept[kept.length - 1] = { ...last, text: last.text + event.text };
+    else kept.push({ ...event });
+    const size = (this.textSize.get(id) ?? 0) + event.text.length;
+    this.textSize.set(id, size - this.forget(kept, size - MAX_REPLAY_TEXT));
   }
 
-  emit(event: ProgressEvent): void {
+  /** The oldest words of a turn, up to `over` characters, gone; how many went. */
+  private forget(kept: ProgressEvent[], over: number): number {
+    let gone = 0;
+    for (let i = 0; i < kept.length && gone < over; ) {
+      const e = kept[i]!;
+      if (e.kind !== "delta") {
+        i += 1;
+        continue;
+      }
+      const cut = Math.min(e.text.length, over - gone);
+      gone += cut;
+      if (cut === e.text.length) kept.splice(i, 1);
+      else {
+        kept[i] = { ...e, text: e.text.slice(cut) };
+        i += 1;
+      }
+    }
+    return gone;
+  }
+
+  emit(given: ProgressEvent): void {
+    // When a turn began, so a reader joining it later counts from then, not from when it joined.
+    const event = given.kind === "turn-start" && given.at === undefined ? { ...given, at: Date.now() } : given;
     this.remember(event);
     for (const listener of this.listeners) {
       try {
