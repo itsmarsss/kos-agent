@@ -391,7 +391,7 @@ export function App(): React.ReactElement {
       // The server's own line when there is one: it says when the chat is
       // held for another decision still waiting.
       // Asked to remember one that keeps nothing: said, and never called remembered.
-      const kept = remember && res.remembered !== false;
+      const kept = remember && !("remembered" in res && res.remembered === false);
       flash("ok", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
       await refresh();
     } catch (err) {
