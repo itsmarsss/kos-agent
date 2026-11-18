@@ -29,18 +29,27 @@ public final class ChatModel: ObservableObject {
     }
   }
 
-  /// A step's picture as the thread draws it: one frame id is one picture for good, so it is the same by its id.
+  /// A step's picture as the thread draws it: one frame id is one picture for good on its KOS, so it is the same by
+  /// the KOS and the id.
   public struct Picture: Equatable, Sendable {
     public let id: Int
     public let data: Data
+    /// The KOS it came from, by its pairing's device id; empty where there is one.
+    public let source: String
 
-    public init(id: Int, data: Data) {
+    public init(id: Int, data: Data, source: String = "") {
       self.id = id
       self.data = data
+      self.source = source
     }
 
-    public static func == (a: Picture, b: Picture) -> Bool { a.id == b.id }
+    public var key: Thumbnails.Key { Thumbnails.Key(source: source, id: id) }
+
+    public static func == (a: Picture, b: Picture) -> Bool { a.key == b.key }
   }
+
+  /// The KOS this chat's pictures come from, by its pairing's device id: their frame ids are that KOS's.
+  public var source = ""
 
   /// How many step pictures the window keeps; the oldest go first.
   public static let picturesKept = 40
@@ -469,7 +478,7 @@ public final class ChatModel: ObservableObject {
 
   /// The pictures of these frame ids that the window has, in order.
   public func picturesOf(_ frames: [Int?]) -> [Picture] {
-    frames.compactMap { id in id.flatMap { id in pictures[id].map { Picture(id: id, data: $0) } } }
+    frames.compactMap { id in id.flatMap { id in pictures[id].map { Picture(id: id, data: $0, source: source) } } }
   }
 
   @discardableResult
@@ -562,8 +571,9 @@ public final class ChatModel: ObservableObject {
     self.models = error == nil ? models : self.models
   }
 
-  /// Another KOS: nothing of the last one's chat stays.
+  /// Another KOS: nothing of the last one's chat stays, its pictures included.
   public func reset() {
+    Thumbnails.shared.clear()
     silent = false
     conversation = nil
     upcoming = nil

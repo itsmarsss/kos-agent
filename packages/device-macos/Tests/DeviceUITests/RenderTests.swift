@@ -167,7 +167,7 @@ struct RenderTests {
     model.status(taken: false, story: .some("› Open the engagement form (done)\n› Type the student number (done)"), error: nil, said: "Now fill in the engagement form", conversation: "mac:owner")
     for id in [2, 3, 4] { model.frame(id, image: shots[id]!, said: "Now fill in the engagement form", conversation: "mac:owner") }
     // Decoded before the picture is drawn, as the window would have them by the time they show.
-    for (id, data) in model.pictures { _ = await Thumbnails.shared.image(id, from: data) }
+    for (id, data) in model.pictures { _ = await Thumbnails.shared.image(.init(id: id), from: data) }
     #expect(model.foot == "Thinking")
     let size = try render("chat-window-mid-turn", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
     #expect(size.height == ChatView.size.height)

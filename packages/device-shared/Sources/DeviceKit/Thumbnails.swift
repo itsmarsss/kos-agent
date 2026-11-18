@@ -5,9 +5,20 @@ import ImageIO
 /// Each step's picture decoded once, by its frame id, downsampled to what a
 /// chat draws: off the main actor, which also drives computer use, and never
 /// again while the thread is redrawn as a turn goes. A frame id is one
-/// picture for good, so the id alone keys it.
+/// picture for good on the KOS that kept it, so the KOS and the id key it.
 public final class Thumbnails: @unchecked Sendable {
   public static let shared = Thumbnails()
+
+  /// A picture: the KOS it came from (its pairing's device id, empty when there is only one) and its frame id there.
+  public struct Key: Hashable, Sendable {
+    public let source: String
+    public let id: Int
+
+    public init(source: String = "", id: Int) {
+      self.source = source
+      self.id = id
+    }
+  }
 
   /// The longest edge kept, in pixels: a picture opened full width in a chat window at 2x.
   public static let longestEdge = 900
@@ -15,25 +26,33 @@ public final class Thumbnails: @unchecked Sendable {
   public static let kept = 48
 
   private let lock = NSLock()
-  private var images: [Int: CGImage] = [:]
-  private var order: [Int] = []
+  private var images: [Key: CGImage] = [:]
+  private var order: [Key] = []
 
   public init() {}
 
   /// The picture, when it has been decoded.
-  public func cached(_ id: Int) -> CGImage? {
-    lock.withLock { images[id] }
+  public func cached(_ key: Key) -> CGImage? {
+    lock.withLock { images[key] }
   }
 
-  /// The picture of `id`, decoded from `data` off the caller's actor the first time it is asked for.
-  public func image(_ id: Int, from data: Data) async -> CGImage? {
-    if let done = cached(id) { return done }
+  /// Nothing kept: another KOS's frame ids are not this one's.
+  public func clear() {
+    lock.withLock {
+      images = [:]
+      order = []
+    }
+  }
+
+  /// The picture of `key`, decoded from `data` off the caller's actor the first time it is asked for.
+  public func image(_ key: Key, from data: Data) async -> CGImage? {
+    if let done = cached(key) { return done }
     let made = await Task.detached(priority: .userInitiated) { Self.decode(data) }.value
     guard let made else { return nil }
     return lock.withLock {
-      if let raced = images[id] { return raced }
-      images[id] = made
-      order.append(id)
+      if let raced = images[key] { return raced }
+      images[key] = made
+      order.append(key)
       while order.count > Self.kept { images[order.removeFirst()] = nil }
       return made
     }

@@ -25,23 +25,46 @@ struct ThumbnailsTests {
   @Test func decodesOnceDownsampledAndKeepsItByItsFrameId() async throws {
     let thumbnails = Thumbnails()
     let data = try png(width: 2464, height: 1600)
-    #expect(thumbnails.cached(7) == nil)
-    let first = try #require(await thumbnails.image(7, from: data))
+    #expect(thumbnails.cached(.init(id: 7)) == nil)
+    let first = try #require(await thumbnails.image(.init(id: 7), from: data))
     #expect(max(first.width, first.height) == Thumbnails.longestEdge)
     #expect(first.width > first.height)
     // Asked again, by its id, it is the one already made, whatever is passed.
-    let again = await thumbnails.image(7, from: Data())
+    let again = await thumbnails.image(.init(id: 7), from: Data())
     #expect(again === first)
-    #expect(thumbnails.cached(7) === first)
+    #expect(thumbnails.cached(.init(id: 7)) === first)
     // Bytes that are no picture make none.
-    #expect(await thumbnails.image(8, from: Data("not a picture".utf8)) == nil)
+    #expect(await thumbnails.image(.init(id: 8), from: Data("not a picture".utf8)) == nil)
   }
 
   @Test func keepsTheNewestAlone() async throws {
     let thumbnails = Thumbnails()
     let data = try png(width: 40, height: 30)
-    for id in 0..<(Thumbnails.kept + 2) { _ = await thumbnails.image(id, from: data) }
-    #expect(thumbnails.cached(0) == nil && thumbnails.cached(1) == nil)
-    #expect(thumbnails.cached(Thumbnails.kept + 1) != nil)
+    for id in 0..<(Thumbnails.kept + 2) { _ = await thumbnails.image(.init(id: id), from: data) }
+    #expect(thumbnails.cached(.init(id: 0)) == nil && thumbnails.cached(.init(id: 1)) == nil)
+    #expect(thumbnails.cached(.init(id: Thumbnails.kept + 1)) != nil)
+  }
+
+  @Test func keepsEachKOSsPicturesApartAndForgetsThemOnAChange() async throws {
+    let thumbnails = Thumbnails()
+    let data = try png(width: 40, height: 30)
+    _ = await thumbnails.image(.init(source: "home", id: 3), from: data)
+    #expect(thumbnails.cached(.init(source: "home", id: 3)) != nil)
+    #expect(thumbnails.cached(.init(source: "work", id: 3)) == nil)
+    thumbnails.clear()
+    #expect(thumbnails.cached(.init(source: "home", id: 3)) == nil)
+  }
+
+  /// A picture view handed another picture shows that one's, never the one it decoded before.
+  @MainActor @Test func aPictureViewShowsOnlyItsOwnPicture() async throws {
+    let thumbnails = Thumbnails()
+    let data = try png(width: 40, height: 30)
+    let first = ChatModel.Picture(id: 1, data: data, source: "home")
+    let second = ChatModel.Picture(id: 2, data: data, source: "home")
+    let made = try #require(await thumbnails.image(first.key, from: data))
+    #expect(StepPicture.shown(first, made: (first.key, made), from: thumbnails) === made)
+    #expect(StepPicture.shown(second, made: (first.key, made), from: thumbnails) == nil)
+    // The same frame id from another KOS is another picture.
+    #expect(ChatModel.Picture(id: 1, data: data, source: "work") != first)
   }
 }

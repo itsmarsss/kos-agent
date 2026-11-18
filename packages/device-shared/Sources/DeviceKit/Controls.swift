@@ -188,7 +188,8 @@ public struct StepPicture: View {
   private let picture: ChatModel.Picture
   private let open: Bool
   private let press: () -> Void
-  @State private var image: CGImage?
+  /// The picture decoded, with its key: a view handed another picture never shows the last one's.
+  @State private var made: (key: Thumbnails.Key, image: CGImage)?
 
   public init(_ picture: ChatModel.Picture, open: Bool = false, press: @escaping () -> Void = {}) {
     self.picture = picture
@@ -197,7 +198,7 @@ public struct StepPicture: View {
   }
 
   public var body: some View {
-    let shown = image ?? Thumbnails.shared.cached(picture.id)
+    let shown = Self.shown(picture, made: made)
     Group {
       if let shown {
         Button(action: press) {
@@ -216,9 +217,15 @@ public struct StepPicture: View {
           .frame(width: Self.small, height: Self.small * 0.62)
       }
     }
-    .task(id: picture.id) {
-      if image == nil { image = await Thumbnails.shared.image(picture.id, from: picture.data) }
+    .task(id: picture.key) {
+      guard made?.key != picture.key, let image = await Thumbnails.shared.image(picture.key, from: picture.data) else { return }
+      made = (picture.key, image)
     }
+  }
+
+  /// What a picture shows: the one decoded for it here, else the one decoded for it anywhere, else nothing yet.
+  static func shown(_ picture: ChatModel.Picture, made: (key: Thumbnails.Key, image: CGImage)?, from thumbnails: Thumbnails = .shared) -> CGImage? {
+    made?.key == picture.key ? made?.image : thumbnails.cached(picture.key)
   }
 }
 
