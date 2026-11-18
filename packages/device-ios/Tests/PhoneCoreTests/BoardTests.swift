@@ -77,6 +77,12 @@ struct InboxTests {
     #expect(inbox.waiting.value?.failures.first?.label == "Nightly backup")
     #expect(inbox.decided.map(\.id) == [40] && inbox.counts?.approved == 12 && !inbox.more)
     #expect(inbox.waiting.value?.approvals.first?.always == "Always in notes")
+    #expect(inbox.decided.first?.byAuto == false)
+  }
+
+  @Test func saysWhatAChatsAutoLetThrough() throws {
+    let row = #"{"id":9,"tool":"files.rm","status":"approved","summary":"Delete a.txt","decidedAt":2,"requestedAt":1,"decidedBy":"auto mode"}"#
+    #expect(try JSONDecoder().decode(Routes.Decided.self, from: Data(row.utf8)).byAuto)
   }
 
   @Test func holdsTheDecidedToAnOutcomeAndWordsAndReadsOnAfterTheLastRow() async throws {

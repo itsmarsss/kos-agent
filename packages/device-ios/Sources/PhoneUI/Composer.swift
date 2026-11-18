@@ -1,3 +1,4 @@
+import DeviceCore
 import DeviceKit
 import PhoneCore
 import SwiftUI
@@ -11,12 +12,22 @@ import SwiftUI
 /// Three controls, one height: attach took speak replies' place rather than
 /// a fourth button, which at 390 points left the field too narrow to read
 /// what was typed. Speak replies is in the settings sheet, where it was too.
+/// The chat's mode is a line of its own over them for the same reason: its
+/// chip cycles Ask and Auto, and its chevron opens the mode's sheet.
 struct Composer: View {
   @ObservedObject var chat: ChatModel
   @ObservedObject var voice: VoiceModel
   @ObservedObject var tray: AttachmentTray
   @FocusState private var typing: Bool
   @State private var picking: Picking.Source?
+  @State private var modeSheet: Bool
+
+  init(chat: ChatModel, voice: VoiceModel, tray: AttachmentTray, modeSheet: Bool = false) {
+    self.chat = chat
+    self.voice = voice
+    self.tray = tray
+    _modeSheet = State(initialValue: modeSheet)
+  }
   @Environment(\.accessibilityReduceMotion) private var still
 
   /// The row's one height, every control in it: a thumb's, and then some.
@@ -36,6 +47,7 @@ struct Composer: View {
       if !tray.files.isEmpty {
         AttachmentStrip(files: tray.files, remove: tray.remove)
       }
+      ModeChip(mode: chat.mode, open: modeSheet, keys: false, height: Self.modeHeight, cycle: { chat.cycleMode() }, menu: { modeSheet = true })
       HStack(alignment: .bottom, spacing: 10) {
         side
         field
@@ -52,7 +64,11 @@ struct Composer: View {
     .animation(still ? nil : Theme.spring, value: voice.state)
     .animation(still ? nil : Theme.spring, value: tray.files)
     .modifier(Picking(source: $picking, tray: tray))
+    .sheet(isPresented: $modeSheet) { ModeSheet(chat: chat) }
   }
+
+  /// The mode's line: a chip a thumb can press, under the row's own height.
+  static let modeHeight: CGFloat = 34
 
   /// Attach, or, listening, the cross that drops what was heard.
   @ViewBuilder
@@ -99,6 +115,12 @@ struct Composer: View {
           .focused($typing)
           .submitLabel(.send)
           .onSubmit(sendDraft)
+          // A keyboard's Shift+Tab cycles the mode, as on the dashboard and the Mac.
+          .onKeyPress(keys: [.tab]) { press in
+            guard press.modifiers.contains(.shift) else { return .ignored }
+            chat.cycleMode()
+            return .handled
+          }
           .overlay(alignment: .leading) {
             if chat.draft.isEmpty {
               Text("Message KOS").font(.kos(.body)).foregroundStyle(Theme.faint).allowsHitTesting(false)
@@ -218,5 +240,37 @@ private struct Listening: View {
   static func height(at t: Double, bar: Int, live: Bool) -> CGFloat {
     guard live else { return [10, 16, 10][bar] }
     return 6 + 14 * abs(sin(t * 5 + Double(bar) * 1.1))
+  }
+}
+
+/// The mode chip's sheet: the shared menu under a head, as tall as it needs.
+struct ModeSheet: View {
+  @ObservedObject var chat: ChatModel
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack {
+        Text("This chat's mode").font(.kos(.title, .semibold)).foregroundStyle(Theme.text)
+        Spacer()
+        Button("Done") { dismiss() }.buttonStyle(.plain).font(.kos(.body, .semibold)).foregroundStyle(Theme.accent)
+      }
+      .padding(.horizontal, Theme.gutter)
+      .padding(.top, 20)
+      .padding(.bottom, 12)
+      ScrollView {
+        ModeMenu(mode: chat.mode) { mode in
+          // A mode or a span picked is done with; the sessions switch is not.
+          let onlySessions = mode.mode == chat.mode.mode && mode.until == chat.mode.until
+          chat.choose(mode)
+          if !onlySessions { dismiss() }
+        }
+        .padding(.horizontal, Theme.gutter)
+        .padding(.bottom, 20)
+      }
+    }
+    .background(Theme.bg)
+    .presentationDetents([.medium, .large])
+    .presentationDragIndicator(.visible)
   }
 }

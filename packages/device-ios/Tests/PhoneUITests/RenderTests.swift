@@ -137,6 +137,23 @@ struct RenderTests {
     try render("chat") { Tabbed { ChatScreen(phone: phone) } }
   }
 
+  /// The chat's mode over the box: Ask, Auto, Auto counting down while a turn runs, and the mode's sheet in each mode.
+  @Test func theChatsMode() throws {
+    let phone = Phone.preview()
+    conversation(phone)
+    let lines = phone.chat.lines
+    try render("phone-ask", only: ["390"]) { Tabbed { ChatScreen(phone: phone) } }
+    phone.chat.show(conversation: "phone:owner", title: "Saturday plans", lines: lines, mode: ChatMode(.auto))
+    try render("phone-auto", only: ["390"]) { Tabbed { ChatScreen(phone: phone) } }
+    phone.chat.show(conversation: "phone:owner", title: "Saturday plans", lines: lines, mode: ChatMode(.auto, until: .at(Date().addingTimeInterval(7 * 3600 + 40 * 60 + 20))))
+    phone.chat.say("Book it for Sunday then")
+    try render("phone-auto-timed-working", only: ["390"]) { Tabbed { ChatScreen(phone: phone) } }
+    phone.chat.show(conversation: "phone:owner", title: "Saturday plans", lines: lines)
+    try render("phone-menu-ask", only: ["390"]) { ModeSheet(chat: phone.chat) }
+    phone.chat.show(conversation: "phone:owner", title: "Saturday plans", lines: lines, mode: ChatMode(.auto, until: .task, sessions: true))
+    try render("phone-menu-auto", only: ["390"]) { ModeSheet(chat: phone.chat) }
+  }
+
   @Test func aTurnStreamingWithStop() throws {
     let phone = Phone.preview()
     conversation(phone)

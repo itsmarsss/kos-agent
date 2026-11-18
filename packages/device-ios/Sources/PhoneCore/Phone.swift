@@ -331,6 +331,7 @@ public final class Phone: ObservableObject {
     chat.list = { [weak self] in self?.tell(.list) }
     chat.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
     chat.askMentions = { [weak self] q in self?.tell(.mentions(q)) }
+    chat.setMode = { [weak self] mode in self?.tell(.mode(mode)) }
     chat.stop = { [weak self] in
       self?.reader.stop()
       self?.tell(.stop)
