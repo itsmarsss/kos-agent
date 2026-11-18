@@ -391,6 +391,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       // the environment, so saving in Settings takes effect on the next
       // call rather than the next restart.
       allowedHosts: options.allowedHosts ?? [],
+      ...(options.ownHosts ? { ownHosts: options.ownHosts } : {}),
     }),
     createSearchModule({ events, embedder }),
     createShellModule(),

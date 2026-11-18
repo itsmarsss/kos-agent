@@ -1,9 +1,12 @@
+import { Agent, fetch as undiciFetch } from "undici";
+
 import { officeKindOf, officeNote, officeText } from "../files/office.js";
 import { pdfText } from "../files/pdftext.js";
 import { injectSecrets, injectSecretsInString } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { KosModule } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { guardedLookup, refusedUrl } from "./egress.js";
 
 export type FetchImpl = typeof fetch;
 
@@ -19,9 +22,23 @@ export interface HttpModuleOptions {
   timeoutMs?: number;
   /** Response body cap in bytes. */
   maxBytes?: number;
-  /** Injectable for tests; defaults to global fetch. */
+  /** Injectable for tests; defaults to a fetch whose connections refuse this machine and its local network. */
   fetchImpl?: FetchImpl;
+  /** KOS's own hosts as they are reached (host, or host:port): never fetched, whatever they resolve to. */
+  ownHosts?: () => string[];
 }
+
+/** Redirects followed, each checked as the first request was. */
+const MAX_REDIRECTS = 5;
+
+/**
+ * The platform's fetch, held to the public internet: every connection's
+ * address is checked as it is made, so a name that resolves to this machine
+ * or its network (KOS's own API on loopback above all) is refused, however
+ * it got there.
+ */
+const publicAgent = new Agent({ connect: { lookup: guardedLookup } });
+const publicFetch: FetchImpl = (input, init) => undiciFetch(input as string, { ...(init as object), dispatcher: publicAgent } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 1_000_000;
@@ -59,7 +76,7 @@ function hostOf(url: string): string | undefined {
 
 async function doFetch(
   input: Record<string, unknown>,
-  opts: Required<Omit<HttpModuleOptions, "allowedHosts">>,
+  opts: Required<Omit<HttpModuleOptions, "allowedHosts" | "ownHosts">> & { own: () => string[] },
   secrets: SecretsRegistry,
 ): Promise<string> {
   const rawUrl = input.url;
@@ -83,12 +100,19 @@ async function doFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
-    const res = await opts.fetchImpl(url, {
-      method,
-      headers,
-      body,
-      signal: controller.signal,
-    });
+    // Followed by hand, so each hop is checked: a public page that redirects to loopback reaches nothing.
+    let at = url;
+    let res: Response | undefined;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const refused = refusedUrl(at, opts.own());
+      if (refused) throw new Error(refused);
+      res = await opts.fetchImpl(at, { method: hop === 0 ? method : "GET", headers, ...(hop === 0 && body !== undefined ? { body } : {}), redirect: "manual", signal: controller.signal });
+      const next = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+      if (!next) break;
+      if (hop === MAX_REDIRECTS) throw new Error(`more than ${MAX_REDIRECTS} redirects from ${rawUrl}`);
+      at = new URL(next, at).toString();
+    }
+    if (!res) throw new Error(`no answer from ${rawUrl}`);
     // A PDF comes back as its words, not its bytes: a paper or a bill at a
     // url is as ordinary a thing to read as a page.
     const text = await bodyText(res);
@@ -121,7 +145,8 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
   const resolved = {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
-    fetchImpl: options.fetchImpl ?? fetch,
+    fetchImpl: options.fetchImpl ?? publicFetch,
+    own: options.ownHosts ?? (() => []),
   };
 
   return {

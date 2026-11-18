@@ -178,6 +178,15 @@ export function surfaceUp(surfaces: Map<string, () => ChannelAdapter | undefined
 }
 
 /** The dashboard as Discord links to it: KOS_PUBLIC_URL when set, this host otherwise. */
+/** The host a public url reaches KOS on, for the agent's fetches to keep away from. */
+function publicHostsOf(url: string | undefined): string[] {
+  try {
+    return url ? [new URL(url).host] : [];
+  } catch {
+    return [];
+  }
+}
+
 export function dashboardUrlFor(host: string, port: number): string {
   return process.env.KOS_PUBLIC_URL?.trim() || `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`;
 }
@@ -589,6 +598,8 @@ export async function runHost(options: HostOptions): Promise<void> {
   const kernel = await Kernel.boot({
     rootDir: options.rootDir,
     allowedHosts: options.allowedHosts,
+    // KOS's own address, however it is reached: the agent's fetches never come back to its API.
+    ownHosts: () => [`${options.host}:${options.port}`, ...publicHostsOf(process.env.KOS_PUBLIC_URL)],
     ...(Number.isInteger(browserPort) && browserPort > 0 && browserPort < 65_536 ? { chrome: { port: browserPort } } : {}),
     extraModules: [computer.module],
     features: [{ name: "computer", description: "Use a paired computer: its screen, pointer and keyboard" }],

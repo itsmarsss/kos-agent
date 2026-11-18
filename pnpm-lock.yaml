@@ -170,6 +170,9 @@ importers:
       sqlite-vec:
         specifier: ^0.1.9
         version: 0.1.9
+      undici:
+        specifier: ^7.28.0
+        version: 7.28.0
       utif2:
         specifier: ^4.1.0
         version: 4.1.0

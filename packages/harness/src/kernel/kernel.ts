@@ -176,6 +176,8 @@ export interface KernelOptions {
   /** Hosts the http.fetch tool may reach. */
   /** A function is re-read per call, so a host added in Settings works now. */
   allowedHosts?: string[] | (() => string[]);
+  /** KOS's own hosts as they are reached (host, or host:port): http.fetch never reaches them. */
+  ownHosts?: () => string[];
   profileOverrides?: Partial<Profile>;
   system?: string;
   /** Notified when a risky action is queued (e.g. to render Discord buttons). */
