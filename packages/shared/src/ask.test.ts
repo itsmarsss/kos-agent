@@ -96,7 +96,9 @@ describe("an ask, as a card lays it out", () => {
       rule: { tool: "browser.*", scope: "your-chrome:docs.google.com", project: null },
       yours: true,
     });
-    expect(view.title).toBe("Zoom the browser out so more of the document fits per screen");
+    // Titled by what it acts on; the model's account of it is its words, apart.
+    expect(view.title).toBe("Act on the page");
+    expect(view.said).toBe("Zoom the browser out so more of the document fits per screen");
     expect(view.place).toBe("In your Chrome on docs.google.com");
     expect(text(view.steps)).toEqual(["Press ⌘− 4 times, then ⌘Home"]);
     expect(view.risk).toBe("Clicks, types or fills on the page");
@@ -105,15 +107,16 @@ describe("an ask, as a card lays it out", () => {
     expect(view.alwaysTip).toMatch(/Settings, Permissions/);
   });
 
-  it("titles a run with no purpose by where it acts, and one action by itself", () => {
+  it("titles a run of actions by what it acts on, with or without a purpose said", () => {
     const run = askView({ tool: "computer.act", args: { actions: [{ action: "left_click" }, { action: "type", text: "hi" }] } });
     expect(run.title).toBe("Use your Mac");
     expect(text(run.steps)).toEqual(["Click", "Type “hi”"]);
     // A shell command's folder is its place, not its title.
     expect(askView({ tool: "shell.run", args: { command: "make", cwd: "projects/kos" } }).title).toBe("Run: make");
     const one = askView({ tool: "computer.act", args: { action: "key", text: "cmd+q" } });
-    expect(one.title).toBe("Press ⌘Q");
-    expect(one.steps).toBeUndefined();
+    expect(one.title).toBe("Use your Mac");
+    expect(text(one.steps)).toEqual(["Press ⌘Q"]);
+    expect(one.said).toBeUndefined();
   });
 
   it("offers no Always for a call that places a secret, and says why", () => {

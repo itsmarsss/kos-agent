@@ -6,6 +6,7 @@
  */
 
 import { actionSteps, summarizeAction, type ActionNames, type StepLine } from "./format-action.js";
+import { showInvisible } from "./invisible.js";
 import { hasSecretRef } from "./secretref.js";
 import type { KeyPlatform } from "./keys.js";
 
@@ -23,8 +24,10 @@ export interface AskPlace {
 
 /** An ask, as a card lays it out. */
 export interface AskView {
-  /** What KOS wants to do, its ids named: the card's title. */
+  /** What the call does, its ids named: one action, or what a run of them acts on. The card's title. */
   title: string;
+  /** What the model said the step is for, in its own words: shown as KOS's, smaller than what the step does. */
+  said?: string;
   /** Where: "In your Chrome on docs.google.com". */
   place?: string;
   /** Each action it takes, for a run of actions, keys as caps. */
@@ -227,15 +230,18 @@ export function askView(input: AskInput): AskView {
   const lines = actionSteps(tool, args, platform);
   // A run of actions with no purpose said is titled by what it acts on and
   // listed in full; one action alone is its own title.
-  const intent = a.intent;
-  const said = typeof intent === "string" && intent.trim() !== "";
-  const steps = lines && (said || lines.length > 1) ? lines : undefined;
+  // The model's account of a step is its words, said apart and quieter: the
+  // card is titled by what the call does, which is what a yes is given for.
+  const intent = typeof a.intent === "string" ? a.intent.replace(/\s+/g, " ").trim() : "";
+  // A run of actions is listed whole, the most prominent thing on the card, under a title saying what it acts on.
+  const steps = lines;
   // A shell command's folder is its place line, so its title is the command alone.
-  const titled = tool === "shell.run" ? { ...a, cwd: undefined } : args;
-  const title = steps && !said ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, platform);
+  const titled = { ...a, intent: undefined, ...(tool === "shell.run" ? { cwd: undefined } : {}) };
+  const title = steps ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, platform);
   const always = !(input.asksAlways ?? hasSecretRef(a));
   return {
     title,
+    ...(intent ? { said: showInvisible(intent) } : {}),
     ...(place ? { place: place.words } : {}),
     ...(steps ? { steps } : {}),
     ...(risk ? { risk } : {}),

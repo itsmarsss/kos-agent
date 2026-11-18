@@ -26,18 +26,22 @@ const ask: PendingAction = { id: 7, tool: "computer.act", args, reason: null, su
 
 /** The card, its title and its steps, not in a fold. */
 function cardShown(): HTMLElement {
-  const title = screen.getByText("Note: just closing the popup");
-  expect(title.classList.contains("kos-ask-title")).toBe(true);
-  const steps = title.closest(".kos-ask")!.querySelector(".kos-ask-steps")!;
+  // Titled by what it acts on; the model's account is KOS's words, apart; the steps lead.
+  const said = screen.getByText(/Note: just closing the popup/);
+  expect(said.classList.contains("kos-ask-said")).toBe(true);
+  const card = said.closest<HTMLElement>(".kos-ask")!;
+  expect(card.querySelector(".kos-ask-title")?.textContent).toBe("Use your Mac");
+  const steps = card.querySelector(".kos-ask-steps")!;
   expect(steps.textContent).toBe(STEPS);
   expect(steps.closest(".collapse")).toBeNull();
-  return title.closest<HTMLElement>(".kos-ask")!;
+  return card;
 }
 
 describe("an ask's card", () => {
   it("is laid out from the arguments, titled by the host's words where it sent them", () => {
     expect(pendingView({ ...ask, title: "Close the popup on Notes" }).title).toBe("Close the popup on Notes");
-    expect(pendingView(ask).title).toBe("Note: just closing the popup");
+    expect(pendingView(ask).title).toBe("Use your Mac");
+    expect(pendingView(ask).said).toBe("Note: just closing the popup");
     expect(pendingView({ ...ask, rule: { tool: "computer.act", scope: null, project: null } }).always).toBe("Always allow");
     expect(pendingView(ask).always).toBeUndefined();
   });
@@ -90,7 +94,7 @@ describe("an ask's card", () => {
     const build = { id: 3, dir: "/w", task: "t", status: "waiting", startedAt: 0, latest: "", events: [] } as unknown as BuildRecord;
     vi.spyOn(api, "build").mockResolvedValue({ build, approvals: [ask] });
     render(<AgentTerminal id={3} onClose={() => {}} onDecide={() => {}} deciding={new Set()} />);
-    await screen.findByText("Note: just closing the popup");
+    await screen.findByText(/Note: just closing the popup/);
     cardShown();
   });
 

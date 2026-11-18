@@ -103,11 +103,17 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
         <span className="kos-ask-who">{asker ? `${asker} asks` : "KOS asks"}</span>
         {expiresAt !== undefined && <Countdown until={expiresAt} />}
       </div>
-      <p className="kos-ask-title">{view.title}</p>
+      {/* With steps, they are what is approved: the title says only what they act on, quieter. */}
+      <p className={`kos-ask-title${view.steps ? " kos-ask-title--quiet" : ""}`}>{view.title}</p>
       {view.place && (
         <p className="kos-ask-place">
           <PlaceMark tool={tool} />
           <span>{view.place}</span>
+        </p>
+      )}
+      {view.said && (
+        <p className="kos-ask-said">
+          <span>KOS says:</span> “{view.said}”
         </p>
       )}
       {why && <p className="kos-ask-why">{why}</p>}

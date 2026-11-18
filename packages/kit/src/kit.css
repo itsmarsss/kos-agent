@@ -504,10 +504,13 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .kos-ask-place { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.35; min-width: 0; }
 .kos-ask-place > span { overflow-wrap: anywhere; }
 .kos-ask-place svg { flex: none; width: 14px; height: 14px; border-radius: 3px; color: var(--faint); }
+.kos-ask-title--quiet { color: var(--muted); font-size: var(--text-sm); font-weight: 600; letter-spacing: 0.01em; }
+.kos-ask-said { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.kos-ask-said span { color: var(--faint); }
 .kos-ask-why { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
 .kos-ask-why::before { content: "\201c"; }
 .kos-ask-why::after { content: "\201d"; }
-.kos-ask-steps { margin: 2px 0 0; padding: 0 0 0 1.4em; color: var(--text); font-size: var(--text-base); line-height: 1.6; overflow-wrap: anywhere; }
+.kos-ask-steps { margin: 2px 0 0; padding: 0 0 0 1.4em; color: var(--text); font-size: var(--text-md); font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
 .kos-ask-steps li::marker { color: var(--faint); font-variant-numeric: tabular-nums; }
 .kos-ask-steps--one { padding: 0; }
 .keycap { display: inline-block; min-width: 1.5em; margin: 0 1px; padding: 0 0.35em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-xs); background: var(--panel-2); color: var(--text); font: 500 0.88em/1.45 var(--mono); text-align: center; vertical-align: 0.05em; white-space: nowrap; }

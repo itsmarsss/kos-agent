@@ -36,7 +36,9 @@ describe("the approval card", () => {
   it("leads with what, where, the steps as keycaps and why", () => {
     const { container } = card();
     expect(container.querySelector(".kos-ask-who")?.textContent).toBe("Docs asks");
-    expect(container.querySelector(".kos-ask-title")?.textContent).toBe("Zoom the browser out so more of the document fits per screen");
+    // Titled quietly by what it acts on; the steps lead; the model's words are KOS's, apart.
+    expect(container.querySelector(".kos-ask-title--quiet")?.textContent).toBe("Act on the page");
+    expect(container.querySelector(".kos-ask-said")?.textContent).toBe("KOS says: “Zoom the browser out so more of the document fits per screen”");
     expect(container.querySelector(".kos-ask-place")?.textContent).toBe("In your Chrome on docs.google.com");
     // Never a site's own icon: nothing is fetched from where the agent points.
     expect(container.querySelector("img")).toBeNull();
