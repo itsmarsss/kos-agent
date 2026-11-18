@@ -318,7 +318,7 @@ export function ArtifactsPage({
   ) : null;
   const actions = inTrash ? (
     <>
-      <button type="button" className="btn btn--ghost" onClick={() => show("all")}>
+      <button type="button" className="btn" onClick={() => show("all")}>
         Back to artifacts
       </button>
       {trash && trash.length > 0 && (

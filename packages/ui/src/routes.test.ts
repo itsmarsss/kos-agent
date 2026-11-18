@@ -113,3 +113,18 @@ describe("the chat a route shows", () => {
     expect(chatShown({ name: "artifacts" })).toBeUndefined();
   });
 });
+
+describe("the frame a page sits in", () => {
+  it("draws a workspace edge to edge, a list in the gutter and a page to read in a centred column", async () => {
+    const { frameOf } = await import("./routes.js");
+    for (const route of [{ name: "chats" }, { name: "chats", id: "c1" }, { name: "project", slug: "garden" }, { name: "files" }, { name: "blobs", blob: "recap" }] as const) {
+      expect(frameOf(route)).toBe("full");
+    }
+    for (const route of [{ name: "home" }, { name: "inbox" }, { name: "projects" }, { name: "artifacts" }, { name: "blobs" }, { name: "blobs", blob: "new" }, { name: "memory" }, { name: "history" }, { name: "crons" }, { name: "builds", id: 3 }] as const) {
+      expect(frameOf(route)).toBe("list");
+    }
+    for (const route of [{ name: "settings" }, { name: "settings", section: "you" }, { name: "artifacts", id: "a1" }, { name: "page", id: "p1" }] as const) {
+      expect(frameOf(route)).toBe("reading");
+    }
+  });
+});

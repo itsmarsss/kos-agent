@@ -10,6 +10,7 @@ import {
 import type { FaceLook } from "./api.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
+import { PageHead } from "./PageHead.js";
 import { FieldRow } from "./kit.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
@@ -265,11 +266,9 @@ function Section({
   extra?: ReactNode;
 }): ReactElement {
   return (
-    <section className="set-card">
-      <header className="set-card-head">
-        <h2>{title}</h2>
-        <p>{blurb}</p>
-      </header>
+    <section className="set-section">
+      <PageHead title={title} subtitle={blurb} />
+      <div className="set-card">
       <div className="set-card-body">{children}</div>
       {onSave && (
         <footer className="set-card-foot">
@@ -291,6 +290,7 @@ function Section({
           )}
         </footer>
       )}
+      </div>
     </section>
   );
 }

@@ -5,6 +5,7 @@ import { card, Empty, Face, moodOf, Pill, stagger } from "@kos/kit";
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo, type InvalidAgent } from "./api.js";
 import { Drawer } from "./Drawer.js";
+import { PageHead } from "./PageHead.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -105,16 +106,16 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
 
   return (
     <div className="projects agents">
-      <div className="projects-head">
-        <h1>Blobs</h1>
-        <button type="button" className="btn btn--primary" onClick={() => onOpen("new")}>
-          New blob
-        </button>
-      </div>
-      <p className="hint">
-        A blob is a responsibility KOS keeps for you, with a face: a folder under blobs/ with a thread of its own and a schedule if it needs one.
-        Ask KOS for one in a chat ("keep an eye on…", "every Saturday…"), or write one here. A row opens the blob's own page.
-      </p>
+      <PageHead
+        title="Blobs"
+        {...(agents ? { count: agents.length } : {})}
+        subtitle={'A blob is a responsibility KOS keeps for you, with a face: a folder under blobs/ with a thread of its own and a schedule if it needs one. Ask KOS for one in a chat ("keep an eye on…", "every Saturday…"), or write one here.'}
+        actions={
+          <button type="button" className="btn btn--primary" onClick={() => onOpen("new")}>
+            New blob
+          </button>
+        }
+      />
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
 
       {/* A drawer, as the schedule editor has: the list stays beside it. */}

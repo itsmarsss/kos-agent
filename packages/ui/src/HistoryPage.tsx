@@ -6,6 +6,7 @@ import { Chips, Pill } from "@kos/kit";
 
 import type { AuditRecord, CronJob, RunRecord } from "./api.js";
 import { ListPage } from "./ListPage.js";
+import { RunsTabs } from "./RunsTabs.js";
 
 /**
  * What KOS has done, in one place.
@@ -30,10 +31,10 @@ export type HistoryRow =
 type Filter = "all" | "tools" | "runs" | "failures";
 
 const FILTERS: { value: Filter; label: string }[] = [
-  { value: "all", label: "everything" },
-  { value: "tools", label: "tools" },
-  { value: "runs", label: "runs" },
-  { value: "failures", label: "failures" },
+  { value: "all", label: "Everything" },
+  { value: "tools", label: "Tools" },
+  { value: "runs", label: "Runs" },
+  { value: "failures", label: "Failures" },
 ];
 
 const DAY = 86_400_000;
@@ -135,6 +136,7 @@ export function HistoryPage({
     <ListPage
       title="History"
       subtitle="Everything KOS has done, newest first."
+      tabs={<RunsTabs current="history" />}
       rows={rows}
       rowKey={(r) => `${r.kind}-${r.kind === "tool" ? r.tool.id : r.run.id}`}
       empty="Nothing has happened yet"
