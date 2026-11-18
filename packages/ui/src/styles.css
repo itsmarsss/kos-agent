@@ -5920,6 +5920,9 @@ a.health {
      3.25rem the document scrolled by the bar's height, and a full page's head
      slid under it. */
   .ops { min-height: calc(100dvh - 3.25rem); }
+  /* The shell too: at 100vh, taller than the visible page while a phone's
+     browser shows its toolbars, the page scrolled under them. */
+  body, .app { min-height: 100dvh; }
   .phonebar {
     position: sticky;
     top: 0;

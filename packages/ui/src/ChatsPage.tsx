@@ -1296,7 +1296,8 @@ export function ChatsPage({
   // What a typed block in KOS's words may do here: name a tool this KOS has, and say so to KOS in this chat.
   const ask = useStable((text: string) => void send(text));
   const blockActions: BlockActions = useMemo(() => ({ tools: toolNames, ask }), [toolNames, ask]);
-  const linkFor = useStable(roomLink);
+  // A new identity when the rooms it links to are known, so a message drawn before the channels loaded gains its link.
+  const linkFor = useCallback(roomLink, [discordBase, channels]); // the room link reads nothing else
   /** What the owner does to one of their turns: one handler for every message, so a message redraws only when it changes. */
   const onTurn = useStable((what: TurnAction, turn: number) => {
     if (what === "edit") setEditingIndex(turn);
