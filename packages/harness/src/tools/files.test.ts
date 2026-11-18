@@ -9,7 +9,7 @@ import { JailError } from "../jail/resolvePath.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { TEXT_READ_MAX, filesModule, outsideScratch } from "./files.js";
+import { TEXT_READ_MAX, filesModule, outsideScratch, wholeCharacters } from "./files.js";
 import { toPdf } from "./pdf.js";
 import { pdfOf } from "../files/pdf.fixture.js";
 
@@ -109,6 +109,17 @@ describe("filesModule", () => {
     expect(last).toBe(`[text, ${size} bytes, bytes ${size - 10} to ${size}]\n${lines.slice(-10)}`);
     expect((await registry.execute("files.read", { path: "server.log", limit: 10 * TEXT_READ_MAX })).content.length).toBeLessThan(TEXT_READ_MAX + 200);
     expect((await registry.execute("files.read", { path: "server.log", offset: -1 })).content).toMatch(/offset must be a byte offset, from 0/);
+  });
+
+  it("ends a part of a text file on a whole character", async () => {
+    // "naïve": the ï is two bytes, at 2 and 3; a part ending at 3 would split it.
+    writeFileSync(join(ws.root, "word.txt"), "naïve");
+    const part = (await registry.execute("files.read", { path: "word.txt", offset: 0, limit: 3 })).content;
+    expect(part).toBe("[text, 6 bytes, bytes 0 to 2; read on with offset: 2]\nna");
+    const rest = (await registry.execute("files.read", { path: "word.txt", offset: 2 })).content;
+    expect(rest).toBe("[text, 6 bytes, bytes 2 to 6]\nïve");
+    expect(wholeCharacters(Buffer.from("a😀", "utf8").subarray(0, 3))).toEqual(Buffer.from("a"));
+    expect(wholeCharacters(Buffer.from("😀", "utf8").subarray(0, 2))).toHaveLength(2);
   });
 
   it("edits a file by string replacement", async () => {

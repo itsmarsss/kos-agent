@@ -71,12 +71,35 @@ function readRange(abs: string, from: number, to: number): Buffer {
  * the file and where to read on. Only those bytes are read.
  */
 function textRead(abs: string, offset: number | undefined, limit: number | undefined): string {
+  if (offset === undefined && limit === undefined) {
+    // One byte past the cap says whether there is more, without asking the file system first.
+    const head = readRange(abs, 0, TEXT_READ_MAX + 1);
+    if (head.byteLength <= TEXT_READ_MAX) return head.toString("utf8");
+  }
   const size = statSync(abs).size;
-  if (offset === undefined && limit === undefined && size <= TEXT_READ_MAX) return readFileSync(abs, "utf8");
   const from = Math.min(offset ?? 0, size);
-  const to = Math.min(size, from + Math.min(limit ?? TEXT_READ_MAX, TEXT_READ_MAX));
+  const end = Math.min(size, from + Math.min(limit ?? TEXT_READ_MAX, TEXT_READ_MAX));
+  const read = readRange(abs, from, end);
+  const bytes = end < size ? wholeCharacters(read) : read;
+  const to = from + bytes.byteLength;
   const on = to < size ? `; read on with offset: ${to}` : "";
-  return `[text, ${size} bytes, bytes ${from} to ${to}${on}]\n${readRange(abs, from, to).toString("utf8")}`;
+  return `[text, ${size} bytes, bytes ${from} to ${to}${on}]\n${bytes.toString("utf8")}`;
+}
+
+/**
+ * The bytes up to the last whole UTF-8 character, so a part cut mid-character
+ * ends before it and the next part starts with it. Kept as they are when the
+ * part is shorter than the character.
+ */
+export function wholeCharacters(bytes: Buffer): Buffer {
+  // Back over the continuation bytes (10xxxxxx) to the character's first byte.
+  let start = bytes.byteLength - 1;
+  while (start > 0 && bytes.byteLength - start < 4 && (bytes[start]! & 0xc0) === 0x80) start -= 1;
+  const lead = bytes[start];
+  if (lead === undefined || lead < 0xc0) return bytes;
+  const length = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : 2;
+  if (bytes.byteLength - start >= length || start === 0) return bytes;
+  return bytes.subarray(0, start);
 }
 
 /** A PDF's text, headed by what was read of it and, when the cap cut it, where to read on. */
