@@ -260,6 +260,17 @@ export class ApprovalQueue {
     return this.get(Number(info.lastInsertRowid))!;
   }
 
+  /**
+   * A call decided as it was raised, kept in the decided history: one a
+   * chat's Auto mode let through, by `decidedBy`. Nobody waits on it and
+   * nobody is told, since nothing is being asked.
+   */
+  settled(input: EnqueueInput, decidedBy: string): PendingAction {
+    const action = this.enqueue(input);
+    this.db.prepare(`UPDATE pending_actions SET status = 'approved', decided_at = requested_at, decided_by = ? WHERE id = ?`).run(decidedBy, action.id);
+    return this.get(action.id)!;
+  }
+
   get(id: number): PendingAction | undefined {
     const row = this.db
       .prepare(`SELECT ${LIST_COLUMNS} FROM pending_actions WHERE id = ?`)

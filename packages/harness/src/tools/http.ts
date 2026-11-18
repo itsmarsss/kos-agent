@@ -166,6 +166,7 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
            * whatever the host: posting can carry data out of the workspace.
            */
           floor: "safe",
+          beyondAuto: (input) => (String(input["method"] ?? "GET").toUpperCase() === "DELETE" ? "deletes something outside the workspace" : false),
           escalate: (input) => {
             const method = String(input["method"] ?? "GET").toUpperCase();
             if (method !== "GET" && method !== "HEAD") return `a ${method} request, which can carry data out`;

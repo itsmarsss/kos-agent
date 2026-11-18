@@ -11,6 +11,7 @@ import { resolvePath } from "../jail/resolvePath.js";
 import { childEnv } from "../sandbox/env.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
+import { beyondAutoByName } from "../risk/beyondauto.js";
 import type { RiskTier } from "../risk/tiers.js";
 
 /**
@@ -332,7 +333,7 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
             const images = imagesIn(result.content);
             return images.length ? { text, images } : text;
           },
-          { floor: floorFor(server, tool.name) },
+          { floor: floorFor(server, tool.name), beyondAuto: () => beyondAutoByName(tool.name) },
           server.projects?.length ? { tags: server.projects.map((p) => `project:${p}`) } : undefined,
         );
         registered.push(def.name);

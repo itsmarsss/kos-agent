@@ -40,6 +40,23 @@ export interface ToolRisk {
    * as the sql tool does rather than asking the owner to let it through.
    */
   refuse?: (input: Record<string, unknown>) => string | false;
+  /**
+   * Arguments a chat's Auto mode never lets through, with the reason in the
+   * owner's words, or false: money spent, something deleted outside the
+   * workspace. Such a call asks as it would in Ask.
+   */
+  beyondAuto?: Escalation;
+  /**
+   * Asks the owner every time: no remembered decision and no Auto covers it
+   * (a secret's use). Only the tool's own grants may.
+   */
+  asksAlways?: boolean;
+  /**
+   * The call starts a session on one of the owner's devices. Auto covers it
+   * only where the owner also let Auto start sessions; a device that asks on
+   * itself still asks there.
+   */
+  startsSession?: boolean;
 }
 
 export interface RiskAssessment {
@@ -48,6 +65,12 @@ export interface RiskAssessment {
   escalated: boolean;
   /** Why it asks, when the rule or the floor says so in words. */
   reason?: string;
+  /** A risky call no remembered decision or Auto covers. */
+  asksAlways?: true;
+  /** Why a risky call is beyond a chat's Auto mode, when it is. */
+  beyondAuto?: string;
+  /** A risky call that starts a session on the owner's device. */
+  startsSession?: true;
 }
 
 export const SAFE: ToolRisk = { floor: "safe" };
@@ -66,11 +89,21 @@ export function classifyRisk(
   if (floor === "risky") {
     if (risk?.relax?.(input)) return { tier: "safe", escalated: false };
     const why = typeof risk?.why === "function" ? risk.why(input) : risk?.why;
-    return { tier: "risky", escalated: false, ...(why ? { reason: why } : {}) };
+    return { tier: "risky", escalated: false, ...(why ? { reason: why } : {}), ...autoFacts(risk, input) };
   }
   const fired = risk?.escalate?.(input);
   if (fired) {
-    return { tier: "risky", escalated: true, ...(typeof fired === "string" ? { reason: fired } : {}) };
+    return { tier: "risky", escalated: true, ...(typeof fired === "string" ? { reason: fired } : {}), ...autoFacts(risk, input) };
   }
   return { tier: "safe", escalated: false };
+}
+
+/** What a risky call's rules say about Auto mode, read only once the call is risky. */
+function autoFacts(risk: ToolRisk | undefined, input: Record<string, unknown>): Pick<RiskAssessment, "asksAlways" | "beyondAuto" | "startsSession"> {
+  const beyond = risk?.beyondAuto?.(input);
+  return {
+    ...(risk?.asksAlways ? { asksAlways: true as const } : {}),
+    ...(beyond ? { beyondAuto: typeof beyond === "string" ? beyond : "beyond what Auto covers" } : {}),
+    ...(risk?.startsSession ? { startsSession: true as const } : {}),
+  };
 }
