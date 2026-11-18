@@ -157,7 +157,8 @@ describe("memory tools: reading the log and citing it", () => {
       { role: "assistant", content: [{ type: "text", text: `answer ${n}` }] },
     ];
     const history = Array.from({ length: 8 }, (_, i) => say(i + 1)).flat();
-    sessions.set("chat:long", history);
+    // Each said a minute after the one before, so the summary's time can be told from now.
+    sessions.set("chat:long", history.map((m, i) => ({ ...m, at: 60_000 * (i + 1) })));
     sessions.set("chat:short", say(1));
     for (let i = 1; i <= 8; i++) {
       events.append({ userId: "owner", role: "owner", text: `question ${i}`, conversationId: "chat:long" });
@@ -178,6 +179,9 @@ describe("memory tools: reading the log and citing it", () => {
     expect((after[0]!.content[0] as { text: string }).text).toContain("[Earlier in this conversation]");
     expect((after[0]!.content[0] as { text: string }).text).toContain("all answered");
     expect((after[1]!.content[0] as { text: string }).text).toContain("question 5");
+    // The summary stands at the time the kept messages begin, not ahead of them.
+    expect(after[0]!.at).toBe(after[1]!.at);
+    expect(after[1]!.at).toBe(60_000 * 9);
     // The covered events are shadowed, the kept ones are not, and the words are all still there.
     const log = events.recent("chat:long", 100);
     expect(log.filter((e) => e.shadowed).length).toBe(8);

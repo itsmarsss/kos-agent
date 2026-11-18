@@ -139,6 +139,15 @@ function capMessage(
   };
 }
 
+/**
+ * How much of the retention budget messages take: their JSON, without when
+ * each was said, which is the reader's and never sent to the model, so a
+ * time does not cost a turn its place.
+ */
+export function historySize(messages: ModelMessage[]): number {
+  return JSON.stringify(messages.map(({ at: _at, ...message }) => message)).length;
+}
+
 /** A stored message from before messages kept their time: 0, so it is never taken for a new one. */
 function untimed(message: ModelMessage): ModelMessage {
   return message.at === undefined ? { ...message, at: 0 } : message;
@@ -285,7 +294,7 @@ export class SessionStore {
     let total = 0;
     for (let i = exchanges.length - 1; i >= 0; i--) {
       const exchange = exchanges[i]!;
-      const size = JSON.stringify(exchange).length;
+      const size = historySize(exchange);
       const wouldExceed = this.maxChars > 0 && total + size > this.maxChars;
       const tooMany = this.maxExchanges > 0 && kept.length >= this.maxExchanges;
       if (kept.length > 0 && (wouldExceed || tooMany)) break;

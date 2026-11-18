@@ -680,8 +680,10 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const when = new Date().toISOString().slice(0, 10);
       const earlier = t.observations.list(id);
       const stood = earlier.map((o) => `${new Date(o.createdAt).toISOString().slice(0, 10)}: ${o.text}`).concat(`${when}: ${note}`).join("\n\n");
+      // The summary stands where the kept messages begin, at their time: stamped now, it would sit a day line ahead of them.
+      const from = kept[0]?.at;
       t.sessions.set(id, [
-        { role: "user", content: [{ type: "text", text: `${COMPACTED_PREFIX}\n\n${stood}` }] },
+        { role: "user", content: [{ type: "text", text: `${COMPACTED_PREFIX}\n\n${stood}` }], ...(from !== undefined ? { at: from } : {}) },
         ...kept,
       ]);
       const observation = t.observations.add(id, note, covered.flat().length);

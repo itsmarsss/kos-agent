@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
 import { Workspace } from "../store/workspace.js";
-import { SessionStore } from "./session.js";
+import { historySize, SessionStore } from "./session.js";
 
 /** One full exchange: owner turn, a tool round-trip, then the final reply. */
 function toolExchange(userText: string, toolName: string): ModelMessage[] {
@@ -226,6 +226,12 @@ describe("when each message was written", () => {
     clock = 7_000;
     sessions.record("old", [...sessions.get("old"), said("now")]);
     expect(sessions.get("old").map((m) => m.at)).toEqual([0, 0, 7_000]);
+  });
+
+  it("leaves the times out of the size a history takes from its budget", () => {
+    const plain = [said("hi"), said("hello", "assistant")];
+    expect(historySize(plain.map((m, i) => ({ ...m, at: 1_795_000_000_000 + i })))).toBe(historySize(plain));
+    expect(historySize(plain)).toBe(JSON.stringify(plain).length);
   });
 
   it("stamps a summary put in a compacted chat's place", () => {
