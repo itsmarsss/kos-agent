@@ -205,9 +205,11 @@ While KOS works in your Chrome:
 - acting on a page asks you, trusted per site apart from KOS's own Chrome
   (a site trusted there is asked about again here, where you are signed in);
   in the side panel an approval offers **Always on** the site, and the
-  **Ask / Auto** chip beside the model lets that chat click, type and go
-  places in your Chrome without asking each step (running script in a page,
-  files, messages and everything else still ask);
+  mode chip beside the model (Shift+Tab in the box cycles it) sets the
+  chat to **Ask** or **Auto**: in Auto, KOS goes ahead without asking for
+  the risky steps of turns you start in that chat, in your Chrome and
+  everywhere else, within what Auto never covers ([The chat's
+  mode](#the-chats-mode));
 - the session ends at its time limit, when idle, on Stop, when you close
   Chrome's debugging bar, when the connection to its KOS drops and is not
   back within 10 s, and when Chrome stops the extension's worker: the
@@ -287,7 +289,7 @@ beside it when the chat asks.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, at?, steps? [{ summary, failed?, frame? }] }]`, `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
+| `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, at?, steps? [{ summary, failed?, frame? }] }]`, `mode { mode, until?, sessions? }` (the chat's mode; `auto`, true in Auto, for a device from before modes), `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
 | `chat.status` | `chat` and `conversation` (the chat the turn runs in, learned when it starts, never the one the panel moved to), `since?` (with `taken`: when the turn began, epoch ms, so a panel opened mid-turn keeps its clock), `waiting?` (`consent`: a device asks the owner for this chat's session; `approval`: an approval waits), `held` (the owner has control of its session), `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn told from its start: its steps so far, `› ` before each, ` (done)` after one that finished and ` (failed)` after one that failed, and what KOS says between them; empty before it has said or done anything; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, with `said`, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
 | `chat.ask` | `chat`, `approval { id, tool, summary?, args?, mechanics?, why?, reason?, always?, expiresAt? }` (`summary`: the action in words with its ids named, as the Inbox titles it; `expiresAt`: when it lapses unanswered, epoch ms) | `{}` |
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
@@ -348,6 +350,101 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `chat.models` | `{}`: asks for `chat.models` |
 | `chat.model` | `model`: KOS answers with it from now on, as the dashboard's picker sets it |
 | `chat.mentions` | `q`, `kind?`: asks what an @ can name |
+| `chat.mode` | `mode` (`ask` or `auto`), `until?` (epoch ms, or `task`: until the chat's running or next turn ends), `sessions?` (true: Auto also starts sessions a device leaves to KOS's approvals): sets the shown chat's mode, made now if there is none yet; anything else is ignored |
+| `chat.auto` | `on`: a device from before modes; ignored, since Auto now covers far more than that switch did |
+
+### The chat's mode
+
+Every chat is in one of two modes, set from any surface's composer (a chip
+beside the model, cycled by a press or Shift+Tab, with a menu) and kept
+per chat on KOS, which alone decides what it lets through:
+
+- **Ask**, the default: a risky step asks the owner, as it always has.
+- **Auto**: a risky step of a turn begun from the owner's own words in
+  that chat runs without asking, in KOS's own browser, the owner's Chrome
+  and Mac within a session, and everywhere else. Each is kept in the
+  Inbox's decided list and the audit log as approved by `auto mode`, never
+  by the owner, the model is told it went ahead under Auto, so it says so,
+  and an answer on Discord, SMS or iMessage starts with `(Auto)`.
+
+Auto never covers, whatever the chat is set to (`autoCovers` in
+`kernel/guarded.ts`, and the rules in `risk/beyondauto.ts`):
+
+- what KOS refuses, Stop and the kill switch, which also sets every chat
+  back to Ask;
+- a call that places a secret, and a tool marked `asksAlways`;
+- purchases and payments: an MCP tool named for paying (pay, purchase,
+  checkout, charge, buy, order, transfer, send_money, refund, donate,
+  subscribe), and a browser step whose tab or target address is a checkout
+  or payment path, or whose page has a card field (`autocomplete` `cc-*`)
+  or reads as a checkout (checkout, place order, buy now, pay now, payment),
+  KOS's own browser steps and an MCP server's alike (`mcpBrowserStep`);
+- a shell line unless every program in it is on a short list of reading,
+  building and testing programs, called plainly (by name, not by a path;
+  with no assignment before it but CI, NODE_ENV, FORCE_COLOR, NO_COLOR, TZ,
+  LANG, LC_* or DEBUG), writing no file that is there outside scratch,
+  and pointing no build, output or program it runs outside the workspace
+  (`~` and `$HOME` are the workspace root) (`risk/shellauto.ts`). The list is not the boundary, the jail is: a line
+  Auto lets through writes only where an approved one would (its home's
+  folders, scratch, its own temp and caches), reaches this machine's
+  loopback and nothing past it (a test server it starts, never KOS's
+  ports), is sealed as a read-only line is (no signal to another process,
+  no app opened, no Apple Event, no preference written, only a few mach
+  services), and runs git held as a run nobody approved (`gitHoldEnv`: no
+  hooks, no transport, no lazy fetch, and every program-naming setting
+  pinned), so `git fetch`, `pull`, `clone` and installs ask, saying they
+  need the network. In the container no shell line is
+  covered: the container is the jail there, a command runs unwrapped beside
+  KOS, and nothing narrower holds the network or KOS's ports. The same
+  goes for `python.run` wherever the macOS jail does not hold it.
+  An Auto line also writes no repository's config, hooks, info, modules or
+  worktrees, no `.git` file and no git global config under the workspace
+  (`GIT_CONTROL_WRITES`, `gitGlobalConfig`), nothing of `.kos` but its temp
+  and caches, and no `.env`; and it reads none of KOS's settings or a
+  `.env`. `git add` and `git commit` still work;
+- deleting for good: `files.rm` of a whole folder, `files.mv` onto a file
+  that is there; a shell line with
+  `rm -r`, a forced push, `git reset --hard`, `git clean`, `dd`, `mkfs`,
+  a recursive `chmod` or `chown`, or a `>` onto an existing file outside
+  scratch; `systems.project_delete`, `chats.delete`, `blobs.remove`,
+  `daemons.remove`, `discord.prune`; an http DELETE; an MCP tool named for
+  deleting, cancelling or revoking;
+- a write into another project's or a blob's folder, or a project's
+  command asking to write the whole workspace (the reach rule's
+  `beyondAuto`, `tools/home.ts`);
+- an MCP tool named for sending or publishing (send, post, message, email,
+  mail, reply, publish, tweet, comment, invite, share), and an `http.fetch`
+  with a body or a method past GET and HEAD to a host off the owner's list;
+- a message to anyone but the owner (`notify` to a channel or a user) and
+  opening a place to others (`discord.audience` past the owner,
+  `discord.access`);
+- changing KOS itself or what runs without the owner: `skills.commit`,
+  `skills.promote`, `modules.instantiate`, `modules.create`,
+  `modules.promote`, `daemons.create`, `daemons.start`, `sites.create`,
+  `cron.schedule`, `builds.run` (a coding agent that runs on its own);
+- speaking in public on the server: `discord.react`, `discord.role`;
+- `browser.eval` and `browser.handoff`;
+- typing on a computer after it reported a password field, until a click
+  or key there goes through;
+- any turn but the owner's own words in that chat: a schedule's run, a
+  guest's words, a dispatch, a handoff, an aside or a resumed approval.
+
+An ask raised in a chat set to Auto for one of these says so on every
+card: its reason reads "asked though the chat is in Auto: ..." and it
+carries `beyondAuto`, so no surface offers Always for it and the card's
+note says Auto never covers it.
+
+Starting a session is covered only with `sessions`, and only on a device
+that leaves its sessions to KOS's approvals (consent `kos`): a device that
+asks on itself still asks there, since consent lives on the device and
+nothing KOS sends changes that. A device's time limits and idle limit still
+apply. A step on a Mac's screen under Auto is judged risky, so Auto's yes to
+it is kept like any other.
+
+Auto lasts until turned off, until its `until` passes, or, with `until`
+`task`, until the chat's running or next turn ends. Every `chat.show`
+carries the mode as it stands, and each device of a chat is shown it again
+when it changes elsewhere.
 
 Error codes beyond the device protocol's: `tab` (not a tab of the session),
 `method` (not on the list), `url` (not the web), `hidden_site` (the owner

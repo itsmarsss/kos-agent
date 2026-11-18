@@ -35,6 +35,8 @@ export interface EnqueueInput {
   yours?: boolean;
   /** The call reaches past the asking turn's own folder: a yes to it is never remembered. */
   reached?: boolean;
+  /** Asked though the chat is in Auto, for what Auto never covers: no remembered yes is offered for it. */
+  beyondAuto?: boolean;
 }
 
 export interface PendingAction {
@@ -70,6 +72,8 @@ export interface PendingAction {
   yours: boolean;
   /** Reaches past the asking turn's own folder, so no rule is made from a yes to it. */
   reached: boolean;
+  /** Asked though the chat was in Auto, for what Auto never covers. False for a row from before. */
+  beyondAuto: boolean;
 }
 
 /**
@@ -118,10 +122,11 @@ interface Row {
   waits: number;
   yours: number;
   reached: number;
+  beyond_auto: number;
 }
 
 /** Every column a listed action needs: the picture is only whether there is one, read on its own when shown. */
-const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached`;
+const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached, beyond_auto`;
 
 /** The most decided asks one page may hold. */
 export const DECIDED_MAX = 500;
@@ -159,6 +164,7 @@ function toAction(row: Row): PendingAction {
     waits: row.waits === 1,
     yours: row.yours === 1,
     reached: row.reached === 1,
+    beyondAuto: row.beyond_auto === 1,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
   };
@@ -229,6 +235,9 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "reached")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN reached INTEGER NOT NULL DEFAULT 0`);
     }
+    if (!columns.some((c) => c.name === "beyond_auto")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN beyond_auto INTEGER NOT NULL DEFAULT 0`);
+    }
     // The decided history is read by outcome and time, a page at a time: one outcome by the first,
     // every outcome (the Inbox's default page, and its mark) by the second, which holds only what was decided.
     this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_status_decided ON pending_actions (status, decided_at, id)`);
@@ -246,8 +255,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits, yours, reached)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits, yours, reached, beyond_auto)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -266,8 +275,20 @@ export class ApprovalQueue {
         input.waits === true ? 1 : 0,
         input.yours === true ? 1 : 0,
         input.reached === true ? 1 : 0,
+        input.beyondAuto === true ? 1 : 0,
       );
     return this.get(Number(info.lastInsertRowid))!;
+  }
+
+  /**
+   * A call decided as it was raised, kept in the decided history: one a
+   * chat's Auto mode let through, by `decidedBy`. Nobody waits on it and
+   * nobody is told, since nothing is being asked.
+   */
+  settled(input: EnqueueInput, decidedBy: string): PendingAction {
+    const action = this.enqueue(input);
+    this.db.prepare(`UPDATE pending_actions SET status = 'approved', decided_at = requested_at, decided_by = ? WHERE id = ?`).run(decidedBy, action.id);
+    return this.get(action.id)!;
   }
 
   get(id: number): PendingAction | undefined {

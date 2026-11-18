@@ -66,8 +66,13 @@ export const KERNEL_TABLES = new Set([
 /** Families of KOS's own tables: the memory stores and their index shadows, and SQLite's. */
 export const KERNEL_TABLE_PREFIXES = ["memory_", "sqlite_"];
 
-/** Written by nobody but the owner, through the dashboard. `devices` is the computers KOS may drive. */
-export const TRUST_TABLES = new Set(["pending_actions", "permission_rules", "kill_switch", "devices", "device_settings"]);
+/**
+ * Written by nobody but the owner, through the dashboard. `devices` is the
+ * computers KOS may drive; `settings` holds each chat's mode, `crons` what
+ * runs unattended, and `audit_log` the record of what ran, so no statement
+ * widens its own reach or rewrites its own history.
+ */
+export const TRUST_TABLES = new Set(["pending_actions", "permission_rules", "kill_switch", "devices", "device_settings", "settings", "crons", "audit_log"]);
 
 /** The one project that reaches everything, by its slug, for the tools that judge reach. */
 export const MAINTENANCE_SLUG = MAINTENANCE.slug;
@@ -127,7 +132,7 @@ export interface Plan {
 
 /** The plan of a statement, or nothing for one that does not compile: no such table, a syntax error, the wrong count of params. */
 export function planOf(db: Db, sql: string, params: readonly unknown[] = []): Plan | undefined {
-  let ops: { opcode: string; p2: number; p3: number }[];
+  let ops: { opcode: string; p1: number; p2: number; p3: number }[];
   try {
     ops = db.prepare(`EXPLAIN ${sql}`).all(...params) as typeof ops;
   } catch {
@@ -147,6 +152,10 @@ export function planOf(db: Db, sql: string, params: readonly unknown[] = []): Pl
     else if (op.opcode === "OpenRead" || op.opcode === "ReopenIdx" || op.opcode === "OpenWrite") {
       if (op.p3 !== 0) elsewhere = true;
       else (op.opcode === "OpenWrite" ? writes : reads).add(tableAt(op.p2));
+    } else if (op.opcode === "Clear") {
+      // A DELETE with no WHERE empties the table by its root page and opens no cursor on it: a write all the same.
+      if (op.p2 !== 0) elsewhere = true;
+      else writes.add(tableAt(op.p1));
     }
   }
   let virtual = vwrite;
@@ -252,9 +261,21 @@ export const HAND_ON = "hand the question to the project that owns the data (cha
  * compile is let through for SQLite to say why, but an EXPLAIN of its own
  * has no plan to judge, so only Maintenance runs one.
  */
+/** Pragmas that change how SQLite keeps the database, whatever their form. */
+const WRITABLE_PRAGMAS = /^\s*pragma\s+(?:\w+\.)?(writable_schema|foreign_keys|journal_mode|synchronous|locking_mode|legacy_alter_table|recursive_triggers|trusted_schema|cell_size_check|ignore_check_constraints|defer_foreign_keys|auto_vacuum|secure_delete|schema_version|user_version|application_id|page_size|max_page_count|temp_store|mmap_size|cache_size|busy_timeout|query_only)\b/i;
+
 export function fence(db: Db, sql: string, reach: Reach, params: readonly unknown[] = []): FenceVerdict {
+  // A pragma that sets something (=), or one that changes how the database is kept in any form, run by nobody.
+  const code = codeOf(sql);
+  if (/^\s*pragma\b/i.test(code) && (code.includes("=") || WRITABLE_PRAGMAS.test(code))) {
+    return refuse("A PRAGMA that changes SQLite's settings is never run through sql: they are KOS's to set.");
+  }
   const plan = planOf(db, sql, params);
   if (!plan) return /^\s*explain\b/i.test(codeOf(sql)) && !maintains(reach) ? refuse("EXPLAIN is Maintenance's: send the statement itself.") : { ok: true };
+  // The schema's own table, written only by migrate's DDL.
+  if (plan.writes.some((t) => /^sqlite_(master|schema|temp_master|temp_schema)$/i.test(t))) {
+    return refuse("sqlite_master is SQLite's own catalogue: it is changed only through migrate, never written through sql.");
+  }
   const trust = plan.writes.filter((t) => TRUST_TABLES.has(t));
   if (trust.length) {
     return refuse(`${trust.join(", ")}: KOS's trust tables are never written through sql. Approvals and permissions are the owner's, in the dashboard.`);

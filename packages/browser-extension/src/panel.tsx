@@ -1,6 +1,6 @@
-import { askRisk, KOS_SEED, timeMarks, type AskView } from "@kos/shared";
+import { askRisk, cycled, KOS_SEED, timeMarks, type AskView, type ChatMode } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskCard, BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, MessageTime, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StepTime, StopIcon, TimeLine, type Tone, useDismiss, useOverlayScroll, useTimeReveal, WorkingDots } from "@kos/kit";
+import { AskCard, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, isModeKey, Markdown, MessageTime, ModeChip, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StepTime, StopIcon, TimeLine, type Tone, useDismiss, useOverlayScroll, useTimeReveal, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -435,8 +435,8 @@ function Panel(): ReactElement {
             unsent={chat.unsent}
             models={models}
             chooseModel={(model) => say({ type: "model", model })}
-            auto={chat.auto}
-            setAuto={(on) => say({ type: "auto", on })}
+            mode={chat.mode}
+            setMode={(mode) => say({ type: "mode", ...mode })}
             selection={selection}
             mentions={mentions}
             askMentions={(q) => say({ type: "mentions", q })}
@@ -968,8 +968,8 @@ function Composer({
   unsent,
   models,
   chooseModel,
-  auto,
-  setAuto,
+  mode,
+  setMode,
   selection,
   mentions,
   askMentions,
@@ -983,9 +983,9 @@ function Composer({
   unsent: string | undefined;
   models: Models | undefined;
   chooseModel: (model: string) => void;
-  /** Whether this chat acts without asking. */
-  auto: boolean;
-  setAuto: (on: boolean) => void;
+  /** The chat's mode: Ask, or Auto within its bounds. */
+  mode: ChatMode;
+  setMode: (mode: ChatMode) => void;
   /** What the owner has selected on the page, sent along unless they put it aside. */
   selection: Quote;
   mentions: { q: string; list: Mention[] };
@@ -1036,6 +1036,12 @@ function Composer({
     requestAnimationFrame(() => box.current?.setSelectionRange(at, at));
   };
   const keys = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Shift+Tab cycles the chat's mode, as on every surface.
+    if (online && isModeKey(e)) {
+      e.preventDefault();
+      setMode(cycled(mode));
+      return;
+    }
     // Cmd or Ctrl with Enter stops, as on the dashboard; Enter alone sends, which a running turn takes in.
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
@@ -1102,7 +1108,7 @@ function Composer({
       />
       <div className="composer-foot">
         <ModelChoice models={models} choose={chooseModel} />
-        {online && <AutoChoice on={auto} set={setAuto} />}
+        {online && <ModeChip mode={mode} onChange={setMode} running={busy} />}
         {busy && online ? (
           <m.button type="button" className="send send--stop" aria-label="Stop" title="Stop (Cmd+Enter)" onClick={stop} whileTap={{ scale: 0.97 }} transition={spring}>
             <StopIcon />
@@ -1145,34 +1151,6 @@ function commandsFor(q: string): Option[] {
 function mentionOption(mn: Mention): Option {
   const insert = mn.kind === "channel" ? `#${mn.id} ` : /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/.test(mn.id) ? `@${mn.kind}:${mn.id} ` : `@${mn.kind}:[${mn.id}] `;
   return { insert, label: mn.label, hint: mn.hint ?? mn.kind };
-}
-
-/**
- * Whether this chat asks before each step in the owner's Chrome, or acts on
- * its own: clicking, typing and going somewhere there. Running script in a
- * page, and anything outside the owner's Chrome, asks either way; the
- * border, Take over and Stop show either way.
- */
-function AutoChoice({ on, set }: { on: boolean; set: (on: boolean) => void }): ReactElement {
-  return (
-    <m.button
-      type="button"
-      className="mode"
-      data-on={on || undefined}
-      aria-pressed={on}
-      title={on ? "Auto: KOS clicks and types in your Chrome for this chat without asking. Scripts in a page, files and messages still ask. Press to ask each step again." : "Ask: KOS asks before each step in your Chrome. Press to let this chat act on its own."}
-      onClick={() => set(!on)}
-      whileTap={{ scale: 0.97 }}
-      transition={spring}
-    >
-      {on ? <BoltIcon size={11} /> : <HandIcon size={11} />}
-      <AnimatePresence mode="popLayout" initial={false}>
-        <m.span key={on ? "auto" : "ask"} initial={{ opacity: 0, y: 3 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={ease}>
-          {on ? "Auto" : "Ask"}
-        </m.span>
-      </AnimatePresence>
-    </m.button>
-  );
 }
 
 /**

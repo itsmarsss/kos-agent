@@ -125,6 +125,17 @@ describe("http.fetch module", () => {
       }).tier,
     ).toBe("risky");
   });
+
+  it("puts a delete, and sending to a site off the owner's list, beyond a chat's Auto", async () => {
+    const registry = await load({ allowedHosts: ["api.example.com"], fetchImpl: async () => new Response("") });
+    const beyond = (input: Record<string, unknown>): string | undefined => registry.classify("http.fetch", input).beyondAuto;
+    expect(beyond({ url: "https://api.example.com/x", method: "DELETE" })).toBe("deletes something outside the workspace");
+    expect(beyond({ url: "https://other.example/x", method: "POST" })).toBe("sends to an outside site");
+    expect(beyond({ url: "https://other.example/x", method: "PUT" })).toBe("sends to an outside site");
+    expect(beyond({ url: "https://other.example/x", body: "a=1" })).toBe("sends to an outside site");
+    expect(beyond({ url: "https://api.example.com/x", method: "POST", body: "a=1" })).toBeUndefined();
+    expect(beyond({ url: "https://other.example/x" })).toBeUndefined();
+  });
 });
 
 /**
@@ -283,7 +294,7 @@ describe("http.fetch redirects", () => {
     const registry = new ToolRegistry();
     const root = mkdtempSync(join(tmpdir(), "kos-http-redirect-"));
     const ws = Workspace.open(root);
-    await new ModuleLoader(toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() })).load([createHttpModule({ allowedHosts: ["127.0.0.1"] })]);
+    await new ModuleLoader(toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() })).load([createHttpModule({ allowedHosts: ["127.0.0.1"], local: true })]);
     ws.close();
     rmSync(root, { recursive: true, force: true });
     return registry;

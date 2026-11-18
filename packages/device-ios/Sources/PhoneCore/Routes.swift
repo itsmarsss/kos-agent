@@ -77,6 +77,11 @@ public enum Routes {
     public let asker: String?
     public let decidedAt: Double?
     public let requestedAt: Double
+    /// Who decided it: the owner's id, a device's, or "auto mode" for a call a chat's Auto let through.
+    public let decidedBy: String?
+
+    /// Let through by a chat's Auto, not by the owner.
+    public var byAuto: Bool { status == "approved" && decidedBy == "auto mode" }
   }
 
   /// How many were decided, by outcome.

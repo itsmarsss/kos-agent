@@ -106,6 +106,13 @@ export const turnStop = new AsyncLocalStorage<AbortSignal>();
 export const onSite = new AsyncLocalStorage<string>();
 
 /**
+ * Whether the current call is one a chat's Auto let run without asking. A
+ * tool that runs programs reads it to run them tighter: no network, and git
+ * with hooks, the fsmonitor and the pager switched off.
+ */
+export const underAuto = new AsyncLocalStorage<boolean>();
+
+/**
  * The scheduled job whose run is making the current call: a job's prompt
  * or its fixed actions, a blob's own timer. What such a run says without
  * naming where goes to the job's own place on the server, not the owner's

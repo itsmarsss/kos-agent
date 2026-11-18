@@ -15,6 +15,8 @@ import { FrameStore } from "../ops/frames.js";
 import { SeenPages } from "./seen.js";
 import { CallTimer } from "./calltimer.js";
 import { toolUse } from "./caller.js";
+import { ChatModes } from "./chatmodes.js";
+import { ownerLinesIn } from "./transcript.js";
 
 /** KOS's browser tools: they act on the caller's tab and share its site trust. */
 const BROWSER_PREFIX = "browser.";
@@ -38,12 +40,27 @@ import {
   readAt,
   settleDownload,
   sweepProfiles,
+  touchesPage,
   type BrowserConfig,
   type BrowserDownload,
   type BrowserStatus,
   type ChromeOptions,
+  type Page,
   type Tab,
 } from "@kos/browser";
+import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, mcpBrowserStep, PAY_BUTTON, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
+
+/** What a checkout check reads of a page: the first checkout phrase anywhere in its words, a card field, a payment provider's frame. */
+const CHECKOUT_LOOK = `(() => {
+  const shown = (el) => { const r = el.getBoundingClientRect(); const st = getComputedStyle(el); return r.width >= 100 && r.height >= 30 && st.visibility !== "hidden" && st.display !== "none" && Number(st.opacity) > 0; };
+  const pressable = [...document.querySelectorAll("button, input[type=submit], input[type=button], a[role=button], [role=button]")];
+  return JSON.stringify({
+    text: ((document.body ? document.body.innerText : "").match(${CHECKOUT_WORDS.toString()}) || [""])[0],
+    cardField: !!document.querySelector('[autocomplete^="cc-"]'),
+    payFrame: [...document.querySelectorAll("iframe")].some((f) => ${PAY_FRAMES.toString()}.test(f.src || "") && shown(f)),
+    payButton: pressable.some((b) => ${PAY_BUTTON.toString()}.test((b.innerText || b.value || b.getAttribute("aria-label") || "").trim())),
+  });
+})()`;
 import { BROWSER_KEY, BROWSER_PORT, browserConfig } from "../ops/browsersettings.js";
 import type { BrowserElsewhere, PageSpot, TabInfo } from "../tools/browser.js";
 import { PageWatchStore, type WatchLook } from "../ops/watches.js";
@@ -143,7 +160,7 @@ import { originOf } from "./origin.js";
 import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
+import { ASK, UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -174,6 +191,8 @@ export interface KernelOptions {
   /** Hosts the http.fetch tool may reach. */
   /** A function is re-read per call, so a host added in Settings works now. */
   allowedHosts?: string[] | (() => string[]);
+  /** KOS's own hosts as they are reached (host, or host:port): http.fetch never reaches them. */
+  ownHosts?: () => string[];
   profileOverrides?: Partial<Profile>;
   system?: string;
   /** Notified when a risky action is queued (e.g. to render Discord buttons). */
@@ -317,9 +336,6 @@ export function surfaceSessionId(channel: string, ownerId = "owner"): string {
  * work when the work is small and hands it on when it belongs somewhere
  * else. The chats tools are granted for exactly that second case.
  */
-/** The chats that act in the owner's Chrome without asking, by id. */
-const ACTS_ALONE_KEY = "browser.actsAlone";
-
 const SURFACE_BRIEF = [
   "This is the owner's continuous stream on this surface. Everything they say here arrives in this one thread, and everything you say goes back to them there.",
   "You have the full toolkit, so do small things here rather than making a conversation for each one.",
@@ -504,6 +520,10 @@ export class Kernel {
   /** Decisions the owner has made before, so the same shape stops asking. */
   readonly permissions: PermissionStore;
   readonly settings: SettingsStore;
+  /** Each chat's mode: Ask, or Auto within its bounds. */
+  readonly modes: ChatModes;
+  /** Whether each chat's latest turn began under Auto, for a surface to say so with its answer. */
+  private readonly underAuto = new Map<string, boolean>();
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
 
@@ -845,6 +865,18 @@ export class Kernel {
       warn: (message) => console.warn(`[kernel] ${message}`),
     });
     this.settings = args.settings;
+    // Halted is read from the store, so a kill switch thrown by another process (the CLI) ends Auto here too.
+    this.modes = new ChatModes(args.settings, Date.now, () => this.killSwitch.halted);
+    // Told once, in the Inbox: the chats whose Chrome steps ran unasked are back in Ask, and Auto is turned on per chat.
+    if (this.modes.migrated.length) {
+      const named = this.modes.migrated.map((id) => this.conversations.get(id)?.title ?? id).join(", ");
+      this.suggestions.add("other", "Auto is now per chat, and off", `These chats acted in your Chrome without asking: ${named}. Chat modes replaced that setting, and Auto now covers every risky step in a chat, so they are back in Ask. Turn Auto on from a chat's message box where you want it.`);
+    }
+    // The kill switch ends every chat's Auto, as it ends every session.
+    this.killSwitch.onChange((halted) => {
+      if (!halted) return;
+      for (const id of this.modes.clear()) this.bus.emit({ kind: "chat:mode", conversationId: id, mode: ASK });
+    });
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
     this.inference = args.inference;
@@ -1040,7 +1072,8 @@ export class Kernel {
     let parked: number | undefined;
     /** The waiting row this turn runs, so a page showing it waiting knows which went. */
     let ran: number | undefined;
-    if (useSession && this.working.has(sessionId) && opts.origin !== "system" && !opts.attachments?.length && !opts.guest && !opts.guested && !opts.contextFrom && (!opts.context || opts.contextRides) && !opts.roomTalk && !opts.quote) {
+    // Heard mid-turn only when they are the owner's own words: another chat's or a door's passed on run as a turn of their own, judged as theirs.
+    if (useSession && this.working.has(sessionId) && opts.origin !== "system" && opts.owner === true && !opts.from && !opts.attachments?.length && !opts.guest && !opts.guested && !opts.contextFrom && (!opts.context || opts.contextRides) && !opts.roomTalk && !opts.quote) {
       const waiting = this.pending.add(sessionId, text, [], originOf(opts), flagsOf(opts));
       const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, ...(opts.channel ? { channel: opts.channel } : {}), taken }]));
       if (how === "heard") return { reply: "", halted: false, sessionId, steered: true };
@@ -1125,6 +1158,11 @@ export class Kernel {
       // owner's own message said so.
       const attended = opts.attended ?? opts.origin !== "system";
       const owner = attended && opts.owner === true && opts.origin !== "system" && !opts.guest && !opts.guested && !sessionId.startsWith("cron:");
+      // Narrower still: the owner's own words, said in this chat. Not work another chat or a door passed on, a handoff's trail or an aside.
+      // SMS is never Auto's: a text's sender is the easiest of all to pass for the owner.
+      const ownWords = owner && !opts.from && !opts.trail?.length && !opts.contextFrom && !opts.via && opts.channel !== "dispatch" && opts.channel !== "sms" && (text.trim() !== "" || (opts.attachments?.length ?? 0) > 0);
+      // Marked once Auto lets a call of this turn run, for a surface to say so with the answer.
+      this.underAuto.set(sessionId, false);
       // A guest's words reach no further than their room's project, here and wherever the work is passed.
       const guest = opts.guested ?? (opts.guest ? this.guestRoomOf(sessionId) : undefined);
       const stop = this.stopFor(sessionId, turnId);
@@ -1193,6 +1231,7 @@ export class Kernel {
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended,
           owner,
+          ownWords,
           ...(guest ? { guest } : {}),
           // The job behind a schedule's run, whose unaddressed messages go to its place.
           ...(opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? { scheduled: Number(opts.from.id) } : {}),
@@ -1983,6 +2022,8 @@ export class Kernel {
     this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
     // News that arrived while the transcript was being written goes in now, once no turn there is still writing it.
     if (!this.stops.has(sessionId)) this.releaseNotes(sessionId);
+    // Auto set for this task ends with the chat's last turn.
+    if (!this.stops.has(sessionId) && this.modes.taskEnded(sessionId)) this.bus.emit({ kind: "chat:mode", conversationId: sessionId, mode: ASK });
   }
 
   /** The lines held for a chat, written now and no longer kept. */
@@ -3821,6 +3862,8 @@ export class Kernel {
     attended?: boolean;
     /** True for the owner's own turn alone. */
     owner?: boolean;
+    /** True when the turn began from the owner's own words in this chat: what a chat's Auto mode covers. */
+    ownWords?: boolean;
     /** The job behind a schedule's run, whose unaddressed messages go to the job's place. */
     scheduled?: number;
     /** The guest's room, for a turn a guest's words started or work they passed on. */
@@ -3859,7 +3902,13 @@ export class Kernel {
       permissionContext: (tool) => this.permissionContextFor(tool, opts.conversationId),
       prepare: (tool) => this.readyBrowser(tool, opts.conversationId, opts.signal),
       ...(opts.heard ? { heard: opts.heard } : {}),
-      autoApproves: (tool, context) => (opts.conversationId !== undefined && actsInYourChrome(tool, context) ? this.actsAloneOn(opts.conversationId, context?.browser?.site) : false),
+      chatMode: () => (opts.conversationId ? this.modes.of(opts.conversationId) : ASK),
+      onAutoRan: () => {
+        if (opts.conversationId) this.underAuto.set(opts.conversationId, true);
+      },
+      beyondAutoNow: (tool, input) => (opts.conversationId && (tool.startsWith(BROWSER_PREFIX) || mcpBrowserStep(tool)) ? this.checkoutSays(opts.conversationId, input) : Promise.resolve(undefined)),
+      halted: () => this.killSwitch.halted,
+      autoApproves: (tool, context) => (opts.conversationId !== undefined && actsInYourChrome(tool, context) ? this.sessionAllows(opts.conversationId, context?.browser?.site) : false),
       leavesSite: (tool, input, site) => tool.startsWith(BROWSER_PREFIX) && opensElsewhere(input, site),
       pictureFor: (tool) => this.browserPicture(tool, opts.conversationId),
       running: (tool) => (opts.conversationId && tool.startsWith(BROWSER_PREFIX) ? this.seen.run(opts.conversationId) : undefined),
@@ -3872,6 +3921,7 @@ export class Kernel {
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
       ...(opts.attended === false ? { attended: false } : {}),
       ...(opts.owner === true ? { owner: true } : {}),
+      ...(opts.ownWords === true ? { ownWords: true } : {}),
       ...(opts.scheduled !== undefined ? { scheduled: opts.scheduled } : {}),
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
@@ -4153,36 +4203,29 @@ export class Kernel {
    * What a browser action's permission turns on: the browser's tool family,
    * the site the caller's tab is on, and the tools never trusted by site.
    */
-  /**
-   * Chats the owner set, from the Chrome side panel, to act in their Chrome
-   * without asking each step. Clicking, typing and going somewhere there run
-   * as a remembered decision does; the strict tools, and everything outside
-   * the owner's Chrome, ask as before. The border, Take over and Stop still
-   * show, and the session is still the owner's to allow.
-   */
-  actsWithoutAsking(conversationId: string): boolean {
-    return this.chatsActingAlone().includes(conversationId);
+  /** Whether Auto let a call of the chat's latest turn run without asking. */
+  ranUnderAuto(conversationId: string): boolean {
+    return this.underAuto.get(conversationId) === true;
+  }
+
+  /** A chat's mode as it stands now. */
+  chatMode(conversationId: string): ChatMode {
+    return this.modes.of(conversationId);
+  }
+
+  /** Set a chat's mode from any surface, and tell the others. */
+  setChatMode(conversationId: string, mode: ChatMode): void {
+    this.modes.set(conversationId, mode);
+    this.bus.emit({ kind: "chat:mode", conversationId, mode: this.modes.of(conversationId) });
   }
 
   /**
-   * Whether a chat acts in the owner's Chrome without asking each step:
-   * anywhere when the chat is set to Auto, "site" when the owner allowed its
-   * session with this site's steps unasked, which holds on this site alone.
-   * The strict tools ask either way.
+   * Whether the owner allowed a chat's session in their Chrome with this
+   * site's steps unasked: "site", which holds on this site alone. The strict
+   * tools ask either way.
    */
-  private actsAloneOn(conversationId: string, site: string | undefined): boolean | "site" {
-    if (this.actsWithoutAsking(conversationId)) return true;
+  private sessionAllows(conversationId: string, site: string | undefined): "site" | false {
     return site !== undefined && this.away(conversationId)?.actsAlone?.(conversationId, site) === true ? "site" : false;
-  }
-
-  setActsWithoutAsking(conversationId: string, on: boolean): void {
-    const others = this.chatsActingAlone().filter((id) => id !== conversationId);
-    this.settings.set(ACTS_ALONE_KEY, on ? [...others, conversationId] : others);
-  }
-
-  private chatsActingAlone(): string[] {
-    const saved = this.settings.get(ACTS_ALONE_KEY);
-    return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : [];
   }
 
   /** What a remembered decision is judged against: the browser's site, and where the turn's file paths land. */
@@ -4611,6 +4654,32 @@ export class Kernel {
   /** Where a conversation's tab is, in whichever browser it works in. */
   private spotOf(conversationId: string): PageSpot | undefined {
     return (this.away(conversationId) ?? this.browser).spot(conversationId);
+  }
+
+  /**
+   * Whether a browser step in this chat would act on a checkout or a payment
+   * page, in KOS's browser or the owner's Chrome: by the tab's address, the
+   * addresses the step opens, and the page itself (checkout words anywhere
+   * in it, a card field, a payment provider's frame). A page that cannot be
+   * read in a moment counts as one for a step that touches it: the check
+   * fails closed.
+   */
+  private async checkoutSays(conversationId: string, input: Record<string, unknown>): Promise<string | undefined> {
+    const away = this.away(conversationId);
+    const spot = away ? away.spot(conversationId) : this.browser.spot(conversationId);
+    const urls = [...(spot ? [spot.url] : []), ...addressesIn(input)];
+    if (looksLikeCheckout(urls, undefined)) return checkoutVerdict(urls, null, false) || undefined;
+    const page = async (): Promise<Page | undefined> => {
+      if (away) return spot ? (await away.tab(conversationId)).page : undefined;
+      const tab = this.browser.tabOf(conversationId);
+      return tab ? this.browser.page(tab) : undefined;
+    };
+    const look = await Promise.race([
+      page().then(async (p) => (p ? (JSON.parse(await p.evaluate(CHECKOUT_LOOK)) as PageLook) : null)),
+      new Promise<undefined>((done) => setTimeout(() => done(undefined), 1500).unref()),
+    ]).catch(() => undefined);
+    // No tab yet is nothing to read; a page that would not say is a page a step must not touch unasked.
+    return checkoutVerdict(urls, look, touchesPage(input)) || undefined;
   }
 
   /**
@@ -5272,15 +5341,12 @@ export class Kernel {
     if (!source) throw new Error(`no such conversation: ${sessionId}`);
 
     const history = this.sessions.get(sessionId);
-    // Owner turns are the anchors: a tool result is also a "user" message on
-    // the wire, so only messages carrying text count as something they said.
+    // The owner's lines are the anchors, counted exactly as the transcript
+    // shows them: a tool result, an approval's resume and room talk are
+    // "user" messages on the wire too, and none is a line they can press.
     const anchors: number[] = [];
     history.forEach((m, i) => {
-      if (m.role !== "user") return;
-      if (!m.content.some((b) => b.type === "text" || b.type === "file" || b.type === "image")) {
-        return;
-      }
-      anchors.push(i);
+      for (let n = ownerLinesIn(m); n > 0; n--) anchors.push(i);
     });
     const at = anchors[userTurnIndex];
     if (at === undefined) throw new Error(`no message #${userTurnIndex} to rewind to`);
@@ -5324,9 +5390,12 @@ export class Kernel {
 
     // Work a guest's turn passed on stays under their room, whoever sends it again; new words are the sender's own.
     const guested = opts.text === undefined ? original?.origin?.guested : undefined;
+    // Words another chat or a door passed on stay passed on when sent again: never the owner's own words in this chat.
+    const passedOn = opts.text === undefined && from && !guest ? { from } : {};
     const res = await this.handleMessage(said, {
       sessionId: target,
       userId: source.userId,
+      ...passedOn,
       ...(guested ? { guested } : {}),
       ...(guest
         ? { guest, ...(original?.origin?.via ? { channel: original.origin.via } : {}), ...(original?.origin?.room ? { room: original.origin.room } : {}) }

@@ -21,6 +21,8 @@ struct ChatTests {
     #expect(ChatMethod(rawValue: "chat.show") == .show)
     #expect(show.conversation == "mac:owner")
     #expect(show.auto == true)
+    // A KOS from before modes says Auto in a word.
+    #expect(show.chatMode == ChatMode(.auto))
     #expect(show.messages.map(\.role) == ["you", "steps", "kos"])
     #expect(show.messages[1].steps == [ChatStep(summary: "Look at the screen"), ChatStep(summary: "Click Buy", failed: true)])
     #expect(show.notice?.said == "/new")
@@ -83,7 +85,6 @@ struct ChatTests {
     let always = try #require(object(ChatEvent.decide(approval: "7", approved: true, remember: true).frame())["data"] as? [String: Any])
     #expect(always["remember"] as? Bool == true)
     #expect(try object(ChatEvent.open.frame())["name"] as? String == "chat.open")
-    #expect(try object(ChatEvent.auto(true).frame())["data"] as? [String: Bool] == ["on": true])
   }
 
   @Test func readsWhichChatATurnIsInAndWhatItWaitsOn() throws {

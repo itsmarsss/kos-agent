@@ -71,7 +71,7 @@ final class ChatController {
     model.list = { [weak self] in self?.tell(.list) }
     model.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
     model.chooseModel = { [weak self] choice in self?.tell(.model(choice)) }
-    model.setAuto = { [weak self] on in self?.tell(.auto(on)) }
+    model.setMode = { [weak self] mode in self?.tell(.mode(mode)) }
     model.askMentions = { [weak self] q in self?.tell(.mentions(q)) }
     model.close = { [weak self] in self?.close() }
     watchFront()

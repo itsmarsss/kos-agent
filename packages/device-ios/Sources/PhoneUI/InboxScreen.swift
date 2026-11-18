@@ -186,7 +186,7 @@ struct DecidedRow: View {
 
   private var look: (symbol: String, tint: Color, word: String) {
     switch row.status {
-    case "approved": ("checkmark", Theme.ok, "Approved")
+    case "approved": row.byAuto ? ("bolt.fill", Theme.ok, "Approved by Auto") : ("checkmark", Theme.ok, "Approved")
     case "denied": ("xmark", Theme.danger, "Denied")
     default: ("clock", Theme.muted, "Lapsed")
     }

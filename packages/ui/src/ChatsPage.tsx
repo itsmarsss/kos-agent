@@ -10,7 +10,8 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { runningTail, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { cycled, runningTail, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { isModeKey, ModeChip } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, MessageTime, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
@@ -50,6 +51,7 @@ import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
 import { OriginLine, surfaceName } from "./OriginLine.js";
 import { ModelPicker } from "./ModelPicker.js";
+import { useChatMode } from "./chatmode.js";
 import { HighlightedInput } from "./HighlightedInput.js";
 import {
   applySuggestion,
@@ -507,6 +509,7 @@ export function ChatsPage({
   const inlineScroll = useOverlayScroll<HTMLDivElement>();
 
   const active = conversations.find((c) => c.id === activeId);
+  const [chatMode, setChatMode] = useChatMode(active, onChanged);
   /*
    * A turn is running here, on both accounts.
    *
@@ -2647,6 +2650,12 @@ export function ChatsPage({
                       }
                     }}
                     onKeyDown={(e) => {
+                      // Shift+Tab cycles the chat's mode, as on every surface.
+                      if (isModeKey(e)) {
+                        e.preventDefault();
+                        setChatMode(cycled(chatMode));
+                        return;
+                      }
                       if (suggestions.length > 0) {
                         if (e.key === "ArrowDown") {
                           e.preventDefault();
@@ -2697,6 +2706,7 @@ export function ChatsPage({
                     }
                   />
                   <ModelPicker />
+                  <ModeChip mode={chatMode} onChange={setChatMode} running={running} />
                   {/* The hint took the widest slot in the row to say something
                       every chat surface already does. The space is the model's. */}
                   {/* Beside Send rather than under the title: how full the chat

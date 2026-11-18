@@ -1,6 +1,6 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
+import type { ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
 
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
@@ -593,6 +593,8 @@ export interface Conversation {
   unread?: boolean;
   /** Messages waiting behind the turn running here, from any surface. */
   queued?: number;
+  /** The chat's mode when it is in Auto; none is Ask. */
+  mode?: ChatMode;
 }
 
 export interface ChatTurn {
@@ -1077,15 +1079,53 @@ export function dispositionName(header: string | null): string | undefined {
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(path, signal ? { signal } : undefined);
+  const res = await fetch(path, { headers: tokenHeaders(), ...(signal ? { signal } : {}) });
   if (!res.ok) throw new Error(await readError(res, path));
   return (await res.json()) as T;
+}
+
+/**
+ * What a change sends besides its body: this boot's write key, which KOS
+ * wrote into the page it served, so the change is known to come from here
+ * rather than from any program on the machine.
+ */
+export function changeHeaders(): Record<string, string> {
+  const key = typeof document === "undefined" ? null : document.querySelector('meta[name="kos-write"]')?.getAttribute("content");
+  return { "content-type": "application/json", ...(key ? { "x-kos-write": key } : {}), ...tokenHeaders() };
+}
+
+/** Where this tab keeps the dashboard token the owner entered: for the tab's life, never on disk. */
+const TOKEN_KEY = "kos.dashboardToken";
+
+/** The dashboard token entered in Settings, for a KOS that asks for one (in the container, every change does). */
+export function dashboardToken(): string | undefined {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Keep the token for this tab, or forget it with an empty one. */
+export function setDashboardToken(token: string): void {
+  try {
+    if (token.trim()) sessionStorage.setItem(TOKEN_KEY, token.trim());
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // A browser that keeps nothing for the tab: the token goes unheld, and KOS says so on the next change.
+  }
+}
+
+/** The token as KOS reads it, on every request: it guards reads too, when one is set. */
+export function tokenHeaders(): Record<string, string> {
+  const token = dashboardToken();
+  return token ? { "x-kos-token": token } : {};
 }
 
 async function post<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: changeHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -1279,7 +1319,7 @@ export const api = {
   /** The owner's edit to a doc or a sheet, made on the version `base` (its record's updatedAt). */
   savePage: async (id: string, edit: unknown, base: number): Promise<PageSummary> => {
     const path = `/api/pages/${encodeURIComponent(id)}/save`;
-    const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ edit, base }) });
+    const res = await fetch(path, { method: "POST", headers: changeHeaders(), body: JSON.stringify({ edit, base }) });
     if (res.status === 409) throw new SaveConflict(await readError(res, path));
     if (!res.ok) throw new Error(await readError(res, path));
     return (await res.json()) as PageSummary;
@@ -1555,6 +1595,8 @@ export const api = {
       index,
       ...opts,
     }),
+  /** Set a chat's mode: Ask, or Auto with its bounds. */
+  setChatMode: (id: string, mode: ChatMode) => post<{ id: string; mode: ChatMode }>("/api/conversations/mode", { id, mode }),
   renameConversation: (id: string, title: string) =>
     post<Conversation>("/api/conversations/rename", { id, title }),
   archiveConversation: (id: string, archived = true) =>

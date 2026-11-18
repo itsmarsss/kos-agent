@@ -2116,6 +2116,8 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
   .sheet-composer-bar .ctx-track,
   .sheet-composer-bar .ctx-detail { display: none; }
   .sheet-composer-bar .ctx-text { white-space: nowrap; }
+  /* Auto's time left goes to the chip's tooltip, so the row stays one line. */
+  .sheet-composer-bar .mode-chip-left { display: none; }
 }
 
 /* —— conversation switcher —— */
@@ -3942,6 +3944,8 @@ li:hover .chats-item-when { opacity: 0; }
 /* A setting: the kit's field, a little airier, its hint a readable measure. */
 .set-field { gap: 0.35rem; }
 .set-field > .hint { max-width: 46rem; line-height: 1.45; }
+.set-token { display: flex; gap: 0.4rem; align-items: center; max-width: 28rem; }
+.set-token .kos-input { flex: 1; min-width: 0; }
 
 /* The row variant's words: the same label and hint as a field anywhere. */
 .set-label {

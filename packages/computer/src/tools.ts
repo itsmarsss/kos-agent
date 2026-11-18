@@ -58,6 +58,8 @@ export interface ComputerToolsDeps {
   stopTurn?(conversation: string): boolean;
   /** Whether a chat's steps on the screen each ask the owner first: the KOS for Mac window's chat, set to Ask. */
   asksEachStep?(conversation: string): boolean;
+  /** Whether a chat is in Auto: its steps on the screen are judged risky, so Auto's approval of each is recorded. */
+  inAuto?(conversation: string): boolean;
   /** Whether a chat has an approval open: each step's status says so, so a wait the device missed the end of goes. */
   waitingOn?(conversation: string): boolean;
   /** Subscribe to the owner's words reaching a chat's running turn mid-way: a no they gave may no longer stand. */
@@ -124,6 +126,8 @@ const SETTLE_MS = 450;
 const STOPPED_TEXT = "The owner pressed Stop. Do not start a session again unless they say so; tell them where you stopped.";
 /** The actions that only look or wait, which ask nobody even in a chat set to Ask. */
 const LOOKS = new Set(["screenshot", "zoom", "wait"]);
+/** What a click that spends money says it does. */
+const PURCHASE_WORDS = /\b(place (?:the |your |my )?order|pay(?: now)?|buy(?: now)?|check ?out|confirm (?:the |your )?purchase|subscribe|complete (?:the |your )?purchase)\b/i;
 /** As much of the owner's words as a session's prompt shows for a task KOS did not write. */
 const SAID_MAX = 120;
 /**
@@ -460,6 +464,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       return device && hub.consentOf(device.id) === "kos" ? "this computer lets KOS start sessions without asking on it" : false;
     },
     why: "uses the computer: sees the screen and moves the pointer and keys",
+    startsSession: true,
   };
 
   /**
@@ -474,6 +479,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       return device && hub.consentOf(device.id) === "kos" ? "this Chrome lets KOS start sessions without asking in it" : false;
     },
     why: "works in the owner's own Chrome, signed in as them",
+    startsSession: true,
   };
 
   /**
@@ -482,17 +488,31 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
    * approvals, once a session is live (the first call only starts one, and
    * the Mac asks for that itself).
    */
+  const stepsOf = (input: Record<string, unknown>): unknown[] => (hasActions(input) && Array.isArray(input.actions) ? (input.actions as unknown[]) : [input]);
   const actRisk: ToolRisk = {
     floor: "safe",
     escalate: (input) => {
       const chat = deps.caller();
-      if (!chat || !hub.sessionOf(chat) || !deps.asksEachStep?.(chat)) return false;
-      const steps = hasActions(input) && Array.isArray(input.actions) ? (input.actions as unknown[]) : [input];
-      const acts = steps.some((a) => typeof a !== "object" || a === null || !LOOKS.has(String((a as Record<string, unknown>).action)));
-      return acts ? "this chat is set to Ask: each step on the screen asks first" : false;
+      if (!chat || !hub.sessionOf(chat)) return false;
+      const ask = deps.asksEachStep?.(chat) === true;
+      // In Auto a step is risky too, so the approval Auto gives it is kept in the Inbox like any other.
+      if (!ask && deps.inAuto?.(chat) !== true) return false;
+      const acts = stepsOf(input).some((a) => typeof a !== "object" || a === null || !LOOKS.has(String((a as Record<string, unknown>).action)));
+      return acts ? (ask ? "this chat is set to Ask: each step on the screen asks first" : "a step on the screen, under Auto") : false;
+    },
+    // The device refused typing into a password field in this session: typing again there is the owner's to allow.
+    // And a click said to place an order or pay: the device reports no element under a click, so the step's own intent is what names it.
+    beyondAuto: (input) => {
+      const chat = deps.caller();
+      const steps = stepsOf(input).filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null);
+      if (chat && secureFocus.has(chat) && steps.some((a) => a.action === "type")) return "types where the computer reported a password field";
+      const clicks = steps.some((a) => String(a.action).endsWith("_click"));
+      return clicks && PURCHASE_WORDS.test(str(input.intent) ?? "") ? "a click that places an order or pays" : false;
     },
     why: "works the owner's screen: moves the pointer and types",
   };
+  /** Chats whose computer last answered that a password field has focus, until a step there goes through. */
+  const secureFocus = new Set<string>();
 
   /** The Mac whose window the calling chat is, by id. */
   function macOf(): string | undefined {
@@ -612,8 +632,16 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       return { action, input };
     },
     name: (a) => a.action,
-    perform: (a, ctx) => perform(chat, session, a.action, a.input, ctx.waits, ctx.signal),
-    why: (err) => (err instanceof DeviceError ? refusalText(err, hub.takeEnding(chat)) : err instanceof Error ? err.message : String(err)),
+    perform: async (a, ctx) => {
+      const done = await perform(chat, session, a.action, a.input, ctx.waits, ctx.signal);
+      // A click or a key that went through moves focus on from the password field the computer reported.
+      if (a.action !== "type" && a.action !== "wait" && a.action !== "mouse_move") secureFocus.delete(chat);
+      return done;
+    },
+    why: (err) => {
+      if (err instanceof DeviceError && err.code === "secure_input") secureFocus.add(chat);
+      return err instanceof DeviceError ? refusalText(err, hub.takeEnding(chat)) : err instanceof Error ? err.message : String(err);
+    },
     betweenMs: BETWEEN_MS,
     // A wait ends at Stop; a device call, once sent, cannot be taken back.
     cancels: (a) => a.action === "wait",

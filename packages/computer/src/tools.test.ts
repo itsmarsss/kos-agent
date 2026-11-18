@@ -19,7 +19,7 @@ const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 /** The owner speaking on a surface: what a call in that turn is under. */
 type Spoken = { surface: string; said: string };
 
-function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>; mac?: () => { device: string; app?: string } | undefined; from?: Spoken; stopTurn?: (chat: string) => boolean; asksEachStep?: (chat: string) => boolean } = {}) {
+function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>; mac?: () => { device: string; app?: string } | undefined; from?: Spoken; stopTurn?: (chat: string) => boolean; asksEachStep?: (chat: string) => boolean; inAuto?: (chat: string) => boolean } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -69,6 +69,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
     ...(opts.mac ? { panelMac: () => opts.mac!() } : {}),
     ...(opts.stopTurn ? { stopTurn: opts.stopTurn } : {}),
     ...(opts.asksEachStep ? { asksEachStep: opts.asksEachStep } : {}),
+    ...(opts.inAuto ? { inAuto: opts.inAuto } : {}),
     settleMs: opts.settleMs ?? 0,
     sleep: opts.sleep ?? (async () => undefined),
   });
@@ -139,6 +140,8 @@ describe("the computer tools", () => {
     expect(escalate({ task: "t" })).toBe(false);
     fake.send({ t: "state", consent: "kos" });
     expect(escalate({ task: "t" })).toMatch(/without asking/);
+    // Such an ask is a session's start: a chat's Auto covers it only where the owner let it start sessions.
+    expect(tools.get("computer.start")!.risk!.startsSession).toBe(true);
   });
 
   it("start a session the owner reads by the chat's title, and hand back the screen", async () => {
@@ -537,6 +540,27 @@ describe("the computer tools", () => {
     expect(escalate({ action: "zoom", region: [0, 0, 5, 5] })).toBe(false);
     ask = false;
     expect(escalate({ action: "left_click", coordinate: [1, 1] })).toBe(false);
+  });
+
+  it("judge a step risky in a chat in Auto, so Auto's yes is kept, and hold typing back once a password field was reported", async () => {
+    const { call, pair, tools } = setup({ inAuto: () => true });
+    const fake = pair();
+    const risk = tools.get("computer.act")!.risk!;
+    await call("computer.start", { task: "t" });
+    expect(risk.escalate!({ action: "left_click", coordinate: [1, 1] })).toBe("a step on the screen, under Auto");
+    expect(risk.escalate!({ action: "screenshot" })).toBe(false);
+    expect(risk.beyondAuto!({ action: "type", text: "x" })).toBe(false);
+    fake.answers.set("keys.type", () => ({ ok: false, code: "secure_input", message: "secure input" }));
+    await call("computer.act", { action: "type", text: "hunter2" }).catch(() => undefined);
+    expect(risk.beyondAuto!({ action: "type", text: "x" })).toMatch(/password field/);
+    expect(risk.beyondAuto!({ action: "left_click", coordinate: [1, 1] })).toBe(false);
+    // A click elsewhere moves focus on.
+    await call("computer.act", { action: "left_click", coordinate: [5, 5] });
+    expect(risk.beyondAuto!({ action: "type", text: "x" })).toBe(false);
+    // A click said to buy is the owner's, under Auto or not.
+    expect(risk.beyondAuto!({ action: "left_click", coordinate: [5, 5], intent: "Place order" })).toMatch(/places an order or pays/);
+    expect(risk.beyondAuto!({ actions: [{ action: "left_click", coordinate: [5, 5] }], intent: "confirm purchase of the mug" })).toMatch(/places an order/);
+    expect(risk.beyondAuto!({ action: "left_click", coordinate: [5, 5], intent: "open the payroll report" })).toBe(false);
   });
 
   it("ask for the owner's default length, and refuse work the owner did not start unless allowed", async () => {

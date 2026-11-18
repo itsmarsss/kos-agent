@@ -109,6 +109,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let active: ComputerModule | undefined;
   let unfaced: (() => void) | undefined;
   let unthemed: (() => void) | undefined;
+  let unmoded: (() => void) | undefined;
   let waits: ReturnType<typeof tellWaits> | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
@@ -176,6 +177,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       const events = ctx.events;
       unfaced = events?.on("face:changed", () => hub?.tellFace());
       unthemed = events?.on("theme:changed", () => hub?.tellTheme());
+      unmoded = events?.on("chat:mode", (e) => [panel, mac, phone].forEach((p) => p.modeChanged(e.conversationId)));
       waits = events ? tellWaits(events, devices) : undefined;
       active = computerModule({
         hub,
@@ -186,6 +188,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         ...(options.stopTurn ? { stopTurn: options.stopTurn } : {}),
         // The KOS for Mac window's chat set to Ask: each step on the screen asks first.
         asksEachStep: (conversation) => mac.asksEachStep(conversation),
+        inAuto: (conversation) => mac.inAuto(conversation),
         waitingOn: (conversation) => waits?.waiting(conversation) ?? false,
         panelChrome: (conversation) => panel.deviceOf(conversation),
         panelMac: (conversation) => {
@@ -217,6 +220,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       unfaced = undefined;
       unthemed?.();
       unthemed = undefined;
+      unmoded?.();
+      unmoded = undefined;
       waits?.off();
       waits = undefined;
       panel.attach(undefined);

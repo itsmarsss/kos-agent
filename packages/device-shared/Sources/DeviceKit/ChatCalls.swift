@@ -22,7 +22,7 @@ public enum ChatCalls {
       let kept = p.messages.compactMap { m in line(m).map { ($0, m.said) } }
       model.show(
         conversation: p.chat ?? p.conversation, title: p.title, lines: kept.map(\.0), times: kept.map(\.1),
-        notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false,
+        notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, mode: p.chatMode,
         // Keys that read as the same number ("7" and "07") keep the last: never a trap on a duplicate.
         pictures: Dictionary((p.pictures ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } }, uniquingKeysWith: { _, last in last }))
       return .shown

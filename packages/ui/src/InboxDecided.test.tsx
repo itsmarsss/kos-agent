@@ -65,6 +65,15 @@ const mark = (n: number, latest = 1000): { total: number; latest: number } => ({
 const headCount = (): string | null | undefined => document.querySelector("#inbox-decided-title .count")?.textContent;
 
 describe("the decided list", () => {
+  it("labels a call a chat's Auto mode let through, apart from the owner's yes", async () => {
+    const rows = decidedRows(2).map((r, i) => ({ ...r, status: "approved" as const, decidedBy: i === 0 ? "auto mode" : "owner" }));
+    serve(rows);
+    render(<InboxDecided mark={mark(rows.length)} onOpenChat={() => {}} />);
+    await waitFor(() => expect(lines()).toHaveLength(2));
+    expect(within(lines()[0]!).getByText("auto mode")).toBeTruthy();
+    expect(within(lines()[1]!).queryByText("auto mode")).toBeNull();
+  });
+
   it("shows the latest five, then older ones a page at a time", async () => {
     const all = decidedRows(DECIDED_FIRST + DECIDED_PAGE + 3);
     const { history } = serve(all);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
+import { AUTO_DECIDER } from "@kos/shared";
 import { ChevronDown, Chips, Collapse, Count, Empty, Pill, spring, Tag, type Tone } from "@kos/kit";
 
 import { api, type DecidedAction, type DecidedStatus, type InboxData } from "./api.js";
@@ -277,6 +278,7 @@ export function InboxDecided({
                   <span className="inbox-decided-what" data-id={a.id}>
                     {a.summary}
                   </span>
+                  {a.decidedBy === AUTO_DECIDER && <Tag title="This chat was set to Auto, so KOS went ahead without asking you">auto mode</Tag>}
                   {a.id === linked?.id && !rows.some((r) => r.id === a.id) && <Tag>Linked</Tag>}
                   {a.asker && <span className="inbox-decided-where">{a.asker}</span>}
                   <time className="inbox-decided-when" dateTime={new Date(when).toISOString()} title={new Date(when).toLocaleString()}>

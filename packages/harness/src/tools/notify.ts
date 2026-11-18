@@ -614,6 +614,8 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           // anywhere else is KOS speaking in a place the owner did not choose,
           // which is a decision for the owner rather than for the agent.
           escalate: (input) => (sendsElsewhere(input) ? "a message to somewhere other than you" : false),
+          // The same line holds a chat's Auto: a message anywhere but to the owner asks.
+          beyondAuto: (input) => (sendsElsewhere(input) ? "messages someone besides you" : false),
         },
       );
     },

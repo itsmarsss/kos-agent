@@ -1,6 +1,7 @@
 import {
   closeSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -123,6 +124,24 @@ async function pdfRead(bytes: Buffer, from: number | undefined, to: number | und
 export function outsideScratch(path: string): boolean {
   const norm = path.replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/\/+$/, "");
   return norm !== SCRATCH_PREFIX && !norm.startsWith(`${SCRATCH_PREFIX}/`);
+}
+
+/** Whether a path is there now, placed as the call places it; a path the jail refuses is not. */
+function exists(ws: Workspace, ctx: ModuleContext, path: string): boolean {
+  try {
+    return path !== "" && existsSync(placeFor(ws, ctx, path).abs);
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a path is a folder now, placed as the call places it; a path the jail refuses is no folder of its own. */
+function isFolder(ws: Workspace, ctx: ModuleContext, path: string): boolean {
+  try {
+    return path !== "" && statSync(placeFor(ws, ctx, path).abs).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /** A path under KOS's own state, .kos/, however it is spelled: `.KOS` and `.ko\u017f` are the same folder on a case-insensitive disk. */
@@ -377,7 +396,13 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       renameSync(from.abs, to.abs);
       return `moved to ${to.rel}`;
     },
-    { floor: "safe", escalate: scratchOnly("from"), reach: changing("from", "to") },
+    {
+      floor: "safe",
+      escalate: scratchOnly("from"),
+      reach: changing("from", "to"),
+      // A move onto a file that is there already replaces it: the owner's to allow, whatever the chat is set to.
+      beyondAuto: (input) => (exists(ws, ctx, optStr(input, "to") ?? "") ? "replaces a file that is there" : false),
+    },
   );
 
   ctx.registerTool(
@@ -395,7 +420,13 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       rmSync(abs, { recursive: true, force: true });
       return `removed ${rel}`;
     },
-    { floor: "safe", escalate: scratchOnly("path"), reach: changing("path") },
+    {
+      floor: "safe",
+      escalate: scratchOnly("path"),
+      reach: changing("path"),
+      // One file is covered by a chat's Auto; a whole folder at once never is.
+      beyondAuto: (input) => (isFolder(ws, ctx, optStr(input, "path") ?? "") ? "deletes a whole folder" : false),
+    },
   );
 }
 

@@ -5,7 +5,7 @@ import type { BrowserFrame } from "@kos/browser";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 
 import type { Kernel } from "./kernel.js";
-import { authorized } from "./server.js";
+import { authorized, ownHost, sameSecret } from "./server.js";
 
 /**
  * Everything live on the dashboard, on one connection.
@@ -39,6 +39,14 @@ export interface DashboardSocketOptions {
   token?: string;
   /** Origins besides the dashboard's own that may connect. */
   allowedOrigins?: string[];
+  /**
+   * This boot's write key, which the dashboard's page holds and sends in the
+   * socket's address (`?key=`): without it a window may watch, but not put
+   * its hand on the browser (input, take, release).
+   */
+  writeKey?: string;
+  /** The names KOS goes by, for the same Host check the API makes. */
+  hostNames?: string[];
 }
 
 export interface DashboardSocket {
@@ -55,7 +63,8 @@ export interface DashboardSocket {
  */
 export function originAllowed(req: IncomingMessage, allowedOrigins: string[] = []): boolean {
   const origin = req.headers.origin;
-  if (origin === undefined) return true;
+  // Only a browser opens this socket, and a browser always says where from: a caller that does not is no page of KOS's.
+  if (origin === undefined) return false;
   if (allowedOrigins.includes(origin)) return true;
   try {
     return new URL(origin).host === req.headers.host;
@@ -70,12 +79,19 @@ export function createDashboardSocket(kernel: Kernel, options: DashboardSocketOp
   return {
     upgrade(req, socket, head) {
       if ((req.url ?? "").split("?")[0] !== SOCKET_PATH) return false;
-      const allowed = originAllowed(req, options.allowedOrigins) && (!options.token || authorized({ method: "GET", path: SOCKET_PATH, headers: req.headers }, options.token));
+      // A browser's socket sends no headers of its own: the token may ride in the address instead.
+      const params = new URL(req.url ?? "/", "http://kos").searchParams;
+      const given = params.get("token");
+      const asked = { method: "GET", path: SOCKET_PATH, headers: given ? { ...req.headers, "x-kos-token": given } : req.headers };
+      const allowed = ownHost(req.headers.host, options.hostNames ?? []) && originAllowed(req, options.allowedOrigins) && (!options.token || authorized(asked, options.token));
       if (!allowed) {
         socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
         return true;
       }
-      wss.handleUpgrade(req, socket, head, (ws) => serve(kernel, ws, `window-${next++}`));
+      // A hand on the browser is the page's that holds this boot's key, or the token's.
+      const key = params.get("key") ?? undefined;
+      const hands = (options.token !== undefined && authorized(asked, options.token)) || (options.writeKey !== undefined && sameSecret(key, options.writeKey));
+      wss.handleUpgrade(req, socket, head, (ws) => serve(kernel, ws, `window-${next++}`, hands));
       return true;
     },
     close() {
@@ -93,7 +109,7 @@ export function frameMessage(tab: string, frame: BrowserFrame): Buffer {
   return Buffer.concat([length, header, Buffer.from(frame.data, "base64")]);
 }
 
-function serve(kernel: Kernel, ws: WebSocket, holder: string): void {
+function serve(kernel: Kernel, ws: WebSocket, holder: string, hands: boolean): void {
   const watching = new Map<Channel, () => void>();
   const send = (message: object): void => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
@@ -141,7 +157,9 @@ function serve(kernel: Kernel, ws: WebSocket, holder: string): void {
     }
     const channel = message["channel"];
     const tab = typeof message["tab"] === "string" ? message["tab"] : undefined;
-    switch (message["op"]) {
+    const op = message["op"];
+    if ((op === "input" || op === "take" || op === "release") && !hands) return say("browser", "reload the dashboard: this window has no key to work the browser with");
+    switch (op) {
       case "watch":
         if (channel === "events" || channel === "browser" || channel === "builds") watch(channel, tab);
         return;

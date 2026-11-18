@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToolRegistry } from "../agent/registry.js";
 import { AuditLog } from "../ops/audit.js";
 import { ApprovalQueue } from "../ops/approvals.js";
-import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
+import { PermissionStore } from "../ops/permissions.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { caller, isAttended, isOwnerTurn, onSite, turnStop } from "./caller.js";
-import { GuardedTools, STOPPED_RESULT, approvedResult, finishedAfterStop, isUndone, undoneResult, type GuardedToolsDeps } from "./guarded.js";
+import { AUTO_PREFIX, GuardedTools, STOPPED_RESULT, approvedResult, autoCovers, finishedAfterStop, isUndone, undoneResult, type GuardedToolsDeps } from "./guarded.js";
 
 describe("GuardedTools", () => {
   let root: string;
@@ -87,31 +87,143 @@ describe("GuardedTools", () => {
     await asking;
   });
 
-  it("runs a chat's actions in the owner's Chrome without asking when the owner set it so, and nothing else", async () => {
-    for (const name of ["browser.act", "browser.eval", "files.rm"]) {
-      registry.register({ name, description: name, inputSchema: { type: "object" } }, () => "done", { floor: "risky" });
+  describe("a chat set to Auto", () => {
+    const AUTO = { mode: "auto" } as const;
+    const yours = { browser: { prefix: "browser.", site: "shop.example", strict: ["browser.eval", "browser.handoff"], yours: true } };
+
+    function risky(...names: string[]): void {
+      for (const name of names) registry.register({ name, description: name, inputSchema: { type: "object" } }, () => "done", { floor: "risky" });
     }
-    const yours = { browser: { prefix: "browser.", site: "shop.example", strict: ["browser.eval"], yours: true } };
-    const tools = guarded({
-      conversationId: "c1",
-      waitForApproval: false,
-      permissionContext: (tool) => (tool.startsWith("browser.") ? yours : undefined),
-      autoApproves: (tool, context) => actsInYourChrome(tool, context),
+
+    function auto(over: Partial<GuardedToolsDeps> = {}): GuardedTools {
+      return guarded({ conversationId: "c1", owner: true, ownWords: true, waitForApproval: false, chatMode: () => AUTO, permissionContext: (tool) => (tool.startsWith("browser.") ? yours : undefined), ...over });
+    }
+
+    it("runs the owner's risky calls without asking: KOS's browser, the owner's Chrome, files", async () => {
+      risky("browser.act", "files.rm", "shell.run");
+      const tools = auto();
+      for (const name of ["browser.act", "files.rm", "shell.run"]) {
+        const ran = await tools.execute(name, { x: 1 });
+        expect(ran.content).toBe(`${AUTO_PREFIX}\ndone`);
+      }
+      expect(approvals.pending()).toEqual([]);
     });
-    expect((await tools.execute("browser.act", { steps: [] })).content).toBe("done");
-    expect(audit.recent(5)[0]).toMatchObject({ tool: "browser.act", riskTier: "risky" });
-    // Running script in the page asks however the chat is set, and so does everything outside the owner's Chrome.
-    expect((await tools.execute("browser.eval", { js: "1" })).content).toMatch(/Queued for approval/);
-    expect((await tools.execute("files.rm", { path: "a" })).content).toMatch(/Queued for approval/);
-    expect(approvals.pending().map((a) => a.tool)).toEqual(["browser.eval", "files.rm"]);
-    // KOS's own browser is not the owner's Chrome.
-    expect(actsInYourChrome("browser.act", { browser: { prefix: "browser.", strict: [] } })).toBe(false);
+
+    it("keeps each call in the decided history and the audit as approved by auto mode, never the owner", async () => {
+      risky("files.rm");
+      await auto({ userId: "owner" }).execute("files.rm", { path: "a" });
+      expect(approvals.decided()).toMatchObject([{ tool: "files.rm", status: "approved", decidedBy: "auto mode", conversationId: "c1", owner: true }]);
+      expect(audit.recent(1)[0]).toMatchObject({ tool: "files.rm", riskTier: "risky", approvedBy: "auto mode" });
+    });
+
+    it("says a failure under Auto as one", async () => {
+      registry.register({ name: "boom", description: "b", inputSchema: { type: "object" } }, () => {
+        throw new Error("no such file");
+      }, { floor: "risky" });
+      const ran = await auto().execute("boom", {});
+      expect(ran.isError).toBe(true);
+      expect(ran.content.startsWith(`${AUTO_PREFIX} it failed.`)).toBe(true);
+    });
+
+    it("asks in Ask, the default", async () => {
+      risky("files.rm");
+      expect((await auto({ chatMode: () => ({ mode: "ask" }) }).execute("files.rm", {})).content).toMatch(/Queued for approval/);
+      expect((await auto({ chatMode: undefined }).execute("files.rm", { y: 1 })).content).toMatch(/Queued for approval/);
+    });
+
+    it("never covers a turn the owner did not start in this chat: a schedule, a guest, a dispatch", async () => {
+      risky("files.rm");
+      expect((await auto({ owner: false }).execute("files.rm", { a: 1 })).content).toMatch(/Queued for approval/);
+      // The owner's reach, passed on by a dispatch or a handoff: not their own words here.
+      expect((await auto({ ownWords: false }).execute("files.rm", { a: 4 })).content).toMatch(/Queued for approval/);
+      expect((await auto({ attended: false }).execute("files.rm", { a: 2 })).content).toMatch(/Queued for approval/);
+      expect((await auto({ owner: false, guest: { project: "garden", chat: "room" } }).execute("files.rm", { a: 3 })).content).toMatch(/Queued for approval/);
+      expect(approvals.pending()).toHaveLength(4);
+    });
+
+    it("never places a secret unasked, in a slot its tool declared or anywhere else", async () => {
+      registry.register({ name: "send", description: "s", inputSchema: { type: "object" } }, () => "sent", { floor: "risky" }, { secretSlots: { paths: ["headers.*"], host: () => "api.example.com", admit: () => undefined } });
+      expect((await auto().execute("send", { headers: { auth: "{{secret:openai}}" } })).content).toMatch(/Queued for approval/);
+      risky("files.write");
+      expect((await auto().execute("files.write", { path: "a", content: "{{secret:openai}}" })).isError).toBe(true);
+    });
+
+    it("never covers script in a page or a handoff, what always asks, or what a rule puts beyond it", async () => {
+      risky("browser.eval", "browser.handoff");
+      registry.register({ name: "vault.fill", description: "v", inputSchema: { type: "object" } }, () => "filled", { floor: "risky", asksAlways: true });
+      registry.register({ name: "shop.pay", description: "p", inputSchema: { type: "object" } }, () => "paid", { floor: "risky", beyondAuto: () => "spends money" });
+      const tools = auto();
+      for (const name of ["browser.eval", "browser.handoff", "vault.fill", "shop.pay"]) expect((await tools.execute(name, {})).content).toMatch(/Queued for approval/);
+      expect(approvals.pending().map((a) => a.tool)).toEqual(["browser.eval", "browser.handoff", "vault.fill", "shop.pay"]);
+    });
+
+    it("never covers what KOS's own rules hold back: a permanent delete, a message to others", async () => {
+      risky("chats.delete", "discord.audience");
+      const tools = auto();
+      expect((await tools.execute("chats.delete", { id: "c2" })).content).toMatch(/Queued for approval/);
+      expect((await tools.execute("discord.audience", { channel: "x", audience: "everyone" })).content).toMatch(/Queued for approval/);
+      expect((await tools.execute("discord.audience", { channel: "x", audience: "owner" })).content).toBe(`${AUTO_PREFIX}\ndone`);
+    });
+
+    it("asks for a step on a page that reads as a checkout, which its arguments cannot show", async () => {
+      risky("browser.act");
+      const tools = auto({ beyondAutoNow: async (_tool, input) => (JSON.stringify(input).includes("pay") ? "acts on a checkout or payment page" : undefined) });
+      expect((await tools.execute("browser.act", { actions: [{ click: "@pay" }] })).content).toMatch(/Queued for approval/);
+      // The card says why it asked, though the chat is in Auto.
+      expect(approvals.pending().at(-1)?.reason).toMatch(/^asked though the chat is in Auto: acts on a checkout or payment page/);
+      expect((await tools.execute("browser.act", { actions: [{ click: "@next" }] })).content).toBe(`${AUTO_PREFIX}\ndone`);
+    });
+
+    it("says on the card why a chat in Auto asked, and offers no remembered yes: a tool's own rule, a write into another project", async () => {
+      registry.register({ name: "shop.pay", description: "p", inputSchema: { type: "object" } }, () => "paid", { floor: "risky", beyondAuto: () => "spends money" });
+      registry.register({ name: "files.write", description: "w", inputSchema: { type: "object" } }, () => "written", { floor: "safe", reach: () => ({ why: "outside this project, in the books project", beyondAuto: "writes into another project" }) });
+      const permissions = { allows: () => false, ruleFor: (tool: string) => ({ tool, scope: null, project: null }) } as unknown as GuardedToolsDeps["permissions"];
+      const tools = auto({ permissions });
+      for (const name of ["shop.pay", "files.write"]) expect((await tools.execute(name, {})).content).toMatch(/Queued for approval/);
+      expect(approvals.pending().map(({ reason, beyondAuto, rule }) => ({ reason, beyondAuto, rule }))).toEqual([
+        { reason: "asked though the chat is in Auto: spends money", beyondAuto: true, rule: null },
+        { reason: "asked though the chat is in Auto: writes into another project", beyondAuto: true, rule: null },
+      ]);
+      // In Ask the same calls ask for their own reasons, and a remembered yes is offered.
+      await auto({ permissions, chatMode: () => ({ mode: "ask" }) }).execute("files.write", { a: 1 });
+      expect(approvals.pending().at(-1)).toMatchObject({ reason: "outside this project, in the books project", beyondAuto: false, rule: { tool: "files.write" } });
+    });
+
+    it("lets nothing through while the kill switch is thrown", async () => {
+      risky("files.rm");
+      expect((await auto({ halted: () => true }).execute("files.rm", {})).content).toMatch(/Queued for approval/);
+    });
+
+    it("starts a session only when the owner let Auto start sessions too", async () => {
+      registry.register({ name: "computer.start", description: "s", inputSchema: { type: "object" } }, () => "started", { floor: "risky", startsSession: true });
+      expect((await auto().execute("computer.start", { a: 1 })).content).toMatch(/Queued for approval/);
+      expect((await auto({ chatMode: () => ({ mode: "auto", sessions: true }) }).execute("computer.start", { a: 2 })).content).toBe(`${AUTO_PREFIX}\nstarted`);
+    });
+
+    it("lets what always asks past no remembered decision either", async () => {
+      registry.register({ name: "vault.fill", description: "v", inputSchema: { type: "object" } }, () => "filled", { floor: "risky", asksAlways: true });
+      const permissions = new PermissionStore(ws.db);
+      permissions.add({ tool: "vault.fill", scope: null, project: null });
+      expect((await auto({ chatMode: undefined, permissions, projectSlug: () => undefined }).execute("vault.fill", {})).content).toMatch(/Queued for approval/);
+    });
+
+    it("weighs each call on its own facts", () => {
+      const risk = { tier: "risky", escalated: false } as const;
+      const call = { mode: AUTO, assessment: risk, ownWords: true, secret: false, strict: false, halted: false };
+      expect(autoCovers(call)).toBe(true);
+      expect(autoCovers({ ...call, assessment: { tier: "safe", escalated: false } })).toBe(false);
+      expect(autoCovers({ ...call, assessment: { ...risk, beyondAuto: "deletes outside the workspace" } })).toBe(false);
+      expect(autoCovers({ ...call, assessment: { ...risk, startsSession: true }, mode: { mode: "auto", sessions: true } })).toBe(true);
+      expect(autoCovers({ ...call, mode: undefined })).toBe(false);
+      expect(autoCovers({ ...call, ownWords: false })).toBe(false);
+      expect(autoCovers({ ...call, secret: true })).toBe(false);
+    });
   });
 
   it("holds a yes given for a site to that site: each run is told it, and one opening another site asks", async () => {
     registry.register({ name: "browser.act", description: "d", inputSchema: { type: "object" } }, () => `on ${onSite.getStore() ?? "any site"}`, { floor: "risky" });
     const yours = { browser: { prefix: "browser.", site: "shop.example", strict: [], yours: true } };
-    let auto: boolean | "site" = "site";
+    let auto: "site" | false = "site";
     const permissions = new PermissionStore(ws.db);
     const tools = guarded({
       conversationId: "c1",
@@ -132,9 +244,6 @@ describe("GuardedTools", () => {
     permissions.add({ tool: "browser.*", scope: "your-chrome:shop.example", project: null });
     expect((await tools.execute("browser.act", { actions: [{ click: "@e3" }] })).content).toBe("on shop.example");
     expect((await tools.execute("browser.act", { actions: [{ open: "bank.example" }] })).content).toMatch(/Queued for approval/);
-    // A chat set to Auto acts anywhere.
-    auto = true;
-    expect((await tools.execute("browser.act", { actions: [{ open: "bank.example" }, { click: "@e4" }] })).content).toBe("on any site");
   });
 
   it("runs a risky call the owner already decided, without asking", async () => {
@@ -228,7 +337,7 @@ describe("GuardedTools", () => {
       { secretSlots: { paths: ["headers.*"], host: () => "api.example.com", admit: () => undefined } },
     );
     // Neither Auto nor a remembered yes covers it.
-    const call = guarded({ autoApproves: () => true, permissions: { allows: () => true, ruleFor: () => ({ tool: "send", scope: null, project: null }) } }).execute("send", { headers: { auth: "Bearer {{secret:openai}}" } });
+    const call = guarded({ autoApproves: () => "site", chatMode: () => ({ mode: "auto" }), owner: true, ownWords: true, permissions: { allows: () => true, ruleFor: () => ({ tool: "send", scope: null, project: null }) } }).execute("send", { headers: { auth: "Bearer {{secret:openai}}" } });
     await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
     const ask = approvals.pending()[0]!;
     expect(ask.reason).toBe("sends secret openai to api.example.com");

@@ -205,7 +205,7 @@ describe("Kernel", () => {
     expect(answered!.at! - asked!.at!).toBeGreaterThanOrEqual(35);
   });
 
-  it("hears what the owner says while a turn runs at its next step, in that turn", async () => {
+  it("hears what the owner says while a turn runs at its next step, in that turn, and leaves another's words to a turn of their own", async () => {
     const step: ModelResponse = { content: [{ type: "tool_use", id: "t1", name: "files.write", input: { path: "scratch/a.txt", content: "a" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
     const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
     const requests: GenerateRequest[] = [];
@@ -216,7 +216,7 @@ describe("Kernel", () => {
         requests.push(r);
         if (requests.length === 1) {
           // The owner speaks while the turn is on its first step.
-          second = kernel.handleMessage("are you stuck on Next?", { sessionId: chat });
+          second = kernel.handleMessage("are you stuck on Next?", { sessionId: chat, owner: true });
           await new Promise((done) => setTimeout(done, 30));
           return step;
         }
@@ -253,9 +253,9 @@ describe("Kernel", () => {
       async generate(_t, r) {
         requests.push(r);
         if (requests.length === 1) {
-          second = kernel.handleMessage("use the blue one", { sessionId: chat, context: "Said beside their tab at https://shop.test/mugs", contextRides: true });
+          second = kernel.handleMessage("use the blue one", { sessionId: chat, owner: true, context: "Said beside their tab at https://shop.test/mugs", contextRides: true });
           // A context that is more than where: still held for a turn of its own.
-          other = kernel.handleMessage("and this?", { sessionId: chat, context: "Replying to a message by Sam" });
+          other = kernel.handleMessage("and this?", { sessionId: chat, owner: true, context: "Replying to a message by Sam" });
           await new Promise((done) => setTimeout(done, 30));
           return step;
         }
@@ -282,8 +282,8 @@ describe("Kernel", () => {
       async generate(_t, r) {
         requests.push(r);
         if (requests.length === 1) {
-          seconds.push(kernel.handleMessage("use the blue one", { sessionId: chat, channel: "dashboard" }));
-          seconds.push(kernel.handleMessage("never mind this", { sessionId: chat }));
+          seconds.push(kernel.handleMessage("use the blue one", { sessionId: chat, channel: "dashboard", owner: true }));
+          seconds.push(kernel.handleMessage("never mind this", { sessionId: chat, owner: true }));
           await new Promise((done) => setTimeout(done, 30));
           // Edited and dropped on the dashboard while the step runs.
           const [blue, never] = kernel.pending.forConversation(chat);
@@ -324,7 +324,7 @@ describe("Kernel", () => {
         calls++;
         if (calls === 1) {
           // Said while the turn writes its answer: no step is left to hear it.
-          second = kernel.handleMessage("and the next one?", { sessionId: chat });
+          second = kernel.handleMessage("and the next one?", { sessionId: chat, owner: true });
           await new Promise((done) => setTimeout(done, 30));
           return said("Done with that one.");
         }

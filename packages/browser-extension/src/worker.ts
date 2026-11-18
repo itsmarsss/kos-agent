@@ -128,7 +128,7 @@ const SELECTION_SCRIPT = "kos-selection";
 const PAGE_TEXT = 60_000;
 const PANEL_CALLS = new Set(["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models", "chat.mentions"]);
 /** What a panel asks its KOS for, passed on as it is: the chats to switch to, a switch, the models, a model. */
-const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model", auto: "chat.auto", mentions: "chat.mentions" };
+const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model", mode: "chat.mode", mentions: "chat.mentions" };
 
 const BINDING = "kosOverlay";
 const GROUP = "KOS";
@@ -1556,7 +1556,7 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
     case "decide":
       if (panel.kos) fromOwner(panel.kos, "chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true, ...(message["remember"] === true ? { remember: true } : {}) });
       return;
-    case "auto":
+    case "mode":
     case "mentions":
     case "list":
     case "switch":

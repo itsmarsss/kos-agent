@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import type { Server } from "node:http";
 import { connect } from "node:net";
@@ -33,6 +34,9 @@ import {
   createDashboardServer,
   createDashboardSocket,
   handleApiRequest,
+  isContained,
+  saveWriteKey,
+  writeKeyPath,
   createPressHandler,
   primarySessionId,
   surfaceSessionId,
@@ -176,6 +180,46 @@ export function surfaceUp(surfaces: Map<string, () => ChannelAdapter | undefined
   const send = up(surface);
   if (!send) throw new SurfaceDownError(surface, connected);
   return send;
+}
+
+/**
+ * Listen, then do what only the host holding the port may (keep its write
+ * key): a port already in use refuses with what to do, and `then` never runs.
+ */
+export function listenThen(server: Server, port: number, host: string, then: () => void): Promise<void> {
+  return new Promise<void>((resolveListen, reject) => {
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      reject(err.code === "EADDRINUSE" ? new Error(`port ${port} is already in use. Stop the other host (kos stop) or pick --port`) : err);
+    });
+    server.listen(port, host, () => {
+      try {
+        then();
+        resolveListen();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
+}
+
+/**
+ * The names KOS answers to besides an address: the bound host, the Wi-Fi
+ * host, KOS_PUBLIC_URL's, and KOS_HOST_NAMES for the rest (a tunnel's, a
+ * tailnet's, a proxy's).
+ */
+export function hostNamesOf(host: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  return [host, env.KOS_DEVICE_LAN_HOST, ...publicHostsOf(env.KOS_PUBLIC_URL).map((h) => h.replace(/:\d+$/, "")), ...(env.KOS_HOST_NAMES ?? "").split(",")]
+    .map((h) => h?.trim())
+    .filter((h): h is string => !!h);
+}
+
+/** The host a public url reaches KOS on, for the agent's fetches to keep away from. */
+function publicHostsOf(url: string | undefined): string[] {
+  try {
+    return url ? [new URL(url).host] : [];
+  } catch {
+    return [];
+  }
 }
 
 /** The dashboard as Discord links to it: KOS_PUBLIC_URL when set, this host otherwise. */
@@ -329,6 +373,8 @@ export function keptStoriesIn(settings: { get<T>(key: string): T | undefined; se
 
 export async function runHost(options: HostOptions): Promise<void> {
   keepRunning();
+  // The port this host answers on, for the jail to keep every program it runs away from (sandbox/jail.ts kosPorts).
+  process.env.KOS_PORT = String(options.port);
   let imessageAdapter: IMessageAdapter | undefined;
   let imessageClaim: HandleClaim | undefined;
   let imessageRuntime: ReturnType<typeof connectChannel> | undefined;
@@ -434,6 +480,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(action.rule ? { rule: action.rule } : {}),
       ...(action.yours ? { yours: true } : {}),
       ...(hasSecretRef(JSON.parse(action.args)) ? { asksAlways: true } : {}),
+      ...(action.beyondAuto ? { beyondAuto: true } : {}),
     };
   };
   /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */
@@ -538,8 +585,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       }
     },
     models: () => panelModels(),
-    auto: (id) => kernel.actsWithoutAsking(id),
-    setAuto: (id, on) => kernel.setActsWithoutAsking(id, on),
+    mode: (id) => kernel.chatMode(id),
+    setMode: (id, mode) => kernel.setChatMode(id, mode),
     // The dashboard's picker, merged rather than replacing: the route's effort and the cheap route stay as they were.
     setModel: async (model) => {
       const saved = parseModelSettings(kernel.settings.get(MODEL_SETTINGS_KEY));
@@ -595,6 +642,8 @@ export async function runHost(options: HostOptions): Promise<void> {
   const kernel = await Kernel.boot({
     rootDir: options.rootDir,
     allowedHosts: options.allowedHosts,
+    // KOS's own address, however it is reached: the agent's fetches never come back to its API.
+    ownHosts: () => [`${options.host}:${options.port}`, ...publicHostsOf(process.env.KOS_PUBLIC_URL)],
     ...(Number.isInteger(browserPort) && browserPort > 0 && browserPort < 65_536 ? { chrome: { port: browserPort } } : {}),
     extraModules: [computer.module],
     features: [{ name: "computer", description: "Use a paired computer: its screen, pointer and keyboard" }],
@@ -737,30 +786,35 @@ export async function runHost(options: HostOptions): Promise<void> {
         }
       : {}),
   };
-  const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}) });
+  /*
+   * This boot's write key: in the page KOS serves, and in a file only the
+   * owner reads (0600, outside the workspace, denied to every jailed
+   * program) for the kos CLI. Never in the environment. In the container
+   * the agent's programs share loopback with KOS, so there is no key and
+   * every change needs the dashboard token.
+   */
+  const contained = isContained();
+  const writeKey = contained ? undefined : randomBytes(32).toString("base64url");
+  // The names KOS answers to; an address is always taken (a rebinding needs a name).
+  const hostNames = hostNamesOf(options.host);
+  const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : { tokenForWrites: true }), hostNames });
 
   // A chat that borrowed the owner's Chrome browses there.
   kernel.setBrowserElsewhere(computer.chrome);
 
   // The two upgrades the dashboard server takes: the dashboard's own socket, and a paired device's.
-  const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}) });
+  const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : {}), hostNames });
   server.on("upgrade", (req, socket, head) => {
     if (!live.upgrade(req, socket, head) && !computer.upgrade(req, socket, head)) socket.destroy();
   });
 
-  await new Promise<void>((resolveListen, reject) => {
-    server.once("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        reject(
-          new Error(
-            `port ${options.port} is already in use. Stop the other host (kos stop) or pick --port`,
-          ),
-        );
-      } else {
-        reject(err);
-      }
-    });
-    server.listen(options.port, options.host, () => resolveListen());
+  // Kept only once this host holds the port: a second start that fails to listen leaves the running host's key alone.
+  await listenThen(server, options.port, options.host, () => {
+    if (!writeKey) return;
+    const keyFile = writeKeyPath(options.port);
+    saveWriteKey(keyFile, writeKey);
+    // The path alone, so the jail can deny reading it (sandbox/jail.ts).
+    process.env.KOS_WRITE_KEY_FILE = keyFile;
   });
 
   writeDaemonState({
@@ -776,7 +830,7 @@ export async function runHost(options: HostOptions): Promise<void> {
   let siteServer: Server | undefined;
   if (sitesPort > 0) {
     try {
-      siteServer = startSiteServer(kernel.workspace, sitesPort, options.host);
+      siteServer = startSiteServer(kernel.workspace, sitesPort, options.host, { store: kernel.daemons, supervisor: kernel.supervisor });
       // So sites.list can tell the agent where its work ended up.
       process.env.KOS_SITES_URL = `http://${options.host}:${sitesPort}`;
       await new Promise<void>((resolveListen, reject) => {

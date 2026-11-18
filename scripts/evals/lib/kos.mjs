@@ -35,8 +35,15 @@ export class Kos {
     this.resuming = new Map();
   }
 
+  /** This boot's write key, as the dashboard's page carries it: a change to KOS sends it. */
+  async writeKey() {
+    this.key ??= /<meta name="kos-write" content="([^"]+)">/.exec(await (await fetch(`${this.url}/`)).text())?.[1];
+    return this.key;
+  }
+
   async api(path, body, ms = 20_000) {
-    const r = await fetch(`${this.url}${path}`, { signal: AbortSignal.timeout(ms), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
+    const key = body === undefined ? undefined : await this.writeKey();
+    const r = await fetch(`${this.url}${path}`, { signal: AbortSignal.timeout(ms), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json", ...(key ? { "x-kos-write": key } : {}) }, body: JSON.stringify(body) }) });
     const text = await r.text();
     try {
       return JSON.parse(text);

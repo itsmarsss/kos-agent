@@ -17,7 +17,7 @@ export function viewerKeys(): KeyPlatform {
  * them, since the host names the ids in them.
  */
 export function pendingView(a: PendingAction): AskView {
-  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule ?? null, ...(a.yours ? { yours: true } : {}), ...(a.asksAlways ? { asksAlways: true } : {}), platform: viewerKeys() });
+  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule ?? null, ...(a.yours ? { yours: true } : {}), ...(a.asksAlways ? { asksAlways: true } : {}), ...(a.beyondAuto ? { beyondAuto: true } : {}), platform: viewerKeys() });
   // The host's words where it sent them: it names the ids in the title and the destination an Always keeps.
   return {
     ...view,

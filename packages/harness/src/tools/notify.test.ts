@@ -81,6 +81,9 @@ describe("notifyModule", () => {
     expect(res.isError).toBe(false);
     expect(sent).toEqual([{ text: "hello", target: { kind: "owner" } }]);
     expect(registry.classify("notify", { text: "x" }).tier).toBe("safe");
+    // A message anywhere but to the owner is beyond a chat's Auto, by the same line that makes it ask.
+    expect(registry.classify("notify", { text: "x", to: "channel:99" }).beyondAuto).toBe("messages someone besides you");
+    expect(registry.classify("notify", { text: "x", to: "reply" }).beyondAuto).toBe(sendsElsewhere({ to: "reply" }) ? "messages someone besides you" : undefined);
   });
 
   it("asks first before speaking anywhere but to the owner", () => {

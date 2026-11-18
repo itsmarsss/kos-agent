@@ -2,6 +2,9 @@ import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { extname, join } from "node:path";
 
+import { proxyToDaemon } from "../daemons/proxy.js";
+import type { DaemonStore } from "../daemons/store.js";
+import type { DaemonSupervisor } from "../daemons/supervisor.js";
 import type { Workspace } from "../store/workspace.js";
 
 /**
@@ -254,8 +257,17 @@ export function startSiteServer(
   ws: Workspace,
   port: number,
   host = "127.0.0.1",
+  daemons?: { store: DaemonStore; supervisor: DaemonSupervisor },
 ): Server {
   const server = createServer((req, res) => {
+    /*
+     * A daemon the agent wrote, reached through here rather than by being on
+     * the network itself: on the sites' origin, never the dashboard's, so its
+     * pages cannot read the dashboard's page or its write key. Ahead of the
+     * read-only check, since an app takes its own writes.
+     */
+    if (daemons && proxyToDaemon(req, res, daemons)) return;
+
     const headers = {
       "content-security-policy": CSP,
       "x-content-type-options": "nosniff",

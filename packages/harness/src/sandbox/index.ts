@@ -4,3 +4,4 @@ export {
   type SandboxOptions,
   type SandboxResult,
 } from "./runner.js";
+export { isContained, kosPorts } from "./jail.js";

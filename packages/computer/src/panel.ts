@@ -16,7 +16,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { askView, runningTail, stepMechanics, summarizeAction } from "@kos/shared";
+import { ASK, askView, parseChatMode, runningTail, stepMechanics, summarizeAction, type ChatMode } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
@@ -97,9 +97,9 @@ export interface PanelDeps {
   /** Point the panel at another chat; false when there is no such chat to continue. */
   switchTo?(conversation: string): boolean;
   models?(): Promise<PanelModels>;
-  /** Whether a chat acts in the owner's Chrome without asking each step. */
-  auto?(conversation: string): boolean;
-  setAuto?(conversation: string, on: boolean): void;
+  /** A chat's mode: Ask, or Auto within its bounds. */
+  mode?(conversation: string): ChatMode;
+  setMode?(conversation: string, mode: ChatMode): void;
   /** Answer with this model from now on, as the dashboard's picker does. */
   setModel?(model: string): Promise<PanelModels>;
   /** A step's kept picture by its frame id, with the site it shows when it is a page. */
@@ -278,7 +278,22 @@ export class DevicePanel implements ChannelAdapter {
    * schedule, a dispatch) is not the panel's, so its setting is not this one.
    */
   asksEachStep(conversation: string): boolean {
-    return this.turns.has(conversation) && !(this.deps.auto?.(conversation) ?? false);
+    return this.turns.has(conversation) && this.modeOf(conversation).mode === "ask";
+  }
+
+  /** Whether a chat is in Auto now, wherever its turn began. */
+  inAuto(conversation: string): boolean {
+    return this.modeOf(conversation).mode === "auto";
+  }
+
+  /** A chat's mode, Ask when the host keeps none. */
+  private modeOf(conversation: string): ChatMode {
+    return this.deps.mode?.(conversation) ?? ASK;
+  }
+
+  /** A chat's mode changed elsewhere (the dashboard, Auto ending with its task): the devices showing it redraw. */
+  modeChanged(conversation: string): void {
+    if (conversation === this.deps.current()?.id) void this.show(undefined);
   }
 
   /** The app in front of the KOS for Mac window when the owner last spoke there; none for an app they hid. */
@@ -532,7 +547,9 @@ export class DevicePanel implements ChannelAdapter {
       conversation: chat?.id ?? null,
       title: chat?.title ?? this.place.title,
       messages,
-      auto: chat ? (this.deps.auto?.(chat.id) ?? false) : false,
+      mode: chat ? this.modeOf(chat.id) : ASK,
+      // What a device from before modes reads.
+      auto: chat ? this.modeOf(chat.id).mode === "auto" : false,
       ...(notice ? { notice } : {}),
       ...shown,
     };
@@ -643,12 +660,13 @@ export class DevicePanel implements ChannelAdapter {
           void this.decisions?.({ id: data["approval"], approved: data["approved"], deciderId: device, ...(remember ? { remember } : {}) });
         }
         return;
-      case "chat.auto": {
-        // A phone holds no session, and its chat is not where computer use is switched to acting unasked.
-        if (this.place.kind === "phone") return;
+      case "chat.mode": {
+        // Only chat.mode sets it: a device from before modes sends chat.auto, which meant far less, and is not taken for Auto.
+        const mode = parseChatMode(data);
         const chat = this.deps.current() ?? this.deps.ensure?.();
-        if (chat && typeof data["on"] === "boolean") {
-          this.deps.setAuto?.(chat.id, data["on"]);
+        this.said(device, `${event.name} for chat ${chat?.id ?? "none"}: ${mode ? mode.mode : "not a mode"}`);
+        if (chat && mode) {
+          this.deps.setMode?.(chat.id, mode);
           void this.show(undefined);
         }
         return;
@@ -920,7 +938,7 @@ function approvalOf(req: ApprovalRequest): Record<string, unknown> {
   const asksAlways = req.asksAlways ?? hasSecretRef(req.args ?? {});
   const view =
     req.tool && req.args !== undefined
-      ? askView({ tool: req.tool, args: req.args, reason: req.reason ?? null, rule: req.rule ?? null, ...(req.yours ? { yours: true } : {}), asksAlways, ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS })
+      ? askView({ tool: req.tool, args: req.args, reason: req.reason ?? null, rule: req.rule ?? null, ...(req.yours ? { yours: true } : {}), asksAlways, ...(req.beyondAuto ? { beyondAuto: true } : {}), ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS })
       : undefined;
   const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args, HOST_KEYS) : undefined;
   const whole = args.length + JSON.stringify(view?.steps ?? []).length + (mechanics?.length ?? 0) > ASK_MAX;

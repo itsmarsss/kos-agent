@@ -7,6 +7,7 @@ interface Seen {
   method: string;
   url: string;
   auth?: string;
+  write?: string;
   body: string;
 }
 
@@ -23,7 +24,7 @@ describe("KosClient", () => {
       let body = "";
       req.on("data", (c: Buffer) => { body += c.toString(); });
       req.on("end", () => {
-        seen.push({ method: req.method ?? "", url: req.url ?? "", ...(req.headers.authorization ? { auth: req.headers.authorization } : {}), body });
+        seen.push({ method: req.method ?? "", url: req.url ?? "", ...(req.headers.authorization ? { auth: req.headers.authorization } : {}), ...(typeof req.headers["x-kos-write"] === "string" ? { write: req.headers["x-kos-write"] } : {}), body });
         const a = answer(req);
         res.writeHead(a.status, { "content-type": "application/json" });
         res.end(JSON.stringify(a.body));
@@ -35,6 +36,13 @@ describe("KosClient", () => {
   });
   afterEach(async () => {
     await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  it("sends this boot's write key with a change, and not with a read", async () => {
+    const client = new KosClient({ baseUrl, writeKey: "k1" });
+    await client.get("/api/status");
+    await client.post("/api/message", { text: "hi" });
+    expect(seen.map((r) => r.write)).toEqual([undefined, "k1"]);
   });
 
   it("sends the token as a bearer and strips a trailing slash", async () => {

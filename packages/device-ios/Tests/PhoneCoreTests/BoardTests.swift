@@ -80,6 +80,12 @@ struct InboxTests {
     let ask = try #require(inbox.waiting.value?.approvals.first)
     #expect(ask.always == "Always allow in notes" && ask.place == "In notes")
     #expect(ask.steps == [[.text("Press "), .key("⌘S")]])
+    #expect(inbox.decided.first?.byAuto == false)
+  }
+
+  @Test func saysWhatAChatsAutoLetThrough() throws {
+    let row = #"{"id":9,"tool":"files.rm","status":"approved","summary":"Delete a.txt","decidedAt":2,"requestedAt":1,"decidedBy":"auto mode"}"#
+    #expect(try JSONDecoder().decode(Routes.Decided.self, from: Data(row.utf8)).byAuto)
   }
 
   @Test func holdsTheDecidedToAnOutcomeAndWordsAndReadsOnAfterTheLastRow() async throws {

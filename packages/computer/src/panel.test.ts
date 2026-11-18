@@ -2,6 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import { attendance, openDatabase, type ApiRequest, type AuditEntry, type ChatEvent, type InboundMessage, type ModuleContext } from "@kos/harness";
+import { ASK, type ChatMode } from "@kos/shared";
 
 import { OwnerChrome } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
@@ -35,7 +36,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
   let chat: { id: string; title: string } | undefined;
   let events: ChatEvent[] = [];
   let model = "gpt-5.5";
-  const acting = new Set<string>();
+  const modes = new Map<string, ChatMode>();
   const held = new Set(["chrome:owner"]);
   const panel = new DevicePanel(opts.place ?? CHROME_PANEL, {
     current: () => chat,
@@ -56,14 +57,14 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
       chat ??= { id: "chrome:owner", title: "Chrome" };
       return chat;
     },
-    auto: (c) => acting.has(c),
+    mode: (c) => modes.get(c) ?? ASK,
     log: (line) => void logged.push(line),
     picture: (id) => opts.pictures?.[id],
     ...(opts.glance ? { glance: opts.glance } : {}),
     ...(opts.artifacts ? { artifacts: opts.artifacts } : {}),
     ...(opts.dashboard ? { dashboard: opts.dashboard } : {}),
     ...(opts.audit ? { audit: opts.audit } : {}),
-    setAuto: (c, on) => void (on ? acting.add(c) : acting.delete(c)),
+    setMode: (c, m) => void (m.mode === "auto" ? modes.set(c, m) : modes.delete(c)),
     setModel: async (m) => {
       if (m === "broken") throw new Error("no such model");
       model = m;
@@ -100,7 +101,8 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
     callFrom: (c: string) => {
       caller = c;
     },
-    setAuto: (c: string, on: boolean) => void (on ? acting.add(c) : acting.delete(c)),
+    setAuto: (c: string, on: boolean) => void (on ? modes.set(c, { mode: "auto" }) : modes.delete(c)),
+    modeOf: (c: string) => modes.get(c) ?? ASK,
     setHeld: (c: string, on: boolean) => void (on ? held.add(c) : held.delete(c)),
   };
 }
@@ -176,17 +178,18 @@ describe("KOS for iPhone", () => {
     expect(sent.asks[0]!.chat).toEqual({ id: "c10", title: "Chat 10" });
   });
 
-  it("decides a glance's ask from the phone, and never sets a chat acting unasked", async () => {
-    const { panel, pair, setChat } = setup({ place: PHONE_PANEL, glance: () => glance });
+  it("decides a glance's ask from the phone, and sets its chat's mode there too", async () => {
+    const { panel, pair, setChat, modeOf } = setup({ place: PHONE_PANEL, glance: () => glance });
     const phone = pair("ios");
     const decided: unknown[] = [];
     panel.onApproval(async (d) => void decided.push(d));
     setChat({ id: "phone:owner", title: "iPhone" });
     phone.event("chat.decide", { approval: "7", approved: true });
-    phone.event("chat.auto", { on: true });
+    phone.event("chat.mode", { mode: "auto", until: "task" });
     await flush();
     expect(decided).toEqual([{ id: "7", approved: true, deciderId: phone.id }]);
-    expect(phone.calls.filter((c) => c.method === "chat.show")).toEqual([]);
+    expect(modeOf("phone:owner")).toEqual({ mode: "auto", until: "task" });
+    expect(phone.calls.at(-1)).toMatchObject({ method: "chat.show", params: { mode: { mode: "auto", until: "task" }, auto: true } });
   });
 
   it("leaves a glance unanswered on a panel that offers none", async () => {
@@ -683,7 +686,7 @@ describe("a Chrome's side panel", () => {
     await flush();
     const state = { chat: "chrome:owner", conversation: "chrome:owner", waiting: "approval", held: false };
     expect(chrome.calls.slice(-3)).toEqual([
-      { method: "chat.show", params: { chat: "chrome:owner", conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "hi" }, { role: "kos", text: "Hello." }], auto: false } },
+      { method: "chat.show", params: { chat: "chrome:owner", conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "hi" }, { role: "kos", text: "Hello." }], mode: ASK, auto: false } },
       // What the chat is still waiting on, for a panel opened after it was asked.
       { method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "3", tool: "files.write", why: "Saving the list." } } },
       // And its state: the foot says it waits on the owner.
@@ -742,7 +745,7 @@ describe("a Chrome's side panel", () => {
     // Done, then the chat as the turn left it.
     expect(chrome.calls.slice(-2)).toEqual([
       { method: "chat.status", params: { ...state, said: "compare these mugs", story: null } },
-      { method: "chat.show", params: { chat: "chrome:owner", conversation: "chrome:owner", title: "Mug check", messages: [{ role: "you", text: "compare these mugs" }, { role: "kos", text: "The 12 oz." }], auto: false } },
+      { method: "chat.show", params: { chat: "chrome:owner", conversation: "chrome:owner", title: "Mug check", messages: [{ role: "you", text: "compare these mugs" }, { role: "kos", text: "The 12 oz." }], mode: ASK, auto: false } },
     ]);
   });
 
@@ -1079,21 +1082,43 @@ describe("a Chrome's side panel", () => {
     expect(chrome.calls.at(-1)).toEqual({ method: "chat.mentions", params: { q: "bud", mentions: [{ kind: "project", id: "budget", label: "Budget", hint: "project" }] } });
     // No chat yet: Auto makes the panel's own.
     setChat(undefined);
-    chrome.event("chat.auto", { on: true });
+    chrome.event("chat.mode", { mode: "auto" });
     await flush();
     expect(chrome.calls.at(-1)).toMatchObject({ method: "chat.show", params: { conversation: "chrome:owner", auto: true } });
   });
 
-  it("lets the panel's chat act without asking, and says so with the chat", async () => {
-    const { pair, setChat } = setup();
+  it("never takes a device's old chat.auto for Auto, which now covers far more", async () => {
+    const { pair, setChat, modeOf } = setup();
     const chrome = pair();
     setChat({ id: "chrome:owner", title: "Chrome" });
+    const shown = chrome.calls.length;
     chrome.event("chat.auto", { on: true });
     await flush();
-    expect(chrome.calls.at(-1)).toMatchObject({ method: "chat.show", params: { conversation: "chrome:owner", auto: true } });
-    chrome.event("chat.auto", { on: false });
+    expect(modeOf("chrome:owner").mode).toBe("ask");
+    expect(chrome.calls).toHaveLength(shown);
+  });
+
+  it("sets the chat's mode with its bounds, ignores one that is not a mode, and redraws a change made elsewhere", async () => {
+    const { panel, pair, setChat, modeOf, setAuto } = setup();
+    const chrome = pair();
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    chrome.event("chat.mode", { mode: "auto", until: 1_900_000_000_000, sessions: true });
     await flush();
-    expect(chrome.calls.at(-1)?.params).toMatchObject({ auto: false });
+    expect(modeOf("chrome:owner")).toEqual({ mode: "auto", until: 1_900_000_000_000, sessions: true });
+    expect(chrome.calls.at(-1)).toMatchObject({ method: "chat.show", params: { mode: { mode: "auto", sessions: true }, auto: true } });
+    const shown = chrome.calls.length;
+    chrome.event("chat.mode", { mode: "yolo" });
+    await flush();
+    expect(chrome.calls).toHaveLength(shown);
+    expect(modeOf("chrome:owner").mode).toBe("auto");
+    // The dashboard set it back to Ask: the panel showing the chat redraws, one showing another does not.
+    setAuto("chrome:owner", false);
+    panel.modeChanged("cm1:owner");
+    await flush();
+    expect(chrome.calls).toHaveLength(shown);
+    panel.modeChanged("chrome:owner");
+    await flush();
+    expect(chrome.calls.at(-1)).toMatchObject({ method: "chat.show", params: { mode: ASK, auto: false } });
   });
 
   it("reads the page beside the panel for the panel's chat, and for no other", async () => {

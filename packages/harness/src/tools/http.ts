@@ -1,7 +1,11 @@
+import { Agent, fetch as undiciFetch } from "undici";
+
 import { officeKindOf, officeNote, officeText } from "../files/office.js";
 import { pdfText } from "../files/pdftext.js";
 import { hostAllowed, type SecretSlots } from "../secrets/inject.js";
 import type { KosModule } from "../modules/loader.js";
+import { kosPorts } from "../sandbox/jail.js";
+import { lookupFor, parseLanAllow, refusedUrl, type LanAllow } from "./egress.js";
 
 export type FetchImpl = typeof fetch;
 
@@ -17,8 +21,43 @@ export interface HttpModuleOptions {
   timeoutMs?: number;
   /** Response body cap in bytes. */
   maxBytes?: number;
-  /** Injectable for tests; defaults to global fetch. */
+  /** Injectable for tests; defaults to a fetch whose connections refuse this machine and its local network. */
   fetchImpl?: FetchImpl;
+  /** KOS's own hosts as they are reached (host, or host:port): never fetched, whatever they resolve to. */
+  ownHosts?: () => string[];
+  /**
+   * Reach this machine after all, through the platform's own fetch: for a
+   * test that serves its redirects on loopback. Boot never sets it.
+   */
+  local?: boolean;
+  /** The owner's list of places on their network http.fetch may reach (KOS_FETCH_LAN), read at each call. */
+  lan?: () => string | undefined;
+}
+
+/** The own-hosts list a local test passes, by identity: nothing is refused for being local. */
+const LOCAL: readonly string[] = [];
+
+/**
+ * The platform's fetch, held to the public internet: every connection's
+ * address is checked as it is made, so a name that resolves to this machine
+ * or its network (KOS's own API on loopback above all) is refused, however
+ * it got there.
+ */
+function publicFetch(allow: () => LanAllow): FetchImpl {
+  return async (input, init) => {
+    const url = new URL(String(input));
+    // An agent per request, its lookup told the port: the owner's list names places by address and port together.
+    const dispatcher = new Agent({ connect: { lookup: lookupFor(Number(url.port || (url.protocol === "https:" ? 443 : 80)), allow()) } });
+    try {
+      const res = (await undiciFetch(url.href, { ...(init as object), dispatcher } as Parameters<typeof undiciFetch>[1])) as unknown as Response;
+      // The body is read after this returns; the agent closes once it is done with it.
+      void dispatcher.close();
+      return res;
+    } catch (err) {
+      void dispatcher.destroy();
+      throw err;
+    }
+  };
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -77,7 +116,7 @@ export const HTTP_SECRET_SLOTS: SecretSlots = {
 /** The call as it reaches here has its secrets in place: GuardedTools expands them in the slots above. */
 async function doFetch(
   input: Record<string, unknown>,
-  opts: Required<Omit<HttpModuleOptions, "allowedHosts">>,
+  opts: Required<Omit<HttpModuleOptions, "allowedHosts" | "ownHosts" | "local" | "lan">> & { own: () => readonly string[]; allow: () => LanAllow },
 ): Promise<string> {
   const url = input.url;
   if (typeof url !== "string") throw new Error("http.fetch requires a url");
@@ -92,7 +131,7 @@ async function doFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
-    const followed = await follow(url, { method, headers, body, signal: controller.signal }, opts.fetchImpl);
+    const followed = await follow(url, { method, headers, body, signal: controller.signal }, opts.fetchImpl, opts.own(), opts.allow());
     if ("elsewhere" in followed) {
       return JSON.stringify({
         status: followed.status,
@@ -143,10 +182,13 @@ function afterRedirect(status: number, request: RequestInit): RequestInit {
  * Where it pointed is handed back instead, so following it is a call of its
  * own, judged and checked against the secret's hosts like any other.
  */
-async function follow(url: string, init: RequestInit, fetchImpl: FetchImpl): Promise<Response | { status: number; elsewhere: string }> {
+async function follow(url: string, init: RequestInit, fetchImpl: FetchImpl, own: readonly string[], allow: LanAllow): Promise<Response | { status: number; elsewhere: string }> {
   let at = new URL(url);
   let request = init;
   for (let hop = 0; ; hop++) {
+    // Each hop checked before it is asked: this machine, its network and KOS itself are never reached.
+    const refused = own === LOCAL ? undefined : refusedUrl(at.href, own, allow);
+    if (refused) throw new Error(refused);
     const res = await fetchImpl(at.href, { ...request, redirect: "manual" });
     const location = res.headers.get("location");
     if (!REDIRECTS.has(res.status) || !location) return res;
@@ -175,10 +217,13 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
         : (options.allowedHosts ?? []);
     return new Set(list.map((h) => h.trim().toLowerCase()).filter(Boolean));
   };
+  const allow = (): LanAllow => parseLanAllow(options.lan?.(), kosPorts());
   const resolved = {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
-    fetchImpl: options.fetchImpl ?? fetch,
+    fetchImpl: options.fetchImpl ?? (options.local ? fetch : publicFetch(allow)),
+    own: options.local ? () => LOCAL : (options.ownHosts ?? (() => [])),
+    allow,
   };
 
   return {
@@ -222,6 +267,14 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
            * whatever the host: posting can carry data out of the workspace.
            */
           floor: "safe",
+          // A delete anywhere, and data sent to a site the owner has not listed: never Auto's.
+          beyondAuto: (input) => {
+            const method = String(input["method"] ?? "GET").toUpperCase();
+            if (method === "DELETE") return "deletes something outside the workspace";
+            const sends = (method !== "GET" && method !== "HEAD") || (input["body"] !== undefined && input["body"] !== null && input["body"] !== "");
+            const host = typeof input["url"] === "string" ? hostOf(input["url"]) : undefined;
+            return sends && (host === undefined || !allowed().has(host)) ? "sends to an outside site" : false;
+          },
           escalate: (input) => {
             const method = String(input["method"] ?? "GET").toUpperCase();
             if (method !== "GET" && method !== "HEAD") return `a ${method} request, which can carry data out`;

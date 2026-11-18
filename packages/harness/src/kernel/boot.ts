@@ -398,6 +398,9 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       // the environment, so saving in Settings takes effect on the next
       // call rather than the next restart.
       allowedHosts: options.allowedHosts ?? [],
+      ...(options.ownHosts ? { ownHosts: options.ownHosts } : {}),
+      // The owner's own network, place by place, read at each call so a change in .env needs no restart.
+      lan: () => process.env.KOS_FETCH_LAN,
     }),
     createSearchModule({ events, embedder }),
     createShellModule(),
@@ -421,8 +424,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       store: daemons,
       supervisor,
       workspaceRoot: workspace.root,
-      urlFor: (daemon) =>
-        daemon.port === null ? null : `/apps/${daemon.project}/${daemon.name}/`,
+      // On the sites server's origin, apart from the dashboard's: none while it is not running.
+      urlFor: (daemon) => (daemon.port === null || !process.env.KOS_SITES_URL ? null : `${process.env.KOS_SITES_URL}/apps/${daemon.project}/${daemon.name}/`),
     }),
     systemsModule,
     sitesModule,

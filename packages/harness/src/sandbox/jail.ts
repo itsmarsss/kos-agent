@@ -28,6 +28,10 @@ export interface JailOptions {
   hidden?: string[];
   /** Under the workspace yet not to be written: KOS's own settings and database, whatever path, glob or link names them. */
   readOnly?: string[];
+  /** Inside a read-only folder yet writable again: KOS's temp and caches under its own state. */
+  writableWithin?: string[];
+  /** Regexes over absolute paths not to be written, wherever they fall: a repository's config and hooks. */
+  unwritable?: string[];
   /** Regexes over absolute paths not to be read, wherever they fall. */
   unreadable?: string[];
   /**
@@ -39,8 +43,42 @@ export interface JailOptions {
   sealed?: boolean;
   /** Readable although under a denied home: an interpreter's own libraries. */
   reads?: string[];
-  /** False for a program that must not reach the network. */
-  network?: boolean;
+  /**
+   * False for a program that must not reach the network at all; "local" for
+   * one that may reach this machine (a test server it starts) and nothing
+   * past it. KOS's own ports are refused either way, and never bound.
+   */
+  network?: boolean | "local";
+  /**
+   * KOS's own ports, which no jailed program may connect to, on any address
+   * (a v4 address in v6 form included): see `kosPorts`.
+   */
+  kosPorts?: number[];
+  /** Files and folders never read, wherever they are: see `kosSecretFiles`. */
+  secretFiles?: string[];
+}
+
+/** A port named in the environment, or the default. */
+function portIn(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 && n < 65_536 ? n : fallback;
+}
+
+/**
+ * Every port KOS itself listens on, as this host was started: the API, the
+ * sites server after it, the Wi-Fi listener for phones (the API's plus two
+ * unless KOS_DEVICE_LAN_PORT says), and KOS's own Chrome's debugging port
+ * (9225 unless KOS_BROWSER_PORT says), which drives a browser signed in to
+ * whatever KOS browses.
+ */
+export function kosPorts(env: NodeJS.ProcessEnv = process.env): number[] {
+  const api = portIn(env.KOS_PORT, 4317);
+  return [...new Set([api, api + 1, portIn(env.KOS_DEVICE_LAN_PORT, api + 2), portIn(env.KOS_BROWSER_PORT, 9225)])];
+}
+
+/** Files no jailed program may read wherever they are: this boot's write key, and KOS's keys under ~/.kos. */
+export function kosSecretFiles(env: NodeJS.ProcessEnv = process.env): string[] {
+  return [env.KOS_WRITE_KEY_FILE?.trim(), resolve(homedir(), ".kos")].filter((p): p is string => !!p);
 }
 
 export interface JailedCommand {
@@ -91,6 +129,24 @@ const SEALED = [
  * the child's TMPDIR is inside the workspace, and a program that insists on
  * /tmp fails where it can be seen.
  */
+/**
+ * The network a jailed program has. Every program is kept off KOS's own
+ * ports, to connect to (on any address, a v4 one in v6 form included) and
+ * to bind (so it cannot squat on one while KOS restarts). "local" allows
+ * this machine and nothing past it, the order mattering: a later rule wins.
+ */
+function networkRules(network: JailOptions["network"], ports: readonly number[]): string[] {
+  const kos = [
+    ...ports.map((p) => `(deny network-outbound (remote ip ${sb(`*:${p}`)}))`),
+    ...ports.map((p) => `(deny network-bind (local ip ${sb(`*:${p}`)}))`),
+  ];
+  if (network === false) return ["(deny network*)"];
+  if (network === "local") {
+    return ["(deny network*)", '(allow network* (remote ip "localhost:*"))', '(allow network-bind (local ip "localhost:*"))', '(allow network-inbound (local ip "localhost:*"))', ...kos];
+  }
+  return kos;
+}
+
 export function sandboxProfile(options: JailOptions): string {
   const homes = options.homes ?? [homedir()];
   const ws = subpaths([options.workspaceRoot]);
@@ -98,7 +154,7 @@ export function sandboxProfile(options: JailOptions): string {
   const lines = [
     "(version 1)",
     "(allow default)",
-    ...(options.network === false ? ["(deny network*)"] : []),
+    ...networkRules(options.network, options.kosPorts ?? kosPorts()),
     "(deny file-write*)",
     `(allow file-write* ${writes} (literal "/dev/null") (literal "/dev/tty"))`,
     ...homes.map((h) => `(deny file-read* (subpath ${sb(resolve(h))}))`),
@@ -106,7 +162,11 @@ export function sandboxProfile(options: JailOptions): string {
     ...(options.hidden?.length ? [`(deny file-read* ${subpaths(options.hidden)})`] : []),
     ...(options.writes?.length ? [`(allow file-read* ${writes})`] : []),
     ...(options.readOnly?.length ? [`(deny file-write* ${subpaths(options.readOnly)})`] : []),
+    ...(options.writableWithin?.length ? [`(allow file-write* ${subpaths(options.writableWithin)})`] : []),
+    ...(options.unwritable?.length ? [`(deny file-write* ${options.unwritable.map((r) => `(regex #"${r}")`).join(" ")})`] : []),
     ...(options.unreadable?.length ? [`(deny file-read* ${options.unreadable.map((r) => `(regex #"${r}")`).join(" ")})`] : []),
+    // Last, so no allow above carves them back out.
+    ...((options.secretFiles ?? kosSecretFiles()).length ? [`(deny file-read* ${subpaths(options.secretFiles ?? kosSecretFiles())})`] : []),
     "(allow file-read-metadata)",
     ...(options.sealed ? SEALED : []),
     "",
@@ -121,6 +181,7 @@ export function isContained(): boolean {
 /** A program and its arguments, jailed for this platform. */
 export function jailedProgram(file: string, args: string[], options: JailOptions): JailedCommand {
   const platform = options.platform ?? process.platform;
+  // The container is the jail: network, kosPorts and the rest hold nothing here, so shell.run is never Auto's in it.
   if (options.contained ?? isContained()) {
     return { file, args };
   }

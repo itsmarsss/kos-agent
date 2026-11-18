@@ -104,6 +104,7 @@ describe("an approval as plain lines", () => {
     const secret = { id: "2", text: "x", tool: "http.fetch", args: { url: "https://a.example", headers: { a: "{{secret:k}}" } }, rule: { tool: "http.fetch", scope: "host:a.example", project: null } };
     expect(offersAlways(secret)).toBe(false);
     expect(offersAlways({ ...secret, args: { url: "https://a.example" } })).toBe(true);
+    expect(offersAlways({ ...secret, args: { url: "https://a.example" }, beyondAuto: true })).toBe(false);
     expect(offersAlways({ id: "3", text: "x" })).toBe(false);
   });
 

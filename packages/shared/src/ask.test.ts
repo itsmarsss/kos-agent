@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { alwaysTip, alwaysWords, askPlace, askRisk, askView } from "./ask.js";
+import { alwaysTip, alwaysWords, askPlace, askRisk, askView, BEYOND_AUTO_NOTE } from "./ask.js";
 import { actionSteps, stepText, summarizeAction, type StepLine } from "./format-action.js";
 
 const text = (lines: StepLine[] | undefined): string[] | undefined => lines?.map(stepText);
@@ -130,6 +130,19 @@ describe("an ask, as a card lays it out", () => {
     expect(view.alwaysTip).toBeUndefined();
     expect(view.alwaysNote).toBe("Secrets always ask");
     expect(view.risk).toBe("Sends secret example_key to api.example.com");
+  });
+
+  it("offers no Always for what a chat's Auto never covers, and says why", () => {
+    const view = askView({
+      tool: "files.write",
+      args: { path: "projects/books/a.md", content: "x" },
+      reason: "asked though the chat is in Auto: writes into another project",
+      rule: { tool: "files.write", scope: "dir:projects/books" },
+      beyondAuto: true,
+    });
+    expect(view.always).toBeUndefined();
+    expect(view.alwaysNote).toBe(BEYOND_AUTO_NOTE);
+    expect(view.risk).toBe("Asked though the chat is in Auto: writes into another project");
   });
 
   it("says no Always where nothing can be remembered", () => {

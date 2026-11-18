@@ -52,11 +52,15 @@ the chat's turn as the dashboard's does, end its session on any device and
 withdraw any ask for one; the rest of that turn asks for no session again.
 The owner ending a session on the device while a turn runs is the same Stop.
 
-**Ask and Auto.** The KOS for Mac window's mode chip is honoured: in Ask (the
-default) each `computer.act` call that does more than look (a screenshot, a
-zoom, a wait) goes to KOS's approvals once a session is live; in Auto it does
-not. The first call of a turn only starts the session, which the Mac asks for
-itself, so it is never asked twice.
+**Ask and Auto.** The chat's mode ([browser-extension.md](browser-extension.md),
+The chat's mode) is honoured on the Mac too: in Ask (the default) each
+`computer.act` call of a turn begun in the KOS for Mac window that does more
+than look (a screenshot, a zoom, a wait) goes to KOS's approvals once a
+session is live; in Auto it does not. The first call of a turn only starts
+the session, which the Mac asks for itself, so it is never asked twice. Auto
+starts a session unasked only on a Mac set to leave its sessions to KOS's
+approvals, and only with the chip's "start sessions too"; a Mac that asks on
+itself still asks.
 
 A session your own turn started belongs to its chat and lasts until its
 time, the device's idle limit, `computer.end`, you switching the chat window
@@ -155,8 +159,9 @@ chat calls and events (`chat.show`, `chat.status`, `chat.ask`,
 `chat.switch`, `chat.models`, `chat.model`, `chat.mentions`), with `beside`
 `{ "kind": "none" }` and no quote, and its own: the glance, the artifacts
 and the dashboard's pages (below), the last the one call and event not
-named `chat.`: `dashboard.reply` and `dashboard.request`. A phone's
-`chat.auto` is ignored. The turn is told the words were said on the phone,
+named `chat.`: `dashboard.reply` and `dashboard.request`. A phone sets
+its chat's mode with `chat.mode` as the others do: Auto covers what that
+chat's turns do elsewhere, though the phone itself holds no session. The turn is told the words were said on the phone,
 which KOS cannot see or work, and its reply is kept short and plain, since
 the phone may read it aloud. A turn
 begun there reaches the owner's computers and Chromes as one begun anywhere
@@ -740,7 +745,7 @@ in its menu): the side panel's chat, on the Mac. It takes the side panel's
 calls but `page.read` (`chat.show`, `chat.status`, `chat.ask`,
 `chat.settled`, `chat.chats`, `chat.models`, `chat.mentions`) and sends its
 events (`chat.open`, `chat.send`, `chat.stop`, `chat.decide`, `chat.list`,
-`chat.switch`, `chat.models`, `chat.model`, `chat.mentions` and `chat.auto`),
+`chat.switch`, `chat.models`, `chat.model`, `chat.mentions` and `chat.mode`),
 as [browser-extension.md](browser-extension.md) lists them: every status says
 which chat it is about (`chat`), what that chat waits on (`waiting`) and
 whether the owner holds its session (`held`), and a device draws none for a

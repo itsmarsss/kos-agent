@@ -13,3 +13,4 @@ export {
   domainAllowlistEscalation,
   pathOutsideScratchEscalation,
 } from "./rules.js";
+export { beyondAutoByName, beyondAutoRule, destructiveCommand } from "./beyondauto.js";

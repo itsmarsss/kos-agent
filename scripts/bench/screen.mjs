@@ -99,9 +99,14 @@ const evaluate = async (session, expression) => (await send("Runtime.evaluate", 
 
 // ---------------------------------------------------------------- KOS
 
+/** This boot's write key, from the page KOS serves: a change to KOS sends it. */
+let writeKey;
+const keyOf = async () => (writeKey ??= /<meta name="kos-write" content="([^"]+)">/.exec(await (await fetch(`${KOS}/`)).text())?.[1]);
+
 const api = async (path, body) => {
+  const key = body === undefined ? undefined : await keyOf();
   // A long turn is waited on by polling, never by one request: each call gives up after 20 seconds.
-  const r = await fetch(`${KOS}${path}`, { signal: AbortSignal.timeout(path === "/api/message" ? 900_000 : 20_000), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
+  const r = await fetch(`${KOS}${path}`, { signal: AbortSignal.timeout(path === "/api/message" ? 900_000 : 20_000), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json", ...(key ? { "x-kos-write": key } : {}) }, body: JSON.stringify(body) }) });
   return r.json();
 };
 /** The chats this run opened; only theirs are approved, never another chat's on the same host. */

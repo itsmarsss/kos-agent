@@ -10,6 +10,8 @@ export interface AuditEntry {
   isError: boolean;
   riskTier?: RiskTier;
   userId?: string;
+  /** Who let a risky call run when the owner was not asked: "auto mode" for a chat set to Auto. */
+  approvedBy?: string;
   /** The conversation whose turn made the call; the calling turn's when not said. */
   conversationId?: string;
 }
@@ -22,6 +24,7 @@ export interface AuditRecord {
   isError: boolean;
   riskTier: RiskTier | null;
   userId: string | null;
+  approvedBy: string | null;
   conversationId: string | null;
   createdAt: number;
 }
@@ -55,6 +58,7 @@ interface Row {
   is_error: number;
   risk_tier: string | null;
   user_id: string | null;
+  approved_by: string | null;
   conversation_id: string | null;
   created_at: number;
 }
@@ -68,6 +72,7 @@ function toRecord(row: Row): AuditRecord {
     isError: row.is_error === 1,
     riskTier: row.risk_tier as RiskTier | null,
     userId: row.user_id,
+    approvedBy: row.approved_by ?? null,
     conversationId: row.conversation_id ?? null,
     createdAt: row.created_at,
   };
@@ -83,6 +88,8 @@ export function ensureAuditSchema(db: Db): void {
   const columns = db.prepare(`PRAGMA table_info(audit_log)`).all() as { name: string }[];
   // Whose turn wrote a file is then known, not inferred.
   if (!columns.some((c) => c.name === "conversation_id")) db.exec(`ALTER TABLE audit_log ADD COLUMN conversation_id TEXT`);
+  // Who let a risky call run unasked: Auto's own runs are then told apart.
+  if (!columns.some((c) => c.name === "approved_by")) db.exec(`ALTER TABLE audit_log ADD COLUMN approved_by TEXT`);
 }
 
 /**
@@ -107,8 +114,8 @@ export class AuditLog {
     const result = this.redact(entry.result);
     const info = this.db
       .prepare(
-        `INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, conversation_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, approved_by, conversation_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         entry.tool,
@@ -117,6 +124,7 @@ export class AuditLog {
         entry.isError ? 1 : 0,
         entry.riskTier ?? null,
         entry.userId ?? null,
+        entry.approvedBy ?? null,
         entry.conversationId ?? caller.getStore() ?? null,
         this.now(),
       );

@@ -42,8 +42,11 @@ async function until(what, test, ms = 30_000, last = async () => "") {
 }
 const say = (line) => console.log(`e2e: ${line}`);
 
+/** This boot's write key, from the file e2e.sh told the host to keep it in: a change sends it. */
+const writeKey = () => readFileSync(join(DIR, "write.key"), "utf8").trim();
+
 async function api(path, body) {
-  const res = await fetch(`${DASH}${path}`, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+  const res = await fetch(`${DASH}${path}`, body ? { method: "POST", headers: { "content-type": "application/json", "x-kos-write": writeKey() }, body: JSON.stringify(body) } : {});
   if (!res.ok) fail(`${path} answered ${res.status}: ${await res.text()}`);
   return res.json();
 }

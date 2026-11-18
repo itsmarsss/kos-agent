@@ -4,6 +4,9 @@ import type { ChannelAdapter } from "../channels/types.js";
 import type { UserMapping } from "../channels/identity.js";
 import type { Kernel } from "./kernel.js";
 
+/** What leads an answer a chat in Auto gave on Discord, SMS or iMessage, where no mode chip shows. */
+export const AUTO_MARK = "(Auto)";
+
 export interface ConnectChannelOptions {
   /** Channel-native id of the owner, for outbound notify + approval prompts. */
   ownerRecipientId: string;
@@ -104,8 +107,10 @@ export function connectChannel(
       // Dropped or forked away on the dashboard while it waited.
       if (res.dropped) return { text: "", dropped: true };
       const waiting = res.suspended ? { suspended: true as const } : {};
-      if (res.from && res.reply) return { text: res.reply, from: res.from, ...waiting };
-      return res.suspended ? { text: res.reply || "(no reply)", ...waiting } : res.reply || "(no reply)";
+      // A chat in Auto went ahead without asking: its answer says so where no chip shows it.
+      const reply = res.reply && kernel.ranUnderAuto(res.conversationId) ? `${AUTO_MARK} ${res.reply}` : res.reply;
+      if (res.from && reply) return { text: reply, from: res.from, ...waiting };
+      return res.suspended ? { text: reply || "(no reply)", ...waiting } : reply || "(no reply)";
     },
     /*
      * Only what the prompt itself does not already say.

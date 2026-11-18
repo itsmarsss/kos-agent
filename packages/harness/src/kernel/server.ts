@@ -2,12 +2,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { pipeline, Readable, type Writable } from "node:stream";
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import { basename, dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { askView, hasSecretRef, isExportFormat, outlineOf, stepMechanics, summarizeAction, type AskView, type WidgetOutline } from "@kos/shared";
+import { askView, hasSecretRef, isExportFormat, outlineOf, parseChatMode, stepMechanics, summarizeAction, type AskView, type ChatMode, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -89,7 +91,6 @@ import {
 } from "../catalog/catalog.js";
 import { DEFAULT_SEARCH } from "@kos/browser";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
-import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize } from "./session.js";
 
 /** Where the owner's home arrangement lives. */
@@ -194,7 +195,33 @@ export interface DashboardServerOptions {
   smsInbound?: (input: { url: string; params: Record<string, string>; signature: string | undefined }) => Promise<boolean>;
   /** Routes answered by packages outside the kernel. */
   extensions?: ApiExtension[];
+  /**
+   * The proof a change comes from KOS's own dashboard page: made at each
+   * boot, written into the page this server serves, and asked of every
+   * request that changes something (`x-kos-write`), token or none. It is
+   * never in the environment, so no program KOS runs is handed it, and a
+   * local program that is not a browser no longer passes for the owner.
+   * Unset (a test, the phone's relay, which its line proves), it is not asked.
+   */
+  writeKey?: string;
+  /**
+   * Changes need the dashboard token and nothing else will do: the host runs
+   * in the container, where the agent's own programs share loopback with
+   * KOS, so a key served in the page would be theirs to read too.
+   */
+  tokenForWrites?: boolean;
+  /**
+   * The names KOS is reached by (localhost, the bound host, its public and
+   * LAN names), for the Host check that stops a page whose name was rebound
+   * onto this machine. An address given as an IP is always taken: a
+   * rebinding needs a name.
+   */
+  hostNames?: string[];
 }
+
+/** The header the dashboard sends its write key in, and the page's meta that carries it. */
+export const WRITE_KEY_HEADER = "x-kos-write";
+export const WRITE_KEY_META = "kos-write";
 
 /** Widget types that may carry a guarded mutation target. */
 const WRITE_CAPABLE = new Set(["list", "card", "form"]);
@@ -232,8 +259,10 @@ type Activity = "working" | "needs-you" | "error" | "idle";
  */
 function conversationLabeller(
   kernel: Kernel,
-): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; lastError?: string; queued?: number } {
+): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; lastError?: string; queued?: number; mode?: ChatMode } {
   const busy = new Set(kernel.busyConversations());
+  // Ask is said by saying nothing: only a chat in Auto carries its mode.
+  const auto = new Set(kernel.modes.autoChats());
   // Messages waiting behind the turn running in each, from any surface:
   // Discord says "queued" on the message itself, and the list says it here.
   const queued = kernel.pending.counts();
@@ -266,6 +295,7 @@ function conversationLabeller(
       ...(activity === "error" ? { lastError: failed.get(c.id) } : {}),
       ...(c.role && faces.has(c.role) ? { face: faces.get(c.role) } : {}),
       ...(queued[c.id] ? { queued: queued[c.id] } : {}),
+      ...(auto.has(c.id) ? { mode: kernel.chatMode(c.id) } : {}),
     };
   };
 }
@@ -302,7 +332,7 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   const mechanics = stepMechanics(a.tool, a.args, HOST_KEYS);
   // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
   const asksAlways = hasSecretRef(parsedArgs(a.args));
-  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, names, where, platform: HOST_KEYS });
+  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, ...(a.beyondAuto ? { beyondAuto: true } : {}), names, where, platform: HOST_KEYS });
   return {
     ...a,
     // It places a secret: asked about every time, never remembered.
@@ -682,6 +712,11 @@ export async function handleApiRequest(
   if (options.token && !authorized(req, options.token)) {
     return { status: 401, body: { error: "unauthorized" } };
   }
+
+  // A change comes from the page KOS served, which holds this boot's key, or from a holder of the owner's token:
+  // not from a program on this machine that merely sends no Origin.
+  const refusedChange = changeRefusal(req, options);
+  if (refusedChange) return { status: 403, body: { error: refusedChange } };
 
   if (extension) return (await extension.handle(req)) ?? notFound;
 
@@ -2977,6 +3012,15 @@ export async function handleApiRequest(
     return ok(kernel.conversations.configure(id, config));
   }
 
+  if (method === "POST" && path === "/api/conversations/mode") {
+    const id = typeof body.id === "string" ? body.id : "";
+    const mode = parseChatMode(body.mode);
+    if (!id || !mode) return { status: 400, body: { error: "id and mode required" } };
+    if (!kernel.conversations.get(id)) return { status: 404, body: { error: "conversation not found" } };
+    kernel.setChatMode(id, mode);
+    return ok({ id, mode: kernel.chatMode(id) });
+  }
+
   if (method === "POST" && path === "/api/conversations/rename") {
     const id = typeof body.id === "string" ? body.id : "";
     const title = typeof body.title === "string" ? body.title : "";
@@ -3286,13 +3330,48 @@ function bearerOf(req: ApiRequest): string | undefined {
   return auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
 }
 
+/** Two secrets compared in constant time, so the time an answer takes says nothing of how much of one was right. */
+export function sameSecret(given: string | undefined, secret: string): boolean {
+  if (given === undefined) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** Whether a request carries the dashboard's token, as a bearer or as x-kos-token. */
 export function authorized(req: ApiRequest, token: string): boolean {
   const headers = req.headers ?? {};
   const auth = header(headers, "authorization");
-  if (auth?.startsWith("Bearer ") && auth.slice(7) === token) return true;
-  const x = header(headers, "x-kos-token");
-  return x === token;
+  if (auth?.startsWith("Bearer ") && sameSecret(auth.slice(7), token)) return true;
+  return sameSecret(header(headers, "x-kos-token"), token);
+}
+
+/**
+ * Why a change is refused for want of proof, or undefined: this boot's
+ * write key, or the owner's token. In the container only the token will do.
+ * Said for a terminal too, since the kos CLI and scripts meet it there.
+ */
+export function changeRefusal(req: ApiRequest, options: DashboardServerOptions): string | undefined {
+  if (!changes(req)) return undefined;
+  const token = options.token !== undefined && authorized(req, options.token);
+  if (options.tokenForWrites) {
+    return token ? undefined : "In the container a change to KOS needs the dashboard token: set KOS_DASHBOARD_TOKEN and send it as x-kos-token.";
+  }
+  if (!options.writeKey || token || sameSecret(header(req.headers ?? {}, WRITE_KEY_HEADER), options.writeKey)) return undefined;
+  return "A change to KOS needs this boot's write key. From the dashboard, reload the page (KOS may have restarted). From a terminal, use the kos CLI, or send the key in ~/.kos/write.key (write-<port>.key for another port) as the x-kos-write header.";
+}
+
+/**
+ * Whether a request names KOS by a name it goes by, or by an address. A
+ * page on a name the attacker controls, rebound to 127.0.0.1, sends that
+ * name as its Host: it is refused, whatever it asks. No Host (a program
+ * speaking HTTP/1.0) is taken as this machine's.
+ */
+export function ownHost(hostHeader: string | undefined, names: readonly string[]): boolean {
+  if (!hostHeader) return true;
+  const host = hostHeader.trim().toLowerCase().replace(/:\d+$/, "").replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (isIP(host) !== 0) return true;
+  return ["localhost", ...names.map((n) => n.toLowerCase())].includes(host);
 }
 
 /**
@@ -3310,8 +3389,12 @@ export function authorized(req: ApiRequest, token: string): boolean {
  * sandboxed frame such as an artifact's) is no one's.
  */
 export function crossSiteWrite(req: ApiRequest, allowedOrigins: readonly string[] = []): boolean {
-  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return false;
-  return fromAnotherSite(req, allowedOrigins);
+  return changes(req) && fromAnotherSite(req, allowedOrigins);
+}
+
+/** Whether a request may change something: any method but a read. */
+function changes(req: ApiRequest): boolean {
+  return req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS";
 }
 
 /** Whether a request, whatever its method, came from a web page other than the dashboard's own, by the same reading as crossSiteWrite. */
@@ -3449,6 +3532,8 @@ export function mayReadBody(kernel: Kernel, req: ApiRequest, options: DashboardS
   if (options.extensions?.some((e) => e.open?.includes(req.path))) return true;
   // In the order the routes check it: another site's page in the owner's browser is refused before the token.
   if (crossSiteWrite(req, options.allowedOrigins)) return false;
+  // A change without its proof is answered from its headers, its body never read.
+  if (changeRefusal(req, options)) return false;
   return !options.token || authorized(req, options.token);
 }
 
@@ -3716,10 +3801,17 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
+/** The dashboard's page with this boot's write key in a meta, before its head ends. */
+export function withWriteKey(html: string, key: string): string {
+  const meta = `<meta name="${WRITE_KEY_META}" content="${key}">`;
+  return html.includes("</head>") ? html.replace("</head>", `${meta}</head>`) : `${meta}${html}`;
+}
+
 function tryStatic(
   staticDir: string,
   urlPath: string,
   res: ServerResponse,
+  writeKey?: string,
 ): boolean {
   const clean = decodeURIComponent(urlPath.split("?")[0] ?? "/");
   // Strip leading slash so resolve(staticDir, rel) does not ignore staticDir.
@@ -3747,13 +3839,16 @@ function tryStatic(
   // browser cached it heuristically: an updated KOS kept serving the old app
   // until someone thought to hard-reload.
   const fingerprinted = relative(root, file).split(sep)[0] === "assets";
+  // The page itself carries this boot's write key, and is never kept: a cached one would hold a dead key.
+  const page = writeKey !== undefined && file === join(root, "index.html");
   res.writeHead(200, {
     "content-type": type,
-    "cache-control": fingerprinted
+    "cache-control": page ? "no-store" : fingerprinted
       ? "public, max-age=31536000, immutable"
       : "no-cache",
   });
-  createReadStream(file).pipe(res);
+  if (page) res.end(withWriteKey(readFileSync(file, "utf8"), writeKey));
+  else createReadStream(file).pipe(res);
   return true;
 }
 
@@ -3763,13 +3858,23 @@ function tryStatic(
  */
 export function createDashboardServer(
   kernel: Kernel,
-  options: DashboardServerOptions = {},
+  given: DashboardServerOptions = {},
 ): Server {
+  // This boot's write key: in memory and in the page alone. In the container there is none: the token is the proof.
+  const { writeKey: givenKey, ...rest } = given;
+  const options: DashboardServerOptions = given.tokenForWrites ? rest : { ...rest, writeKey: givenKey ?? randomBytes(32).toString("base64url") };
   return createServer((req: IncomingMessage, res: ServerResponse) => {
     void (async () => {
       const method = req.method ?? "GET";
       const rawUrl = req.url ?? "/";
       const path = rawUrl.split("?")[0] ?? "/";
+
+      // A name KOS does not go by, on any route: a page whose name was rebound onto this machine.
+      if (!ownHost(req.headers.host, options.hostNames ?? [])) {
+        res.writeHead(421, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: `KOS does not answer to the name ${String(req.headers.host).replace(/:\d+$/, "")}. If you reach KOS by it (a tunnel, Tailscale, a proxy), add it to KOS_HOST_NAMES and restart KOS.` }));
+        return;
+      }
 
       if (method === "OPTIONS") {
         res.writeHead(204, corsHeaders(req, options));
@@ -3846,23 +3951,8 @@ export function createDashboardServer(
         return;
       }
 
-      /*
-       * A daemon the agent wrote, reached through here rather than by being on
-       * the network itself. Ahead of the static handler because /apps is a
-       * real path on the dashboard's origin, and behind /api because a daemon
-       * must not be able to claim one of KOS's own routes.
-       */
-      if (
-        proxyToDaemon(req, res, {
-          store: kernel.daemons,
-          supervisor: kernel.supervisor,
-        })
-      ) {
-        return;
-      }
-
       if (options.staticDir && (method === "GET" || method === "HEAD")) {
-        if (tryStatic(options.staticDir, path, res)) return;
+        if (tryStatic(options.staticDir, path, res, options.writeKey)) return;
       }
 
       res.writeHead(404, { "content-type": "application/json", ...corsHeaders(req, options) });
@@ -3929,7 +4019,7 @@ function corsHeaders(
   }
   return {
     "access-control-allow-origin": origin,
-    "access-control-allow-headers": "content-type, authorization, x-kos-token",
+    "access-control-allow-headers": "content-type, authorization, x-kos-token, x-kos-write",
     "access-control-allow-methods": "GET, POST, OPTIONS",
     vary: "origin",
   };

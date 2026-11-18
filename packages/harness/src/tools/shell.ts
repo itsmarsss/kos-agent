@@ -1,16 +1,19 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { guestOrigin, turnStop } from "../kernel/caller.js";
+import { guestOrigin, turnStop, underAuto } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
 import { foldName, RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { CONTAINED_BEYOND_AUTO, destructiveCommand } from "../risk/beyondauto.js";
 import { readOnlyLine } from "../risk/readonly.js";
+import { shellBeyondAuto } from "../risk/shellauto.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
-import { GIT_INFO_ATTRIBUTES, gitHeldOn, gitHoldEnv } from "../sandbox/githold.js";
-import { isContained, jailedCommand } from "../sandbox/jail.js";
+import { GIT_CONTROL_WRITES, GIT_INFO_ATTRIBUTES, gitGlobalConfig, gitHeldOn, gitHoldEnv } from "../sandbox/githold.js";
+import { isContained, jailedCommand, type JailOptions } from "../sandbox/jail.js";
+import { outsideScratch } from "./files.js";
 import { homeDirs, INTO_ANOTHER, placeFor, reachOutside, writeScope } from "./home.js";
 
 /**
@@ -29,6 +32,8 @@ export interface ShellModuleOptions {
   timeoutSeconds?: number;
   /** Longest stdout or stderr kept, in characters. */
   maxOutput?: number;
+  /** The host runs in the container, which is the jail: whether it does by default. */
+  contained?: boolean;
 }
 
 export const SHELL_TIMEOUT_SECONDS = 120;
@@ -100,6 +105,30 @@ export function cacheEnv(cache: string): Record<string, string> {
  */
 const UNREAD = [...RESERVED, ".env"];
 
+/**
+ * The jail of a line a chat's Auto let run. It writes where an approved run
+ * of its home would, and no further: none of KOS's own state but its temp
+ * and caches, no .env, no repository's config or hooks and no git global
+ * config, where a planted program would run on the owner's next approved
+ * git command. It reads none of KOS's settings or a .env, reaches this
+ * machine's loopback and nothing past it, and is sealed: no app opened, no
+ * other process signalled, no preference written.
+ */
+function autoJail(root: string, writes: string[] | undefined, hidden: string[] | undefined): JailOptions {
+  const kos = join(root, ".kos");
+  return {
+    workspaceRoot: root,
+    ...(writes ? { writes } : {}),
+    hidden: [...UNREAD.filter((name) => name !== ".kos").map((name) => join(root, name)), ...(hidden ?? [])],
+    readOnly: [...UNWRITTEN.map((name) => join(root, name)), kos, join(root, ".env"), ...gitGlobalConfig(root)],
+    writableWithin: [join(kos, "tmp"), join(kos, "cache")],
+    unwritable: GIT_CONTROL_WRITES,
+    unreadable: [GIT_INFO_ATTRIBUTES],
+    network: "local",
+    sealed: true,
+  };
+}
+
 export async function runShell(
   command: string,
   opts: {
@@ -122,6 +151,13 @@ export async function runShell(
     hidden?: string[];
     /** A home's own temp and caches, in place of the workspace's shared temp. */
     dirs?: { tmp: string; cache: string };
+    /**
+     * True for a line a chat's Auto let run unasked. It writes as an
+     * approved run does (Auto must be able to build), but the jail, not the
+     * list of programs, is the boundary: this machine's network only, git
+     * held as for a read-only run, and no reach past the sandbox (sealed).
+     */
+    auto?: boolean;
   },
 ): Promise<ShellResult> {
   // A home's own temp and caches, or the workspace's shared temp at the root; a read-only run's fresh temp inside it.
@@ -137,20 +173,22 @@ export async function runShell(
         network: false,
         sealed: true,
       }
-    : {
-        workspaceRoot: opts.workspaceRoot,
-        readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
-        ...(opts.writes ? { writes: opts.writes } : {}),
-        ...(opts.hidden ? { hidden: opts.hidden } : {}),
-      };
+    : opts.auto
+      ? autoJail(opts.workspaceRoot, opts.writes, opts.hidden)
+      : {
+          workspaceRoot: opts.workspaceRoot,
+          readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
+          ...(opts.writes ? { writes: opts.writes } : {}),
+          ...(opts.hidden ? { hidden: opts.hidden } : {}),
+        };
   // A read-only run writes no cache; an approved one keeps its home's own.
   const extra: Record<string, string> = opts.readOnlyRun ? { NPM_CONFIG_UPDATE_NOTIFIER: "false" } : opts.dirs ? cacheEnv(opts.dirs.cache) : {};
   try {
     return await runCaptured(jailedCommand(command, jail), {
       cwd: opts.cwd,
       // Git's program-naming settings pinned (fsmonitor, pager, editors, gpg,
-      // attributes); a read-only run's hooks and transport too.
-      env: gitHoldEnv(childEnv({ home: opts.workspaceRoot, tmp }, extra), { readOnly: opts.readOnlyRun ?? false }),
+      // attributes); hooks and transport too for a run nobody approved, read-only or Auto's.
+      env: gitHoldEnv(childEnv({ home: opts.workspaceRoot, tmp }, extra), { readOnly: opts.readOnlyRun === true || opts.auto === true }),
       timeoutMs: opts.timeoutMs,
       maxOutput: opts.maxOutput,
       ...stopOf(opts.signal),
@@ -163,6 +201,7 @@ export async function runShell(
 export function createShellModule(options: ShellModuleOptions = {}): KosModule {
   const timeoutSeconds = options.timeoutSeconds ?? SHELL_TIMEOUT_SECONDS;
   const maxOutput = options.maxOutput ?? SHELL_MAX_OUTPUT;
+  const contained = options.contained ?? isContained();
   return {
     manifest: {
       name: "shell",
@@ -216,7 +255,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           const hidden = repairs ? undefined : DATABASE_FILES.map((name) => join(ws.root, name));
           // A line judged read-only ran unasked, so it runs where the judgement cannot matter, as the line that judgement gives.
           const line = readOnly(command);
-          const result = await runShell(line ?? command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput, readOnlyRun: line !== undefined, ...stopOf(turnStop.getStore()), ...(writes ? { writes } : {}), ...(hidden ? { hidden } : {}), ...(dirs ? { dirs } : {}) });
+          const result = await runShell(line ?? command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput, readOnlyRun: line !== undefined, ...stopOf(turnStop.getStore()), ...(line === undefined && underAuto.getStore() ? { auto: true } : {}), ...(writes ? { writes } : {}), ...(hidden ? { hidden } : {}), ...(dirs ? { dirs } : {}) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads
@@ -233,6 +272,34 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           relax: (input) => typeof input["command"] === "string" && readOnly(input["command"]) !== undefined,
           // Writing the whole workspace is its own ask, beyond Auto; run somewhere outside the turn's own folder, the card says where.
           reach: (input) => (wide(input) && writeScope(ws, ctx) ? { why: "may write anywhere in the workspace", beyondAuto: INTO_ANOTHER } : cwdReach(input)),
+          // What a chat's Auto runs unasked: only a line of reading and building programs (risk/shellauto.ts).
+          // A line that destroys work says so first, as the reason the owner reads.
+          beyondAuto: (input) => {
+            if (contained) return CONTAINED_BEYOND_AUTO;
+            const command = typeof input["command"] === "string" ? input["command"] : "";
+            const asked = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
+            // Where the line runs, from the workspace root, placed as the run places it: from the turn's home.
+            let cwd: string;
+            try {
+              cwd = placeFor(ws, ctx, asked).rel || ".";
+            } catch {
+              return "runs in a folder the jail refuses";
+            }
+            // A file (not a folder) that is there outside scratch, by its path from the root: one the jail would not let the line reach is not there for it.
+            const exists = (path: string): boolean => {
+              try {
+                return outsideScratch(path) && statSync(ws.resolve(path)).isFile();
+              } catch {
+                return false;
+              }
+            };
+            // A target as the line names it, from the root: ~ and $HOME are the root, the child's home.
+            const fromRoot = (path: string): string => {
+              const home = /^(?:~|\$HOME|\$\{HOME\})(?:\/(.*))?$/.exec(path);
+              return home ? home[1] || "." : join(cwd, path);
+            };
+            return destructiveCommand(command, (path) => exists(fromRoot(path)), (path) => !outsideScratch(fromRoot(path))) || shellBeyondAuto(command, exists, cwd);
+          },
           refuse: (input) => {
             if (typeof input["command"] !== "string") return false;
             if (namesHarnessConfig(input["command"])) return CONFIG_REFUSED;

@@ -41,6 +41,8 @@ import {
   upsertMcpServers,
   withSkillEnabled,
   type McpServerConfig,
+  readWriteKey,
+  writeKeyPath,
 } from "@kos/harness";
 
 import { KosClient, probeDaemon } from "@kos/client";
@@ -135,10 +137,13 @@ async function resolveLiveClient(
     clearDaemonState(rootDir);
     return null;
   }
+  // This boot's write key, kept beside KOS's other keys for this port: the CLI's changes send it.
+  const writeKey = readWriteKey(writeKeyPath(state.port));
   return {
     client: new KosClient({
       baseUrl,
       ...(token ? { token } : {}),
+      ...(writeKey ? { writeKey } : {}),
     }),
     state,
   };

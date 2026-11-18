@@ -6,6 +6,7 @@ import { extname, join } from "node:path";
 
 import type { ToolImage } from "../models/types.js";
 import { turnStop } from "../kernel/caller.js";
+import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
 import { RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
@@ -194,7 +195,7 @@ export function createPythonModule(options: PythonModuleOptions = {}): KosModule
             rmSync(tmp, { recursive: true, force: true });
           }
         },
-        confined ? { floor: "safe" } : { floor: "risky", why: "Python with nothing narrower than the host to hold it" },
+        confined ? { floor: "safe" } : { floor: "risky", why: "Python with nothing narrower than the host to hold it", beyondAuto: () => CONTAINED_BEYOND_AUTO },
       );
     },
   };

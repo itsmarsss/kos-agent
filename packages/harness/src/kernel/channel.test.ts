@@ -9,7 +9,7 @@ import { InMemoryAdapter } from "../channels/memory.js";
 import type { ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import type { ChannelRuntime } from "../channels/runtime.js";
-import { connectChannel } from "./channel.js";
+import { AUTO_MARK, connectChannel } from "./channel.js";
 import { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 
@@ -101,6 +101,20 @@ describe("connectChannel", () => {
     );
     await adapter.receive({ channel: "memory", senderId: "u1", text: "hi" });
     expect(adapter.sent[0]?.msg.text).toBe("hi back");
+  });
+
+  it("says an answer came from a chat whose Auto let a call run, where no chip shows it", async () => {
+    await boot(stub([...riskyScript().slice(0, 1)]));
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "hi" });
+    const chat = kernel.conversations.list(kernel.profile.ownerId).find((c) => c.channel === "memory")!;
+    // In Ask the risky call asked; nothing went ahead, so nothing is marked.
+    expect(adapter.sent.some((s) => s.msg.text?.startsWith(AUTO_MARK))).toBe(false);
+    await kernel.deny(kernel.approvals.pending()[0]!.id).catch(() => undefined);
+    kernel.setChatMode(chat.id, { mode: "auto" });
+    const ran = stub(riskyScript());
+    (kernel as unknown as { inference: typeof ran }).inference = ran;
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "again" });
+    expect(adapter.sent.at(-1)?.msg.text?.startsWith(`${AUTO_MARK} `)).toBe(true);
   });
 
   it("decides what the chat is waiting on with /approve and /deny", async () => {

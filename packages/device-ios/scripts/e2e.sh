@@ -52,7 +52,7 @@ sqlite3 "$WS/kos.sqlite" "update crons set enabled = 0; update daemons set enabl
 node scripts/e2e/stubmodel.mjs "$MODEL" > "$DIR/model.log" 2>&1 &
 PIDS+=($!)
 
-env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" KOS_WRITE_KEY_FILE="$DIR/write.key" \
   DISCORD_TOKEN= KOS_OWNER_DISCORD= KOS_DISCORD_GUILD= KOS_OWNER_IMESSAGE= \
   KOS_DEVICE_KEY_FILE="$DIR/device-host.key" KOS_DEVICE_LAN_CERT_FILE="$DIR/device-lan.pem" \
   KOS_DEVICE_LAN_HOST=127.0.0.1 KOS_DEVICE_LAN_PORT="$LAN" KOS_BROWSER_PORT="$BROWSER" \
@@ -64,15 +64,17 @@ for _ in $(seq 1 120); do
   sleep 0.5
 done
 curl -sf "$DASH/api/status" >/dev/null || { echo "the host did not come up:" >&2; tail -30 "$DIR/host.log" >&2; exit 1; }
+# A change to KOS sends this boot's write key, which the host keeps in the file named above.
+KEY="$(cat "$DIR/write.key")"
 
 # Off by default: nothing listens for phones until the owner turns it on.
 if curl -sk --max-time 3 "https://127.0.0.1:$LAN/api/devices/lan" >/dev/null; then echo "the Wi-Fi listener was on by default" >&2; exit 1; fi
-curl -sf -X POST -H 'content-type: application/json' -d '{"lan":true}' "$DASH/api/devices/settings" >/dev/null
+curl -sf -X POST -H 'content-type: application/json' -H "x-kos-write: $KEY" -d '{"lan":true}' "$DASH/api/devices/settings" >/dev/null
 # On, it serves the device routes alone.
 STATUS="$(curl -sk -o /dev/null -w '%{http_code}' "https://127.0.0.1:$LAN/api/status")"
 [[ "$STATUS" == "404" ]] || { echo "the Wi-Fi listener answered /api/status with $STATUS" >&2; exit 1; }
 
-CODE_JSON="$(curl -sf -X POST "$DASH/api/devices/pairings")"
+CODE_JSON="$(curl -sf -X POST -H "x-kos-write: $KEY" "$DASH/api/devices/pairings")"
 LINK="$(node -e 'const c = JSON.parse(process.argv[1]); if (!c.lan) process.exit(1); console.log(`kos-device://pair?url=${encodeURIComponent(c.lan.url)}&code=${c.code}&pin=${c.lan.pin}`)' "$CODE_JSON")"
 
 KOS_E2E_LINK="$LINK" KOS_E2E_DASHBOARD="$DASH" KOS_E2E_WORKSPACE="$WS" ./scripts/test.sh --filter EndToEnd
