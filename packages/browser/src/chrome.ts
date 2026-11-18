@@ -209,11 +209,13 @@ export class ChromeHost {
   }
 
   /**
-   * Stop the Chrome KOS started, and every process it started: its renderers
-   * and GPU process share its process group, so a signal to the group reaches
-   * them all. Asked politely first, then killed if it has not gone within the
-   * grace period. Resolves once the browser has exited, so its profile can be
-   * deleted without Chrome still writing to it. An adopted Chrome is left be.
+   * Stop the Chrome KOS started, and every process it started. The browser
+   * alone is asked first: it closes its helpers itself, and a SIGTERM to its
+   * network service would cut off the cookies it is still writing. If it has
+   * not gone within the grace period, its whole process group (renderers, GPU
+   * process and all) is killed. Resolves once the browser has exited, so its
+   * profile can be deleted without Chrome still writing to it. An adopted
+   * Chrome is left be.
    */
   stop(graceMs = STOP_GRACE_MS): Promise<void> {
     const child = this.child;
@@ -221,7 +223,11 @@ export class ChromeHost {
     this.wsUrl = null;
     if (!child) return Promise.resolve();
     const exited = exitOf(child);
-    signalGroup(child, "SIGTERM");
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      /* already gone */
+    }
     const kill = setTimeout(() => signalGroup(child, "SIGKILL"), graceMs);
     return exited.then(() => {
       clearTimeout(kill);

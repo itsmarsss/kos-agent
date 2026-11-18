@@ -236,6 +236,40 @@ describe("stopping Chrome", () => {
     }
   });
 
+  it("asks the browser alone first, so its helpers keep running while it closes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "chrome-stop-"));
+    try {
+      const heard = join(dir, "heard");
+      const helperPid = join(dir, "helper.pid");
+      const deaf = (who: string): string => `process.on("SIGTERM", () => require("fs").appendFileSync(${JSON.stringify(heard)}, "${who}\\n")); setInterval(() => {}, 1000);`;
+      // A browser and a helper in its group, each noting a SIGTERM and staying. The helper says it is listening.
+      const helperCode = `${deaf("helper")} require("fs").writeFileSync(${JSON.stringify(helperPid)}, String(process.pid));`;
+      const browser = `${deaf("browser")} require("child_process").spawn(process.execPath, ["-e", ${JSON.stringify(helperCode)}], { stdio: "ignore" });`;
+      let spawned = false;
+      const host = new ChromeHost({
+        port: 9225,
+        profileDir: join(dir, "profile"),
+        exists: () => true,
+        spawn: ((_binary: string, _args: string[], options: object) => {
+          spawned = true;
+          return nodeSpawn(process.execPath, ["-e", browser], options);
+        }) as never,
+        fetchJson: async () => {
+          if (!spawned) throw new Error("refused");
+          return { webSocketDebuggerUrl: "ws://new" };
+        },
+      });
+      await host.ensure();
+      await vi.waitFor(() => expect(readFileSync(helperPid, "utf8")).not.toBe(""), { timeout: 5000 });
+      const helper = Number(readFileSync(helperPid, "utf8"));
+      await host.stop(500);
+      expect(readFileSync(heard, "utf8")).toBe("browser\n");
+      await vi.waitFor(() => expect(running(helper)).toBe(false));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("resolves at once when there is nothing of its own to stop", async () => {
     const host = new ChromeHost({ port: 9225, profileDir: "/tmp/x" });
     await expect(host.stop()).resolves.toBeUndefined();
