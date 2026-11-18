@@ -347,6 +347,8 @@ export class Vault {
   private held = new Map<string, Held>();
   private polled = 0;
   private indexStale = true;
+  /** Why the scrub index cannot be written or read, for the status. */
+  private indexProblem: string | undefined;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly options: VaultOptions) {
@@ -393,7 +395,7 @@ export class Vault {
     // A file that is there but will not read is a vault shut, not one missing: init must not write over it.
     if (!this.doc) return { state: this.stamp ? "locked" : "absent", slots: [], ...(this.problem ? { problem: this.problem } : {}) };
     const slots = [...new Set(this.doc.slots.map((s) => s.kind))];
-    const problem = this.problem ?? (this.dek ? this.warning : undefined);
+    const problem = this.problem ?? (this.dek ? this.warning : undefined) ?? (this.dek ? this.indexProblem : this.shut() && this.indexProblem);
     return { state: this.dek ? "ready" : "locked", slots, ...(problem ? { problem } : {}) };
   }
 
@@ -416,12 +418,16 @@ export class Vault {
     }
     if (this.index?.stamp !== stamp) {
       let index: ScrubIndex | undefined;
+      this.indexProblem = stamp ? undefined : "there is no scrub index, so only shapes are masked until the vault is unlocked";
       try {
         const file = stamp ? (JSON.parse(readPrivate(this.indexPath)) as ScrubIndexFile) : undefined;
-        const key = file?.format === SCRUB_INDEX_FORMAT && file.version === SCRUB_INDEX_VERSION ? unb64(readPrivate(this.indexKeyPath).trim()) : undefined;
+        const current = file?.format === SCRUB_INDEX_FORMAT && file.version === SCRUB_INDEX_VERSION;
+        const key = current ? unb64(readPrivate(this.indexKeyPath).trim()) : undefined;
         index = file && key?.length === 32 ? new ScrubIndex(key, file) : undefined;
-      } catch {
+        if (file && !index) this.indexProblem = "the scrub index is from an older KOS or its key is wrong; unlock the vault to make it again";
+      } catch (err) {
         index = undefined;
+        this.indexProblem = `the scrub index does not read (${err instanceof Error ? err.message : String(err)}), so only shapes are masked until the vault is unlocked`;
       }
       this.index = { stamp, index };
     }
@@ -429,16 +435,27 @@ export class Vault {
   }
 
   /** The scrub index made again from every value, under the scrub key (made once). Only while the vault is open. */
+  /**
+   * The scrub index made again from every value. A change is already
+   * committed when this runs, so a failure here never fails it: it is
+   * logged and shown in the status until an index is written.
+   */
   private writeIndex(): void {
     if (!this.dek) return;
-    let key = existsSync(this.indexKeyPath) ? unb64(readPrivate(this.indexKeyPath).trim()) : undefined;
-    if (key?.length !== 32) {
-      key = randomBytes(32);
-      writeAtomic(this.indexKeyPath, `${b64(key)}\n`, this.dir);
-      excludeFromBackup(this.indexKeyPath);
+    try {
+      let key = existsSync(this.indexKeyPath) ? unb64(readPrivate(this.indexKeyPath).trim()) : undefined;
+      if (key?.length !== 32) {
+        key = randomBytes(32);
+        writeAtomic(this.indexKeyPath, `${b64(key)}\n`, this.dir);
+        excludeFromBackup(this.indexKeyPath);
+      }
+      writeAtomic(this.indexPath, `${JSON.stringify(buildIndex(key, this.scanned()))}\n`, this.dir);
+      key.fill(0);
+      this.indexProblem = undefined;
+    } catch (err) {
+      this.indexProblem = `the scrub index was not written (${err instanceof Error ? err.message : String(err)}), so a locked vault masks only by shape`;
+      console.error(`[secrets] ${this.indexProblem}`);
     }
-    writeAtomic(this.indexPath, `${JSON.stringify(buildIndex(key, this.scanned()))}\n`, this.dir);
-    key.fill(0);
   }
 
   hasPassphrase(): boolean {

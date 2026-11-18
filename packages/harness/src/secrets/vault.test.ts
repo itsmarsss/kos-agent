@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { entryAad, indexKey, indexMac, passphraseKek, seal, slotAad, unseal, Vault, VaultError, type VaultFile } from "./vault.js";
 
@@ -317,6 +317,23 @@ describe("Vault keys and files", () => {
     cli.removePassphrase();
     expect(host.status().slots).toEqual(["keyfile"]);
     expect(existsSync(join(dir, "key"))).toBe(true);
+  }, 20_000);
+
+  it("keeps a change whose scrub index did not write, and says so; a locked vault says its index does not read", async () => {
+    const vault = await twoSecrets();
+    rmSync(join(dir, "scrub.kosi"));
+    mkdirSync(join(dir, "scrub.kosi"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const handle = vault.add({ label: "Still saved", kind: "note", values: { text: "kept though the index failed" } });
+    errors.mockRestore();
+    expect(vaultAt().get(handle)).toBeDefined();
+    expect(vault.status().problem).toMatch(/scrub index was not written/);
+    rmSync(join(dir, "scrub.kosi"), { recursive: true });
+    await vault.setPassphrase("a long passphrase");
+    const { chmodSync } = await import("node:fs");
+    chmodSync(join(dir, "scrub.kosi"), 0o644);
+    const locked = vaultAt();
+    expect(locked.status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/scrub index does not read/) });
   }, 20_000);
 
   it("refuses a key file or a folder others can read, and a key file that is a link", async () => {
