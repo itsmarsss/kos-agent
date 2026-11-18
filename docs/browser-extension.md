@@ -190,9 +190,11 @@ While KOS works in your Chrome:
 - acting on a page asks you, trusted per site apart from KOS's own Chrome
   (a site trusted there is asked about again here, where you are signed in);
   in the side panel an approval offers **Always on** the site, and the
-  **Ask / Auto** chip beside the model lets that chat click, type and go
-  places in your Chrome without asking each step (running script in a page,
-  files, messages and everything else still ask);
+  mode chip beside the model (Shift+Tab in the box cycles it) sets the
+  chat to **Ask** or **Auto**: in Auto, KOS goes ahead without asking for
+  the risky steps of turns you start in that chat, in your Chrome and
+  everywhere else, within what Auto never covers ([The chat's
+  mode](#the-chats-mode));
 - the session ends at its time limit, when idle, on Stop, when you close
   Chrome's debugging bar, when the connection to its KOS drops and is not
   back within 10 s, and when Chrome stops the extension's worker: the
@@ -272,7 +274,7 @@ beside it when the chat asks.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, steps? [{ summary, failed?, frame? }] }]`, `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
+| `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, steps? [{ summary, failed?, frame? }] }]`, `mode { mode, until?, sessions? }` (the chat's mode; `auto`, true in Auto, for a device from before modes), `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
 | `chat.status` | `chat` and `conversation` (the chat the turn runs in, learned when it starts, never the one the panel moved to), `since?` (with `taken`: when the turn began, epoch ms, so a panel opened mid-turn keeps its clock), `waiting?` (`consent`: a device asks the owner for this chat's session; `approval`: an approval waits), `held` (the owner has control of its session), `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn told from its start: its steps so far, `› ` before each, ` (done)` after one that finished and ` (failed)` after one that failed, and what KOS says between them; empty before it has said or done anything; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, with `said`, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
 | `chat.ask` | `chat`, `approval { id, tool, summary?, args?, mechanics?, why?, reason?, always?, expiresAt? }` (`summary`: the action in words with its ids named, as the Inbox titles it; `expiresAt`: when it lapses unanswered, epoch ms) | `{}` |
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
@@ -331,6 +333,37 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `chat.models` | `{}`: asks for `chat.models` |
 | `chat.model` | `model`: KOS answers with it from now on, as the dashboard's picker sets it |
 | `chat.mentions` | `q`, `kind?`: asks what an @ can name |
+| `chat.mode` | `mode` (`ask` or `auto`), `until?` (epoch ms, or `task`: until the chat's running or next turn ends), `sessions?` (true: Auto also starts sessions a device leaves to KOS's approvals): sets the shown chat's mode, made now if there is none yet; anything else is ignored |
+| `chat.auto` | `on`: a device from before modes; `chat.mode` with `auto` and no bounds, or `ask` |
+
+### The chat's mode
+
+Every chat is in one of two modes, set from any surface's composer (a chip
+beside the model, cycled by a press or Shift+Tab, with a menu) and kept
+per chat on KOS, which alone decides what it lets through:
+
+- **Ask**, the default: a risky step asks the owner, as it always has.
+- **Auto**: a risky step of a turn the owner started in that chat runs
+  without asking, in KOS's own browser, the owner's Chrome and Mac within a
+  session, and everywhere else. Each is kept in the Inbox's decided list
+  and the audit log as approved by `auto mode`, never by the owner, and the
+  model is told it went ahead under Auto, so it says so.
+
+Auto never covers, whatever the chat is set to: what KOS refuses, Stop
+and the kill switch; a tool marked to ask every time (a secret's use);
+purchases and payments, deleting outside the workspace (an http DELETE,
+an MCP tool named for paying or deleting); running script in a page and
+handing a page to the owner; a turn a guest's words started; a schedule's
+run or other work the owner did not start in that chat. Starting a session
+is covered only with `sessions`, and only on a device that leaves its
+sessions to KOS's approvals (consent `kos`): a device that asks on itself
+still asks there, since consent lives on the device and nothing KOS sends
+changes that. A device's time limits and idle limit still apply.
+
+Auto lasts until turned off, until its `until` passes, or, with `until`
+`task`, until the chat's running or next turn ends. Every `chat.show`
+carries the mode as it stands, and each device of a chat is shown it again
+when it changes elsewhere.
 
 Error codes beyond the device protocol's: `tab` (not a tab of the session),
 `method` (not on the list), `url` (not the web), `hidden_site` (the owner
