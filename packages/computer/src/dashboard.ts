@@ -56,6 +56,8 @@ const ROUTES: readonly Route[] = [
   read("/api/file/text", ["path"]),
   read("/api/file/raw", ["path"]),
   read("/api/file/view", ["path"]),
+  // An Office file as the viewers draw it (docs/files.md): JSON, its path through the jail.
+  read("/api/file/office", ["path"]),
   read("/api/memory", ["limit"]),
   read("/api/memory/trace", ["key"]),
   read("/api/runs", ["limit", "failed"]),
