@@ -1,4 +1,4 @@
-import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
+import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from "node:http";
 
 import type { DaemonStore } from "./store.js";
 import type { DaemonSupervisor } from "./supervisor.js";
@@ -58,6 +58,14 @@ export function routeTo(
  * 502 rather than 404: "not running" and "no such app" are different problems
  * and lead to different next steps.
  */
+/** Headers that prove who the owner is to KOS, never handed to an app the agent wrote. */
+const PROOFS = new Set(["authorization", "x-kos-token", "x-kos-write", "cookie"]);
+
+/** A request's headers as an app may see them: without the owner's proofs. */
+export function forwardable(headers: IncomingHttpHeaders): IncomingHttpHeaders {
+  return Object.fromEntries(Object.entries(headers).filter(([name]) => !PROOFS.has(name.toLowerCase())));
+}
+
 export function proxyToDaemon(
   req: IncomingMessage,
   res: ServerResponse,
@@ -91,7 +99,7 @@ export function proxyToDaemon(
       port: target.port,
       method: req.method,
       path: target.path,
-      headers: { ...req.headers, host: `127.0.0.1:${target.port}` },
+      headers: { ...forwardable(req.headers), host: `127.0.0.1:${target.port}` },
     },
     (answer) => {
       res.writeHead(answer.statusCode ?? 502, answer.headers);

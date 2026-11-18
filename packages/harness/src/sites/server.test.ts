@@ -1,5 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -157,5 +158,38 @@ describe("serving what the agent built", () => {
       // part of.
       expect(body).toContain("budget");
     });
+  });
+});
+
+describe("an app the agent wrote, on the sites' origin", () => {
+  it("is served there, writes and all, and never sees the owner's proofs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-sites-apps-"));
+    const ws = Workspace.open(root);
+    const heard: { method: string; headers: Record<string, unknown> }[] = [];
+    const app = createServer((req, res) => {
+      heard.push({ method: req.method ?? "", headers: req.headers });
+      res.end("app");
+    });
+    await new Promise<void>((r) => app.listen(0, "127.0.0.1", r));
+    const appPort = (app.address() as AddressInfo).port;
+    const daemons = {
+      store: { find: (project: string, name: string) => (project === "shop" && name === "api" ? { id: 1, port: appPort } : undefined) },
+      supervisor: { isRunning: () => true, statusOf: () => ({ state: "running" }) },
+    } as unknown as Parameters<typeof startSiteServer>[3];
+    const sites = startSiteServer(ws, 0, "127.0.0.1", daemons);
+    await new Promise<void>((r) => sites.once("listening", () => r()));
+    const base = `http://127.0.0.1:${(sites.address() as AddressInfo).port}`;
+    try {
+      const res = await fetch(`${base}/apps/shop/api/items`, { method: "POST", headers: { authorization: "Bearer t", "x-kos-token": "t", "x-kos-write": "k", cookie: "a=b", "x-app": "1" }, body: "{}" });
+      expect(await res.text()).toBe("app");
+      expect(heard[0]!.method).toBe("POST");
+      for (const proof of ["authorization", "x-kos-token", "x-kos-write", "cookie"]) expect(heard[0]!.headers[proof], proof).toBeUndefined();
+      expect(heard[0]!.headers["x-app"]).toBe("1");
+    } finally {
+      await new Promise((r) => sites.close(r));
+      await new Promise((r) => app.close(r));
+      ws.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

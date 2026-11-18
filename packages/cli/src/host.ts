@@ -806,7 +806,7 @@ export async function runHost(options: HostOptions): Promise<void> {
   let siteServer: Server | undefined;
   if (sitesPort > 0) {
     try {
-      siteServer = startSiteServer(kernel.workspace, sitesPort, options.host);
+      siteServer = startSiteServer(kernel.workspace, sitesPort, options.host, { store: kernel.daemons, supervisor: kernel.supervisor });
       // So sites.list can tell the agent where its work ended up.
       process.env.KOS_SITES_URL = `http://${options.host}:${sitesPort}`;
       await new Promise<void>((resolveListen, reject) => {

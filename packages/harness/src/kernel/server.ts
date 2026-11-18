@@ -88,7 +88,6 @@ import {
 } from "../catalog/catalog.js";
 import { DEFAULT_SEARCH } from "@kos/browser";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
-import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
 /** Where the owner's home arrangement lives. */
@@ -3902,21 +3901,6 @@ export function createDashboardServer(
         // encoding them would turn an image into a list of numbers.
         else if (Buffer.isBuffer(result.body)) res.end(result.body);
         else res.end(JSON.stringify(result.body));
-        return;
-      }
-
-      /*
-       * A daemon the agent wrote, reached through here rather than by being on
-       * the network itself. Ahead of the static handler because /apps is a
-       * real path on the dashboard's origin, and behind /api because a daemon
-       * must not be able to claim one of KOS's own routes.
-       */
-      if (
-        proxyToDaemon(req, res, {
-          store: kernel.daemons,
-          supervisor: kernel.supervisor,
-        })
-      ) {
         return;
       }
 

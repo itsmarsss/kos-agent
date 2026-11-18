@@ -416,8 +416,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       store: daemons,
       supervisor,
       workspaceRoot: workspace.root,
-      urlFor: (daemon) =>
-        daemon.port === null ? null : `/apps/${daemon.project}/${daemon.name}/`,
+      // On the sites server's origin, apart from the dashboard's: none while it is not running.
+      urlFor: (daemon) => (daemon.port === null || !process.env.KOS_SITES_URL ? null : `${process.env.KOS_SITES_URL}/apps/${daemon.project}/${daemon.name}/`),
     }),
     systemsModule,
     sitesModule,
