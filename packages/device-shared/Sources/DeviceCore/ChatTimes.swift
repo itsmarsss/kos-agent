@@ -29,33 +29,46 @@ public enum ChatTimes {
     }
   }
 
+  /// How far ahead of the owner's clock a time may be and still be read as now: another machine's clock a little fast.
+  static let ahead: TimeInterval = 60 * 60
+
   /// What the line over a new day says: "Today", "Yesterday", the weekday and date for the rest of the week ("Mon, Nov
   /// 16"), and the full date with its year before that, each in the owner's locale.
   public static func dayWords(_ date: Date, now: Date = Date(), calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) -> String {
-    let ago = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
-    let formatter = DateFormatter()
-    formatter.locale = locale
-    formatter.calendar = calendar
-    formatter.timeZone = calendar.timeZone
+    let when = date > now && date.timeIntervalSince(now) < ahead ? now : date
+    let ago = calendar.dateComponents([.day], from: calendar.startOfDay(for: when), to: calendar.startOfDay(for: now)).day ?? 0
     if ago == 0 || ago == 1 {
-      formatter.dateStyle = .medium
-      formatter.timeStyle = .none
-      formatter.doesRelativeDateFormatting = true
-    } else {
-      formatter.setLocalizedDateFormatFromTemplate(ago > 1 && ago < 7 ? "EEEMMMd" : "EEEMMMdy")
+      return formatter("relative", calendar: calendar, locale: locale) {
+        $0.dateStyle = .medium
+        $0.timeStyle = .none
+        $0.doesRelativeDateFormatting = true
+      }.string(from: when)
     }
-    return formatter.string(from: date)
+    let template = ago > 1 && ago < 7 ? "EEEMMMd" : "EEEMMMdy"
+    return formatter(template, calendar: calendar, locale: locale) { $0.setLocalizedDateFormatFromTemplate(template) }.string(from: when)
   }
 
   /// A message's time on the owner's clock, hours and minutes: "9:41 AM", "21:41".
   public static func clock(_ date: Date, calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) -> String {
+    formatter("clock", calendar: calendar, locale: locale) {
+      $0.dateStyle = .none
+      $0.timeStyle = .short
+    }.string(from: date)
+  }
+
+  /// Each formatter made once per shape, locale and zone: a long chat asks for every line's day and time on each draw.
+  private static let formatters = NSCache<NSString, DateFormatter>()
+
+  private static func formatter(_ shape: String, calendar: Calendar, locale: Locale, make: (DateFormatter) -> Void) -> DateFormatter {
+    let key = "\(shape)|\(locale.identifier)|\(calendar.identifier)|\(calendar.timeZone.identifier)" as NSString
+    if let kept = formatters.object(forKey: key) { return kept }
     let formatter = DateFormatter()
     formatter.locale = locale
     formatter.calendar = calendar
     formatter.timeZone = calendar.timeZone
-    formatter.dateStyle = .none
-    formatter.timeStyle = .short
-    return formatter.string(from: date)
+    make(formatter)
+    formatters.setObject(formatter, forKey: key)
+    return formatter
   }
 
   /// What a mark says: the day's words, or the time after a pause.

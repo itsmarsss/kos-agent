@@ -32,10 +32,9 @@ public struct Bubble: View {
   }
 
   public var body: some View {
-    HStack(alignment: .bottom, spacing: 8) {
+    HStack {
       // Up to 88% of the thread's width, as on the dashboard.
       Spacer(minLength: 40)
-      if let time { MessageTime(time, shown: timeShown).padding(.bottom, 10) }
       VStack(alignment: .leading, spacing: 6) {
         if let quote { QuoteCard(text: quote.text, from: quote.from) }
         if !text.isEmpty { ChatMarkdown(text) }
@@ -48,6 +47,12 @@ public struct Bubble: View {
       .background(
         UnevenRoundedRectangle(topLeadingRadius: Theme.radiusLg, bottomLeadingRadius: Theme.radiusLg, bottomTrailingRadius: Theme.radiusXs, topTrailingRadius: Theme.radiusLg, style: .continuous)
           .fill(Self.fill))
+      // Its time left of it, in the room the spacer keeps: drawn over the row, so the bubble is as wide without one.
+      .overlay(alignment: .bottomLeading) {
+        if let time {
+          MessageTime(time, shown: timeShown).frame(width: 0, alignment: .trailing).offset(x: -8, y: -10)
+        }
+      }
     }
   }
 }
@@ -210,12 +215,21 @@ public struct TimeMarkLine: View {
   }
 
   public var body: some View {
-    Text(ChatTimes.words(mark))
-      .font(.kos(.tiny).monospacedDigit())
-      .foregroundStyle(Theme.faint)
-      .frame(maxWidth: .infinity)
-      .padding(.top, 4)
-      .accessibilityAddTraits(.isHeader)
+    // Drawn again at each midnight, so "Today" becomes "Yesterday" on a window left open.
+    TimelineView(.explicit(Self.midnights())) { context in
+      Text(ChatTimes.words(mark, now: context.date))
+        .font(.kos(.tiny).monospacedDigit())
+        .foregroundStyle(Theme.faint)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+        .accessibilityAddTraits(.isHeader)
+    }
+  }
+
+  /// The next week's midnights on the owner's clock.
+  static func midnights(from now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) -> [Date] {
+    let today = calendar.startOfDay(for: now)
+    return [now] + (1...7).compactMap { calendar.date(byAdding: .day, value: $0, to: today) }
   }
 }
 
@@ -262,6 +276,18 @@ public struct ChatLine: View {
   }
 
   public var body: some View {
+    content
+      #if !os(macOS)
+        // A tap shows it for a moment; a pointer over it on a Mac shows it for as long as it stays.
+        .task(id: hovered) {
+          guard hovered else { return }
+          try? await Task.sleep(for: Self.tapped)
+          if !Task.isCancelled { hovered = false }
+        }
+      #endif
+  }
+
+  @ViewBuilder private var content: some View {
     switch line {
     case .you(let text, let files, let quote):
       Bubble(text: text, files: files, quote: quote, time: time, timeShown: timeShown).timeReveal($hovered)
@@ -285,4 +311,9 @@ public struct ChatLine: View {
       Steps(steps: steps, pictures: pictures)
     }
   }
+}
+
+extension ChatLine {
+  /// How long a time a tap showed stays before it hides again, as the dashboard's.
+  static let tapped: Duration = .seconds(4)
 }

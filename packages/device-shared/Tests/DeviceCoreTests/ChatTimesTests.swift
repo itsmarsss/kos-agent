@@ -71,6 +71,13 @@ struct ChatTimesTests {
     #expect(ChatTimes.dayWords(at("2026-11-18T09:00:00-05:00"), now: now, calendar: ny, locale: Locale(identifier: "de_DE")) == "Heute")
   }
 
+  @Test func readsATimeALittleAheadOfTheClockAsToday() {
+    let late = at("2026-11-18T23:59:00-05:00")
+    let ny = calendar(newYork)
+    #expect(ChatTimes.dayWords(late.addingTimeInterval(5 * 60), now: late, calendar: ny, locale: us) == "Today")
+    #expect(ChatTimes.dayWords(late.addingTimeInterval(3 * 3600), now: late, calendar: ny, locale: us) == "Thu, Nov 19, 2026")
+  }
+
   @Test func tellsTheTimeOnTheLocalesOwnClock() {
     let t = at("2026-11-18T21:41:00-05:00")
     let ny = calendar(newYork)
