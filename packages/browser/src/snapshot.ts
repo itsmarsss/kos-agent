@@ -102,7 +102,7 @@ const VALUED = new Set(["textbox", "searchbox", "combobox", "spinbutton", "slide
 export const HIDDEN_VALUE = "(hidden)";
 
 /** Labels and names of fields that hold a secret. inpage.ts keeps its own copy, as page code cannot import. */
-const SECRET_NAMED = /password|passcode|card|cvc|cvv|csc/i;
+const SECRET_NAMED = /password|passcode|passphrase|card|cvc|cvv|csc|security.?code|social.?security|token|api.?key|secret|(^|[^a-z])(pin|otp|ssn)([^a-z]|$)/i;
 
 /** Autocomplete tokens of fields that hold a secret. */
 const SECRET_AUTOCOMPLETE = /^(cc-.*|current-password|new-password|one-time-code)$/;

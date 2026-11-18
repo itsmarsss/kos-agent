@@ -75,6 +75,8 @@ const SECRETS = page(
 <label>Number <input autocomplete="cc-number" value="4242424242424242"></label>
 <label>Code <input autocomplete="one-time-code" value="918273"></label>
 <label>Security <input name="card_cvc" value="737"></label>
+<label>Your PIN <input value="5555"></label>
+<div role=textbox contenteditable aria-label="API token">tok-in-editable</div>
 <label>Email <input type=email value="ada@example.com"></label>`,
 );
 
@@ -281,11 +283,11 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
 
   it("says a secret field holds something, never what or how long", async () => {
     const seen = await visit(tab, [`${base}/secrets`], { then: "look" });
-    for (const label of ["Password", "Number", "Code", "Security"]) expect(seen.text).toContain(`textbox "${label}" = "(hidden)"`);
+    for (const label of ["Password", "Number", "Code", "Security", "Your PIN", "API token"]) expect(seen.text).toContain(`textbox "${label}" = "(hidden)"`);
     expect(seen.text).toContain('"Email" = "ada@example.com"');
-    for (const leaked of ["hunter2", "4242", "918273", "737", "•"]) expect(seen.text).not.toContain(leaked);
+    for (const leaked of ["hunter2", "4242", "918273", "737", "5555", "tok-in-editable", "•"]) expect(seen.text).not.toContain(leaked);
     const outline = await tab.page.tree();
-    for (const leaked of ["hunter2", "4242", "918273", "737", "•"]) expect(outline.text).not.toContain(leaked);
+    for (const leaked of ["hunter2", "4242", "918273", "737", "5555", "tok-in-editable", "•"]) expect(outline.text).not.toContain(leaked);
   });
 
   it("reads open shadow roots and the frames it can reach, says which it could not, and acts in them", async () => {

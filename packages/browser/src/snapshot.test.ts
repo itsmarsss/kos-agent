@@ -124,6 +124,22 @@ describe("a field that holds a secret", () => {
     ["7", "1", "textbox", "Email", 7, { value: { value: "ada@example.com" } }],
   ]);
 
+  it("hides a field labelled as a secret, and leaves one whose label only contains the letters", () => {
+    const named = tree([
+      ["1", null, "RootWebArea", "Account"],
+      ["2", "1", "textbox", "Security code", 2, { value: { value: "918" } }],
+      ["3", "1", "textbox", "Your PIN", 3, { value: { value: "4321" } }],
+      ["4", "1", "textbox", "API key", 4, { value: { value: "abc-123" } }],
+      ["5", "1", "textbox", "Shipping notes", 5, { value: { value: "leave at door" } }],
+    ]);
+    expect(indexOf(named, new Refs()).lines).toEqual([
+      'textbox "Security code" = "(hidden)" @e1',
+      'textbox "Your PIN" = "(hidden)" @e2',
+      'textbox "API key" = "(hidden)" @e3',
+      'textbox "Shipping notes" = "leave at door" @e4',
+    ]);
+  });
+
   it("says it holds something, never what or how long, in the index and the outline", () => {
     const lines = indexOf(LOGIN, new Refs()).lines;
     expect(lines).toEqual([
@@ -148,5 +164,7 @@ describe("a field that holds a secret", () => {
     expect(secretField({ id: "user-password" })).toBe(true);
     expect(secretField({ type: "email", autocomplete: "email", name: "email" })).toBe(false);
     expect(secretField({ type: "search", name: "q" })).toBe(false);
+    for (const name of ["security_code", "pin", "card-pin", "ssn", "api_token", "apiKey", "client_secret", "otp"]) expect(secretField({ name }), name).toBe(true);
+    for (const name of ["spinner", "shipping", "options", "business_name", "topping"]) expect(secretField({ name }), name).toBe(false);
   });
 });
