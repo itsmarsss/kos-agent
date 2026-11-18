@@ -1,0 +1,291 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { entryAad, indexKey, indexMac, passphraseKek, seal, slotAad, unseal, Vault, VaultError, type VaultFile } from "./vault.js";
+
+const range = (start: number, n: number): Buffer => Buffer.from(Array.from({ length: n }, (_, i) => (start + i) & 255));
+
+/*
+ * Known answers, worked out apart from vault.ts: AES-GCM, HKDF and HMAC with
+ * WebCrypto, scrypt with `openssl kdf ... SCRYPT`. docs/secrets.md lists them.
+ */
+const KAT = {
+  dek: range(0x00, 32),
+  kek: range(0x20, 32),
+  nonce: range(0x60, 12),
+  slotNonce: range(0x70, 12),
+  vault: "v_0123456789abcdef",
+  entry: "e_00000000000000a1",
+  record: '{"handle":"github-login-9xq1","label":"GitHub","kind":"login","values":{"username":"owner","password":"hunter2-but-longer"}}',
+  entryCt:
+    "kfnzNNUk7wpeLNtMG/mpNkRY5ebjDVz0mtnxXV7e1WTT+12UhjE34VJVo4B88bGI7kHG2wtH0KUJ8dUTxkivJtt9fKNpWCCCyAcogt59gGBDnVfCLv8smGJNJgnrHAk1EwLuZPRcQKXzxPvdQe/bqwuXYStwuFK2pPM6ZrQn9Ysb6YNl0ull1ZseAaw=",
+  slotCt: "aX9gaNOtwVkgEipLZP8OHHha0rwdDXbo2fh7U8hyhwKBISZBG/W6aqbovibkPWZ9",
+  indexKey: "4712494fa203f3ccddde2bf44f86a6b395a054895e762b055f45e8351ec3f614",
+  mac: "M1H7i7WkMPCKg240K9irnW//odtq1qMJL+Kp3fXZrg0=",
+  passphrase: "correct horse battery staple",
+  salt: range(0x40, 16),
+  passphraseKek: "d383505afdc30eca3c262fccd3eba2260547640663d604b3983d8c3144173d4e",
+};
+
+describe("vault format vectors", () => {
+  it("seals an entry under its AAD", () => {
+    const sealed = seal(KAT.dek, KAT.nonce, Buffer.from(KAT.record), entryAad(KAT.vault, KAT.entry, "k1"));
+    expect(sealed.toString("base64")).toBe(KAT.entryCt);
+    expect(unseal(KAT.dek, KAT.nonce, sealed, entryAad(KAT.vault, KAT.entry, "k1")).toString()).toBe(KAT.record);
+  });
+
+  it("refuses an entry read under another id, vault or data key", () => {
+    const sealed = Buffer.from(KAT.entryCt, "base64");
+    expect(() => unseal(KAT.dek, KAT.nonce, sealed, entryAad(KAT.vault, "e_00000000000000b2", "k1"))).toThrow();
+    expect(() => unseal(KAT.dek, KAT.nonce, sealed, entryAad("v_fedcba9876543210", KAT.entry, "k1"))).toThrow();
+    expect(() => unseal(KAT.dek, KAT.nonce, sealed, entryAad(KAT.vault, KAT.entry, "k2"))).toThrow();
+  });
+
+  it("wraps the data key in a slot", () => {
+    expect(seal(KAT.kek, KAT.slotNonce, KAT.dek, slotAad(KAT.vault, "s1", "k1")).toString("base64")).toBe(KAT.slotCt);
+  });
+
+  it("derives the index key and MACs the sorted entry ids", () => {
+    expect(indexKey(KAT.dek).toString("hex")).toBe(KAT.indexKey);
+    expect(indexMac(KAT.dek, KAT.vault, 7, ["e_00000000000000b2", "e_00000000000000a1"])).toBe(KAT.mac);
+  });
+
+  it("derives a passphrase key with scrypt N=2^17 r=8 p=1", async () => {
+    expect((await passphraseKek(KAT.passphrase, KAT.salt)).toString("hex")).toBe(KAT.passphraseKek);
+  });
+
+  it("matches RFC 7914's scrypt vector at its parameters", async () => {
+    const key = await passphraseKek("pleaseletmein", Buffer.from("SodiumChloride"), { N: 16_384, r: 8, p: 1 });
+    expect(key.toString("hex")).toBe("7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2");
+  });
+});
+
+let dir: string;
+const vaultAt = (extra: Partial<ConstructorParameters<typeof Vault>[0]> = {}): Vault => new Vault({ dir, ...extra });
+const fileOf = (): VaultFile => JSON.parse(readFileSync(join(dir, "vault.kosv"), "utf8")) as VaultFile;
+const writeFile = (doc: VaultFile): void => writeFileSync(join(dir, "vault.kosv"), JSON.stringify(doc));
+const flip = (b64: string): string => {
+  const bytes = Buffer.from(b64, "base64");
+  bytes[Math.floor(bytes.length / 2)]! ^= 0x01;
+  return bytes.toString("base64");
+};
+
+beforeEach(() => {
+  dir = join(mkdtempSync(join(tmpdir(), "kos-vault-test-")), "secrets");
+});
+
+afterEach(() => {
+  rmSync(join(dir, ".."), { recursive: true, force: true });
+});
+
+async function twoSecrets(): Promise<Vault> {
+  const vault = vaultAt();
+  await vault.init();
+  vault.add({ label: "GitHub", kind: "login", values: { username: "owner", password: "pw-correct-horse" } });
+  vault.add({ label: "Stripe live", kind: "apikey", values: { token: "sk_live_0123456789abcdef" }, use: { http: { hosts: ["api.stripe.com"] } } });
+  return vault;
+}
+
+describe("Vault", () => {
+  it("starts absent, and init makes a key-file vault that opens by itself", async () => {
+    const vault = vaultAt();
+    expect(vault.status()).toEqual({ state: "absent", slots: [] });
+    await vault.init();
+    expect(vault.status()).toEqual({ state: "ready", slots: ["keyfile"] });
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    for (const f of ["vault.kosv", "key", "seq"]) expect(statSync(join(dir, f)).mode & 0o777).toBe(0o600);
+    expect(vaultAt().status().state).toBe("ready");
+    await expect(vault.init()).rejects.toMatchObject({ code: "exists" });
+  });
+
+  it("keeps the whole record sealed: no label, handle or value in the file", async () => {
+    const vault = await twoSecrets();
+    const text = readFileSync(join(dir, "vault.kosv"), "utf8");
+    for (const needle of ["GitHub", "github", "owner", "pw-correct-horse", "sk_live", "stripe"]) expect(text).not.toContain(needle);
+    expect(vault.list().map((s) => s.label)).toEqual(["GitHub", "Stripe live"]);
+  });
+
+  it("lists without values and decrypts one field on use", async () => {
+    const vault = await twoSecrets();
+    const [login] = vault.list();
+    expect(login).toMatchObject({ label: "GitHub", kind: "login", fields: ["username", "password"], hint: "••••••••", version: 1 });
+    expect(login!.handle).toMatch(/^github-[a-z0-9]{4}$/);
+    expect(JSON.stringify(vault.list())).not.toContain("pw-correct-horse");
+    expect(vault.value(login!.handle, "password")).toBe("pw-correct-horse");
+    expect(vault.value("nope-0000", "password")).toBeUndefined();
+  });
+
+  it("edits with blank meaning unchanged, and bumps the version", async () => {
+    const vault = await twoSecrets();
+    const handle = vault.list()[0]!.handle;
+    const meta = vault.update(handle, { label: "GitHub work", values: { password: "", username: "work" } });
+    expect(meta).toMatchObject({ label: "GitHub work", version: 2 });
+    expect(vault.value(handle, "password")).toBe("pw-correct-horse");
+    expect(vault.value(handle, "username")).toBe("work");
+    expect(() => vault.update(handle, { values: { token: "x" } })).toThrow(/no field token/);
+  });
+
+  it("deletes an entry and rotates the data key in one write", async () => {
+    const vault = await twoSecrets();
+    const [login, key] = vault.list();
+    vault.remove(login!.handle);
+    expect(fileOf().dek).toBe("k2");
+    expect(fileOf().entries).toHaveLength(1);
+    expect(vault.value(key!.handle, "token")).toBe("sk_live_0123456789abcdef");
+    expect(vaultAt().list().map((s) => s.handle)).toEqual([key!.handle]);
+    expect(existsSync(join(dir, "vault.kosv.prev"))).toBe(true);
+  });
+
+  it("rotates the data key and the key file, and still opens", async () => {
+    const vault = await twoSecrets();
+    const before = readFileSync(join(dir, "key"), "utf8");
+    vault.rotateDataKey();
+    vault.rotateKeyfile();
+    expect(readFileSync(join(dir, "key"), "utf8")).not.toBe(before);
+    const again = vaultAt();
+    expect(again.status().state).toBe("ready");
+    expect(again.value(again.list()[1]!.handle, "token")).toBe("sk_live_0123456789abcdef");
+  });
+
+  it("sees a change another process made", async () => {
+    const vault = await twoSecrets();
+    const other = vaultAt();
+    other.add({ label: "Notes", kind: "note", values: { text: "the long recovery phrase" } });
+    expect(vault.list().map((s) => s.label)).toContain("Notes");
+  });
+
+  it("a passphrase locks it after every start until given", async () => {
+    const vault = vaultAt();
+    await vault.init({ passphrase: "a long passphrase" });
+    expect(vault.status()).toEqual({ state: "ready", slots: ["keyfile", "passphrase"] });
+    vault.add({ label: "GitHub", kind: "login", values: { password: "pw-correct-horse" } });
+    const fresh = vaultAt();
+    expect(fresh.status().state).toBe("locked");
+    expect(fresh.list()).toEqual([]);
+    await expect(fresh.unlock("not it at all")).rejects.toMatchObject({ code: "passphrase" });
+    await fresh.unlock("a long passphrase");
+    expect(fresh.list()).toHaveLength(1);
+    expect(await fresh.checkPassphrase("a long passphrase")).toBe(true);
+    expect(await fresh.checkPassphrase("wrong one here")).toBe(false);
+    // Rotation wraps the passphrase slot under the key it was opened with.
+    fresh.remove(fresh.list()[0]!.handle);
+    const third = vaultAt();
+    await third.unlock("a long passphrase");
+    expect(third.status().state).toBe("ready");
+  }, 20_000);
+
+  it("adds a passphrase to a key-file vault", async () => {
+    const vault = await twoSecrets();
+    await vault.setPassphrase("added later on");
+    expect(vault.status()).toEqual({ state: "ready", slots: ["keyfile", "passphrase"] });
+    vault.rotateDataKey();
+    const fresh = vaultAt();
+    await fresh.unlock("added later on");
+    expect(fresh.list()).toHaveLength(2);
+  }, 20_000);
+
+  it("exports a copy only the passphrase opens", async () => {
+    const vault = await twoSecrets();
+    const out = join(dir, "..", "export");
+    await vault.exportTo(join(dir, "..", "vault.export.kosv"), "export passphrase");
+    const exported = JSON.parse(readFileSync(join(dir, "..", "vault.export.kosv"), "utf8")) as VaultFile;
+    expect(exported.slots.map((s) => s.kind)).toEqual(["passphrase"]);
+    // Put where a vault lives, with no key file beside it, it waits for the passphrase.
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, "vault.kosv"), JSON.stringify(exported));
+    const opened = new Vault({ dir: out });
+    expect(opened.status().state).toBe("locked");
+    await opened.unlock("export passphrase");
+    expect(opened.list()).toHaveLength(2);
+  }, 20_000);
+
+  it("wipes by crypto-erase: every file gone, nothing in memory", async () => {
+    const vault = await twoSecrets();
+    vault.rotateDataKey();
+    vault.wipe();
+    for (const f of ["vault.kosv", "vault.kosv.prev", "key", "seq"]) expect(existsSync(join(dir, f))).toBe(false);
+    expect(vault.status().state).toBe("absent");
+    expect(vault.list()).toEqual([]);
+  });
+
+  it("takes the key from KOS_VAULT_KEY and writes no key file", async () => {
+    const envKey = range(0x80, 32).toString("base64");
+    const vault = vaultAt({ envKey });
+    await vault.init();
+    expect(existsSync(join(dir, "key"))).toBe(false);
+    expect(vaultAt({ envKey }).status().state).toBe("ready");
+    expect(vaultAt({ envKey: range(0x81, 32).toString("base64") }).status().state).toBe("locked");
+  });
+
+  it("stays shut in the container unless the shared uid is allowed", async () => {
+    await expect(vaultAt({ contained: true }).init()).rejects.toMatchObject({ code: "refused" });
+    await twoSecrets();
+    const shut = vaultAt({ contained: true });
+    expect(shut.status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/KOS_VAULT_ALLOW_SHARED_UID/) });
+    expect(vaultAt({ contained: true, allowSharedUid: true }).status().state).toBe("ready");
+  });
+
+  it("refuses bad records with reasons that repeat no value", async () => {
+    const vault = vaultAt();
+    await vault.init();
+    expect(() => vault.add({ label: "", kind: "login", values: { password: "x" } })).toThrow(/label/);
+    expect(() => vault.add({ label: "x", kind: "card", values: { number: "12" } })).toThrow(/12 to 19 digits/);
+    expect(() => vault.add({ label: "x", kind: "login", values: {} })).toThrow(/needs its password/);
+    expect(() => vault.add({ label: "x", kind: "apikey", values: { token: "t" }, use: { web: { origins: ["http://example.com"] } } })).toThrow(/https/);
+    const card = vault.add({ label: "Visa", kind: "card", values: { number: "4242 4242 4242 4242", expiry: "4/29", cvc: "123" } });
+    expect(vault.get(card)).toMatchObject({ hint: "•••• 4242", fields: ["number", "expiry", "cvc"] });
+    expect(vault.value(card, "number")).toBe("4242424242424242");
+    expect(vault.value(card, "expiry")).toBe("04/29");
+  });
+});
+
+describe("Vault tamper checks", () => {
+  const tampered = (): Vault => {
+    const fresh = vaultAt();
+    expect(fresh.status().state).toBe("locked");
+    expect(fresh.status().problem).toBeTruthy();
+    expect(fresh.list()).toEqual([]);
+    return fresh;
+  };
+
+  it.each([
+    ["a flipped byte in an entry's ciphertext", (d: VaultFile) => void (d.entries[0]!.ct = flip(d.entries[0]!.ct))],
+    ["a flipped byte in an entry's nonce", (d: VaultFile) => void (d.entries[1]!.nonce = flip(d.entries[1]!.nonce))],
+    ["a flipped byte in the slot", (d: VaultFile) => void (d.slots[0]!.wrap.ct = flip(d.slots[0]!.wrap.ct))],
+    ["a flipped byte in the index MAC", (d: VaultFile) => void (d.index.mac = flip(d.index.mac))],
+    ["a changed sequence number", (d: VaultFile) => void (d.index.seq += 1)],
+    ["a changed vault id", (d: VaultFile) => void (d.vault = "v_0000000000000000")],
+    ["entries swapped between ids", (d: VaultFile) => {
+      const [a, b] = d.entries;
+      [a!.ct, b!.ct, a!.nonce, b!.nonce] = [b!.ct, a!.ct, b!.nonce, a!.nonce];
+    }],
+    ["entries reordered", (d: VaultFile) => void d.entries.reverse()],
+    ["an entry dropped", (d: VaultFile) => void d.entries.pop()],
+    ["an entry duplicated under a new id", (d: VaultFile) => void d.entries.push({ ...d.entries[1]!, id: "e_ffffffffffffffff" })],
+  ])("refuses %s", async (_what, edit) => {
+    await twoSecrets();
+    const doc = fileOf();
+    edit(doc);
+    writeFile(doc);
+    tampered();
+  });
+
+  it("refuses an older copy put back", async () => {
+    const vault = await twoSecrets();
+    const old = readFileSync(join(dir, "vault.kosv"));
+    vault.add({ label: "Third", kind: "note", values: { text: "another long note" } });
+    writeFileSync(join(dir, "vault.kosv"), old);
+    expect(tampered().status().problem).toMatch(/older than one KOS wrote/);
+  });
+
+  it("refuses to change a vault it could not verify", async () => {
+    await twoSecrets();
+    const doc = fileOf();
+    doc.entries.pop();
+    writeFile(doc);
+    expect(() => vaultAt().add({ label: "x", kind: "note", values: { text: "nothing here" } })).toThrow(VaultError);
+  });
+});
