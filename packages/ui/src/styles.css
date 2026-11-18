@@ -7681,7 +7681,17 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   border-radius: var(--r-lg);
   overflow: hidden;
 }
-.ops-page--full > .finder, .ops-page--full > * > .finder { flex: 1; margin: 0 0.5rem 0.75rem; height: auto; }
+/* The Files page is the window itself, as Finder is: edge to edge with no
+   gutter and no card round it. The nav's border divides it on the left. */
+.ops-page.ops-page--files { padding: 0; }
+.ops-page--full > .finder, .ops-page--full > * > .finder {
+  flex: 1;
+  height: auto;
+  margin: 0;
+  background: var(--bg);
+  border: none;
+  border-radius: 0;
+}
 .finder--loading { background: var(--panel); }
 
 .finder-toolbar {

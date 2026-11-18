@@ -777,7 +777,7 @@ export function App(): React.ReactElement {
         <AnimatePresence mode="wait" initial={false}>
           <m.div
             key={pageKeyOf(route)}
-            className={`ops-page ${route.name === "chats" || route.name === "project" || route.name === "files" || agentPage ? "ops-page--full" : route.name === "settings" ? "ops-page--split" : ""}`}
+            className={`ops-page ${route.name === "chats" || route.name === "project" || route.name === "files" || agentPage ? `ops-page--full${route.name === "files" ? " ops-page--files" : ""}` : route.name === "settings" ? "ops-page--split" : ""}`}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
