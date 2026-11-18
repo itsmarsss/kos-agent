@@ -129,6 +129,35 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  /// The chat with when each line was said: an old line with none, the day over yesterday's and today's, the time after a
+  /// pause; then every line's own time shown, as hovering one shows it.
+  @Test func chatWindowWithTimes() throws {
+    let model = ChatModel()
+    model.paired = true
+    model.link = .connected
+    model.models(.init(current: "gpt-5.5", choices: ["gpt-5.5"]))
+    let calendar = Calendar.autoupdatingCurrent
+    let today = calendar.startOfDay(for: Date())
+    let at = { (days: Int, hour: Int, minute: Int) in calendar.date(byAdding: DateComponents(day: days, hour: hour, minute: minute), to: today) }
+    model.show(
+      conversation: "mac:owner", title: "Backups",
+      lines: [
+        .you("Where did the old backups go?", files: []),
+        .kos("Into the Archive folder."),
+        .you("Is tonight's backup done?", files: []),
+        .kos("Not yet, it is at 80%."),
+        .you("Tell me when it finishes", files: []),
+        .steps([.init(summary: "Check the backup")]),
+        .kos("It finished at 00:03. Everything is in the Backups folder."),
+        .note("Approved #7 · files.move ran"),
+        .you("Thanks, move last week's into Archive too", files: []),
+        .kos("Moved."),
+      ],
+      times: [nil, nil, at(-1, 23, 50), at(-1, 23, 52), at(0, 0, 4), nil, at(0, 0, 5), at(0, 0, 6), at(0, 9, 40), at(0, 9, 41)])
+    try render("chat-window-times", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    try render("chat-window-times-shown", ChatView(model: model).environment(\.chatTimesShown, true), height: ChatView.size.height, width: ChatView.size.width)
+  }
+
   /// A picture of a screen, as a step would have taken: a window over a desktop, in one colour each.
   private func screenshot(_ hue: CGFloat) throws -> String {
     let w = 1232, h = 800
@@ -467,5 +496,8 @@ struct RenderTests {
     model.remaining = 44
     let size = try render("consent", ConsentView(model: model))
     #expect(size.width == 380)
+    // The last seconds: the bar and the words in warn, the sheet the same size.
+    model.remaining = 8
+    #expect(try render("consent-soon", ConsentView(model: model)) == size)
   }
 }

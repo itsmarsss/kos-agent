@@ -1,6 +1,6 @@
 import { KOS_SEED } from "@kos/shared";
 import { Chips, Face, listItem, Section, spring, stagger } from "@kos/kit";
-import { LazyMotion, MotionConfig, domMax, m } from "motion/react";
+import { LazyMotion, MotionConfig, domMax, m, useReducedMotion } from "motion/react";
 import { useEffect, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -70,7 +70,7 @@ function Consent(): ReactElement {
               <button type="button" id="deny" className="btn" onClick={() => void decide(false)}>
                 Deny
               </button>
-              <button type="button" id="allow" className="btn btn--primary" autoFocus onClick={() => void decide(true)}>
+              <button type="button" id="allow" className="btn btn--primary" onClick={() => void decide(true)}>
                 Allow
               </button>
             </>
@@ -80,27 +80,48 @@ function Consent(): ReactElement {
             </button>
           )}
         </div>
-        {request && <Countdown waitMs={request.waitMs} />}
+        {request && <Countdown waitMs={request.waitMs} expiresAt={request.expiresAt} />}
       </m.div>
     </m.div>
   );
 }
 
-/** The seconds until the ask says no by itself, under a bar running down the width of the sheet. */
-function Countdown({ waitMs }: { waitMs: number }): ReactElement {
-  const [opened] = useState(Date.now);
+/** The last seconds of the wait, when the bar and the words turn warn. */
+const SOON_S = 10;
+
+/**
+ * A thin bar running down under the buttons, and the seconds until the ask
+ * says no by itself, counted to when the worker will say it, however late
+ * the window opened. With less motion asked for, the bar steps as it ticks.
+ * Read out once, as the last seconds begin.
+ */
+function Countdown({ waitMs, expiresAt }: { waitMs: number; expiresAt: number }): ReactElement {
+  const reduced = useReducedMotion();
   const [now, setNow] = useState(Date.now);
+  const [opened] = useState(Date.now);
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    const timer = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(timer);
   }, []);
-  const left = Math.max(0, Math.ceil((waitMs - (now - opened)) / 1000));
+  const share = (at: number): number => (waitMs > 0 ? Math.min(1, Math.max(0, (expiresAt - at) / waitMs)) : 0);
+  const left = Math.max(0, Math.ceil((expiresAt - now) / 1000));
+  const soon = left <= SOON_S;
+  const warn = soon ? { "data-soon": "" } : {};
   return (
-    <div className="count">
-      <span className="count-bar">
-        <m.span initial={{ scaleX: 1 }} animate={{ scaleX: 0 }} transition={{ duration: waitMs / 1000, ease: "linear" }} />
+    <div className="wait" role="timer" {...warn}>
+      <span className="wait-bar">
+        {reduced ? (
+          <span style={{ transform: `scaleX(${share(now)})` }} />
+        ) : (
+          <m.span initial={{ scaleX: share(opened) }} animate={{ scaleX: 0 }} transition={{ duration: Math.max(0, expiresAt - opened) / 1000, ease: "linear" }} />
+        )}
       </span>
-      <span className="count-left">Says no by itself in {left} s</span>
+      <span className="countdown" {...warn}>
+        Says no in {left} s
+      </span>
+      <span className="sr-only" aria-live="polite">
+        {soon ? `Says no by itself in ${SOON_S} seconds` : ""}
+      </span>
     </div>
   );
 }

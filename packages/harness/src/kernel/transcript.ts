@@ -46,6 +46,8 @@ export type ChatEvent =
       origin?: MessageOrigin;
       /** What the owner quoted with it (text selected on a page), and where from: shown with their words, never as them. */
       quote?: Quote;
+      /** When it was written to the chat, epoch milliseconds; absent when it was kept before messages kept their time. */
+      at?: number;
     }
   | {
       kind: "tool";
@@ -126,6 +128,7 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
   const pending = new Map<string, Extract<ChatEvent, { kind: "tool" }>>();
 
   for (const message of messages) {
+    const at = message.at ? { at: message.at } : {};
     for (const block of message.content) {
       if (block.type === "reasoning") {
         const text = block.text.trim();
@@ -154,6 +157,7 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
             text: "",
             attachments: [attachment],
             ...(message.origin ? { origin: message.origin } : {}),
+            ...at,
           });
         }
         continue;
@@ -173,12 +177,13 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
           const note = message.role === "user" ? approvalNote(text) : null;
           events.push(
             note
-              ? { kind: "message", role: "system", text: note }
+              ? { kind: "message", role: "system", text: note, ...at }
               : {
                   kind: "message",
                   role: message.role === "user" ? "you" : "kos",
                   text,
                   ...(message.role === "user" && message.origin ? { origin: message.origin } : {}),
+                  ...at,
                 },
           );
         }
@@ -210,8 +215,8 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
           if (queued) target.pendingId = queued;
           pending.delete(block.toolUseId);
         }
-        // What the owner said while the turn ran, where the turn heard it.
-        for (const w of said) events.push({ kind: "message", role: "you", text: w.text, ...(w.via ? { origin: { via: w.via } } : {}) });
+        // What the owner said while the turn ran, where the turn heard it, and when: the step that took it in.
+        for (const w of said) events.push({ kind: "message", role: "you", text: w.text, ...(w.via ? { origin: { via: w.via } } : {}), ...at });
       }
     }
   }

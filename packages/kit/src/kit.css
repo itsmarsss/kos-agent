@@ -134,6 +134,35 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .md-time:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .md-time-card { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; }
 
+/* When a chat's messages were said: a quiet line where the day changes or
+   after a pause, and each message's own time, hidden until the message is
+   hovered, has focus inside it, or was tapped (.is-timed, by Timed or
+   useTimeReveal). Hidden by
+   opacity, not display, so nothing moves when it shows. */
+.chat-mark {
+  align-self: stretch;
+  margin: 0.35rem 0 0.1rem;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.msg-time {
+  flex: none;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 140ms;
+}
+.is-timed .msg-time { opacity: 1; }
+.msg-time:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) { .msg-time { transition: none; } }
+
 /* Tooltip: a small card over what it explains, its arrow on it; below it near the window's top. */
 .kos-tip {
   position: fixed;

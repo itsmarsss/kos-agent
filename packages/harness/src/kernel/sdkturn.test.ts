@@ -63,6 +63,20 @@ describe("a turn on the SDK engine", () => {
     expect(heard.heard).toEqual({ mark: "m1", words: [{ text: "and the third" }] });
   });
 
+  it("keeps each call's own time, where it landed, through the write at the turn's end", async () => {
+    const landed = Date.now() - 60_000;
+    sdk.run = async (o) => {
+      const made = [call(1, { at: landed })];
+      for (const c of made) o.onCall?.(c);
+      return answer(made, "Read it.");
+    };
+    await turn("read the note");
+    const stored = kernel.sessions.get(chat);
+    expect(stored.map(shape)).toEqual(["user read the note", "use sdk-t-1", "result sdk-t-1", "assistant Read it."]);
+    expect(stored.slice(1, 3).map((m) => m.at)).toEqual([landed, landed]);
+    expect(stored[3]!.at!).toBeGreaterThan(landed + 50_000);
+  });
+
   it("moves the steps after anything said in the chat meanwhile, where the end-of-turn write put them", async () => {
     sdk.run = async (o) => {
       o.onCall?.(call(1));

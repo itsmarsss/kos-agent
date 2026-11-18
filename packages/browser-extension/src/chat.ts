@@ -16,10 +16,11 @@ export interface Quote {
   from: string;
 }
 
+/** A line of the chat as KOS shows it; `at` is when a line of words was said, epoch ms, absent for one kept before lines kept their time. */
 export type Line =
-  | { role: "you"; text: string; files?: string[]; quote?: Quote }
-  | { role: "kos"; text: string }
-  | { role: "note"; text: string }
+  | { role: "you"; text: string; files?: string[]; quote?: Quote; at?: number }
+  | { role: "kos"; text: string; at?: number }
+  | { role: "note"; text: string; at?: number }
   | { role: "steps"; steps: Step[] };
 
 /** A step of a turn, with the frame id of what it saw when it kept a picture. */

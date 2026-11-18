@@ -26,6 +26,12 @@ struct ChatTests {
     #expect(show.notice?.said == "/new")
   }
 
+  @Test func readsWhenEachLineWasSaidAndNothingForOneKeptBefore() throws {
+    let raw = ##"{"t":"call","id":5,"method":"chat.show","params":{"conversation":"c","title":"Mac","messages":[{"role":"you","text":"then"},{"role":"you","text":"now","at":1795000000000},{"role":"kos","text":"ok","at":0}]}}"##
+    let show = try call(raw).params(ChatShow.self)
+    #expect(show.messages.map(\.said) == [nil, Date(timeIntervalSince1970: 1_795_000_000), nil])
+  }
+
   @Test func readsAStepsPictureAndTheChatsNewestOnes() throws {
     let status = try call(#"{"t":"call","id":7,"method":"chat.status","params":{"conversation":"mac:owner","said":"look","frame":{"id":12,"image":"QUJD","mediaType":"image/jpeg"}}}"#).params(ChatStatus.self)
     #expect(status.frame == ChatFrame(id: 12, image: "QUJD"))

@@ -1,3 +1,4 @@
+import DeviceCore
 import Foundation
 
 /// The chat in KOS for Mac's window, as it stands and as it goes: what KOS
@@ -187,6 +188,8 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var conversation: String?
   @Published public private(set) var title = "KOS"
   @Published public private(set) var lines: [Line] = []
+  /// When each line was said, by its place in `lines`; nil for steps and for a line kept before lines kept their time.
+  @Published public private(set) var times: [Date?] = []
   /// The owner's words sent, and not yet in the chat.
   @Published public private(set) var sending: [String] = [] {
     didSet { sendingFiles = sendingFiles.filter { sending.contains($0.key) } }
@@ -336,7 +339,7 @@ public final class ChatModel: ObservableObject {
   /// to the first: the chat a status named them in, or, before any did, the first one shown. An ask made in the chat now
   /// shown stays, though it came
   /// before it was: the first chat's first turn can ask while the window still shows none.
-  public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false, pictures: [Int: String] = [:]) {
+  public func show(conversation: String?, title: String, lines: [Line], times: [Date?] = [], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false, pictures: [Int: String] = [:]) {
     let fresh = conversation != self.conversation
     // Words sent while no chat was shown are on their way to the chat they went in, what their turn saw with them.
     let theirs = self.conversation == nil && (upcoming.map { $0 == conversation } ?? unshown)
@@ -375,6 +378,7 @@ public final class ChatModel: ObservableObject {
     }
     self.title = title
     self.lines = lines
+    self.times = lines.indices.map { times.indices.contains($0) ? times[$0] : nil }
     self.auto = auto
   }
 
@@ -467,7 +471,7 @@ public final class ChatModel: ObservableObject {
   /// by the words it is about.
   public func pictures(for item: Item) -> [Picture] {
     switch item {
-    case .line(_, .steps(let steps)): return picturesOf(steps.map(\.frame))
+    case .line(_, .steps(let steps), _): return picturesOf(steps.map(\.frame))
     case .story(_, let story): return picturesOf(liveFrames(of: story.said))
     default: return []
     }
@@ -580,6 +584,7 @@ public final class ChatModel: ObservableObject {
     unshown = false
     title = "KOS"
     lines = []
+    times = []
     sending = []
     notices = []
     working = false
@@ -672,16 +677,19 @@ public final class ChatModel: ObservableObject {
   static let doneMark = " (done)"
   static let failedMark = " (failed)"
 
-  /// One thing in the thread, in the order it is drawn.
+  /// One thing in the thread, in the order it is drawn: a line with when it was said, the day or pause over the line
+  /// of the same place, a notice, words on their way, a turn's story.
   public enum Item: Equatable, Identifiable {
-    case line(Int, Line)
+    case line(Int, Line, Date?)
+    case mark(Int, ChatTimes.Mark)
     case notice(Int, Notice)
     case sending(Int, String)
     case story(Int, Story)
 
     public var id: String {
       switch self {
-      case .line(let i, _): return "l\(i)"
+      case .line(let i, _, _): return "l\(i)"
+      case .mark(let i, _): return "m\(i)"
       case .notice(let i, _): return "n\(i)"
       case .sending(let i, _): return "s\(i)"
       case .story(let i, _): return "t\(i)"
@@ -711,12 +719,14 @@ public final class ChatModel: ObservableObject {
         placed.insert(i)
       }
     }
+    let marks = ChatTimes.marks(times)
     for (i, line) in lines.enumerated() {
       if case .you = line {
         place(yours)
         yours += 1
       }
-      out.append(.line(i, line))
+      if let mark = marks[i] { out.append(.mark(i, mark)) }
+      out.append(.line(i, line, times[i]))
     }
     for (i, text) in sending.enumerated() {
       place(yours)

@@ -35,6 +35,7 @@ export { KindMark, Markdown, MentionNames, RefChip, RefLinks } from "./Markdown.
 export { BlockActions, KosBlockView, type BlockText } from "./KosBlock.js";
 export { Field, Req, type FieldProps } from "./Field.js";
 export { Tex } from "./Tex.js";
+export { MessageTime, TAPPED_MS, TimeCard, TimeLine, Timed, useTimeReveal, useToday, type TimeRevealProps } from "./ChatTime.js";
 export { Tooltip, type TooltipAnchorProps, type TooltipProps } from "./Tooltip.js";
 export { AskSteps, Countdown, QuoteLine, quoteSource, Card, Chips, Collapse, Count, Empty, type CardProps, type ChipOption, DrawerRow, Elapsed, formatElapsed, IconButton, IconLink, Pill, Section, Skeleton, StatusDot, StepPicture, Switch, Tag, WorkingDots, type DotState, type IconButtonProps, type Tone } from "./kit.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";

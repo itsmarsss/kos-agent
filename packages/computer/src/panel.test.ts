@@ -585,6 +585,23 @@ describe("the panel's chat as it draws it", () => {
     ]);
     expect(panelLines(events, 2)).toHaveLength(2);
   });
+
+  it("says when each line of words was written, and nothing for one kept before lines kept their time", () => {
+    const events: ChatEvent[] = [
+      { kind: "message", role: "you", text: "then" },
+      { kind: "message", role: "you", text: "now", at: 1_000 },
+      { kind: "tool", name: "chrome.page", summary: "Read the page", args: {} },
+      { kind: "message", role: "kos", text: "Done.", at: 2_000 },
+      { kind: "message", role: "system", text: "Approved #4", at: 3_000 },
+    ];
+    expect(panelLines(events)).toEqual([
+      { role: "you", text: "then" },
+      { role: "you", text: "now", at: 1_000 },
+      { role: "steps", steps: [{ summary: "Read the page" }] },
+      { role: "kos", text: "Done.", at: 2_000 },
+      { role: "note", text: "Approved #4", at: 3_000 },
+    ]);
+  });
 });
 
 describe("where the owner was when they spoke", () => {
