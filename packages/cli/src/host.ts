@@ -666,6 +666,10 @@ export async function runHost(options: HostOptions): Promise<void> {
   const vault = Vault.fromEnv(process.env, isContained());
   const secrets = SecretsRegistry.fromEnv();
   secrets.attachVault(vault);
+  // The vault holds the key now: out of the environment, so no program KOS starts, and no reload, sees it; still scrubbed.
+  const vaultKey = process.env.KOS_VAULT_KEY;
+  delete process.env.KOS_VAULT_KEY;
+  if (vaultKey) secrets.watch("kos_vault_key", vaultKey.trim());
   const vaultState = vault.status();
   if (vaultState.problem) console.error(`secrets: ${vaultState.problem}`);
   // Whatever the host prints, to a terminal or daemon.log, carries no value either.
