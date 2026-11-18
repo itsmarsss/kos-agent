@@ -1,7 +1,7 @@
 import type { Converter } from "../files/images.js";
 import { OfficeViewer } from "../files/viewer/viewer.js";
 import type { Workspace } from "../store/workspace.js";
-import { createReadStream } from "node:fs";
+import { closeSync, createReadStream } from "node:fs";
 
 import { basename } from "node:path";
 
@@ -81,7 +81,7 @@ export async function handleFilesRoute(ws: Workspace, req: FilesRequest, deps: F
       return {
         status: media.partial ? 206 : 200,
         // Streamed from disk: a film is not read into memory to be sent.
-        body: media.end < media.start ? Buffer.alloc(0) : createReadStream(media.path, { start: media.start, end: media.end }),
+        body: media.end < media.start ? (closeSync(media.fd), Buffer.alloc(0)) : createReadStream("", { fd: media.fd, start: media.start, end: media.end, autoClose: true }),
         headers: {
           ...INERT,
           "content-type": media.contentType,

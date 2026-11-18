@@ -151,12 +151,29 @@ describe("the file manager's routes", () => {
     expect(part?.headers?.["content-range"]).toBe("bytes 2-4/10");
     expect(await read(part?.body)).toBe("234");
     expect(await read((await media("bytes=-3"))?.body)).toBe("789");
-    for (const bad of ["bytes=10-", "bytes=5-2", "bytes=0-1,4-5", "lines=1-2", "bytes=-"]) {
+    const several = await media("bytes=0-1,4-5");
+    expect(several?.status).toBe(200);
+    expect(await read(several?.body)).toBe("0123456789");
+    for (const bad of ["bytes=10-", "bytes=5-2", "lines=1-2", "bytes=-"]) {
       const res = await media(bad);
       expect(res?.status, bad).toBe(416);
       expect(res?.headers?.["content-range"]).toBe("bytes */10");
     }
     expect((await get("/api/file/media", { path: "projects/garden/plan.docx" }))?.status).toBe(400);
+  });
+
+  it("closes a streamed file when the player leaves", async () => {
+    const { Writable } = await import("node:stream");
+    const { streamTo } = await import("./server.js");
+    writeFileSync(join(root, "projects/garden/film.mp4"), Buffer.alloc(4 * 1024 * 1024, 1));
+    const res = await get("/api/file/media", { path: "projects/garden/film.mp4" });
+    const body = res?.body as import("node:stream").Readable;
+    const client = new Writable({ write: (_c, _e, done) => setTimeout(done, 5) });
+    streamTo(body, client);
+    await new Promise((r) => setTimeout(r, 20));
+    client.destroy();
+    await new Promise((r) => body.once("close", r));
+    expect(body.destroyed).toBe(true);
   });
 
   it("leaves other paths to the server", async () => {

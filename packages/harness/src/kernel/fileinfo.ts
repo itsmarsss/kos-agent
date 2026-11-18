@@ -1,4 +1,4 @@
-import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 
 import { imageTypeOf, pictureSize } from "../files/headers.js";
@@ -201,7 +201,7 @@ export class BadRange extends Error {
   }
 }
 
-/** A sound or video file for a player: the whole of it, or the one range it asks for, read as a stream. */
+/** A sound or video file for a player: the whole of it, or the one range it asks for, read from an open file. */
 export interface Media {
   contentType: string;
   size: number;
@@ -209,7 +209,8 @@ export interface Media {
   start: number;
   end: number;
   partial: boolean;
-  path: string;
+  /** The file, opened without following a link after the jail passed its path; whoever streams it closes it. */
+  fd: number;
 }
 
 export function readMedia(ws: Workspace, requestPath: unknown, range?: string): Media {
@@ -217,21 +218,30 @@ export function readMedia(ws: Workspace, requestPath: unknown, range?: string): 
   const contentType = MEDIA_TYPES[extname(rel).toLowerCase()];
   if (!contentType) throw new Error(`not a sound or video file: ${rel}`);
   const abs = ws.resolve(rel);
-  const st = statSync(abs);
-  if (!st.isFile()) throw new Error(`not a file: ${rel}`);
-  if (range === undefined || range.trim() === "") return { contentType, size: st.size, start: 0, end: st.size - 1, partial: false, path: abs };
-  const asked = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
-  if (!asked || (!asked[1] && !asked[2])) throw new BadRange(st.size);
-  let start: number;
-  let end: number;
-  if (!asked[1]) {
-    // "bytes=-500" is the last 500 bytes.
-    start = Math.max(0, st.size - Number(asked[2]));
-    end = st.size - 1;
-  } else {
-    start = Number(asked[1]);
-    end = asked[2] ? Math.min(Number(asked[2]), st.size - 1) : st.size - 1;
+  // Opened with O_NOFOLLOW: a link swapped in after the jail looked is refused, and what is streamed is what was checked.
+  const fd = openSync(abs, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw new Error(`not a file: ${rel}`);
+    const whole: Media = { contentType, size: st.size, start: 0, end: st.size - 1, partial: false, fd };
+    // No range, or several at once (which a player does not need): the whole file.
+    if (range === undefined || range.trim() === "" || range.includes(",")) return whole;
+    const asked = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (!asked || (!asked[1] && !asked[2])) throw new BadRange(st.size);
+    let start: number;
+    let end: number;
+    if (!asked[1]) {
+      // "bytes=-500" is the last 500 bytes.
+      start = Math.max(0, st.size - Number(asked[2]));
+      end = st.size - 1;
+    } else {
+      start = Number(asked[1]);
+      end = asked[2] ? Math.min(Number(asked[2]), st.size - 1) : st.size - 1;
+    }
+    if (start >= st.size || start > end) throw new BadRange(st.size);
+    return { ...whole, start, end, partial: true };
+  } catch (err) {
+    closeSync(fd);
+    throw err;
   }
-  if (start >= st.size || start > end) throw new BadRange(st.size);
-  return { contentType, size: st.size, start, end, partial: true, path: abs };
 }

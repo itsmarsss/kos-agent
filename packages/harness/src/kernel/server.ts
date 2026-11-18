@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { Readable } from "node:stream";
+import { pipeline, Readable, type Writable } from "node:stream";
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
@@ -513,6 +513,16 @@ function knownChannels(kernel: Kernel): KnownChannel[] {
     ...(p.bound ? { bound: p.bound, home: kernel.titleOf(p.bound) } : {}),
     ...(p.audience ? { audience: p.audience } : {}),
   }));
+}
+
+/**
+ * A stream answered: the file read from disk to the socket, and the file
+ * closed whichever ends first, a read that fails or a client that leaves.
+ */
+export function streamTo(body: Readable, res: Writable): void {
+  pipeline(body, res, () => {
+    // An abort or a failed read ends both; there is no one left to tell.
+  });
 }
 
 export async function handleApiRequest(
@@ -3805,7 +3815,7 @@ export function createDashboardServer(
         // encoding them would turn an image into a list of numbers.
         else if (Buffer.isBuffer(result.body)) res.end(result.body);
         // A file streamed from disk (a film for a player); a read that fails ends the answer.
-        else if (result.body instanceof Readable) result.body.on("error", () => res.destroy()).pipe(res);
+        else if (result.body instanceof Readable) streamTo(result.body, res);
         else res.end(JSON.stringify(result.body));
         return;
       }
