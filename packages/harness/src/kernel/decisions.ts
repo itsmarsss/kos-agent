@@ -133,7 +133,8 @@ export class Decisions {
       // action's site is known then and not now. Otherwise named from the
       // call's shape, as before.
       const project = action.conversationId ? (d.conversations.get(action.conversationId)?.projectSlug ?? null) : null;
-      const rule = action.rule ?? d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project, d.homeOf?.(action.conversationId ?? null));
+      // A call that reached past its turn's folder makes no rule, here as when it was queued.
+      const rule = action.reached ? undefined : (action.rule ?? d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project, d.homeOf?.(action.conversationId ?? null)));
       if (rule) d.permissions.add(rule);
     }
 

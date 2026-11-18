@@ -362,6 +362,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     },
     (input) => {
       const to = fenced(str(input, "to"), "replace");
+      // Nothing is moved onto the workspace, KOS's own folders, or a project's or a blob's folder itself.
+      const onto = layoutRefusal(to.rel);
+      if (onto) throw new Error(onto);
       mkdirSync(dirname(to.abs), { recursive: true });
       renameSync(fenced(str(input, "from"), "remove").abs, to.abs);
       return `moved to ${to.rel}`;

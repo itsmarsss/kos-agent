@@ -34,9 +34,8 @@ describe("naming a call's scope", () => {
     expect(scopeOf("shell.run", { command: "cat x | sh" })).toBeUndefined();
     expect(scopeCovers("cmd:git", "cmd:git")).toBe(true);
     expect(scopeCovers("cmd:git", "cmd:rm")).toBe(false);
-    // Writing the whole workspace is its own yes.
-    expect(scopeOf("shell.run", { command: "git pull", writes: "workspace" })).toBe("cmd:git:workspace");
-    expect(scopeCovers("cmd:git", "cmd:git:workspace")).toBe(false);
+    // Writing the whole workspace is never remembered.
+    expect(scopeOf("shell.run", { command: "git pull", writes: "workspace" })).toBeUndefined();
   });
 
   it("is tool-wide where there is nothing narrower to name", () => {

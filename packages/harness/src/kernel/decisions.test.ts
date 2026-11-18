@@ -6,7 +6,7 @@ import { isAttended, isOwnerTurn } from "./caller.js";
 import { Decisions, decidedLine, type DecisionsDeps } from "./decisions.js";
 
 function pending(over: Partial<PendingAction> = {}): PendingAction {
-  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, ...over };
+  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, ...over };
 }
 
 function deps(action: PendingAction | undefined, awaited: boolean, over: Partial<DecisionsDeps> = {}) {
@@ -35,6 +35,12 @@ describe("remembering", () => {
     await new Decisions(d).approve(5, "owner", { remember: true });
     expect(log).toContain("rule:browser.*:site:shop.example:null");
     expect(log.filter((l) => l.startsWith("rule:"))).toHaveLength(1);
+  });
+
+  it("keeps no rule for a call that reached past its turn's folder, even with none named when it was queued", async () => {
+    const { d, log } = deps(pending({ tool: "files.write", args: JSON.stringify({ path: "projects/resume/cv.md" }), reached: true }), true);
+    await new Decisions(d).approve(5, "owner", { remember: true });
+    expect(log.some((l) => l.startsWith("rule:"))).toBe(false);
   });
 });
 

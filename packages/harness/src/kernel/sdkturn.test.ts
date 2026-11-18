@@ -119,6 +119,8 @@ describe("a turn on the SDK engine", () => {
     expect(first.suspended).toBe(true);
     const ask = kernel.approvals.pending().find((a) => a.conversationId === school)!;
     expect(ask.reason).toBe("outside this project, in the resume project");
+    expect(ask.reached).toBe(true);
+    expect(ask.rule).toBeNull();
     await kernel.deny(ask.id, "owner");
     expect(existsSync(join(root, "projects", "resume", "cv.md"))).toBe(false);
   });

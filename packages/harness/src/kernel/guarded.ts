@@ -488,6 +488,7 @@ export class GuardedTools implements ToolBox {
         ...(userId ? { userId } : {}),
         ...(conversationId ? { conversationId } : {}),
         ...(rule ? { rule } : {}),
+        ...(assessment.reached ? { reached: true } : {}),
         ...(picture ? { picture } : {}),
         ...(why ? { why } : {}),
         owner,

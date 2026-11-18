@@ -184,6 +184,8 @@ describe("a turn's file home", () => {
       ["files.rm", { path: "workspace:Projects" }],
       ["files.mv", { from: ".", to: "workspace:old-school" }],
       ["files.mv", { from: "workspace:blobs/noter", to: "x" }],
+      ["files.mv", { from: "a.md", to: "workspace:projects/resume" }],
+      ["files.mv", { from: "a.md", to: "workspace:skills" }],
     ] as const) {
       const res = await registry.execute(tool, input);
       expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);
