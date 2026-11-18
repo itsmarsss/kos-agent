@@ -9,7 +9,7 @@ import { JailError } from "../jail/resolvePath.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { filesModule, outsideScratch } from "./files.js";
+import { TEXT_READ_MAX, filesModule, outsideScratch } from "./files.js";
 import { toPdf } from "./pdf.js";
 import { pdfOf } from "../files/pdf.fixture.js";
 
@@ -95,6 +95,20 @@ describe("filesModule", () => {
     expect(read.content).not.toMatch(/--- page [14] of /);
     expect((await registry.execute("files.read", { path: "manual.pdf", from: 0 })).content).toMatch(/from must be a page number, from 1/);
     expect((await registry.execute("files.read", { path: "manual.pdf", from: 999 })).content).toMatch(/pages 999 to \d+ are not in it: it has \d+ pages/);
+  });
+
+  it("reads a long text file a part at a time, saying where to read on", async () => {
+    const lines = Array.from({ length: 30_000 }, (_, i) => `line ${i}`).join("\n");
+    writeFileSync(join(ws.root, "server.log"), lines);
+    const size = Buffer.byteLength(lines);
+    const first = (await registry.execute("files.read", { path: "server.log" })).content;
+    expect(first.startsWith(`[text, ${size} bytes, bytes 0 to ${TEXT_READ_MAX}; read on with offset: ${TEXT_READ_MAX}]\nline 0\n`)).toBe(true);
+    const part = (await registry.execute("files.read", { path: "server.log", offset: 7, limit: 6 })).content;
+    expect(part).toBe(`[text, ${size} bytes, bytes 7 to 13; read on with offset: 13]\nline 1`);
+    const last = (await registry.execute("files.read", { path: "server.log", offset: size - 10 })).content;
+    expect(last).toBe(`[text, ${size} bytes, bytes ${size - 10} to ${size}]\n${lines.slice(-10)}`);
+    expect((await registry.execute("files.read", { path: "server.log", limit: 10 * TEXT_READ_MAX })).content.length).toBeLessThan(TEXT_READ_MAX + 200);
+    expect((await registry.execute("files.read", { path: "server.log", offset: -1 })).content).toMatch(/offset must be a byte offset, from 0/);
   });
 
   it("edits a file by string replacement", async () => {

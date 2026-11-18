@@ -11,7 +11,7 @@ import {
 import { dirname, relative } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
-import { isPdf, pdfText } from "../files/pdftext.js";
+import { PDF_TEXT_MAX, isPdf, pdfText } from "../files/pdftext.js";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
@@ -40,11 +40,28 @@ function optStr(input: Record<string, unknown>, key: string): string | undefined
   return typeof v === "string" ? v : undefined;
 }
 
-function optInt(input: Record<string, unknown>, key: string): number | undefined {
+/** A whole number of at least `least` the caller may give, as `what` says it must be. */
+function optInt(input: Record<string, unknown>, key: string, least = 1, what = "a page number, from 1"): number | undefined {
   const v = input[key];
   if (v === undefined) return undefined;
-  if (typeof v !== "number" || !Number.isInteger(v) || v < 1) throw new Error(`${key} must be a page number, from 1`);
+  if (typeof v !== "number" || !Number.isInteger(v) || v < least) throw new Error(`${key} must be ${what}`);
   return v;
+}
+
+/** The most of a text file one read hands back, as the most of a PDF's text one read does. */
+export const TEXT_READ_MAX = PDF_TEXT_MAX;
+
+/**
+ * A text file whole when it is small and no part was asked for; otherwise
+ * the bytes asked for, at most TEXT_READ_MAX, headed by where they sit in
+ * the file and where to read on.
+ */
+function textRead(bytes: Buffer, offset: number | undefined, limit: number | undefined): string {
+  if (offset === undefined && limit === undefined && bytes.byteLength <= TEXT_READ_MAX) return bytes.toString("utf8");
+  const from = Math.min(offset ?? 0, bytes.byteLength);
+  const to = Math.min(bytes.byteLength, from + Math.min(limit ?? TEXT_READ_MAX, TEXT_READ_MAX));
+  const on = to < bytes.byteLength ? `; read on with offset: ${to}` : "";
+  return `[text, ${bytes.byteLength} bytes, bytes ${from} to ${to}${on}]\n${bytes.subarray(from, to).toString("utf8")}`;
 }
 
 /** A PDF's text, headed by what was read of it and, when the cap cut it, where to read on. */
@@ -53,7 +70,7 @@ async function pdfRead(bytes: Buffer, from: number | undefined, to: number | und
   const whole = read.from === 1 && read.to === read.pages && !read.truncated;
   const pages = `${read.pages} page${read.pages === 1 ? "" : "s"}`;
   const part = whole ? "" : read.from === read.to ? `, page ${read.from}` : `, pages ${read.from} to ${read.to}`;
-  const cut = read.truncated ? `, cut at the cap in page ${read.to}; read on with from: ${read.to}` : "";
+  const cut = read.next !== undefined ? `, cut short at page ${read.to}; read on with from: ${read.next}` : "";
   return `[PDF, ${pages}${part}${cut}]\n${read.text}`;
 }
 
@@ -119,13 +136,15 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "files.read",
-      description: "Read a file from the workspace: UTF-8 text as it is; a PDF as its text page by page (from and to read some of its pages, as a long one is read); a Word, Excel or PowerPoint file (.docx, .xlsx, .pptx) as its paragraphs, rows or slides.",
+      description: `Read a file from the workspace: UTF-8 text as it is, or part of it (offset and limit, in bytes; at most ${TEXT_READ_MAX} bytes a read, so a long file is read a part at a time); a PDF as its text page by page (from and to read some of its pages, as a long one is read); a Word, Excel or PowerPoint file (.docx, .xlsx, .pptx) as its paragraphs, rows or slides.`,
       inputSchema: {
         type: "object",
         properties: {
           path: { type: "string" },
           from: { type: "integer", minimum: 1, description: "A PDF's first page to read." },
           to: { type: "integer", minimum: 1, description: "A PDF's last page to read." },
+          offset: { type: "integer", minimum: 0, description: "A text file's first byte to read." },
+          limit: { type: "integer", minimum: 1, description: "How many bytes of a text file to read." },
         },
         required: ["path"],
       },
@@ -138,7 +157,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
         const read = officeText(new Uint8Array(bytes), abs);
         return `[${officeNote(read)}]\n${read.text}`;
       }
-      return bytes.toString("utf8");
+      return textRead(bytes, optInt(input, "offset", 0, "a byte offset, from 0"), optInt(input, "limit", 1, "a number of bytes, from 1"));
     },
     SAFE,
   );

@@ -110,24 +110,29 @@ export async function readAttachments(attachments: Attachment[]): Promise<Attach
   for (const file of attachments) {
     assertFits(file);
     const bytes = Buffer.from(file.data, "base64");
-    if (imageTypeOf(bytes)) out.push(await asPicture(file, bytes));
-    else if (claimsPicture(file.mediaType, file.name)) {
-      throw new Error(`${file.name} is not a picture KOS reads: its bytes are none of JPEG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF or BMP`);
-    } else if (isTextual(file.mediaType, file.name)) {
-      out.push(bytes.byteLength > TEXT_MAX_BYTES ? keptNote(file, bytes, "", `a text file is read in up to ${TEXT_MAX_BYTES / MB} MB`, "with files.read or search.grep") : file);
-    } else if (isDocument(file.mediaType, file.name)) out.push(await asDocument(file, bytes));
+    // What its name or type says is text is read as text, even when its first bytes look like a picture's.
+    if (isTextual(file.mediaType, file.name)) {
+      const how = "with search.grep, or files.read a part at a time (offset, limit)";
+      out.push(bytes.byteLength > TEXT_MAX_BYTES ? keptNote(file, bytes, "", `a text file is read in up to ${TEXT_MAX_BYTES / MB} MB`, how) : file);
+    } else if (imageTypeOf(bytes) || claimsPicture(file.mediaType, file.name)) out.push(await asPicture(file, bytes));
+    else if (isDocument(file.mediaType, file.name)) out.push(await asDocument(file, bytes));
     else out.push(file);
   }
   return out;
 }
 
-/** A picture as the model takes it, under the name it was sent with. */
+/**
+ * A picture as the model takes it, under the name it was sent with; or, when
+ * it cannot be made into one, a note saying so and where the file was kept,
+ * so one bad picture does not cost the words and the rest their turn.
+ */
 async function asPicture(file: Attachment, bytes: Buffer): Promise<Attachment> {
   try {
     const image = await forModel(bytes);
     return { name: file.name, mediaType: image.mediaType, data: image.data.toString("base64"), ...(file.path ? { path: file.path } : {}) };
   } catch (err) {
-    throw new Error(`${file.name} could not be made into a picture the model takes: ${err instanceof Error ? err.message : String(err)}`);
+    const why = err instanceof Error ? err.message : String(err);
+    return asText(file, `[${file.name}: ${file.path ? `kept at ${file.path}, but ` : ""}not shown to the model: ${why}.]`);
   }
 }
 
@@ -144,7 +149,7 @@ async function asDocument(file: Attachment, bytes: Buffer): Promise<Attachment> 
   let text: string;
   if (pdf) {
     const read = await pdfText(new Uint8Array(bytes));
-    note = `${read.pages} page${read.pages === 1 ? "" : "s"}${read.truncated ? `, cut at the cap in page ${read.to}${file.path ? `; read on in ${file.path} with files.read from page ${read.to}` : ""}` : ""}`;
+    note = `${read.pages} page${read.pages === 1 ? "" : "s"}${read.next !== undefined ? `, cut short at page ${read.to}${file.path ? `; read on in ${file.path} with files.read from page ${read.next}` : ""}` : ""}`;
     text = read.text;
   } else {
     const read = officeText(new Uint8Array(bytes), file.name, file.mediaType);

@@ -67,7 +67,7 @@ describe("readAttachments", () => {
   it("names a text file past 5 MB to the model where it was kept", async () => {
     const data = Buffer.alloc(6 * MB, 0x61).toString("base64");
     const [note] = await readAttachments([{ name: "server.log", mediaType: "text/plain", data, path: "uploads/server.log" }]);
-    expect(utf8(note!.data)).toMatch(/^\[server\.log: a 6\.0 MB, kept at uploads\/server\.log\. .*with files\.read or search\.grep\.\]$/);
+    expect(utf8(note!.data)).toMatch(/^\[server\.log: a 6\.0 MB, kept at uploads\/server\.log\. .*with search\.grep, or files\.read a part at a time \(offset, limit\)\.\]$/);
   });
 });
 
@@ -90,10 +90,24 @@ describe("pictures at the door", () => {
     expect(untyped!.mediaType === "image/png" || untyped!.mediaType === "image/jpeg").toBe(true);
   });
 
-  it("refuses a file that says it is a picture and is not, saying so", async () => {
-    await expect(readAttachments([{ name: "receipt.png", mediaType: "image/png", data: Buffer.from("not really a png").toString("base64") }])).rejects.toThrow(
-      /receipt\.png is not a picture KOS reads: its bytes are none of JPEG, PNG/,
-    );
+  it("names a picture it cannot show to the model, keeping the words and the rest", async () => {
+    // One bad picture used to refuse the whole message.
+    const [bad, broken, notes] = await readAttachments([
+      { name: "receipt.png", mediaType: "image/png", data: Buffer.from("not really a png").toString("base64"), path: "uploads/receipt.png" },
+      { name: "IMG_2.HEIC", mediaType: "image/heic", data: PICTURES["image/heic"].slice(0, 200), path: "uploads/IMG_2.HEIC" },
+      { name: "notes.txt", mediaType: "text/plain", data: b64("milk") },
+    ]);
+    expect(utf8(bad!.data)).toMatch(/^\[receipt\.png: kept at uploads\/receipt\.png, but not shown to the model: its bytes are not a picture KOS reads/);
+    expect(attachmentBlocks([bad!])[0]).toMatchObject({ type: "file", name: "receipt.png" });
+    expect(utf8(broken!.data)).toMatch(/^\[IMG_2\.HEIC: kept at uploads\/IMG_2\.HEIC, but not shown to the model: /);
+    expect(notes).toEqual({ name: "notes.txt", mediaType: "text/plain", data: b64("milk") });
+  });
+
+  it("reads as text what its name says is text, whatever its first bytes look like", async () => {
+    // "BM" opens a bitmap, and also a note about a car.
+    const words = Buffer.concat([Buffer.from("BM"), Buffer.alloc(12), Buffer.from([40, 0, 0, 0]), Buffer.from(" service notes, all of them text")]).toString("base64");
+    const [notes] = await readAttachments([{ name: "bmw.txt", mediaType: "", data: words }]);
+    expect(notes).toMatchObject({ name: "bmw.txt", data: words });
   });
 
   it("reads an SVG as the text it is", async () => {
