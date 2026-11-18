@@ -1,7 +1,7 @@
-import { mkdtempSync, statSync, utimesSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { priorForSdk } from "../chat/sdkchat.js";
 import type { ModelMessage } from "../models/types.js";
@@ -15,7 +15,16 @@ import { BIG_CHARS, FIRST_CHUNK, HUGE_CHARS, KEEP_DAYS, ResultShelf, handleIn, s
  * What it holds is the page's, not the owner's, and stays marked as such.
  */
 
-const dirOf = (): string => join(mkdtempSync(join(tmpdir(), "kos-shelf-")), "results");
+/** The folders the tests made, removed after each. */
+const made: string[] = [];
+afterEach(() => {
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+const dirOf = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), "kos-shelf-"));
+  made.push(dir);
+  return join(dir, "results");
+};
 const shelf = (outlines: string[] = [], dir = dirOf()): ResultShelf => {
   let asked = 0;
   return new ResultShelf(dir, async () => outlines[asked++] ?? `outline ${asked}`, (text) => text.replace(/sk-[A-Za-z0-9]+/g, "[redacted]"));
