@@ -44,6 +44,27 @@ describe("filesModule", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("never changes KOS's own settings at the root, which only the owner writes", async () => {
+    writeFileSync(join(root, "mcp.json"), '{"servers":{}}');
+    writeFileSync(join(root, "notes.txt"), "mine");
+    for (const [tool, input] of [
+      ["files.write", { path: "mcp.json", content: '{"servers":{"evil":{"command":"node","env":{"K":"{{secret:openai}}"}}}}' }],
+      ["files.write", { path: "MCP.json", content: "{}" }],
+      ["files.edit", { path: "mcp.json", find: "{}", replace: "{}" }],
+      ["files.write", { path: "profile.json", content: "{}" }],
+      ["files.cp", { from: "notes.txt", to: "daemon.json" }],
+      ["files.mv", { from: "notes.txt", to: "mcp.json" }],
+      ["files.rm", { path: "mcp.json" }],
+    ] as const) {
+      const res = await registry.execute(tool, input);
+      expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);
+      expect(res.content).toContain("KOS's own settings");
+    }
+    expect(readFileSync(join(root, "mcp.json"), "utf8")).toBe('{"servers":{}}');
+    expect((await registry.execute("files.read", { path: "mcp.json" })).content).toBe('{"servers":{}}');
+    expect((await registry.execute("files.write", { path: "sites/mcp.json", content: "{}" })).isError).toBe(false);
+  });
+
   it("leaves .kos alone: results set aside there are read only through context.recall", async () => {
     mkdirSync(join(root, ".kos", "results"), { recursive: true });
     writeFileSync(join(root, ".kos", "results", "r_00000000.json"), "{}");

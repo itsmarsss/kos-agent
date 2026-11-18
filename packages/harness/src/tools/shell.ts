@@ -42,6 +42,15 @@ export const DATABASE_REFUSED =
   "cron.list for jobs, chats.list and chats.read for chats, tasks.list, blobs.list, memory.recall for what KOS knows, discord.threads for threads; " +
   "your project's own tables through sql.";
 
+/** One of the harness's settings named on a command line: the shell's road around the files fence. */
+export function namesHarnessConfig(command: string): boolean {
+  return /\b(mcp|profile|daemon)\.json\b/i.test(command);
+}
+
+/** Said to a chat that reached for the harness's settings with the shell. */
+export const CONFIG_REFUSED =
+  "mcp.json, profile.json and daemon.json are KOS's own settings, which the shell does not touch: read one with files.read. The owner changes them from the dashboard or the kos command.";
+
 export type ShellResult = CapturedRun;
 
 export function runShell(
@@ -108,8 +117,11 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           floor: "risky",
           why: "a command that may write",
           relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
-          refuse: (input) =>
-            typeof input["command"] === "string" && namesDatabase(input["command"]) && (ctx.services?.callerProject?.() !== MAINTENANCE.slug || guestOrigin() !== undefined) ? DATABASE_REFUSED : false,
+          refuse: (input) => {
+            if (typeof input["command"] !== "string") return false;
+            if (namesHarnessConfig(input["command"])) return CONFIG_REFUSED;
+            return namesDatabase(input["command"]) && (ctx.services?.callerProject?.() !== MAINTENANCE.slug || guestOrigin() !== undefined) ? DATABASE_REFUSED : false;
+          },
         },
       );
     },

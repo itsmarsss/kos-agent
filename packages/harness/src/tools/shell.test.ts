@@ -8,7 +8,7 @@ import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { programOf } from "../risk/rules.js";
-import { createShellModule, DATABASE_REFUSED, namesDatabase, type ShellResult } from "./shell.js";
+import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
 
@@ -113,6 +113,13 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     const r = JSON.parse(res.content) as ShellResult;
     expect(r.stdout.length).toBe(100);
     expect(r.truncated).toBe(true);
+  });
+
+  it("refuses a command that names KOS's own settings, which files.read reads", () => {
+    for (const command of ["echo '{}' > mcp.json", "cp evil.json MCP.json", "sed -i '' s/a/b/ profile.json", "rm daemon.json", "cat mcp.json"]) {
+      expect(registry.refusal("shell.run", { command })).toBe(CONFIG_REFUSED);
+    }
+    expect(registry.refusal("shell.run", { command: "cat sites/app/package.json" })).toBeUndefined();
   });
 
   it("refuses to open KOS's own database, except from Maintenance, which asks", async () => {

@@ -128,6 +128,14 @@ export function isKosState(ws: Workspace, path: string): boolean {
   return foldedPath(ws.root, path).split("/")[0] === ".kos";
 }
 
+/** The harness's own settings at the workspace root: which servers run, who the owner is, how the host runs. */
+export const HARNESS_CONFIG = ["mcp.json", "profile.json", "daemon.json"];
+
+/** A path that is one of the harness's own settings, in any case. */
+export function isHarnessConfig(ws: Workspace, path: string): boolean {
+  return HARNESS_CONFIG.includes(foldedPath(ws.root, path));
+}
+
 /**
  * A path the file tools may use: anything in the jail but KOS's own state
  * under .kos/, which holds results set aside from other chats and other
@@ -151,6 +159,10 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
    */
   const fenced = (path: string, what: "read" | "replace" | "remove", folder = false): string => {
     const abs = usable(ws, path);
+    // The owner's settings: a server written into mcp.json would be started with the owner's secrets.
+    if (what !== "read" && isHarnessConfig(ws, relative(ws.root, abs))) {
+      throw new Error(`${relative(ws.root, abs)} is KOS's own settings, changed only by the owner from the dashboard or the kos command`);
+    }
     const pages = ctx.services?.pages;
     if (!pages) return abs;
     const rel = relative(ws.root, abs);
