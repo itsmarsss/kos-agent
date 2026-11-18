@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   IMessageAdapter,
   approvalLines,
+  approvalText,
+  textAsk,
+  textDecision,
   describeStartFailure,
   parseDecision,
   renderForText,
@@ -106,17 +109,34 @@ describe("an approval as plain lines", () => {
 
   it("lists every step, however many", () => {
     const actions = ["a", "b", "c", "d", "e", "f"].map((text) => ({ action: "type", text }));
-    expect(approvalLines({ id: "4", text: "x", tool: "computer.act", args: { actions } }).join("\n")).toContain("type “f”");
+    expect(approvalLines({ id: "4", text: "x", tool: "computer.act", args: { actions } }).join("\n")).toContain("6. Type “f”");
   });
 
   it("says the action, and every step of one said by its purpose", () => {
     const args = { intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] };
     expect(approvalLines({ id: "9", text: "Approve computer.act?", tool: "computer.act", args })).toEqual([
       "Approve computer.act?",
-      "Note: just closing the popup",
-      "Steps: Type “hunter2”, press ⌘Q",
+      "Use your Mac",
+      'KOS says: "Note: just closing the popup"',
+      "On your Mac",
+      "1. Type “hunter2”",
+      "2. Press ⌘Q",
     ]);
-    expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" } })).toEqual(["Approve files.rm?", "Delete a.txt"]);
+    expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" } })).toEqual(["Approve files.rm?", "Delete a.txt", "In the workspace", "path: a.txt"]);
+  });
+
+  it("shows every field of a long call whole, and offers no yes for one too long to text", () => {
+    const command = `echo ${"harmless ".repeat(15)}; rm -rf ~ ; echo ${"done ".repeat(20)}`;
+    expect(command.length).toBeGreaterThan(250);
+    const text = approvalText({ id: "12", text: "Approve shell.run?", tool: "shell.run", args: { command } });
+    expect(text).toContain(`command: ${command}`);
+    expect(text).toContain('Reply "approve 12" or "deny 12".');
+    const huge = { id: "13", text: "Approve shell.run?", tool: "shell.run", args: { command: `${command} ${"x".repeat(2_000)}` } };
+    const cut = approvalText(huge);
+    expect(cut).toContain("Too long to approve here: open the dashboard Inbox");
+    expect(cut).not.toContain('"approve 13"');
+    expect(textDecision({ id: "13", approved: true }, textAsk(huge))).toBe("too long");
+    expect(textDecision({ id: "13", approved: false }, textAsk(huge))).toEqual({ id: "13", approved: false });
   });
 });
 

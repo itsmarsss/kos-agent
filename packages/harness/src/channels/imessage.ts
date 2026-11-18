@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { blocksToText, stepMechanics, summarizeAction, timesInWords } from "@kos/shared";
+import { askView, blocksToText, showInvisible, stepText, timesInWords } from "@kos/shared";
 
 import { HOST_KEYS } from "./hostkeys.js";
 import { offersAlways } from "./offers.js";
@@ -150,25 +150,75 @@ function renderBody(msg: OutboundMessage): string {
   return parts.join("\n\n").trim();
 }
 
+/** The longest an approval may run in a text before it is too long to approve there. */
+export const APPROVAL_TEXT_MAX = 1_500;
+
+/** A value whole, as text: a string as it is, anything else as JSON, every invisible character shown. */
+function whole(v: unknown): string {
+  return showInvisible(typeof v === "string" ? v : JSON.stringify(v));
+}
+
 /**
- * An approval as plain lines, for a surface with no buttons: who is asking,
- * what they were saying, the action in words and, where those words are
- * the model's account of a step, every action it takes, then the reason.
- * The reply instruction is the surface's own, since each reads decisions in
- * its own words.
+ * An approval as plain lines, the whole call: who asks and what they said,
+ * what the call does, then every step of a run of actions, or every field
+ * of any other call, in full. Nothing is cut: a text that would be too long
+ * is not offered for a yes at all (approvalText).
  */
 export function approvalLines(req: ApprovalRequest): string[] {
   const who = req.asker?.name ?? "KOS";
   const args = req.args ?? {};
-  const mechanics = req.tool !== undefined ? stepMechanics(req.tool, args, HOST_KEYS) : undefined;
+  const view = req.tool !== undefined ? askView({ tool: req.tool, args, reason: req.reason ?? null, ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS }) : undefined;
+  const fields = typeof args === "string" ? ((): Record<string, unknown> => {
+    try {
+      return JSON.parse(args) as Record<string, unknown>;
+    } catch {
+      return { args };
+    }
+  })() : args;
+  const body = view?.steps
+    ? view.steps.map((line, n) => `${n + 1}. ${stepText(line)}`)
+    : Object.entries(fields).map(([k, v]) => `${k}: ${whole(v)}`);
   return [
     ...(req.asker ? [`${who} needs your OK.`] : []),
     ...(req.why?.trim() ? [`${who}: ${req.why.trim()}`] : []),
     req.text,
-    ...(req.tool !== undefined ? [summarizeAction(req.tool, args, req.names, HOST_KEYS)] : []),
-    ...(mechanics ? [`Steps: ${mechanics}`] : []),
+    ...(view ? [view.title, ...(view.said ? [`KOS says: "${view.said}"`] : []), ...(view.place ? [view.place] : [])] : []),
+    ...body,
     ...(req.reason ? [req.reason] : []),
   ];
+}
+
+/** What a text may do with an ask it was sent: approve it only when it was shown whole, keep it only when that was offered. */
+export interface TextAsk {
+  approvable: boolean;
+  remembers: boolean;
+}
+
+/** An ask as a text carries it. */
+export function textAsk(req: ApprovalRequest): TextAsk {
+  return { approvable: approvalLines(req).join("\n").length <= APPROVAL_TEXT_MAX, remembers: offersAlways(req) };
+}
+
+/** What a reply to an ask comes to: the decision to pass on, or why there is none. */
+export function textDecision(reply: { id: string; approved: boolean; remember?: boolean }, ask: TextAsk): { id: string; approved: boolean; remember?: true } | "too long" {
+  if (reply.approved && !ask.approvable) return "too long";
+  return { id: reply.id, approved: reply.approved, ...(reply.approved && reply.remember && ask.remembers ? { remember: true as const } : {}) };
+}
+
+/** Said back to an approve for an ask too long to have been shown whole. */
+export const TOO_LONG_REPLY = "That one is too long to approve here. Open the dashboard Inbox to see it whole.";
+
+/**
+ * The whole approval text, with how to answer it; or, past what a text
+ * should carry, the call as far as it fits and no way to approve it here.
+ */
+export function approvalText(req: ApprovalRequest): string {
+  const text = approvalLines(req).join("\n");
+  if (text.length > APPROVAL_TEXT_MAX) {
+    return `${text.slice(0, APPROVAL_TEXT_MAX)}…\nToo long to approve here: open the dashboard Inbox to see it whole. Reply "deny ${req.id}" to refuse it.`;
+  }
+  const answer = offersAlways(req) ? `Reply "approve ${req.id}", "always ${req.id}" to stop asking for this, or "deny ${req.id}".` : `Reply "approve ${req.id}" or "deny ${req.id}".`;
+  return `${text}\n${answer}`;
 }
 
 /** An owner's answer to an approval prompt, or nothing. */
@@ -226,7 +276,7 @@ export class IMessageAdapter implements ChannelAdapter {
   private approvalHandler: ApprovalHandler | undefined;
   private isAuthorized: SenderAuthorizer | undefined;
   /** Ids of prompts still awaiting an answer, so "approve 12" means something. */
-  private readonly pending = new Set<string>();
+  private readonly pending = new Map<string, TextAsk>();
   /**
    * What KOS has just said.
    *
@@ -287,10 +337,8 @@ export class IMessageAdapter implements ChannelAdapter {
     _recipientId: string,
     req: ApprovalRequest,
   ): Promise<void> {
-    this.pending.add(req.id);
-    const lines = approvalLines(req);
-    lines.push(offersAlways(req) ? `Reply "approve ${req.id}", "always ${req.id}" to stop asking for this, or "deny ${req.id}".` : `Reply "approve ${req.id}" or "deny ${req.id}".`);
-    const text = lines.join("\n");
+    this.pending.set(req.id, textAsk(req));
+    const text = approvalText(req);
     this.remember(text);
     await this.sender(this.handle, text);
   }
@@ -317,14 +365,15 @@ export class IMessageAdapter implements ChannelAdapter {
     if (this.isAuthorized && !this.isAuthorized(this.handle)) return;
 
     const decision = parseDecision(message.text);
-    if (decision && this.pending.has(decision.id)) {
+    const ask = decision ? this.pending.get(decision.id) : undefined;
+    if (decision && ask) {
+      const settled = textDecision(decision, ask);
+      if (settled === "too long") {
+        await this.sender(this.handle, TOO_LONG_REPLY);
+        return;
+      }
       this.pending.delete(decision.id);
-      await this.approvalHandler?.({
-        id: decision.id,
-        approved: decision.approved,
-        deciderId: this.handle,
-        ...(decision.remember ? { remember: true } : {}),
-      });
+      await this.approvalHandler?.({ ...settled, deciderId: this.handle });
       return;
     }
 

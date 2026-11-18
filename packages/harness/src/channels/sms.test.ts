@@ -53,10 +53,14 @@ describe("SMS", () => {
     a.onApproval(async (d) => {
       decisions.push(d);
     });
-    await a.requestApproval("owner", { id: "7", text: "Approve files.rm?", tool: "files.rm", args: {} });
+    await a.requestApproval("owner", { id: "7", text: "Approve files.rm?", tool: "files.rm", args: {}, rule: { tool: "files.rm", scope: "dir:", project: null } });
     expect(sent[0]?.body).toContain('Reply "approve 7"');
     await a.receive({ From: "+15559998888", Body: "always 7" });
     expect(decisions).toEqual([{ id: "7", approved: true, deciderId: "+15559998888", remember: true }]);
+    // An ask that named no rule keeps nothing, whatever the reply says.
+    await a.requestApproval("owner", { id: "8", text: "Approve files.rm?", tool: "files.rm", args: {} });
+    await a.receive({ From: "+15559998888", Body: "always 8" });
+    expect(decisions.at(-1)).toEqual({ id: "8", approved: true, deciderId: "+15559998888" });
   });
 
   it("checks Twilio's signature the way Twilio computes it", () => {

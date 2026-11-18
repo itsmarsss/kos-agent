@@ -1,7 +1,6 @@
 import { createHmac } from "node:crypto";
 
-import { approvalLines, parseDecision, renderForText } from "./imessage.js";
-import { offersAlways } from "./offers.js";
+import { approvalText, parseDecision, renderForText, textAsk, textDecision, TOO_LONG_REPLY, type TextAsk } from "./imessage.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
@@ -87,7 +86,7 @@ export class SmsAdapter implements ChannelAdapter {
   private messageHandler?: MessageHandler;
   private approvalHandler?: ApprovalHandler;
   private isAuthorized?: SenderAuthorizer;
-  private readonly pending = new Set<string>();
+  private readonly pending = new Map<string, TextAsk>();
   private readonly doFetch: typeof fetch;
   private readonly report: (message: string) => void;
 
@@ -121,10 +120,8 @@ export class SmsAdapter implements ChannelAdapter {
   }
 
   async requestApproval(_recipientId: string, req: ApprovalRequest): Promise<void> {
-    this.pending.add(req.id);
-    const lines = approvalLines(req);
-    lines.push(offersAlways(req) ? `Reply "approve ${req.id}", "always ${req.id}" to stop asking for this, or "deny ${req.id}".` : `Reply "approve ${req.id}" or "deny ${req.id}".`);
-    for (const part of chunkSms(lines.join("\n"))) await this.deliver(part);
+    this.pending.set(req.id, textAsk(req));
+    for (const part of chunkSms(approvalText(req))) await this.deliver(part);
   }
 
   /**
@@ -141,14 +138,15 @@ export class SmsAdapter implements ChannelAdapter {
     if (this.isAuthorized && !this.isAuthorized(from)) return;
     if (!text) return;
     const decision = parseDecision(text);
-    if (decision && this.pending.has(decision.id)) {
+    const ask = decision ? this.pending.get(decision.id) : undefined;
+    if (decision && ask) {
+      const settled = textDecision(decision, ask);
+      if (settled === "too long") {
+        await this.deliver(TOO_LONG_REPLY);
+        return;
+      }
       this.pending.delete(decision.id);
-      await this.approvalHandler?.({
-        id: decision.id,
-        approved: decision.approved,
-        deciderId: from,
-        ...(decision.remember ? { remember: true } : {}),
-      });
+      await this.approvalHandler?.({ ...settled, deciderId: from });
       return;
     }
     await this.messageHandler?.({ channel: this.name, senderId: from, text });
