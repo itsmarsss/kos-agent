@@ -8,23 +8,27 @@ export const CHAT_MODES_KEY = "chat.modes";
 export const ACTS_ALONE_KEY = "browser.actsAlone";
 
 /**
- * The mode each chat is in, kept in the owner's settings.
+ * The mode each chat is in, kept in the owner's settings and held here, since
+ * every risky call reads it and only this writes it.
  *
  * Only Auto is stored: Ask is the absence of one, so a chat deleted or never
  * touched costs nothing. Auto that has run out reads as Ask and is dropped
  * the next time it is read.
  */
 export class ChatModes {
+  private modes: Record<string, ChatMode>;
+
   constructor(
     private readonly settings: Pick<SettingsStore, "get" | "set" | "delete">,
     private readonly now: () => number = Date.now,
   ) {
+    this.modes = this.read();
     this.migrate();
   }
 
   /** A chat's mode as it stands now. */
   of(conversationId: string): ChatMode {
-    const kept = this.all()[conversationId];
+    const kept = this.modes[conversationId];
     const live = liveMode(kept, this.now());
     if (kept && live === ASK) this.set(conversationId, ASK);
     return live;
@@ -32,13 +36,14 @@ export class ChatModes {
 
   /** Set a chat's mode; Ask forgets it. */
   set(conversationId: string, mode: ChatMode): void {
-    const { [conversationId]: _was, ...others } = this.all();
-    this.settings.set(CHAT_MODES_KEY, mode.mode === "auto" ? { ...others, [conversationId]: mode } : others);
+    const { [conversationId]: _was, ...others } = this.modes;
+    this.modes = mode.mode === "auto" ? { ...others, [conversationId]: mode } : others;
+    this.settings.set(CHAT_MODES_KEY, this.modes);
   }
 
   /** A turn in the chat finished: Auto set for "this task" ends with it. */
   taskEnded(conversationId: string): boolean {
-    if (this.all()[conversationId]?.until !== "task") return false;
+    if (this.modes[conversationId]?.until !== "task") return false;
     this.set(conversationId, ASK);
     return true;
   }
@@ -46,12 +51,12 @@ export class ChatModes {
   /** The chats in Auto now, by id. */
   autoChats(): string[] {
     const now = this.now();
-    return Object.entries(this.all())
+    return Object.entries(this.modes)
       .filter(([, mode]) => liveMode(mode, now).mode === "auto")
       .map(([id]) => id);
   }
 
-  private all(): Record<string, ChatMode> {
+  private read(): Record<string, ChatMode> {
     const saved = this.settings.get<Record<string, unknown>>(CHAT_MODES_KEY);
     if (typeof saved !== "object" || saved === null || Array.isArray(saved)) return {};
     const modes: Record<string, ChatMode> = {};
@@ -67,9 +72,8 @@ export class ChatModes {
     const old = this.settings.get<unknown>(ACTS_ALONE_KEY);
     if (old === undefined) return;
     const ids = Array.isArray(old) ? old.filter((id): id is string => typeof id === "string") : [];
-    const modes = this.all();
-    for (const id of ids) modes[id] ??= { mode: "auto" };
-    this.settings.set(CHAT_MODES_KEY, modes);
+    for (const id of ids) this.modes[id] ??= { mode: "auto" };
+    this.settings.set(CHAT_MODES_KEY, this.modes);
     this.settings.delete(ACTS_ALONE_KEY);
   }
 }
