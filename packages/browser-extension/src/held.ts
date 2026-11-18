@@ -19,6 +19,8 @@ export interface HeldSession {
   kos: string;
   /** The tabs it had under the debugger, to let go of when the worker that had them is gone. */
   tabs: number[];
+  /** The chat it was for, whose side panel is told why it ended. */
+  conversation?: string;
   /** Why it ended, while its KOS has not heard. */
   ended?: EndReason;
 }
@@ -34,7 +36,31 @@ export function readHeld(v: unknown): HeldSession | undefined {
   if (typeof r["id"] !== "string" || !r["id"] || typeof r["kos"] !== "string") return undefined;
   const tabs = Array.isArray(r["tabs"]) ? r["tabs"].filter((t): t is number => Number.isInteger(t)) : [];
   const ended = REASONS.find((reason) => reason === r["ended"]);
-  return { id: r["id"], kos: r["kos"], tabs, ...(ended ? { ended } : {}) };
+  const conversation = typeof r["conversation"] === "string" && r["conversation"] ? r["conversation"] : undefined;
+  return { id: r["id"], kos: r["kos"], tabs, ...(conversation ? { conversation } : {}), ...(ended ? { ended } : {}) };
+}
+
+/** Why a chat's last session here ended, and when: told to a side panel on that chat, opened or found again soon after. */
+export interface Ended {
+  conversation: string;
+  reason: EndReason;
+  at: number;
+}
+
+export const ENDED_KEY = "ended";
+/** How long after a session ended a panel found again is still told why. */
+export const ENDED_TOLD_MS = 10 * 60_000;
+
+export function readEnded(v: unknown): Ended | undefined {
+  if (typeof v !== "object" || v === null) return undefined;
+  const r = v as Record<string, unknown>;
+  const reason = REASONS.find((x) => x === r["reason"]);
+  return typeof r["conversation"] === "string" && reason && typeof r["at"] === "number" ? { conversation: r["conversation"], reason, at: r["at"] } : undefined;
+}
+
+/** What a panel on `conversation` is told of its last session here at `now`: why it ended, while that is recent. */
+export function endedFor(ended: Ended | undefined, conversation: string | undefined, now: number): Ended | undefined {
+  return ended && conversation === ended.conversation && now - ended.at < ENDED_TOLD_MS ? ended : undefined;
 }
 
 /** Found by a worker as it starts: one still live was the last worker's, and ended with it. */

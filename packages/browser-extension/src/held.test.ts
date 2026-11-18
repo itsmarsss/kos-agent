@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { afterRestart, endedWords, helloSession, readHeld } from "./held.js";
+import { ENDED_TOLD_MS, afterRestart, endedFor, endedWords, helloSession, readEnded, readHeld } from "./held.js";
 
 describe("the session kept beside the worker's memory", () => {
   it("reads only what it kept", () => {
@@ -22,6 +22,17 @@ describe("the session kept beside the worker's memory", () => {
     expect(helloSession({ id: "ses_1", kos: "dev_a", tabs: [], ended: "restarted" }, "dev_a")).toEqual({ id: "ses_1", ended: "restarted" });
     expect(helloSession({ id: "ses_1", kos: "dev_a", tabs: [] }, "dev_b")).toBeUndefined();
     expect(helloSession(undefined, "dev_a")).toBeUndefined();
+  });
+
+  it("keeps the chat it was for, and tells a panel on that chat why it ended while that is recent", () => {
+    expect(readHeld({ id: "ses_1", kos: "dev_a", tabs: [], conversation: "c1" })?.conversation).toBe("c1");
+    const ended = readEnded({ conversation: "c1", reason: "restarted", at: 1_000 })!;
+    expect(ended).toEqual({ conversation: "c1", reason: "restarted", at: 1_000 });
+    expect(readEnded({ conversation: "c1", reason: "bored", at: 1_000 })).toBeUndefined();
+    expect(endedFor(ended, "c1", 1_000 + ENDED_TOLD_MS - 1)).toBe(ended);
+    expect(endedFor(ended, "c1", 1_000 + ENDED_TOLD_MS)).toBeUndefined();
+    expect(endedFor(ended, "c2", 2_000)).toBeUndefined();
+    expect(endedFor(ended, undefined, 2_000)).toBeUndefined();
   });
 
   it("says each reason in words the panel shows", () => {

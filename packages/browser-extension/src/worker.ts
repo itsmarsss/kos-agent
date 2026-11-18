@@ -1,7 +1,7 @@
 import { KOS_SEED, drawingOf, eyeAt, lookOf, outline, readDashboardTheme, smoothPath, type DashboardTheme, type FaceDrawing } from "@kos/shared";
 
 import { kosAddress, parsePairing, type Pairing } from "./address.js";
-import { HELD_KEY, afterRestart, endedWords, helloSession, readHeld, type HeldSession } from "./held.js";
+import { ENDED_KEY, HELD_KEY, afterRestart, endedFor, endedWords, helloSession, readEnded, readHeld, type Ended, type HeldSession } from "./held.js";
 import { forgetKeys, keepKeys, keysFor, newKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
@@ -153,6 +153,8 @@ const linkStates = new Map<string, { state: LinkState; detail?: string }>();
 let session: Session | undefined;
 /** The session as kept beside memory, for a worker started again and for a KOS whose line was down when it ended (held.ts). */
 let lastSession: HeldSession | undefined;
+/** Why the last session ended, for a side panel on its chat. */
+let lastEnded: Ended | undefined;
 /** The wait for the session's KOS to come back on its line before the session ends. */
 let lineWait: ReturnType<typeof setTimeout> | undefined;
 /** How long a session outlives its KOS's line: shorter than KOS's own wait, so a session kept here is still kept there. */
@@ -219,7 +221,8 @@ async function load(): Promise<void> {
   settings = readSettings(local["settings"]);
   sentTheme = readDashboardTheme(local[SENT_THEME_KEY]);
   held = new Set(Array.isArray(local["held"]) ? (local["held"] as unknown[]).filter((v): v is string => typeof v === "string") : []);
-  const kept = await chrome.storage.session.get(["handed", "bar", HELD_KEY]);
+  const kept = await chrome.storage.session.get(["handed", "bar", HELD_KEY, ENDED_KEY]);
+  lastEnded = readEnded(kept[ENDED_KEY]);
   for (const tab of Array.isArray(kept["handed"]) ? (kept["handed"] as number[]) : []) handed.add(tab);
   if (typeof kept["bar"] === "object" && kept["bar"] !== null) barPlace = kept["bar"] as typeof barPlace;
   await lostAtStart(readHeld(kept[HELD_KEY]));
@@ -239,6 +242,19 @@ async function lostAtStart(found: HeldSession | undefined): Promise<void> {
   note(`session ${after.id} ended: KOS for Chrome restarted; telling its KOS`);
   await Promise.all(after.tabs.map((tab) => chrome.debugger.detach({ tabId: tab }).catch(() => undefined)));
   await keepSession(after);
+  if (after.conversation) await sayEnded({ conversation: after.conversation, reason: "restarted", at: Date.now() });
+}
+
+/** Why the chat's session ended, to its side panels now, and kept for one opened or found again soon after. */
+async function sayEnded(ended: Ended): Promise<void> {
+  lastEnded = ended;
+  await chrome.storage.session.set({ [ENDED_KEY]: ended });
+  for (const panel of panels) tellEnded(panel);
+}
+
+function tellEnded(panel: Panel): void {
+  const ended = endedFor(lastEnded, panel.conversation, Date.now());
+  if (ended) panel.port.postMessage({ type: "session.ended", conversation: ended.conversation, reason: ended.reason, words: endedWords(ended.reason) });
 }
 
 /** The session as kept beside memory, or none once its KOS knows it is over. */
@@ -613,7 +629,7 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
       if (++beat % 3 === 0) for (const tab of overlays.keys()) void toOverlays(tab, "window.__kos && window.__kos.alive()");
     }, 1_000);
     note(`live for ${minutes} min`);
-    await keepSession({ id, kos: origin, tabs: [] });
+    await keepSession({ id, kos: origin, tabs: [], ...(conversation ? { conversation } : {}) });
     await badge();
     return { granted: true, until: session.info.until, ...(alone ? { auto: { site: alone } } : {}) };
   } finally {
@@ -694,11 +710,10 @@ async function end(reason: EndReason): Promise<void> {
   // A KOS off its line hears it in its next hello instead.
   const heard = owner !== undefined && links.get(owner)?.online === true;
   tell("session.ended", { session: ended.info.id, reason });
-  await keepSession(heard || !owner ? undefined : { id: ended.info.id, kos: owner, tabs: [], ended: reason });
+  await keepSession(heard || !owner ? undefined : { id: ended.info.id, kos: owner, tabs: [], ended: reason, ...(ended.info.conversation ? { conversation: ended.info.conversation } : {}) });
   owner = undefined;
   note(`ended: ${reason}${heard ? "" : "; its KOS hears it when back on its line"}`);
-  const conversation = ended.info.conversation;
-  if (conversation) for (const panel of panels) panel.port.postMessage({ type: "session.ended", conversation, reason, words: endedWords(reason) });
+  if (ended.info.conversation) await sayEnded({ conversation: ended.info.conversation, reason, at: Date.now() });
   await badge();
   await maybeReload();
 }
@@ -1361,8 +1376,10 @@ async function hand(tab: number, give: boolean): Promise<void> {
 function toPanels(method: string, params: Record<string, unknown>, origin: string): void {
   for (const panel of panels) {
     if (panel.kos !== origin) continue;
+    const moved = typeof params["conversation"] === "string" && params["conversation"] !== panel.conversation;
     if (typeof params["conversation"] === "string") panel.conversation = params["conversation"];
     panel.port.postMessage({ type: method, ...params });
+    if (moved) tellEnded(panel);
   }
 }
 
@@ -1384,6 +1401,7 @@ function choose(panel: Panel, id: string, conversation = ""): void {
   if (conversation && panel.kos === id) panel.conversation = conversation;
   else delete panel.conversation;
   panel.port.postMessage({ type: "kos", id: panel.kos ?? null });
+  tellEnded(panel);
   if (panel.kos) links.get(panel.kos)?.event("chat.open", {});
 }
 
