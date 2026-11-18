@@ -1,4 +1,4 @@
-import { hasQuickLook, quickLookPng } from "../files/viewer/macos.js";
+import { sharedQuickLook } from "../files/viewer/macos.js";
 import { OfficeViewer } from "../files/viewer/viewer.js";
 import type { Workspace } from "../store/workspace.js";
 import { fileInfo, readMedia, recentFiles, searchContents, searchNames } from "./fileinfo.js";
@@ -37,24 +37,7 @@ export interface FilesDeps {
   projectName: (slug: string) => string | undefined;
 }
 
-/** QuickLook draws one file at a time per slot: a gallery of fifty PDFs is fifty asks, not fifty processes. */
-function oneAtATime(slots: number, fn: QuickLook): QuickLook {
-  let running = 0;
-  const waiting: (() => void)[] = [];
-  return async (...args) => {
-    if (running >= slots) await new Promise<void>((resolve) => waiting.push(resolve));
-    running++;
-    try {
-      return await fn(...args);
-    } finally {
-      running--;
-      waiting.shift()?.();
-    }
-  };
-}
-
 let shared: OfficeViewer | undefined;
-const sharedQuickLook = hasQuickLook() ? oneAtATime(2, quickLookPng) : undefined;
 
 export function defaultFilesDeps(projectName: FilesDeps["projectName"]): FilesDeps {
   shared ??= new OfficeViewer();

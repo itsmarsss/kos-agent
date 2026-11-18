@@ -41,42 +41,67 @@ export function runRequest(req: ConvertRequest): OfficeView {
   return convert(req.bytes, req.format);
 }
 
+/** The container each format comes in: its bytes are sniffed and must agree with its name. */
+const CONTAINER: Partial<Record<ViewFormat, "zip" | "ole" | "text">> = {
+  docx: "zip", xlsx: "zip", ods: "zip", numbers: "zip", pptx: "zip", pages: "zip", key: "zip",
+  xls: "ole", csv: "text", tsv: "text",
+};
+/** The part inside a zip that says which format it is. */
+const INSIDE: Partial<Record<ViewFormat, (parts: Map<string, Buffer>) => boolean>> = {
+  docx: (p) => p.has("word/document.xml"),
+  xlsx: (p) => p.has("xl/workbook.xml") || p.has("xl/workbook.bin"),
+  pptx: (p) => p.has("ppt/presentation.xml"),
+  ods: (p) => p.get("mimetype")?.toString("latin1").trim() === "application/vnd.oasis.opendocument.spreadsheet",
+  numbers: (p) => [...p.keys()].some((k) => k.startsWith("Index/")),
+  pages: (p) => [...p.keys()].some((k) => k.startsWith("Index/") || k.startsWith("preview")),
+  key: (p) => [...p.keys()].some((k) => k.startsWith("Index/") || k.startsWith("preview")),
+};
+const OLE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const CONTAINER_WORDS = { zip: "a zip archive", ole: "an Office 97 file", text: "text" } as const;
+
+function containerOf(bytes: Uint8Array): "zip" | "ole" | "text" {
+  if (isZip(bytes)) return "zip";
+  if (OLE.every((b, i) => bytes[i] === b)) return "ole";
+  return "text";
+}
+
 export function convert(bytes: Uint8Array, format: ViewFormat): OfficeView {
+  const got = containerOf(bytes);
+  // A zip is inflated under the caps before anything else reads it, whatever its name says:
+  // SheetJS reads by content, and its own inflater is not bounded.
+  const parts = got === "zip" ? zipParts(bytes) : undefined;
+  const want = CONTAINER[format];
+  if (!want) throw new Error(`a ${format} file is not read here`);
+  const mismatch = (): Error => new Error(`refused: the file is not what its name says (a .${format} file holding ${CONTAINER_WORDS[got]})`);
+  if (want !== got) throw mismatch();
+  if (parts && INSIDE[format] && !INSIDE[format](parts)) throw mismatch();
   switch (format) {
     case "csv":
     case "tsv":
-      return delimitedToView(new TextDecoder("utf-8").decode(bytes).replace(/^﻿/, ""), format);
+      return delimitedToView(new TextDecoder("utf-8").decode(bytes).replace(/^\uFEFF/, ""), format);
     case "xls":
-      return workbookToView(bytes, format);
     case "xlsx":
     case "ods":
-      // Inflated once here under the caps first: SheetJS's own inflater is not bounded.
-      zipParts(bytes);
       return workbookToView(bytes, format);
     case "numbers":
-      zipParts(bytes);
       try {
         return workbookToView(bytes, format);
       } catch {
-        return iworkPreview(bytes, format);
+        return iworkPreview(parts!, format);
       }
     case "docx": {
-      const view = docxToView(zipParts(bytes));
+      const view = docxToView(parts!);
       return { ...view, html: sanitizeHtml(view.html) };
     }
     case "pptx":
-      return pptxToView(zipParts(bytes));
-    case "pages":
-    case "key":
-      return iworkPreview(bytes, format);
+      return pptxToView(parts!);
     default:
-      throw new Error(`a ${format} file is not read here`);
+      return iworkPreview(parts!, format);
   }
 }
 
 /** The archive's parts, every one inflated under the caps; a bomb is refused, not followed. */
 function zipParts(bytes: Uint8Array): Map<string, Buffer> {
-  if (!isZip(bytes)) throw new Error("the file is not what its name says: it is not a zip archive");
   try {
     return readZip(bytes, { entryMax: ZIP_ENTRY_MAX, totalMax: ZIP_TOTAL_MAX, oversize: "refuse" });
   } catch (err) {
@@ -86,8 +111,7 @@ function zipParts(bytes: Uint8Array): Map<string, Buffer> {
 }
 
 /** A Pages, Keynote or Numbers file shows the picture of its first page it keeps for Finder. */
-function iworkPreview(bytes: Uint8Array, format: ViewFormat): OfficeView {
-  const parts = zipParts(bytes);
+function iworkPreview(parts: Map<string, Buffer>, format: ViewFormat): OfficeView {
   const preview = ["preview.jpg", "QuickLook/Preview.jpg", "QuickLook/Thumbnail.jpg", "preview-web.jpg"].map((n) => parts.get(n)).find(Boolean);
   if (!preview) throw new Error("this file keeps no preview; open it on a Mac");
   return {

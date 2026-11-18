@@ -4,6 +4,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { limited } from "./run.js";
+
 /**
  * What macOS reads that KOS does not: an old Word file, RTF and OpenDocument
  * text through textutil, and a picture of almost any document through
@@ -71,3 +73,6 @@ export function quickLookPng(bytes: Uint8Array, ext: string, edge: number): Prom
     return existsSync(png) ? readFile(png) : undefined;
   });
 }
+
+/** QuickLook as KOS uses it, thumbnails and first slides alike: two files at a time, the rest waiting. */
+export const sharedQuickLook = hasQuickLook() ? limited(2, quickLookPng) : undefined;

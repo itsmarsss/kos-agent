@@ -2,7 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import { extname } from "node:path";
 
 import { PICTURE_FORMATS, TEXTUTIL_FORMATS, viewFormatOf } from "./convert.js";
-import { hasQuickLook, hasTextutil, quickLookPng, textutilHtml } from "./macos.js";
+import { hasTextutil, sharedQuickLook, textutilHtml } from "./macos.js";
 import type { OfficeView, ViewFormat } from "@kos/shared";
 import { defaultRunner, type Runner } from "./run.js";
 
@@ -36,7 +36,7 @@ export function defaultViewerHost(): ViewerHost {
   return {
     run: defaultRunner(),
     ...(hasTextutil() ? { textutil: textutilHtml } : {}),
-    ...(hasQuickLook() ? { quickLook: quickLookPng } : {}),
+    ...(sharedQuickLook ? { quickLook: sharedQuickLook } : {}),
   };
 }
 

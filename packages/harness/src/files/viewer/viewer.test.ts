@@ -2,16 +2,14 @@ import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { convert, runRequest } from "./convert.js";
 import type { DocView, SheetView, SlidesView } from "@kos/shared";
 import { hostileDocx, keynote, sampleDeck, sampleDocx, sampleWorkbook, zipBomb } from "./office.fixture.js";
-import { workerRunner } from "./run.js";
+import { builtChild, childRunner } from "./run.js";
 import { ROWS_MAX } from "./sheets.js";
 import { OfficeViewer, type ViewerHost } from "./viewer.js";
-import { VIEWER_WORKER } from "./worker.js";
 
 const inProcess: ViewerHost = { run: async (req) => runRequest(req) };
 
@@ -51,7 +49,7 @@ describe("Word documents", () => {
   });
 
   it("refuses a file that is not what its name says", () => {
-    expect(() => convert(new TextEncoder().encode("plain words"), "docx")).toThrow(/not a zip/);
+    expect(() => convert(new TextEncoder().encode("plain words"), "docx")).toThrow(/not what its name says/);
   });
 });
 
@@ -85,8 +83,15 @@ describe("sheets", () => {
     expect(tsv.sheets[0]!.rows[1]).toEqual([{ v: "1", t: "n" }, { v: "2", t: "n" }]);
   });
 
-  it("refuses a workbook zip bomb before SheetJS inflates it", () => {
-    expect(() => convert(zipBomb("xl/workbook.xml", 80 * 1024 * 1024), "xlsx")).toThrow(/refused/);
+  it("refuses a workbook zip bomb before SheetJS inflates it, whatever the file is named", () => {
+    for (const format of ["xlsx", "xls", "ods", "numbers", "csv"] as const) expect(() => convert(zipBomb("xl/workbook.xml", 80 * 1024 * 1024), format), format).toThrow(/refused/);
+  });
+
+  it("refuses a file whose bytes and name disagree", () => {
+    expect(() => convert(sampleWorkbook("xlsx"), "xls")).toThrow(/a \.xls file holding a zip archive/);
+    expect(() => convert(sampleWorkbook("xls"), "xlsx")).toThrow(/a \.xlsx file holding an Office 97 file/);
+    expect(() => convert(sampleDocx(), "xlsx")).toThrow(/not what its name says/);
+    expect(() => convert(sampleWorkbook("xlsx"), "csv")).toThrow(/not what its name says/);
   });
 });
 
@@ -163,21 +168,40 @@ describe("OfficeViewer", () => {
 });
 
 describe("the bounded run", () => {
-  it("stops a worker that never answers", async () => {
-    const run = workerRunner(() => new Worker("setInterval(() => {}, 1000)", { eval: true }), 200);
-    await expect(run({ op: "sanitize", html: "", format: "doc" })).rejects.toThrow(/more than 0.2 s/);
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kos-child-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  const script = (body: string): string => {
+    const file = join(dir, "child.mjs");
+    writeFileSync(file, body);
+    return file;
+  };
+
+  it("stops a child that never answers", async () => {
+    const run = childRunner(script("setInterval(() => {}, 1000);"), { timeoutMs: 400 });
+    await expect(run({ op: "sanitize", html: "", format: "doc" })).rejects.toThrow(/more than 0.4 s/);
   });
 
-  it("refuses when a worker runs out of memory", async () => {
-    const run = workerRunner(() => new Worker("const a = []; require('node:worker_threads').parentPort.on('message', () => { for (;;) a.push(new Array(1e6).fill(1)); });", { eval: true, resourceLimits: { maxOldGenerationSizeMb: 32 } }), 20_000);
-    await expect(run({ op: "sanitize", html: "", format: "doc" })).rejects.toThrow(/could not be read|stopped/);
+  it("stops a child whose buffers grow past the ceiling, though its heap stays small", async () => {
+    const run = childRunner(script("const kept = []; process.once('message', () => { const t = setInterval(() => { kept.push(Buffer.alloc(32 * 1024 * 1024, 1)); }, 20); });"), { rssMb: 200, timeoutMs: 15_000 });
+    await expect(run({ op: "sanitize", html: "", format: "doc" })).rejects.toThrow(/needed more than 200 MB/);
   });
 
-  const built = fileURLToPath(new URL("../../../dist/files/viewer/worker.js", import.meta.url));
-  it.skipIf(!existsSync(built))("converts in the built worker", async () => {
-    const run = workerRunner(() => new Worker(built, { workerData: VIEWER_WORKER }));
+  it("runs two at a time", async () => {
+    const run = childRunner(script("process.once('message', () => setTimeout(() => process.send({ ok: true, view: { at: Date.now() } }, () => process.exit(0)), 300));"));
+    const started = Date.now();
+    await Promise.all([1, 2, 3].map(() => run({ op: "sanitize", html: "", format: "doc" })));
+    expect(Date.now() - started).toBeGreaterThan(550);
+  });
+
+  const built = fileURLToPath(new URL("../../../dist/files/viewer/child.js", import.meta.url));
+  it.skipIf(!existsSync(built))("converts in the built child, and refuses a bomb there", async () => {
+    expect(builtChild()).toBeUndefined();
+    const run = childRunner(built);
     const view = (await run({ op: "convert", bytes: sampleDocx(), format: "docx" })) as DocView;
     expect(view.html).toContain("<h1>Garden plan</h1>");
-    await expect(run({ op: "convert", bytes: zipBomb("word/document.xml", 80 * 1024 * 1024), format: "docx" })).rejects.toThrow(/refused/);
+    await expect(run({ op: "convert", bytes: zipBomb("xl/workbook.xml", 80 * 1024 * 1024), format: "xls" })).rejects.toThrow(/refused/);
   });
 });

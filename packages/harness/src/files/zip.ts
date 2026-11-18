@@ -65,12 +65,14 @@ export function readZip(bytes: Uint8Array, { entryMax = ENTRY_MAX, totalMax = In
       if (oversize === "refuse") throw new ZipTooLarge(`${name} is larger than a document holds`);
       continue;
     }
+    // What the directory says is checked before anything is inflated, and each inflation is held to what is left.
+    if (total + size > totalMax) throw new ZipTooLarge(`it inflates past ${Math.round(totalMax / 1024 / 1024)} MB`);
     if (local + 30 > buf.length || buf.readUInt32LE(local) !== LOCAL) throw new Error(`not a zip: ${name} has no local header`);
     const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
     const data = buf.subarray(start, start + compressed);
     let entry: Buffer;
     if (method === 0) entry = Buffer.from(data);
-    else if (method === 8) entry = inflate(data, name, entryMax);
+    else if (method === 8) entry = inflate(data, name, Math.min(entryMax, Number.isFinite(totalMax) ? Math.max(1, totalMax - total) : entryMax));
     else throw new Error(`${name} is compressed a way this reader does not know (method ${method})`);
     // The sizes the directory gives can lie; what was inflated cannot.
     total += entry.length;
