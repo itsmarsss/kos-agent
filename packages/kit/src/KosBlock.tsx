@@ -100,16 +100,20 @@ function CalendarButton({ ics, name }: { ics: string; name: string }): ReactElem
   );
 }
 
-function Actions({ block, view }: { block: KosBlock; view: BlockView }): ReactElement {
+/**
+ * The block's actions. Until its fence closes (a reply still arriving, or
+ * one cut short) the draft is not the draft yet, so only Copy is offered.
+ */
+function Actions({ block, view, closed }: { block: KosBlock; view: BlockView; closed: boolean }): ReactElement {
   const surface = useContext(BlockActions);
-  const actions = view.kind.actions;
+  const actions = closed ? view.kind.actions : [];
   const tool = actions.includes("send") && surface ? sendToolOf(block, surface.tools) : undefined;
   const ics = actions.includes("ics") ? icsOf(block) : undefined;
   const map = actions.includes("map") ? mapOf(block) : undefined;
   return (
     <span className="card-acts kblock-acts">
-      {view.links.map((link) => (
-        <IconLink key={link.href} label={link.label} href={link.href} target="_blank" rel="noopener noreferrer">
+      {(closed ? view.links : []).map((link) => (
+        <IconLink key={link.href} label={`${link.label} (${link.host})`} href={link.href} target="_blank" rel="noopener noreferrer">
           <ExternalIcon size={14} />
         </IconLink>
       ))}
@@ -193,7 +197,8 @@ function Body({ view, text }: { view: BlockView; text: BlockText }): ReactElemen
   }
 }
 
-export function KosBlockView({ block, text }: { block: KosBlock; text: BlockText }): ReactElement {
+/** `closed` false: the fence has not closed yet, so the block offers Copy alone. */
+export function KosBlockView({ block, closed = true, text }: { block: KosBlock; closed?: boolean; text: BlockText }): ReactElement {
   const view = viewOf(block);
   const { kind, title, rows, body } = view;
   // A card has no kind to name: its title heads it.
@@ -202,7 +207,7 @@ export function KosBlockView({ block, text }: { block: KosBlock; text: BlockText
     <section className={`card kblock kblock--${kind.body}`} aria-label={kind.label || title || "Note"} data-kind={block.kind}>
       <div className="card-head kblock-head">
         {head}
-        <Actions block={block} view={view} />
+        <Actions block={block} view={view} closed={closed} />
       </div>
       {kind.label && title && <strong className="kblock-title">{text.inline(title)}</strong>}
       {rows.length > 0 && (

@@ -53,7 +53,7 @@ describe("a typed block in KOS's words", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(ask).toHaveBeenCalledTimes(1);
-    expect(ask.mock.calls[0]?.[0]).toMatch(/^Send this email as drafted, with mcp\.gmail\.send_email\.\n\n```kos:email\nto: sam@example.com\n/);
+    expect(ask.mock.calls[0]?.[0]).toMatch(/^Send this email as drafted, with mcp\.gmail\.send_email\. .*\n\n```kos:email\nto: sam@example.com\n/);
     const asked = screen.getByRole("button", { name: "Asked KOS to send it" });
     expect((asked as HTMLButtonElement).disabled).toBe(true);
   });
@@ -106,7 +106,8 @@ describe("a typed block in KOS's words", () => {
     const card = screen.getByRole("region", { name: "Plan" });
     // A card's body is markdown.
     expect(card.querySelector(".kblock-md strong")?.textContent).toBe("go");
-    expect(within(card).getByRole("link", { name: "Read more" }).getAttribute("href")).toBe("https://example.com");
+    // KOS's words for the link, then the host it really goes to.
+    expect(within(card).getByRole("link", { name: "Read more (example.com)" }).getAttribute("href")).toBe("https://example.com/");
     expect(container.textContent).not.toContain("delete everything");
   });
 
@@ -119,11 +120,33 @@ describe("a typed block in KOS's words", () => {
     expect(container.querySelector(".md-p:last-child")?.textContent).toBe("after");
   });
 
-  it("draws a block still arriving, and a line of backticks with words after it as words", () => {
-    render(<Markdown text={"```kos:message\nto: Sam\nchannel: imessage\n---\nRunning la"} />);
-    expect(screen.getByRole("region", { name: "Message" }).querySelector(".kblock-text")?.textContent).toBe("Running la");
-    cleanup();
-    const { container } = render(<Markdown text={"```js title\nx"} />);
-    expect(container.querySelector(".md-p")?.textContent).toBe("```js titlex");
+  it("draws a block still arriving with Copy alone, its other actions once its fence closes", () => {
+    const email = "```kos:email\nto: sam@example.com\naction: open https://example.com Docs\n---\nHi Sa";
+    const tools = { tools: ["mcp.gmail.send_email"], ask: vi.fn() };
+    const { rerender } = render(
+      <BlockActions.Provider value={tools}>
+        <Markdown text={email} />
+      </BlockActions.Provider>,
+    );
+    const names = (): string[] => screen.getAllByRole("button").concat(screen.queryAllByRole("link")).map((b) => b.getAttribute("aria-label") ?? "");
+    expect(names()).toEqual(["Copy"]);
+    rerender(
+      <BlockActions.Provider value={tools}>
+        <Markdown text={`${email}m\n\`\`\``} />
+      </BlockActions.Provider>,
+    );
+    expect(names().sort()).toEqual(["Copy", "Docs (example.com)", "Open in Mail", "Send"]);
+  });
+
+  it("reads a fence with words after its language as code in that language", () => {
+    const { container } = render(<Markdown text={'```ts title="a.ts"\nconst a = 1;\n```\n\n```js {1,3}\nx\n```\n\nafter'} />);
+    expect([...container.querySelectorAll("pre.md-code")].map((p) => [p.getAttribute("data-lang"), p.textContent])).toEqual([["ts", "const a = 1;"], ["js", "x"]]);
+    expect(container.querySelector(".md-p")?.textContent).toBe("after");
+  });
+
+  it("draws a block inside a list item with the item's indent off its body, and one in a quote as words", () => {
+    const { container } = render(<Markdown text={"1. Send this:\n\n   ```kos:email\n   to: a@x.com\n   ---\n   Hi,\n     indented\n   ```\n2. Done\n\n> ```kos:email\n> to: a@x.com\n> ```"} />);
+    expect(container.querySelector("li .kblock-text")?.textContent).toBe("Hi,\n  indented");
+    expect(container.querySelector(".md-quote .kblock")).toBeNull();
   });
 });

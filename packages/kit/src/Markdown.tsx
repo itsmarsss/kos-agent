@@ -414,14 +414,14 @@ function blocks(source: string): Block[] {
     // code block it would otherwise be.
     const fence = fenceAt(lines, i);
     if (fence) {
-      const lang = fence.info;
+      const lang = fence.lang;
       const body = fence.body.join("\n");
       const block = parseBlock(fence.info, fence.body);
       i = fence.next;
       out.push({
         render: (k) =>
           block ? (
-            <KosBlockView key={k} block={block} text={BLOCK_TEXT} />
+            <KosBlockView key={k} block={block} closed={fence.closed} text={BLOCK_TEXT} />
           ) : (
             <pre key={k} className="md-code" data-lang={lang || undefined}>
               <code>{body}</code>
