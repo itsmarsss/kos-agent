@@ -1,9 +1,9 @@
-import { sharedQuickLook } from "../files/viewer/macos.js";
+import type { Converter } from "../files/images.js";
 import { OfficeViewer } from "../files/viewer/viewer.js";
 import type { Workspace } from "../store/workspace.js";
 import { fileInfo, readMedia, recentFiles, searchContents, searchNames } from "./fileinfo.js";
 import { emptyTrash, listTrash, restoreEntry, trashEntry } from "./filetrash.js";
-import { THUMB_EDGES, thumbnail, type QuickLook } from "./filethumbs.js";
+import { THUMB_EDGES, thumbnail } from "./filethumbs.js";
 
 /**
  * The file manager's routes beyond the ones server.ts has always had:
@@ -32,7 +32,8 @@ const INERT = { "x-content-type-options": "nosniff", "content-security-policy": 
 
 export interface FilesDeps {
   viewer: OfficeViewer;
-  quickLook?: QuickLook;
+  /** What writes a picture out at a size: the attachments' reader unless a test gives another. */
+  pictures?: Converter;
   /** A project's name by its slug, for the Info panel. */
   projectName: (slug: string) => string | undefined;
 }
@@ -41,7 +42,7 @@ let shared: OfficeViewer | undefined;
 
 export function defaultFilesDeps(projectName: FilesDeps["projectName"]): FilesDeps {
   shared ??= new OfficeViewer();
-  return { viewer: shared, ...(sharedQuickLook ? { quickLook: sharedQuickLook } : {}), projectName };
+  return { viewer: shared, projectName };
 }
 
 const bad = (err: unknown): FilesResponse => ({ status: 400, body: { error: err instanceof Error ? err.message : String(err) } });
@@ -59,7 +60,7 @@ export async function handleFilesRoute(ws: Workspace, req: FilesRequest, deps: F
       if (!target) return bad("path required");
       const asked = Number(query.get("size") ?? 256);
       const edge = THUMB_EDGES.find((e) => e >= asked) ?? 512;
-      const thumb = await thumbnail(ws, target, edge, deps.quickLook);
+      const thumb = await thumbnail(ws, target, edge, deps.pictures);
       if (!thumb) return { status: 404, body: { error: "no thumbnail for this file" } };
       return { status: 200, body: thumb.bytes, headers: { ...INERT, "content-type": thumb.contentType, "content-length": String(thumb.bytes.byteLength), "cache-control": "private, max-age=300" } };
     }

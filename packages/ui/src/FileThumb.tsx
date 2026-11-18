@@ -3,8 +3,8 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { api } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 
-/** Documents the server may draw a thumbnail of (on a Mac, QuickLook; anywhere, an iWork file's own preview). */
-const DRAWN = /\.(pdf|docx|doc|rtf|odt|pages|xlsx|xls|ods|numbers|pptx|ppt|odp|key|mov|mp4|m4v|heic|heif|tiff?|psd)$/i;
+/** Files the server draws a thumbnail of: an iWork file's own preview, a picture the browser does not draw. */
+const DRAWN = /\.(pages|key|numbers|heic|heif|avif|tiff?)$/i;
 /** Thumbnails the server could not draw this session, so a folder is not asked twice. */
 const UNDRAWN = new Set<string>();
 

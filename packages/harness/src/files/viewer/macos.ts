@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { limited } from "./run.js";
@@ -15,7 +15,8 @@ import { limited } from "./run.js";
  * reaches no network and writes nothing (its HTML comes back on stdout).
  * Where the sandbox cannot be applied it is not run at all. qlmanage refuses
  * to start inside a second sandbox, and needs none: it hands the file to
- * QuickLook's generators, which macOS already runs sandboxed and apart. Each
+ * QuickLook's generators, which macOS already runs sandboxed and apart; so
+ * it is used only for the first slide of an old deck (.ppt, .odp). Each
  * file is copied into a fresh temp folder first and the folder removed
  * after, so neither tool is ever pointed into the workspace.
  */
@@ -28,7 +29,26 @@ export const TOOL_TIMEOUT_MS = 20_000;
 const THUMB_TIMEOUT_MS = 8_000;
 const HTML_MAX = 32 * 1024 * 1024;
 
-const TEXTUTIL_PROFILE = '(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (literal "/dev/null"))';
+const quoted = (path: string): string => `"${path.replace(/["\\]/g, "\\$&")}"`;
+
+/**
+ * textutil's sandbox: no network, no writes, nothing read from anyone's
+ * files but the one copy it was given (system paths stay readable, as it
+ * needs its frameworks and fonts), and nothing run but itself.
+ */
+export function textutilProfile(dir: string): string {
+  return [
+    "(version 1)",
+    "(allow default)",
+    "(deny network*)",
+    "(deny file-write*)",
+    '(allow file-write* (literal "/dev/null"))',
+    `(deny file-read* (subpath "/Users") (subpath "/Volumes") (subpath ${quoted(realpathSync(homedir()))}))`,
+    `(allow file-read* (subpath ${quoted(realpathSync(dir))}))`,
+    "(deny process-exec)",
+    `(allow process-exec (literal ${quoted(TEXTUTIL)}))`,
+  ].join("");
+}
 
 export function hasTextutil(): boolean {
   return process.platform === "darwin" && existsSync(TEXTUTIL) && existsSync(SANDBOX);
@@ -62,7 +82,7 @@ async function staged<T>(bytes: Uint8Array, ext: string, use: (file: string, dir
 
 /** A .doc, .rtf or .odt as HTML, by textutil in its sandbox; to be cleaned before anyone sees it. */
 export function textutilHtml(bytes: Uint8Array, ext: string): Promise<string> {
-  return staged(bytes, ext, (file) => run(SANDBOX, ["-p", TEXTUTIL_PROFILE, TEXTUTIL, "-convert", "html", "-stdout", "-noload", "-nostore", file], HTML_MAX));
+  return staged(bytes, ext, (file, dir) => run(SANDBOX, ["-p", textutilProfile(dir), TEXTUTIL, "-convert", "html", "-stdout", "-noload", "-nostore", file], HTML_MAX));
 }
 
 /** A PNG of the file's first page or frame, its long side `edge`, by QuickLook; undefined when it draws none. */

@@ -90,21 +90,23 @@ describe("the file manager's routes", () => {
     expect((await get("/api/file/thumb", { path: "projects/garden/beds/tomato notes.md" }))?.status).toBe(404);
   });
 
-  it("asks QuickLook for a document once per version", async () => {
-    const quickLook = vi.fn(async () => Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-    deps = { ...deps, quickLook };
-    for (let i = 0; i < 2; i++) expect((await get("/api/file/thumb", { path: "projects/garden/plan.docx" }))?.headers?.["content-type"]).toBe("image/png");
-    expect(quickLook).toHaveBeenCalledTimes(1);
-    expect(existsSync(join(root, ".kos/cache/thumbs"))).toBe(true);
-  });
-
-  it("does not ask QuickLook again about a version it could not draw", async () => {
-    const quickLook = vi.fn(async () => {
-      throw new Error("it took more than 8 s to read, so it was stopped");
+  it("writes a picture the browser cannot draw as a JPEG once per version, and a miss once", async () => {
+    // A HEIC by its brand, as headers.ts reads one.
+    const heic = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftypheic"), Buffer.alloc(4), Buffer.from("mif1heic"), Buffer.alloc(32)]);
+    writeFileSync(join(root, "projects/garden/photo.heic"), heic);
+    writeFileSync(join(root, "projects/garden/broken.heic"), heic);
+    const encode = vi.fn(async () => Buffer.from([0xff, 0xd8, 0xff]));
+    const open = vi.fn(async () => ({ width: 10, height: 10, alpha: false, encode, close: async () => undefined }));
+    deps = { ...deps, pictures: { open } };
+    for (let i = 0; i < 2; i++) expect((await get("/api/file/thumb", { path: "projects/garden/photo.heic" }))?.headers?.["content-type"]).toBe("image/jpeg");
+    expect(open).toHaveBeenCalledTimes(1);
+    const failing = vi.fn(async () => {
+      throw new Error("sips could not read it");
     });
-    deps = { ...deps, quickLook };
-    for (let i = 0; i < 2; i++) expect((await get("/api/file/thumb", { path: "projects/garden/plan.docx" }))?.status).toBe(404);
-    expect(quickLook).toHaveBeenCalledTimes(1);
+    deps = { ...deps, pictures: { open: failing } };
+    for (let i = 0; i < 2; i++) expect((await get("/api/file/thumb", { path: "projects/garden/broken.heic" }))?.status).toBe(404);
+    expect(failing).toHaveBeenCalledTimes(1);
+    expect((await get("/api/file/thumb", { path: "projects/garden/plan.docx" }))?.status).toBe(404);
   });
 
   it("moves to the trash, restores beside a newcomer, and empties only when told", async () => {

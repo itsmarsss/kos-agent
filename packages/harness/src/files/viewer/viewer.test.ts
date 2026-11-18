@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { convert, runRequest } from "./convert.js";
 import type { DocView, SheetView, SlidesView } from "@kos/shared";
 import { hostileDocx, keynote, sampleDeck, sampleDocx, sampleWorkbook, zipBomb } from "./office.fixture.js";
+import { textutilProfile } from "./macos.js";
 import { builtChild, childRunner } from "./run.js";
 import { ROWS_MAX } from "./sheets.js";
 import { OfficeViewer, type ViewerHost } from "./viewer.js";
@@ -149,6 +150,14 @@ describe("OfficeViewer", () => {
     expect(textutil).toHaveBeenCalledWith(expect.any(Uint8Array), "doc");
     expect(view.html).toBe('<style>p.p1 {font: 12px Times; background: https://x.example/a.png)}</style><p class="p1">Hello</p>');
     await expect(new OfficeViewer(inProcess).view(join(dir, "old.doc"), "old.doc")).rejects.toThrow(/textutil, which this host does not have/);
+  });
+
+  it("keeps textutil to its own copy: no network, no writes, no one's files, nothing else run", () => {
+    const profile = textutilProfile(dir);
+    expect(profile).toContain("(deny network*)(deny file-write*)");
+    expect(profile).toMatch(/\(deny file-read\* \(subpath "\/Users"\)/);
+    expect(profile).toContain(`(allow file-read* (subpath "${realpathSync(dir)}"))`);
+    expect(profile).toContain('(deny process-exec)(allow process-exec (literal "/usr/bin/textutil"))');
   });
 
   it("shows an old deck as the picture macOS draws, or says it cannot", async () => {
