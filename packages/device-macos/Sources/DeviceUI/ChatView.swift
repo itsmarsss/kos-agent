@@ -145,10 +145,11 @@ public struct ChatView: View {
         .padding(.bottom, 8)
         .textSelection(.enabled)
       }
-      // A line scrolled up under the card fades out over the gap rather than ending in a cut.
+      // A line scrolled up under the card fades out rather than ending in a cut; within the thread's top padding,
+      // so the first line at rest is never faded.
       .mask {
         VStack(spacing: 0) {
-          LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: hasCard ? Self.threadGap : 0)
+          LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: hasCard ? Self.threadTop - Self.threadGap : 0)
           Color.black
         }
       }
