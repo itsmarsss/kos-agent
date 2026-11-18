@@ -6,7 +6,7 @@ import { openDatabase, type ModuleContext, type ModuleServices } from "@kos/harn
 import { drawingOf, lookOf } from "@kos/shared";
 import { describe, expect, it } from "vitest";
 
-import { createComputerUse } from "./computeruse.js";
+import { createComputerUse, tellWaits } from "./computeruse.js";
 import { PREFIX } from "./routes.js";
 
 describe("computer use with this computer's secret unreadable", () => {
@@ -34,5 +34,33 @@ describe("computer use with this computer's secret unreadable", () => {
     expect(readFileSync(localKeyPath, "utf8")).toBe("not a key");
     await use.module.deactivate?.();
     await use.close();
+  });
+});
+
+describe("a chat's session told of its waits", () => {
+  it("waits from an approval asked in its chat until the last one there is decided", () => {
+    const handlers = new Map<string, Set<(e: unknown) => void>>();
+    const on = (kind: string, handler: (e: unknown) => void): (() => void) => {
+      handlers.set(kind, (handlers.get(kind) ?? new Set()).add(handler));
+      return () => void handlers.get(kind)?.delete(handler);
+    };
+    const events = { on, emit: (e: { kind: string; [field: string]: unknown }) => handlers.get(e.kind)?.forEach((h) => h(e)) };
+    const told: [string, Record<string, unknown>][] = [];
+    const off = tellWaits(events as unknown as NonNullable<ModuleContext["events"]>, { tellStatus: (chat, status) => void told.push([chat, status]) });
+    events.emit({ kind: "approval:requested", id: 1, tool: "computer.act", conversationId: "c1" });
+    events.emit({ kind: "approval:requested", id: 2, tool: "files.write", conversationId: "c1" });
+    // An approval no chat asked for is no session's.
+    events.emit({ kind: "approval:requested", id: 3, tool: "files.write", conversationId: null });
+    events.emit({ kind: "approval:decided", id: 1, approved: true, decidedBy: "owner" });
+    events.emit({ kind: "approval:decided", id: 2, approved: false, decidedBy: "owner" });
+    events.emit({ kind: "approval:decided", id: 3, approved: true, decidedBy: "owner" });
+    off();
+    events.emit({ kind: "approval:requested", id: 4, tool: "computer.act", conversationId: "c1" });
+    expect(told).toEqual([
+      ["c1", { waiting: true }],
+      ["c1", { waiting: true }],
+      ["c1", { waiting: true }],
+      ["c1", { waiting: false }],
+    ]);
   });
 });

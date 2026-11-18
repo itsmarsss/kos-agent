@@ -665,6 +665,7 @@ needs a session ([browser-extension.md](browser-extension.md), and below).
 | --- | --- | --- |
 | `session.begin` | `session`, `task`, `requester`, `conversation?`, `target? {app}`, `minutes`, `maxEdge?` | `granted`, `until`, `space {width,height}`, `target {kind, app?, title?}` |
 | `session.end` | `session` | `{}` |
+| `session.status` | `session`, `step?` (the step under way, as its line says it), `waiting?` (true while the session's chat waits on the owner for an approval) | `{}` |
 | `screen.capture` | `session`, `region? {x,y,width,height}`, `settle?` (ms, at most 1000: after an action, look until two pictures 50 ms apart agree, once the screen has changed or 120 ms have passed, or the time is up) | `image` (base64), `mediaType`, `width`, `height`, `cursor {x,y}`, `app?`, `settled?` (true when it waited as asked; KOS then stops waiting on its side) |
 | `pointer.move` | `session`, `x`, `y` | `cursor` |
 | `pointer.click` | `session`, `x`, `y`, `button?` (left, right, middle), `count?` (1 to 3), `modifiers?` | `cursor` |
@@ -672,6 +673,14 @@ needs a session ([browser-extension.md](browser-extension.md), and below).
 | `pointer.scroll` | `session`, `x`, `y`, `dx`, `dy` (lines; positive is down and right) | `cursor` |
 | `keys.type` | `session`, `text` (at most 4000 characters) | `cursor` |
 | `keys.press` | `session`, `keys` (one combination, `cmd+shift+t`), `repeat?` | `cursor` |
+
+**What it is at.** KOS sends `session.status` to a computer (never a
+Chrome) as each `computer.act` starts, with the step's line (its `intent`,
+or how it does it when it has none), and whenever an approval in the
+session's chat is asked (`waiting: true`) or the last one there is decided
+(`waiting: false`). It is never waited on. KOS for Mac shows the step on its
+bar and in the menu bar, whichever chat its window shows, and a device that
+does not know the call answers `bad_request`, which KOS lets be.
 
 **What is shared.** The owner picks, as a screen-sharing picker offers it: the
 entire screen, or one window. `target.app` is the app KOS would work in; its

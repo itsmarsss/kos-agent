@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
-import { requireServices, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule } from "@kos/harness";
+import { requireServices, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule, type ModuleContext } from "@kos/harness";
 import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
 import type { Build, BuildKind } from "./builds.js";
@@ -70,6 +70,30 @@ export interface ComputerUse {
   close(): Promise<void>;
 }
 
+/**
+ * A chat's computer session told when its turn waits on the owner for an
+ * approval, and when it no longer does: the device says so on its bar and in
+ * its menu bar, whichever chat its window shows.
+ */
+export function tellWaits(events: NonNullable<ModuleContext["events"]>, hub: Pick<DeviceHub, "tellStatus">): () => void {
+  /** Approvals asked and not yet decided, by id, with the chat each is for. */
+  const asked = new Map<number, string>();
+  const offs = [
+    events.on("approval:requested", (e) => {
+      if (!e.conversationId) return;
+      asked.set(e.id, e.conversationId);
+      hub.tellStatus(e.conversationId, { waiting: true });
+    }),
+    events.on("approval:decided", (e) => {
+      const chat = asked.get(e.id);
+      if (chat === undefined) return;
+      asked.delete(e.id);
+      hub.tellStatus(chat, { waiting: [...asked.values()].includes(chat) });
+    }),
+  ];
+  return () => offs.forEach((off) => off());
+}
+
 export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let store: DeviceStore | undefined;
   let localKey: Buffer | undefined;
@@ -80,6 +104,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let active: ComputerModule | undefined;
   let unfaced: (() => void) | undefined;
   let unthemed: (() => void) | undefined;
+  let unasked: (() => void) | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
   const mac = new DevicePanel(MAC_PANEL, options.panels.mac);
@@ -141,6 +166,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       const events = ctx.events;
       unfaced = events?.on("face:changed", () => hub?.tellFace());
       unthemed = events?.on("theme:changed", () => hub?.tellTheme());
+      unasked = events ? tellWaits(events, devices) : undefined;
       active = computerModule({
         hub,
         chrome,
@@ -180,6 +206,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       unfaced = undefined;
       unthemed?.();
       unthemed = undefined;
+      unasked?.();
+      unasked = undefined;
       panel.attach(undefined);
       mac.attach(undefined);
       phone.attach(undefined);

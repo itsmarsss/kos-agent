@@ -227,6 +227,14 @@ describe("the computer tools", () => {
     await call("computer.act", { intent: "open the Quizzes tab", action: "left_click", coordinate: [10, 20] });
     await call("computer.act", { intent: "search for it", actions: [{ action: "type", text: "milk" }, { action: "key", text: "Return" }] });
     expect(fake.calls.map((c) => c.method)).toContain("keys.press");
+    // Each step's purpose goes to the device as it starts, for its bar and its menu bar; one with no intent says how.
+    await call("computer.act", { action: "key", text: "cmd+s" });
+    const session = fake.calls.find((c) => c.method === "session.begin")!.params["session"];
+    expect(fake.statuses).toEqual([
+      { session, step: "Open the Quizzes tab (click)" },
+      { session, step: "Search for it" },
+      { session, step: "Press cmd+s" },
+    ]);
   });
 
   it("let a computer that settles its own pictures do so, and keep the fixed wait for one that does not", async () => {

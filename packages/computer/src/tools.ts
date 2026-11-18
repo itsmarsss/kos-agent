@@ -1,6 +1,6 @@
 import { fenced } from "@kos/browser";
 import { isAttended, isOwnerTurn, ownWordsOn, turnStop, type AuditEntry, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
-import { ScreenMemory, UNCHANGED, WAIT_BUDGET_MS, WaitBudget, abortable, actionsOf, doneText, hasActions, runActions, type RunAdapter } from "@kos/shared";
+import { ScreenMemory, UNCHANGED, WAIT_BUDGET_MS, WaitBudget, abortable, actionsOf, doneText, hasActions, runActions, summarizeAction, type RunAdapter } from "@kos/shared";
 
 import type { OwnerChrome } from "./chrome.js";
 import type { DeviceHub, Session } from "./hub.js";
@@ -745,6 +745,8 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
             const note = "Nothing else was done: you had not seen this screen. Act on this picture.";
             return typeof begun === "string" ? `${begun} ${note}` : { ...begun, text: `${begun.text} ${note}` };
           }
+          // The step under way, on the device's bar and in its menu, as the owner reads it in the chat.
+          hub.tellStatus(chat, { step: summarizeAction("computer.act", input) });
           // The owner has control: wait for them to hand it back, then show what they left rather than act on a screen nobody has seen.
           if (hub.sessionOf(chat)?.paused && (await hub.untilHandedBack(chat, turnStop.getStore()))) return await look(chat, "The owner had control; look again before acting. Nothing else was done.", undefined, 0, true);
           // The owner scrolled since the last picture: its coordinates no longer hold, so the screen as it is now instead.

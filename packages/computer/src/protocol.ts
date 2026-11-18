@@ -150,6 +150,7 @@ export interface DeviceEvent {
 export type Method =
   | "session.begin"
   | "session.end"
+  | "session.status"
   | "screen.capture"
   | "pointer.move"
   | "pointer.click"
