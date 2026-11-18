@@ -62,7 +62,7 @@ export function SecretField({ label, name, hint, set = false, plain = false, mul
     required: required && !set,
   } as const;
   return (
-    <Field label={label} required={required && !set} hint={help ?? (set ? "Leave blank to keep it." : undefined)}>
+    <Field label={label} required={required && !set} hint={help}>
       {multiline ? <textarea rows={3} {...common} /> : <input type={plain ? "text" : "password"} inputMode={inputMode} {...common} />}
     </Field>
   );

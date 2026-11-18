@@ -17,7 +17,7 @@ describe("a secret's field", () => {
     expect(input.value).toBe("");
     expect(input.placeholder).toBe("Unchanged (•••• 4242)");
     expect(input.required).toBe(false);
-    expect(screen.getByText("Leave blank to keep it.")).toBeTruthy();
+    expect(input.closest("label")!.querySelector(".hint")).toBeNull();
   });
 
   it("is required when nothing is kept yet, and shows a plain one as typed", () => {

@@ -180,6 +180,7 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
 
         <Section label="Values">
           <div className="secret-fields">
+            {editing && !readOnly && <p className="hint secret-section-hint">What is kept is never shown here. A blank field keeps it; type to replace it.</p>}
             {kind === "login" && (
               <>
                 {field("username", { plain: true })}
@@ -194,13 +195,6 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
                   {field("cvc", { inputMode: "numeric" })}
                 </div>
                 {field("name", { plain: true })}
-                <Field label={FIELD_LABEL.billing} group hint={set("billing") ? "Leave blank to keep it; fill every part to replace it." : undefined}>
-                  <div className="secret-billing">
-                    {BILLING_PARTS.map((p) => (
-                      <SecretField key={p.key} label={p.label} name={`billing.${p.key}`} plain disabled={readOnly} {...(set("billing") ? { placeholder: "Unchanged" } : {})} />
-                    ))}
-                  </div>
-                </Field>
               </>
             )}
             {kind === "apikey" && (
@@ -212,6 +206,17 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
             {kind === "note" && field("text", { required: true, multiline: true })}
           </div>
         </Section>
+
+        {kind === "card" && (
+          <Section label={FIELD_LABEL.billing}>
+            <div className="secret-billing">
+              {BILLING_PARTS.map((p) => (
+                <SecretField key={p.key} label={p.label} name={`billing.${p.key}`} plain disabled={readOnly} {...(set("billing") ? { placeholder: "Unchanged" } : {})} />
+              ))}
+            </div>
+            {set("billing") && <p className="hint secret-section-hint">Fill every part to replace the address.</p>}
+          </Section>
+        )}
 
         <Section label="Where it may be used">
           <div className="secret-fields">
@@ -326,7 +331,7 @@ function Grants({ secret, disabled, onChanged }: { secret: SecretSummary; disabl
         <ul className="secret-lines">
           {secret.policy.grants.map((g) => (
             <li key={g.origin} className="secret-line">
-              <span className="secret-line-main kos-mono">{g.origin}</span>
+              <span className="secret-line-main">{g.origin}</span>
               <span className="secret-line-meta">{agoWords(g.at)}</span>
               {!disabled && (
                 <button

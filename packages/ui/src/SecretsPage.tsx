@@ -181,7 +181,7 @@ function UnlockCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after
     }
   };
   return (
-    <Card title="Locked" pill={<Pill tone="warn">Locked</Pill>} className="secret-gate">
+    <Card title="Vault" pill={<Pill tone="warn">Locked</Pill>} className="secret-gate">
       <form className="secret-gate-form" onSubmit={(e) => void submit(e)} autoComplete="off">
         <p className="hint">The vault has a passphrase, so it stays locked after KOS starts. Until it is unlocked, KOS cannot fill anything from it.</p>
         <div className="secret-gate-row">
