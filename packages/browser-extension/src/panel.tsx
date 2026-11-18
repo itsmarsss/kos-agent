@@ -1,6 +1,6 @@
-import { KOS_SEED } from "@kos/shared";
+import { KOS_SEED, timeMarks } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskSteps, BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StopIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
+import { AskSteps, BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, MessageTime, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StopIcon, TimeLine, type Tone, useDismiss, useOverlayScroll, useTimeReveal, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -622,11 +622,15 @@ function Thread({
     chat.stories.forEach((x, i) => (placed(x) === n ? items.push(<Story key={`story${i}-${n}`} text={x.text} frames={chat.live.find((l) => l.said === x.said)?.frames ?? []} />) : undefined));
     chat.extras.forEach((x, i) => (placed(x) === n ? items.push(<Extra key={`x${i}`} extra={x} />) : undefined));
   };
+  // The day where it changes and the time after a pause, over the line they are about.
+  const marks = timeMarks(chat.lines.map((line) => (line.role === "steps" ? undefined : line.at)));
   chat.lines.forEach((line, i) => {
     if (line.role === "you") {
       if (seen > 0 || i > 0) after(seen);
       seen++;
     }
+    const mark = marks[i];
+    if (mark) items.push(<TimeLine key={`m${i}`} mark={mark} />);
     items.push(<LineView key={`l${i}`} line={line} />);
   });
   chat.sending.forEach((text, i) => {
@@ -684,35 +688,52 @@ function Thread({
 
 const enter = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0 }, transition: spring };
 
+/**
+ * One line of the chat. A line KOS said when shows its time on hover, focus
+ * inside it or a tap, as the dashboard's: the owner's left of their bubble,
+ * KOS's under its words, a note's after it.
+ */
 function LineView({ line, pending }: { line: Line; pending?: boolean }): ReactElement {
+  const reveal = useTimeReveal();
+  const at = line.role !== "steps" && line.at && !pending ? line.at : undefined;
+  const timed = reveal.shown ? " is-timed" : "";
   switch (line.role) {
     case "you":
       return (
-        <m.div className="msg msg--you" data-pending={pending || undefined} layout="position" {...enter}>
-          {line.quote && <QuoteLine text={line.quote.text} from={line.quote.from} />}
-          {line.text && <Markdown text={line.text} />}
-          {line.files?.length ? (
-            <div className="files">
-              {line.files.map((f) => (
-                <span key={f} className="file-chip">
-                  <PageIcon size={11} />
-                  {f}
-                </span>
-              ))}
-            </div>
-          ) : null}
+        <m.div className={`said${timed}`} layout="position" {...enter} {...reveal.props}>
+          {at && <MessageTime at={at} />}
+          <div className="msg msg--you" data-pending={pending || undefined}>
+            {line.quote && <QuoteLine text={line.quote.text} from={line.quote.from} />}
+            {line.text && <Markdown text={line.text} />}
+            {line.files?.length ? (
+              <div className="files">
+                {line.files.map((f) => (
+                  <span key={f} className="file-chip">
+                    <PageIcon size={11} />
+                    {f}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </m.div>
       );
     case "kos":
       return (
-        <m.div className="msg msg--kos" layout="position" {...enter}>
+        <m.div className={`msg msg--kos${timed}`} layout="position" {...enter} {...reveal.props}>
           <Markdown text={line.text} />
+          {at && (
+            <div className="msg-foot">
+              <MessageTime at={at} />
+            </div>
+          )}
         </m.div>
       );
     case "note":
       return (
-        <m.p className="note" layout="position" {...enter}>
+        <m.p className={`note${timed}`} layout="position" {...enter} {...reveal.props}>
           {line.text}
+          {at && <MessageTime at={at} />}
         </m.p>
       );
     case "steps":
