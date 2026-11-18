@@ -95,3 +95,24 @@ describe("SecretsRegistry.scrub", () => {
     warn.mockRestore();
   });
 });
+
+describe("Scrubber digits mode", () => {
+  const scrubber = new Scrubber([["visa-personal-7k2q.number", "4242424242424242", "digits"]]);
+
+  it.each([
+    ["plain", "4242424242424242"],
+    ["spaced", "4242 4242 4242 4242"],
+    ["dashed", "4242-4242-4242-4242"],
+    ["dotted", "4242.4242.4242.4242"],
+  ])("takes a card number out %s and keeps its last four", (_how, written) => {
+    expect(scrubber.scrub(`card ${written} on file`)).toBe("card [secret visa-personal-7k2q.number ••4242] on file");
+  });
+
+  it("leaves a longer number that only holds it alone", () => {
+    expect(scrubber.scrub("id 942424242424242424")).toBe("id 942424242424242424");
+  });
+
+  it("counts what it found", () => {
+    expect([...scrubber.found("a 4242424242424242 b 4242 4242 4242 4242").hits]).toEqual([["visa-personal-7k2q.number", 2]]);
+  });
+});

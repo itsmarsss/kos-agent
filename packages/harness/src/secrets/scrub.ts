@@ -20,9 +20,26 @@ export const MIN_SCANNED = 6;
 /** Past this, a stream holds back only enough for a value as it is or JSON-escaped, not its longer encodings. */
 export const STREAM_REACH = 256;
 
-/** What a found value is replaced with. */
-export function scrubbedLabel(name: string): string {
-  return `[secret ${name}]`;
+/** What a found value is replaced with; a card number keeps its last four digits, as a receipt does. */
+export function scrubbedLabel(name: string, last4?: string): string {
+  return last4 ? `[secret ${name} ••${last4}]` : `[secret ${name}]`;
+}
+
+/**
+ * How a value is looked for: `exact` as it is and encoded; `digits` (a card
+ * number) by its digits alone, whatever spaces, dashes or dots run between.
+ */
+export type ScanMode = "exact" | "digits";
+
+/** A watched value: its name in a label, the value, and how it is looked for (exact when left out). */
+export type Watched = [name: string, value: string] | [name: string, value: string, mode: ScanMode];
+
+/** The fewest digits a digits-only value has before it is looked for: shorter runs are dates and amounts. */
+const DIGITS_MIN = 12;
+
+/** A number written with up to two separators between any two of its digits, never inside a longer number. */
+function digitsPattern(digits: string): RegExp {
+  return new RegExp(`(?<!\\d)${[...digits].join("[ .\\-]{0,2}")}(?!\\d)`, "g");
 }
 
 /**
@@ -181,14 +198,23 @@ export class Scrubber {
    * only up to STREAM_REACH, a value as it is or JSON-escaped in full.
    */
   readonly holdBack: number;
+  /** Card numbers, each found by its digits however they are spaced. */
+  private readonly numbers: { name: string; pattern: RegExp; last4: string }[] = [];
 
   constructor(
-    values: Iterable<[name: string, value: string]>,
+    values: Iterable<Watched>,
     private readonly onHit: (name: string, count: number) => void = () => undefined,
   ) {
     const needles: Needle[] = [];
     let reach = 0;
-    for (const [name, value] of values) {
+    for (const [name, value, mode = "exact"] of values) {
+      if (mode === "digits") {
+        const digits = value.replace(/\D/g, "");
+        if (digits.length < DIGITS_MIN) continue;
+        this.numbers.push({ name, pattern: digitsPattern(digits), last4: digits.slice(-4) });
+        reach = Math.max(reach, digits.length * 3);
+        continue;
+      }
       const plain = [value, JSON.stringify(value).slice(1, -1)];
       for (const text of needlesOf(value)) {
         needles.push({ text, name });
@@ -201,10 +227,27 @@ export class Scrubber {
 
   /** `text` with every known value, in any form looked for, replaced by `[secret <name>]`. */
   scrub(text: string): string {
-    if (!this.automaton || text.length < MIN_SCANNED) return text;
-    const { text: out, hits } = this.automaton.replace(text);
+    return this.found(text).text;
+  }
+
+  /** `text` scrubbed, and which secrets were found in it how often. */
+  found(text: string): { text: string; hits: Map<string, number> } {
+    const hits = new Map<string, number>();
+    if (text.length < MIN_SCANNED) return { text, hits };
+    let out = text;
+    for (const { name, pattern, last4 } of this.numbers) {
+      out = out.replace(pattern, () => {
+        hits.set(name, (hits.get(name) ?? 0) + 1);
+        return scrubbedLabel(name, last4);
+      });
+    }
+    if (this.automaton) {
+      const replaced = this.automaton.replace(out);
+      out = replaced.text;
+      for (const [name, count] of replaced.hits) hits.set(name, (hits.get(name) ?? 0) + count);
+    }
     for (const [name, count] of hits) this.onHit(name, count);
-    return out;
+    return { text: out, hits };
   }
 }
 
