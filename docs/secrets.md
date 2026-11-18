@@ -70,7 +70,8 @@ Record, sealed whole (metadata included):
 so never in its git snapshots.
 
 - `key`: 32 random bytes as base64, mode 0600, marked to stay out of Time
-  Machine (`com.apple.metadata:com_apple_backup_excludeItem`).
+  Machine (`com.apple.metadata:com_apple_backup_excludeItem`). Only a vault
+  without a passphrase has one.
 - `vault.kosv`: JSON, mode 0600, written atomically (a temp file, fsync,
   rename, the directory synced), with the copy before it kept as
   `vault.kosv.prev`.
@@ -83,10 +84,7 @@ Format, version 1:
 {
   "format": "kos-vault", "version": 1, "vault": "v_<16 hex>", "dek": "k1",
   "slots": [
-    { "id": "s1", "kind": "keyfile", "wrap": { "alg": "A256GCM", "nonce": "<12 B>", "ct": "<DEK + tag>" } },
-    { "id": "s2", "kind": "passphrase",
-      "kdf": { "alg": "scrypt", "N": 131072, "r": 8, "p": 1, "salt": "<16 B>" },
-      "wrap": { "alg": "A256GCM", "nonce": "<12 B>", "ct": "<DEK + tag>" } }
+    { "id": "s1", "kind": "keyfile", "wrap": { "alg": "A256GCM", "nonce": "<12 B>", "ct": "<DEK + tag>" } }
   ],
   "entries": [{ "id": "e_<16 hex>", "nonce": "<12 B>", "ct": "<record + tag>" }],
   "index": { "seq": 42, "mac": "<HMAC-SHA256>" }
@@ -109,19 +107,31 @@ The vault is refused, and stays locked with the reason in its status, when
 any byte of an entry, slot or MAC changed, an entry was moved, dropped,
 added or swapped, or the sequence is lower than the last one written.
 
-Slots:
+A vault has one slot:
 
-- `keyfile`, always: the vault opens by itself at start.
-- `passphrase`, optional: while there is one, the vault is locked after every
-  start until the passphrase is given (the dashboard, or `kos secrets
-  unlock`). The key-file slot stays, so a passphrase is a lock on the running
-  host, not a second factor against someone holding the key file.
+- `keyfile`, when there is no passphrase: the vault opens by itself at start.
+- `passphrase` alone, when there is one:
+
+  ```json
+  { "id": "s1", "kind": "passphrase",
+    "kdf": { "alg": "scrypt", "N": 131072, "r": 8, "p": 1, "salt": "<16 B>" },
+    "wrap": { "alg": "A256GCM", "nonce": "<12 B>", "ct": "<DEK + tag>" } }
+  ```
+
+  No key file is written, and nothing on disk opens the vault: it is locked
+  after every start until the passphrase is given (the dashboard, or `kos
+  secrets unlock`). The passphrase is a real second factor; no key file, and
+  no `KOS_VAULT_KEY`, opens it.
+
+Adding a passphrase to a key-file vault wraps the DEK under it alone and
+crypto-erases the key file. Taking it off wraps the DEK under a key file
+again. Both are audited as `secrets.passphrase`.
 
 Operations:
 
 - Rotate the data key: every entry sealed again and every slot wrapped again,
   in one write. Audited as `secrets.rotate`.
-- A new passphrase or a new key file re-wraps the DEK in that slot alone.
+- A new passphrase or a new key file re-wraps the DEK in that slot.
 - Delete: the entry goes and the data key is rotated in the same write.
 - Wipe (crypto-erase): `vault.kosv`, `.prev`, `key` and `seq` overwritten
   with random bytes, synced, unlinked, and the keys in memory zeroed.
@@ -169,8 +179,9 @@ in `packages/shared/src/secrets.ts`.
 | Route | Body | Answer |
 | --- | --- | --- |
 | `GET /api/secrets/status` | | `VaultStatus` |
-| `POST /api/secrets/init` | `{passphrase?}` | `VaultStatus` |
+| `POST /api/secrets/init` | `{passphrase?}` | `VaultStatus`: a key-file slot when no passphrase, the passphrase slot alone when one is given |
 | `POST /api/secrets/unlock` | `{passphrase}` | `VaultStatus` |
+| `POST /api/secrets/passphrase` | `{current?, passphrase?}` | `VaultStatus`: added or changed when given, taken off when not; `current` when there is one |
 | `GET /api/secrets` | | `{secrets: SecretSummary[]}`, env `KOS_SECRET_*` as `source: "env"` |
 | `POST /api/secrets` | `{label, kind, values, use?, policy?}` | `{handle}` |
 | `PATCH /api/secrets/:handle` | `{label?, values?, use?, policy?}` | `SecretSummary`; an empty value is unchanged |
@@ -185,12 +196,16 @@ Errors are `{error}`: 400 bad input or a failed step-up, 404 no such handle,
 409 the vault is locked, absent, refused or already there, 423 an env secret,
 429 past the reveal limit.
 
+Passphrase tries (`unlock`, and `current` on the passphrase route) are
+limited to 5 in ten minutes, wrong or right; a wrong one is 400, past the
+limit 429.
+
 A reveal asks again who it is: the passphrase when the vault has one, else
 the secret's label typed exactly. Five reveals in ten minutes at most,
 refused ones counted; each is audited as `secrets.reveal` with the handle and
 field, never the value. Adds and edits are audited as `secrets.write` (field
-names only), deletes as `secrets.delete`, and `secrets.init`, `secrets.rotate`
-and `secrets.wipe`.
+names only), deletes as `secrets.delete`, and `secrets.init`,
+`secrets.passphrase`, `secrets.rotate` and `secrets.wipe`.
 
 KOS for iPhone reads `GET /api/secrets` and `GET /api/secrets/:handle/uses`
 through the phone relay, and nothing else here.
@@ -209,7 +224,7 @@ kos secrets unlock
 kos secrets list
 kos secrets add <login|card|apikey|note> <label> [--hosts a,b] [--origins https://x]
 kos secrets rm <handle> [--yes]
-kos secrets rotate [--passphrase | --key]
+kos secrets rotate [--passphrase | --no-passphrase | --key]
 kos secrets export <file>
 kos secrets wipe [--yes]
 ```
