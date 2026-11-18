@@ -596,8 +596,11 @@ export class DevicePanel implements ChannelAdapter {
         // The chat named, when it is one of this panel's; else the one it shows.
         const named = typeof data["chat"] === "string" ? data["chat"] : undefined;
         const chat = named === undefined ? this.deps.current()?.id : this.isOwnChat(named) ? named : undefined;
-        this.said(device, `chat.stop for ${chat ? `chat ${chat}` : named === undefined ? "no chat shown" : `chat ${loggable(named)}, not one of its own`}${named === undefined ? " (the one shown)" : ""}`);
-        if (chat) this.stopping?.(chat);
+        // How long ago it was pressed, when it waited on the way: a Stop pressed before the turn running now began is not for it.
+        const waited = typeof data["waited"] === "number" && data["waited"] >= 0 ? data["waited"] : 0;
+        const stale = chat !== undefined && this.pressedBefore(chat, Date.now() - waited);
+        this.said(device, `chat.stop for ${chat ? `chat ${chat}` : named === undefined ? "no chat shown" : `chat ${loggable(named)}, not one of its own`}${named === undefined ? " (the one shown)" : ""}${waited ? `, pressed ${Math.round(waited / 1000)} s ago` : ""}${stale ? ", before the turn running now began: let go" : ""}`);
+        if (chat && !stale) this.stopping?.(chat);
         return;
       }
       case "chat.decide":
@@ -692,6 +695,12 @@ export class DevicePanel implements ChannelAdapter {
   /** A chat of this panel's own: the one it shows, one a turn from it runs in, or one it may switch to. */
   private isOwnChat(id: string): boolean {
     return id === this.deps.current()?.id || this.turns.has(id) || (this.deps.chats?.().some((c) => c.id === id) ?? false);
+  }
+
+  /** Whether a press at `at` came before the turn running in the chat began; false when none runs (a Stop still ends its session and asks). */
+  private pressedBefore(chat: string, at: number): boolean {
+    const since = this.turns.get(chat)?.since ?? (this.running?.conversation === chat ? this.running.since : undefined);
+    return since !== undefined && at < since;
   }
 
   /** What a device's panel did, one line in the host's log, by which device. */

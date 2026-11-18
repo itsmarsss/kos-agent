@@ -740,6 +740,25 @@ describe("a Chrome's side panel", () => {
     expect(left).toEqual(["chrome:owner"]);
   });
 
+  it("lets go of a Stop that waited on its way and was pressed before the turn running now began", async () => {
+    const { pair, setChat, panel, logged } = setup();
+    const chrome = pair();
+    const stopped: string[] = [];
+    panel.onStop((c) => void stopped.push(c));
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    panel.watch({ kind: "turn-start", conversationId: "chrome:owner", said: "the next thing", from: "dashboard" });
+    // Pressed a minute ago for a turn long over: the turn running now goes on.
+    chrome.event("chat.stop", { chat: "chrome:owner", waited: 60_000 });
+    await flush();
+    expect(stopped).toEqual([]);
+    expect(logged.at(-1)).toMatch(/pressed 60 s ago, before the turn running now began: let go/);
+    // Pressed just now, or with no wait said: it stops.
+    chrome.event("chat.stop", { chat: "chrome:owner", waited: 0 });
+    chrome.event("chat.stop", { chat: "chrome:owner" });
+    await flush();
+    expect(stopped).toEqual(["chrome:owner", "chrome:owner"]);
+  });
+
   it("hears Stop for the chat the panel shows", async () => {
     const { pair, setChat, panel } = setup();
     const chrome = pair();
