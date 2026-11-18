@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactElement } from "react";
 
-import { CloseIcon, IconButton } from "@kos/kit";
+import { CloseIcon, IconButton, NavIcon } from "@kos/kit";
 
 import { api, type Attachment, type DirEntry, type FileSearch, type Project } from "../api.js";
 import { Drawer } from "../Drawer.js";
@@ -136,6 +136,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
   const [projects, setProjects] = useState<Project[]>([]);
   const [trashTick, setTrashTick] = useState(0);
   const [errorNote, setErrorNote] = useState<string | null>(null);
+  const [trashCount, setTrashCount] = useState(0);
   /** In columns, the chosen folder whose contents show in the next column. */
   const [leadDir, setLeadDir] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -558,7 +559,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
   const sidebarShown = sidebar && !narrow;
 
   const body = (): ReactElement => {
-    if (place.kind === "trash") return <TrashView key={trashTick} rootName={rootName} onChanged={() => folders.reload()} onError={setErrorNote} />;
+    if (place.kind === "trash") return <TrashView key={trashTick} rootName={rootName} onChanged={() => folders.reload()} onError={setErrorNote} onCount={setTrashCount} />;
     if (view === "gallery" && !found && place.kind === "folder") return <GalleryView entries={ordered} h={h} empty={empty} />;
     if (view === "columns" && !found && place.kind === "folder") {
       return (
@@ -631,7 +632,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
         }
         {...(step(-1) ? { back: step(-1) } : {})}
         {...(step(1) ? { forward: step(1) } : {})}
-        {...(place.kind === "folder" && !found ? { view } : {})}
+        {...(place.kind === "folder" ? { view } : {})}
+        sortable={place.kind !== "trash"}
         views={narrow ? ["list", "gallery"] : ["list", "columns", "gallery"]}
         onView={pickView}
         sort={sort}
@@ -676,7 +678,15 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
           {body()}
         </div>
       </div>
-      {place.kind !== "trash" && (
+      {place.kind === "trash" ? (
+        <div className="finder-pathbar">
+          <span className="finder-path finder-path-leaf">
+            <NavIcon name="trash" />
+            Trash
+          </span>
+          <span className="finder-status">{`${trashCount} item${trashCount === 1 ? "" : "s"}`}</span>
+        </div>
+      ) : (
         <PathBar
           path={lead ? parentOf(lead.path) : here}
           {...(lead ? { leaf: lead } : {})}

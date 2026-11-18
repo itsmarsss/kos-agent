@@ -19,6 +19,8 @@ export interface ToolbarProps {
   onView: (view: FinderView) => void;
   sort: Sort;
   onSort: (sort: Sort) => void;
+  /** The sort, offered in every view (the list's headers sort too), so the bar keeps its shape. */
+  sortable: boolean;
   /** Off where there is nothing to search: the trash. */
   searchable: boolean;
   query: string;
@@ -53,7 +55,7 @@ export function Toolbar(p: ToolbarProps): ReactElement {
       </div>
       <div className="finder-tools">
         {p.view && <Chips small label="View" options={p.views.map((v) => VIEW_CHOICES[v])} selected={p.view} onChoose={p.onView} />}
-        {p.view && p.view !== "list" && (
+        {p.sortable && (
           <Select
             className="finder-sortby"
             label="Sort by"

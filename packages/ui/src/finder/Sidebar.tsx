@@ -48,7 +48,7 @@ export function Sidebar({ place, go, top, projects, drop, over, dropOnTrash, tra
   return (
     <nav className="finder-side" aria-label="Locations">
       <p className="label finder-side-head">Favorites</p>
-      {folder(".", "Workspace", <NavIcon name="files" />)}
+      {folder(".", "Workspace", <FileIcon name="Workspace" kind="dir" size={15} />)}
       <Item label="Recents" icon={<ClockIcon />} current={place.kind === "recents"} onClick={() => go({ kind: "recents" })} />
       {top.includes("downloads") && folder("downloads", "Downloads", <DownloadIcon size={15} />)}
       {top.includes("uploads") && folder("uploads", "Uploads", <UploadIcon size={15} />)}

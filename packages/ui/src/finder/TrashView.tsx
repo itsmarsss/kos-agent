@@ -11,8 +11,9 @@ import { dateWords, parentOf, sizeWords } from "./model.js";
  * and Delete Immediately; Empty Trash asks once, in a dialog that says it
  * cannot be undone. Nothing leaves the trash any other way.
  */
-export function TrashView({ onChanged, onError, rootName }: { onChanged: () => void; onError: (text: string) => void; rootName: string }): ReactElement {
+export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged: () => void; onError: (text: string) => void; onCount: (n: number) => void; rootName: string }): ReactElement {
   const [items, setItems] = useState<TrashedFile[] | null>(null);
+  useEffect(() => onCount(items?.length ?? 0), [items, onCount]);
   const [asking, setAsking] = useState(false);
   const read = (): void => {
     void api
@@ -40,6 +41,12 @@ export function TrashView({ onChanged, onError, rootName }: { onChanged: () => v
       </div>
       {items && items.length > 0 && (
         <div className="finder-list" role="grid" aria-label="Trash">
+          <div className="finder-list-head finder-list-head--trash" role="row">
+            <span role="columnheader" className="finder-col finder-col--name">Name</span>
+            <span role="columnheader" className="finder-col">Date Trashed</span>
+            <span role="columnheader" className="finder-col finder-col--size">Size</span>
+            <span role="columnheader" className="finder-col" aria-label="Actions" />
+          </div>
           {items.map((item) => (
             <div key={item.id} role="row" className="finder-row finder-row--trash">
               <span role="gridcell" className="finder-col finder-col--name">
