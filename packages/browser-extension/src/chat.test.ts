@@ -20,6 +20,14 @@ describe("the side panel's chat", () => {
     expect(c).toMatchObject({ working: true, sending: ["Find the cheapest one"], taken: { said: "Find the cheapest one" } });
   });
 
+  it("takes the chat's mode as KOS shows it, and a KOS from before modes by its auto", () => {
+    const at = (m: Record<string, unknown>) => shown(EMPTY, { conversation: "c1", title: "Chrome", messages: [], ...m }).mode;
+    expect(at({ mode: { mode: "auto", until: "task", sessions: true }, auto: true })).toEqual({ mode: "auto", until: "task", sessions: true });
+    expect(at({ mode: { mode: "ask" }, auto: false })).toEqual({ mode: "ask" });
+    expect(at({ auto: true })).toEqual({ mode: "auto" });
+    expect(at({})).toEqual({ mode: "ask" });
+  });
+
   it("never waits on a command's own words in a chat it is already in", () => {
     for (const command of ["/stop", "/clear", "/new", "/switch 2"]) {
       const c = statused(sent({ ...EMPTY, conversation: "c1" }, command), taken(command, "c1"));

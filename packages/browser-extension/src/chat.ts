@@ -1,4 +1,4 @@
-import { CHAT_COMMANDS } from "@kos/shared";
+import { ASK, CHAT_COMMANDS, parseChatMode, type ChatMode } from "@kos/shared";
 
 import { keep, frameOf, picturesOf, type Pictured } from "./frames.js";
 import type { ConsentRequest } from "./worker.js";
@@ -76,8 +76,8 @@ export interface Chat {
   consent?: ConsentRequest;
   /** Words a failed turn never took, back for the owner to send again. */
   unsent?: string;
-  /** This chat acts in the owner's Chrome without asking each step. */
-  auto: boolean;
+  /** The chat's mode: Ask, or Auto within its bounds. */
+  mode: ChatMode;
   /** The steps' pictures, by frame id: sent as each step ran, and with the chat as it stands. */
   pictures: Map<number, Pictured>;
   /** The pictures of each turn on the go, by the owner's words it is about. */
@@ -88,7 +88,7 @@ export interface Chat {
   held: boolean;
 }
 
-export const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], stories: [], asks: [], auto: false, pictures: new Map(), live: [], held: false };
+export const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], stories: [], asks: [], mode: ASK, pictures: new Map(), live: [], held: false };
 export const STEP = "› ";
 /** How a story's step line ends once it finished, or failed (TurnNarrator's marks). */
 export const DONE = " (done)";
@@ -193,7 +193,8 @@ export function shown(c: Chat, message: Record<string, unknown>): Chat {
     ...(conversation !== null ? { upcoming: undefined, unshown: undefined } : {}),
     conversation,
     title: String(message["title"] ?? "Chrome"),
-    auto: message["auto"] === true,
+    // A KOS from before modes says only whether the chat acts alone.
+    mode: parseChatMode(message["mode"]) ?? (message["auto"] === true ? { mode: "auto" } : ASK),
     lines,
     sending,
     extras,
