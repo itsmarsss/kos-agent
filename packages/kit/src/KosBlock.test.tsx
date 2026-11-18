@@ -71,6 +71,11 @@ describe("a typed block in KOS's words", () => {
     click.mockRestore();
   });
 
+  it("marks only a value that opens on a time chip, so its words line up", () => {
+    const { container } = render(<Markdown text={"```kos:event\ntitle: Dinner\nwhen: <t:2026-11-21T19:30:f>\nwhere: Nopa, from <t:2026-11-21T19:00:t>\n```"} />);
+    expect([...container.querySelectorAll(".kblock-value--chip")].map((v) => v.parentElement?.previousElementSibling?.textContent)).toEqual(["When"]);
+  });
+
   it("ticks a checklist here only", () => {
     render(<Markdown text={"```kos:checklist\ntitle: Groceries\n---\n- [ ] milk\n- [x] eggs\nfrom the corner shop\n```"} />);
     const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];

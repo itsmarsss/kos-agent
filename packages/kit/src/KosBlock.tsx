@@ -217,7 +217,8 @@ export function KosBlockView({ block, closed = true, text }: { block: KosBlock; 
               <dt>{row.label}</dt>
               <dd>
                 {row.values.map((value, n) => (
-                  <span key={n} className="kblock-value">
+                  // One that opens on a time chip is marked, so the chip's padding hangs and its words line up.
+                  <span key={n} className={n === 0 && value.startsWith("<t:") ? "kblock-value kblock-value--chip" : "kblock-value"}>
                     {text.inline(value)}
                   </span>
                 ))}

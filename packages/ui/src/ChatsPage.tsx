@@ -10,8 +10,9 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { stepMechanics, summarizeAction } from "@kos/shared";
-import { ArchiveIcon, AskSteps, BlockActions, QuoteLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, AskSteps, type BlockActions, QuoteLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
+import { ChatWords } from "./ChatWords.js";
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
 
@@ -1315,14 +1316,7 @@ export function ChatsPage({
         {e.text && (
           <div className={`bubble bubble--${e.role}`}>
             {e.quote && <QuoteLine text={e.quote.text} from={e.quote.from} />}
-            {/* Only KOS's own words offer a block's Send: never the owner's, a guest's or a note's. */}
-            {e.role === "kos" ? (
-              <BlockActions.Provider value={blockActions}>
-                <Markdown text={e.text} />
-              </BlockActions.Provider>
-            ) : (
-              <Markdown text={e.text} />
-            )}
+            <ChatWords role={e.role} text={e.text} actions={blockActions} />
           </div>
         )}
         {e.origin && <OriginLine origin={e.origin} linkFor={roomLink} />}
@@ -2373,13 +2367,13 @@ export function ChatsPage({
                     {live.files && live.files.length > 0 && <AttachmentStrip items={live.files} />}
                   </div>
                 )}
+                {/* No BlockActions round a running turn: its steps carry the owner's own words too, and
+                    KOS's blocks offer Send once the reply is in the thread. */}
                 {live ? (
-                  <BlockActions.Provider value={blockActions}>
-                    <LiveTurn
-                      live={live}
-                      waiting={activeId !== undefined && (waitingOn.has(activeId) || active?.activity === "needs-you")}
-                    />
-                  </BlockActions.Provider>
+                  <LiveTurn
+                    live={live}
+                    waiting={activeId !== undefined && (waitingOn.has(activeId) || active?.activity === "needs-you")}
+                  />
                 ) : (
                   sendingIn === activeId && (
                     // The same markup a running turn uses, not a lookalike:
