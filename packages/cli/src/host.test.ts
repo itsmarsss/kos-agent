@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SurfaceDownError, type ChannelAdapter, type NotifyPayload } from "@kos/harness";
 
-import { dashboardUrlFor, PlaceNotifier, roomCursorsIn, surfaceUp, waitForPortFree, type PlaceNotifierDeps } from "./host.js";
+import { dashboardUrlFor, PlaceNotifier, roomCursorsIn, scrubOutput, surfaceUp, waitForPortFree, type PlaceNotifierDeps } from "./host.js";
 import { postSaid, type JobFacts, type Said } from "./saidpost.js";
 
 describe("waitForPortFree", () => {
@@ -301,5 +301,16 @@ describe("a scheduled run's message in its place", () => {
     await notifier.say(run("cron:7"), { text: "x" });
     notifier.turnStarted("cron:7");
     expect(notifier.saidItsPiece("cron:7")).toBe(false);
+  });
+});
+
+describe("scrubOutput", () => {
+  it("scrubs strings and bytes written to a stream", () => {
+    const written: unknown[] = [];
+    const stream = { write: (chunk: unknown) => written.push(chunk) > 0 } as unknown as NodeJS.WriteStream;
+    scrubOutput((text) => text.replaceAll("sk-log-canary", "[secret stripe]"), [stream]);
+    stream.write("key sk-log-canary\n");
+    stream.write(Buffer.from("bytes sk-log-canary\n"));
+    expect(written).toEqual(["key [secret stripe]\n", "bytes [secret stripe]\n"]);
   });
 });

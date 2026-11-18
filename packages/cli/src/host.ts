@@ -35,6 +35,9 @@ import {
   createDashboardSocket,
   handleApiRequest,
   isContained,
+  SecretsRegistry,
+  secretsRoutes,
+  Vault,
   saveWriteKey,
   writeKeyPath,
   createPressHandler,
@@ -371,6 +374,21 @@ export function keptStoriesIn(settings: { get<T>(key: string): T | undefined; se
   };
 }
 
+/**
+ * Every write to stdout and stderr scrubbed first: the host's log is a file
+ * the owner shares when something breaks. A value split across two writes
+ * is not caught; console lines are written whole.
+ */
+export function scrubOutput(scrub: (text: string) => string, streams: NodeJS.WriteStream[] = [process.stdout, process.stderr]): void {
+  for (const stream of streams) {
+    const write = stream.write.bind(stream) as (chunk: unknown, ...rest: unknown[]) => boolean;
+    stream.write = ((chunk: unknown, ...rest: unknown[]) => {
+      const text = typeof chunk === "string" ? chunk : chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf8") : undefined;
+      return write(text === undefined ? chunk : scrub(text), ...rest);
+    }) as NodeJS.WriteStream["write"];
+  }
+}
+
 export async function runHost(options: HostOptions): Promise<void> {
   keepRunning();
   // The port this host answers on, for the jail to keep every program it runs away from (sandbox/jail.ts kosPorts).
@@ -639,8 +657,22 @@ export async function runHost(options: HostOptions): Promise<void> {
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.
   const browserPort = Number(process.env.KOS_BROWSER_PORT ?? "");
 
+  /*
+   * The owner's vault (docs/secrets.md), outside the workspace, read through
+   * the same registry as the env file's keys: `{{secret:<handle>}}` resolves,
+   * and every value it holds is scrubbed from what KOS keeps and shows.
+   */
+  const vault = Vault.fromEnv(process.env, isContained());
+  const secrets = SecretsRegistry.fromEnv();
+  secrets.attachVault(vault);
+  const vaultState = vault.status();
+  if (vaultState.problem) console.error(`secrets: ${vaultState.problem}`);
+  // Whatever the host prints, to a terminal or daemon.log, carries no value either.
+  scrubOutput((text) => secrets.scrub(text));
+
   const kernel = await Kernel.boot({
     rootDir: options.rootDir,
+    secrets,
     allowedHosts: options.allowedHosts,
     // KOS's own address, however it is reached: the agent's fetches never come back to its API.
     ownHosts: () => [`${options.host}:${options.port}`, ...publicHostsOf(process.env.KOS_PUBLIC_URL)],
@@ -772,7 +804,15 @@ export async function runHost(options: HostOptions): Promise<void> {
     ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
     host: options.host,
     meta,
-    extensions: [computer.routes],
+    extensions: [
+      computer.routes,
+      secretsRoutes({
+        vault,
+        secrets: kernel.secrets,
+        uses: kernel.secretUses,
+        audit: (entry) => void kernel.audit.record({ ...entry, userId: kernel.profile.ownerId }),
+      }),
+    ],
     ...(sms
       ? {
           smsInbound: async ({ url, params, signature }) => {
