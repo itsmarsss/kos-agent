@@ -45,14 +45,18 @@ describe("scrubShapes leaves ordinary data alone", () => {
     for (const text of [`at ${stamp}`, `message ${snowflake}`, `<@${snowflake}>`]) expect(scrubShapes(text).text).toBe(text);
   });
 
-  it("keeps a bare JSON number, so JSON still parses", () => {
-    const json = JSON.stringify({ at: Number(stamp), n: Number(sixteen), list: [Number(sixteen)] });
-    expect(scrubShapes(json).text).toBe(json);
-    expect(() => JSON.parse(scrubShapes(json).text) as unknown).not.toThrow();
+  it("keeps bare JSON timestamps and ids, and turns a card there into a string, so JSON still parses", () => {
+    const json = `{"at":${stamp},"id":${snowflake},"n":${sixteen},"list":[${sixteen}]}`;
+    const out = scrubShapes(json).text;
+    const parsed = JSON.parse(out) as { at: number; id: number; n: string; list: string[] };
+    expect(out).toContain(`"at":${stamp}`);
+    expect(out).toContain(`"id":${snowflake}`);
+    expect(parsed.n).toBe(`[secret card ••${sixteen.slice(-4)}]`);
+    expect(parsed.list).toEqual([`[secret card ••${sixteen.slice(-4)}]`]);
   });
 
-  it("keeps a run inside an id or a longer number", () => {
-    for (const text of [`id_${sixteen}`, `x${sixteen}`, `${sixteen}abc`, `12-${sixteen}`, `${sixteen}.5`]) expect(scrubShapes(text).text).toBe(text);
+  it("keeps an unseparated run inside an id or a longer number", () => {
+    for (const text of [`id_${sixteen}`, `x${sixteen}`, `${sixteen}abc`, `9${sixteen}`]) expect(scrubShapes(text).text).toBe(text);
   });
 
   it("still masks a card standing alone, quoted, or written with new separators", () => {
@@ -62,5 +66,19 @@ describe("scrubShapes leaves ordinary data alone", () => {
       const written = sixteen.match(/.{4}/g)!.join(sep);
       expect(scrubShapes(`pay ${written} now`).text).toBe(`pay [secret card ••${sixteen.slice(-4)}] now`);
     }
+  });
+});
+
+describe("scrubShapes finds a card pasted with more around it", () => {
+  it.each([
+    ["an expiry after", "4111 1111 1111 1111 12/27", "[secret card ••1111] 12/27"],
+    ["a CVV after", "4111111111111111 123", "[secret card ••1111] 123"],
+    ["an expiry with no slash after", "4111-1111-1111-1111 0427", "[secret card ••1111] 0427"],
+    ["tabs", "4111\t1111\t1111\t1111\t12/27", "[secret card ••1111]\t12/27"],
+    ["a numbered list marker", "1. 4111 1111 1111 1111", "1. [secret card ••1111]"],
+    ["a hash list marker", "#2 4111 1111 1111 1111", "#2 [secret card ••1111]"],
+    ["an expiry before", "exp 12/27 4111 1111 1111 1111", "exp 12/27 [secret card ••1111]"],
+  ])("with %s", (_how, text, masked) => {
+    expect(scrubShapes(text).text).toBe(masked);
   });
 });
