@@ -5736,7 +5736,8 @@ a.health {
 .recall-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; margin-top: -0.3rem; color: var(--muted); font-size: var(--text-sm); }
 .recall-sub .chip-ref { max-width: 100%; }
 .recall-sub .chip-label { overflow-wrap: anywhere; }
-.recall-open { margin-left: auto; font-size: var(--text-sm); }
+.recall-open { margin-left: auto; color: var(--accent); font-size: var(--text-sm); text-decoration: none; }
+.recall-open:hover { text-decoration: underline; }
 .recall-find { flex: none; max-width: none; height: 1.9rem; }
 .recall-body { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .recall-groups { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.45rem 0.5rem 0.6rem; }

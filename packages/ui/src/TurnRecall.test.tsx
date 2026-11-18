@@ -39,6 +39,7 @@ describe("a claim's title", () => {
   it("reads the key in words, cased as the claim writes them", () => {
     expect(claimTitle("mef_calhacks_purchase", "Bought the MEF kit for CalHacks.").title).toBe("MEF CalHacks purchase");
     expect(claimTitle("deployTarget", "Deploys go to fly.io").title).toBe("Deploy target");
+    expect(claimTitle("cs341_midterm", "On December 4.").title).toBe("CS341 midterm");
   });
 
   it("does not take a capital that only starts a sentence", () => {
@@ -46,6 +47,7 @@ describe("a claim's title", () => {
   });
 
   it("is the first sentence when the key names nothing, the rest the body", () => {
+    expect(claimTitle("https://example.com/a/b", "The course outline. It has the late policy.").title).toBe("The course outline.");
     expect(claimTitle("note_3", "Office hours moved to Thursday. Bring the lab report.")).toEqual({ title: "Office hours moved to Thursday.", body: "Bring the lab report." });
   });
 });

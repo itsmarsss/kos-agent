@@ -66,9 +66,13 @@ function casedLike(word: string, text: string): string | null {
 /**
  * A claim's title and body: its key in words ("mef_calhacks_purchase" reads
  * "MEF CalHacks purchase") over the claim, or the claim's first sentence
- * over the rest when the key names nothing (an id, "note_3").
+ * over the rest when the key names nothing (an id, "note_3", a link).
  */
 export function claimTitle(key: string, value: string): { title: string; body: string } {
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(key)) {
+    const [title, body] = splitSentence(value);
+    return { title, body };
+  }
   const words = key
     .replace(/([a-z\d])([A-Z])/g, "$1 $2")
     .split(/[\s_.:/-]+/)
@@ -82,6 +86,8 @@ export function claimTitle(key: string, value: string): { title: string; body: s
     .map((w, i) => {
       const cased = casedLike(w, value);
       if (cased) return cased;
+      // A course or a model code ("cs341", "m3") is written in capitals.
+      if (/^\p{L}{1,4}\d+$/u.test(w)) return w.toUpperCase();
       const lower = w.toLowerCase();
       return i === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
     })
