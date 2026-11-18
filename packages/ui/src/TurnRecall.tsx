@@ -1,7 +1,7 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement, type RefObject } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactElement, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
-import { CloseIcon, Count, Empty, IconButton, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useOverlayScroll } from "@kos/kit";
+import { CloseIcon, Count, Empty, IconButton, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useFocusTrap, useOverlayScroll } from "@kos/kit";
 
 import type { TurnRecall as Recall } from "./api.js";
 import { useEdgeFade } from "./edgefade.js";
@@ -44,7 +44,7 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 /** A text's first sentence, and what follows it. */
 function splitSentence(text: string): [string, string] {
-  const m = /^(.+?[.!?])\s+(\S[\s\S]*)$/.exec(text.trim());
+  const m = /^([\s\S]+?[.!?])\s+(\S[\s\S]*)$/.exec(text.trim());
   return m?.[1] && m[2] ? [m[1], m[2]] : [text.trim(), ""];
 }
 
@@ -151,12 +151,15 @@ function memoryHref(recalled: Recall): string {
 }
 
 export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | null {
-  const [open, setOpen] = useState(false);
+  // Open for the recall it was opened on: the next turn's, or none, shuts it.
+  const [openAt, setOpenAt] = useState<number | null>(null);
+  const open = openAt === recalled.at;
   const wrap = useRef<HTMLDivElement>(null);
   const chip = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
+  const leave = (): void => setOpenAt(null);
   const close = (): void => {
-    setOpen(false);
+    leave();
     chip.current?.focus();
   };
   useDismiss(open, close, { inside: [wrap, pop] });
@@ -180,12 +183,12 @@ export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | n
         className={`recall-chip${open ? " is-open" : ""}`}
         aria-expanded={open}
         aria-haspopup="dialog"
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={() => (open ? close() : setOpenAt(recalled.at))}
         title="What the last turn was given from memory"
       >
         memory: {counts}
       </button>
-      {open && createPortal(<RecallPanel recalled={recalled} counts={counts} anchor={chip} pop={pop} onClose={close} />, document.body)}
+      {open && createPortal(<RecallPanel recalled={recalled} counts={counts} anchor={chip} wrap={wrap} pop={pop} onClose={close} onLeave={leave} />, document.body)}
     </div>
   );
 }
@@ -217,8 +220,33 @@ function usePlacement(anchor: RefObject<HTMLElement | null>): CSSProperties {
   return style;
 }
 
-function RecallPanel({ recalled, counts, anchor, pop, onClose }: { recalled: Recall; counts: string; anchor: RefObject<HTMLElement | null>; pop: RefObject<HTMLDivElement | null>; onClose: () => void }): ReactElement {
+/** Whether the window answers a media query, false where it cannot be asked. */
+const media = (query: string): boolean => typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+
+function RecallPanel({
+  recalled,
+  counts,
+  anchor,
+  wrap,
+  pop,
+  onClose,
+  onLeave,
+}: {
+  recalled: Recall;
+  counts: string;
+  anchor: RefObject<HTMLElement | null>;
+  /** The chip's own box: the focus going there is not leaving. */
+  wrap: RefObject<HTMLElement | null>;
+  pop: RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+  /** Closes without taking the focus back: it has gone somewhere else. */
+  onLeave: () => void;
+}): ReactElement {
   const titleId = useId();
+  // A phone's sheet (styles.css) holds the focus as a dialog does; a touch screen's filter would raise its keyboard.
+  const [sheet] = useState(() => media("(max-width: 640px)"));
+  const [touch] = useState(() => sheet || media("(pointer: coarse)"));
+  useFocusTrap(pop, sheet);
   const style = usePlacement(anchor);
   const fade = useEdgeFade<HTMLDivElement>(undefined, "y");
   const scroller = useOverlayScroll(fade);
@@ -229,10 +257,18 @@ function RecallPanel({ recalled, counts, anchor, pop, onClose }: { recalled: Rec
   const total = recalled.facts.length + recalled.events.length;
   const shown = useMemo(() => groups.map((g) => ({ ...g, items: g.items.filter((i) => itemMatches(i, query)) })).filter((g) => g.items.length > 0), [groups, query]);
 
-  // The focus goes in with the panel, to the filter when there is one, so the keys work at once.
+  // The focus goes in with the panel so the keys work at once: to the filter, or on a touch screen to the first row.
   useLayoutEffect(() => {
-    pop.current?.querySelector<HTMLElement>(".recall-find input, .recall-item")?.focus({ preventScroll: true });
-  }, [pop]);
+    const first = pop.current?.querySelector<HTMLElement>(touch ? ".recall-toggle" : ".recall-find input, .recall-toggle");
+    (first ?? pop.current)?.focus({ preventScroll: true });
+  }, [pop, touch]);
+
+  /** Tabbing out of the panel on a desktop is leaving it, as pressing away is. */
+  const blurred = (e: FocusEvent<HTMLDivElement>): void => {
+    const to = e.relatedTarget;
+    if (sheet || !(to instanceof Node) || pop.current?.contains(to) || wrap.current?.contains(to)) return;
+    onLeave();
+  };
 
   const toggle = (id: string): void =>
     setExpanded((s) => {
@@ -244,8 +280,8 @@ function RecallPanel({ recalled, counts, anchor, pop, onClose }: { recalled: Rec
   /** Up and down move between the filter and the rows; Home and End, from a row, go to the first and the last. */
   const rove = (e: KeyboardEvent<HTMLDivElement>): void => {
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
-    const stops = [...e.currentTarget.querySelectorAll<HTMLElement>(".recall-find input, .recall-item")];
-    const rows = stops.filter((s) => s.classList.contains("recall-item"));
+    const stops = [...e.currentTarget.querySelectorAll<HTMLElement>(".recall-find input, .recall-toggle")];
+    const rows = stops.filter((s) => s.classList.contains("recall-toggle"));
     const at = stops.indexOf(document.activeElement as HTMLElement);
     const inRow = rows.includes(document.activeElement as HTMLElement);
     const next =
@@ -261,7 +297,7 @@ function RecallPanel({ recalled, counts, anchor, pop, onClose }: { recalled: Rec
   return (
     <>
       <div className="recall-scrim" aria-hidden="true" />
-      <div className="kos-pop recall-pop" ref={pop} style={style} role="dialog" aria-labelledby={titleId} onKeyDown={rove}>
+      <div className="kos-pop recall-pop" ref={pop} style={style} role="dialog" aria-modal={sheet || undefined} aria-labelledby={titleId} tabIndex={-1} onKeyDown={rove} onBlur={blurred}>
         <header className="recall-head">
           <div className="recall-head-top">
             <h2 className="recall-title" id={titleId}>
@@ -319,53 +355,59 @@ function RecallPanel({ recalled, counts, anchor, pop, onClose }: { recalled: Rec
   );
 }
 
-/** One claim or moment: a line of title and tags over its words, two lines of them until it is opened. */
+/**
+ * One claim or moment: a line of title and tags over its words, two lines of
+ * them until it is opened. The title line opens it, so the words can be
+ * selected and copied.
+ */
 function RecallRow({ item, scoped, open, onToggle }: { item: RecallItem; scoped: boolean; open: boolean; onToggle: () => void }): ReactElement {
   const pinned = item.kind === "claim" && item.fact.pinned;
+  const text = item.kind === "claim" ? item.body : item.moment.text;
   return (
     <li className={`recall-row${pinned ? " is-pinned" : ""}${open ? " is-open" : ""}`}>
-      <button type="button" className="recall-item" aria-expanded={open} onClick={onToggle}>
-        {item.kind === "claim" ? <ClaimWords item={item} scoped={scoped} /> : <MomentWords moment={item.moment} />}
+      <div className="recall-item">
+        <button type="button" className="recall-toggle" aria-expanded={open} onClick={onToggle}>
+          {item.kind === "claim" ? <ClaimHead item={item} scoped={scoped} /> : <MomentHead moment={item.moment} />}
+        </button>
+        {text && <p className="recall-item-text">{text}</p>}
         {open && item.kind === "claim" && <code className="recall-key">{item.fact.key}</code>}
-      </button>
+      </div>
     </li>
   );
 }
 
-function ClaimWords({ item, scoped }: { item: Extract<RecallItem, { kind: "claim" }>; scoped: boolean }): ReactElement {
+function ClaimHead({ item, scoped }: { item: Extract<RecallItem, { kind: "claim" }>; scoped: boolean }): ReactElement {
   const { fact } = item;
   const [source, sourceTitle] = SOURCES[fact.trust] ?? [fact.trust, `Trust: ${fact.trust}`];
   return (
     <>
-      <span className="recall-item-head">
-        {fact.pinned && (
-          <span className="recall-pin">
-            <PinIcon size={12} title="Pinned: in every turn" />
-          </span>
-        )}
-        <span className="recall-item-title">{item.title}</span>
-        <span className="recall-tags">
-          {scoped && <Tag title="Where this claim applies">{describeScope(fact.scope)}</Tag>}
-          <Tag title={sourceTitle}>{source}</Tag>
+      {fact.pinned && (
+        <span className="recall-pin">
+          <PinIcon size={12} title="Pinned: in every turn" />
         </span>
+      )}
+      <span className="recall-item-title">{item.title}</span>
+      <span className="recall-tags">
+        {scoped && <Tag title="Where this claim applies">{describeScope(fact.scope)}</Tag>}
+        <Tag title={sourceTitle}>{source}</Tag>
       </span>
-      {item.body && <span className="recall-item-text">{item.body}</span>}
     </>
   );
 }
 
-function MomentWords({ moment }: { moment: Moment }): ReactElement {
+function MomentHead({ moment }: { moment: Moment }): ReactElement {
+  const when = new Date(moment.ts);
   return (
     <>
-      <span className="recall-item-head">
-        <span className="recall-item-title">{roleWord(moment.role)} said</span>
+      <span className="recall-item-title">{roleWord(moment.role)} said</span>
+      {/* A moment whose time was lost says nothing of when rather than "Invalid Date". */}
+      {Number.isFinite(when.getTime()) && (
         <span className="recall-tags">
-          <time className="recall-when" dateTime={new Date(moment.ts).toISOString()} title={new Date(moment.ts).toLocaleString()}>
+          <time className="recall-when" dateTime={when.toISOString()} title={when.toLocaleString()}>
             {agoWords(moment.ts)}
           </time>
         </span>
-      </span>
-      <span className="recall-item-text">{moment.text}</span>
+      )}
     </>
   );
 }

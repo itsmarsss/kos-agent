@@ -48,6 +48,7 @@ describe("a claim's title", () => {
 
   it("is the first sentence when the key names nothing, the rest the body", () => {
     expect(claimTitle("https://example.com/a/b", "The course outline. It has the late policy.").title).toBe("The course outline.");
+    expect(claimTitle("note_9", "Moved the\nmeeting. To Friday.")).toEqual({ title: "Moved the\nmeeting.", body: "To Friday." });
     expect(claimTitle("note_3", "Office hours moved to Thursday. Bring the lab report.")).toEqual({ title: "Office hours moved to Thursday.", body: "Bring the lab report." });
   });
 });
@@ -97,13 +98,16 @@ describe("what the last turn was given from memory", () => {
   it("clamps a claim's words until it is opened, then shows them whole with its key", () => {
     const dialog = open(school);
     const row = within(dialog).getByRole("button", { name: /MEF CalHacks purchase/ });
+    const item = row.closest("li")!;
     expect(row.getAttribute("aria-expanded")).toBe("false");
-    expect(row.closest("li")!.classList.contains("is-open")).toBe(false);
-    expect(within(row).queryByText("mef_calhacks_purchase")).toBeNull();
+    expect(item.classList.contains("is-open")).toBe(false);
+    expect(within(item).queryByText("mef_calhacks_purchase")).toBeNull();
+    // The words are not part of the toggle, so they can be selected.
+    expect(row.contains(within(item).getByText(/Bought the MEF kit/))).toBe(false);
     fireEvent.click(row);
     expect(row.getAttribute("aria-expanded")).toBe("true");
-    expect(row.closest("li")!.classList.contains("is-open")).toBe(true);
-    expect(within(row).getByText("mef_calhacks_purchase")).toBeTruthy();
+    expect(item.classList.contains("is-open")).toBe(true);
+    expect(within(item).getByText("mef_calhacks_purchase")).toBeTruthy();
     fireEvent.click(row);
     expect(row.getAttribute("aria-expanded")).toBe("false");
   });
@@ -173,6 +177,50 @@ describe("what the last turn was given from memory", () => {
     } finally {
       rect.mockRestore();
     }
+  });
+
+  it("closes when the focus leaves it on a desktop", () => {
+    render(
+      <>
+        <TurnRecall recalled={school} />
+        <button type="button">elsewhere</button>
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^memory:/ }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBeNull();
+    fireEvent.blur(within(dialog).getAllByRole("button", { name: /Owner|Name/ })[0]!, { relatedTarget: screen.getByRole("button", { name: /^memory:/ }) });
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+    fireEvent.blur(dialog, { relatedTarget: screen.getByRole("button", { name: "elsewhere" }) });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("is a modal sheet on a phone, its focus on the first row rather than the filter", () => {
+    const matchMedia = vi.fn((q: string) => ({ matches: q === "(max-width: 640px)" }));
+    vi.stubGlobal("matchMedia", matchMedia);
+    try {
+      const dialog = open(many(8));
+      expect(dialog.getAttribute("aria-modal")).toBe("true");
+      expect(document.activeElement).toBe(within(dialog).getAllByRole("button", { name: /^Topic/ })[0]);
+      fireEvent.blur(dialog, { relatedTarget: document.body });
+      expect(screen.queryByRole("dialog")).not.toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.stubGlobal("ResizeObserver", class { observe(): void {} unobserve(): void {} disconnect(): void {} });
+    }
+  });
+
+  it("shuts when the next turn's memory comes, and says nothing of a lost time", () => {
+    const { rerender } = render(<TurnRecall recalled={school} />);
+    fireEvent.click(screen.getByRole("button", { name: /^memory:/ }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    rerender(<TurnRecall recalled={{ at: 2, projectSlug: null, facts: [], events: [] }} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    rerender(<TurnRecall recalled={{ at: 3, projectSlug: null, facts: [], events: [{ id: 1, role: "owner", text: "hi", ts: Number.NaN }] }} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^memory:/ }));
+    expect(screen.getByRole("dialog").querySelector("time")).toBeNull();
+    expect(screen.getByText("You said")).toBeTruthy();
   });
 
   it("says so when nothing matched", () => {
