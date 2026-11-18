@@ -26,7 +26,7 @@ describe("beyondAutoByName", () => {
 
 describe("beyondAutoRule", () => {
   it("holds back what deletes for good or changes KOS itself", () => {
-    for (const tool of ["systems.project_delete", "chats.delete", "blobs.remove", "daemons.remove", "discord.prune", "skills.commit", "skills.promote", "modules.instantiate"]) {
+    for (const tool of ["systems.project_delete", "chats.delete", "blobs.remove", "daemons.remove", "discord.prune", "skills.commit", "skills.promote", "modules.instantiate", "modules.create", "modules.promote", "daemons.create", "daemons.start", "sites.create", "cron.schedule", "discord.role", "discord.react"]) {
       expect(beyondAutoRule(tool, {}), tool).toBeTruthy();
     }
   });

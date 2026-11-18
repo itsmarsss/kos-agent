@@ -19,7 +19,7 @@ export function beyondAutoByName(name: string): string | false {
   return false;
 }
 
-/** KOS's own tools that undo something for good, or change what KOS itself is: never under Auto. */
+/** KOS's own tools that undo something for good, change what KOS itself is, run on without the owner, or speak in public: never under Auto. */
 const PERMANENT: Record<string, string> = {
   "systems.project_delete": "deletes a project for good",
   "chats.delete": "deletes a chat for good",
@@ -29,6 +29,15 @@ const PERMANENT: Record<string, string> = {
   "skills.commit": "commits code KOS runs from now on",
   "skills.promote": "makes a skill part of KOS",
   "modules.instantiate": "adds a module to KOS",
+  "modules.create": "writes a module KOS loads",
+  "modules.promote": "makes a module part of KOS",
+  "daemons.create": "sets up a program that keeps running",
+  "daemons.start": "starts a program that keeps running",
+  "sites.create": "publishes a site",
+  "cron.schedule": "schedules work that runs later without you",
+  // Seen by everyone on the server: a role hands out access, a reaction speaks in public.
+  "discord.role": "makes a role that hands out access on the server",
+  "discord.react": "reacts in public on the server",
 };
 
 /**

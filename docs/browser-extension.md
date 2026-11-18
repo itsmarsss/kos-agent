@@ -370,8 +370,11 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
 - a message to anyone but the owner (`notify` to a channel or a user) and
   opening a place to others (`discord.audience` past the owner,
   `discord.access`);
-- changing KOS itself: `skills.commit`, `skills.promote`,
-  `modules.instantiate`;
+- changing KOS itself or what runs without the owner: `skills.commit`,
+  `skills.promote`, `modules.instantiate`, `modules.create`,
+  `modules.promote`, `daemons.create`, `daemons.start`, `sites.create`,
+  `cron.schedule`;
+- speaking in public on the server: `discord.react`, `discord.role`;
 - `browser.eval` and `browser.handoff`;
 - typing on a computer after it reported a password field, until a click
   or key there goes through;
