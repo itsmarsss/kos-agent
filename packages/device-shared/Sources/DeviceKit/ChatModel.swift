@@ -1,4 +1,5 @@
 import Foundation
+import DeviceCore
 
 /// The chat in KOS for Mac's window, as it stands and as it goes: what KOS
 /// last showed, the owner's words on their way, the running turn's steps,
@@ -216,7 +217,8 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var asks: [Ask] = []
   @Published public private(set) var chats: [Pick] = []
   @Published public private(set) var models: Models?
-  @Published public private(set) var auto = false
+  /// The chat's mode as KOS last showed it; `live(now:)` reads an Auto whose time ran out as Ask.
+  @Published public private(set) var mode = ChatMode.ask
   @Published public var error: String?
   /// What the box holds: typed, or words KOS never took, given back.
   @Published public var draft = "" {
@@ -269,7 +271,8 @@ public final class ChatModel: ObservableObject {
   public var list: () -> Void = {}
   public var switchTo: (String) -> Void = { _ in }
   public var chooseModel: (String) -> Void = { _ in }
-  public var setAuto: (Bool) -> Void = { _ in }
+  /// Sets the chat's mode on KOS, which shows it back.
+  public var setMode: (ChatMode) -> Void = { _ in }
   public var close: () -> Void = {}
   public var chooseKOS: (String) -> Void = { _ in }
   /// What an @ may name, by the start of it.
@@ -282,6 +285,17 @@ public final class ChatModel: ObservableObject {
   public init() {}
 
   // MARK: The owner
+
+  /// The owner set the chat's mode: drawn at once, and told to KOS, which shows it back as it keeps it.
+  public func choose(_ mode: ChatMode) {
+    self.mode = mode
+    setMode(mode)
+  }
+
+  /// A press on the chip or Shift+Tab: Ask to Auto with no bounds, Auto (or one whose time ran out) back round.
+  public func cycleMode(now: Date = Date()) {
+    choose(mode.live(now: now).cycled)
+  }
 
   /// The owner's words. A command (/new) is never in the chat's words, so it waits for nothing but its answer.
   public func say(_ text: String) {
@@ -336,7 +350,7 @@ public final class ChatModel: ObservableObject {
   /// to the first: the chat a status named them in, or, before any did, the first one shown. An ask made in the chat now
   /// shown stays, though it came
   /// before it was: the first chat's first turn can ask while the window still shows none.
-  public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false, pictures: [Int: String] = [:]) {
+  public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, mode: ChatMode = .ask, pictures: [Int: String] = [:]) {
     let fresh = conversation != self.conversation
     // Words sent while no chat was shown are on their way to the chat they went in, what their turn saw with them.
     let theirs = self.conversation == nil && (upcoming.map { $0 == conversation } ?? unshown)
@@ -375,7 +389,7 @@ public final class ChatModel: ObservableObject {
     }
     self.title = title
     self.lines = lines
-    self.auto = auto
+    self.mode = mode
   }
 
   /// A turn as it goes, for the owner's words `said` in `conversation`. `story` is `.some(nil)` when KOS said the turn is done.
@@ -592,7 +606,7 @@ public final class ChatModel: ObservableObject {
     asks = []
     chats = []
     models = nil
-    auto = false
+    mode = .ask
     error = nil
   }
 

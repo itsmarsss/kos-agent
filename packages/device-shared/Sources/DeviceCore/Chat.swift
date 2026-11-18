@@ -67,10 +67,17 @@ public struct ChatShow: Decodable, Equatable, Sendable {
   public let title: String
   public let messages: [ChatMessage]
   public let notice: ChatNotice?
-  /// Whether this chat acts without asking each step.
+  /// The chat's mode, as KOS keeps it.
+  public let mode: ChatMode?
+  /// Whether this chat is in Auto, from a KOS before modes.
   public let auto: Bool?
   /// The newest steps' pictures, base64 JPEG by frame id.
   public let pictures: [String: String]?
+
+  /// The mode to draw: KOS's, or what a KOS before modes said of Auto.
+  public var chatMode: ChatMode {
+    mode ?? (auto == true ? ChatMode(.auto) : .ask)
+  }
 }
 
 /// What a running turn waits on the owner for: a session asked on this Mac, or an approval.
@@ -262,7 +269,8 @@ public enum ChatEvent: Sendable {
   case switchTo(conversation: String)
   case models
   case model(String)
-  case auto(Bool)
+  /// The chat's mode, set by the owner here.
+  case mode(ChatMode)
   /// What is running, failing and next across KOS, asked by a phone (docs/computer.md, Glance).
   case glance
   /// The owner's artifacts to pick from, and one drawn in this theme, asked by a phone (docs/computer.md, Artifacts).
@@ -288,7 +296,7 @@ public enum ChatEvent: Sendable {
     case .switchTo(let conversation): return try Outbound.chatEvent("chat.switch", data: Switch(conversation: conversation))
     case .models: return try Outbound.chatEvent("chat.models", data: Empty())
     case .model(let model): return try Outbound.chatEvent("chat.model", data: Model(model: model))
-    case .auto(let on): return try Outbound.chatEvent("chat.auto", data: Auto(on: on))
+    case .mode(let mode): return try Outbound.chatEvent("chat.mode", data: mode)
     case .glance: return try Outbound.chatEvent("chat.glance", data: Empty())
     case .artifacts: return try Outbound.chatEvent("chat.artifacts", data: Empty())
     case .artifact(let id, let theme): return try Outbound.chatEvent("chat.artifact", data: Open(id: id, theme: theme))
@@ -323,5 +331,4 @@ public enum ChatEvent: Sendable {
   }
   private struct Switch: Encodable { let conversation: String }
   private struct Model: Encodable { let model: String }
-  private struct Auto: Encodable { let on: Bool }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import DeviceCore
 
 @testable import DeviceKit
 
@@ -534,5 +535,22 @@ struct ChatModelTests {
     #expect(secondsLeft(until: now.addingTimeInterval(41.2), now: now) == "42s")
     #expect(secondsLeft(until: now.addingTimeInterval(125), now: now) == "2m 05s")
     #expect(secondsLeft(until: now.addingTimeInterval(-3), now: now) == "0s")
+  }
+
+  /// The chip sets the mode at once and tells KOS; KOS's showing of it is what stands, and an Auto run out cycles as Ask.
+  @Test func theModeIsSetHereAndShownBackByKOS() {
+    let model = ChatModel()
+    var told: [ChatMode] = []
+    model.setMode = { told.append($0) }
+    model.cycleMode()
+    #expect(model.mode == ChatMode(.auto))
+    model.cycleMode()
+    #expect(model.mode == .ask)
+    let now = Date()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [], mode: ChatMode(.auto, until: .at(now.addingTimeInterval(-60))))
+    model.cycleMode(now: now)
+    #expect(told == [ChatMode(.auto), .ask, ChatMode(.auto)])
+    model.show(conversation: "mac:owner", title: "Mac", lines: [], mode: ChatMode(.auto, until: .task, sessions: true))
+    #expect(model.mode == ChatMode(.auto, until: .task, sessions: true))
   }
 }
