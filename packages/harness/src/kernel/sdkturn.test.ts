@@ -97,4 +97,20 @@ describe("a turn on the SDK engine", () => {
     const stored = kernel.sessions.get(chat).map(shape);
     expect(stored).toEqual(["user go", "use sdk-t-1", "result sdk-t-1", `assistant ${SDK_FAILED} the SDK process exited`]);
   });
+
+  it("holds a line for the chat while its turn waits on the owner, and writes it after the turn", async () => {
+    sdk.run = async (o) => {
+      o.onCall?.(call(1));
+      await o.tools.execute("files.rm", { path: "notes.md" });
+      return answer([call(1)], "Left it.");
+    };
+    const first = await turn("tidy up");
+    expect(first.suspended).toBe(true);
+    kernel.noteIn(chat, "The backup finished.");
+    expect(kernel.sessions.get(chat).map(shape)).toEqual(["user tidy up", "use sdk-t-1", "result sdk-t-1"]);
+    const ask = kernel.approvals.pending().find((a) => a.conversationId === chat)!;
+    await kernel.deny(ask.id, "owner");
+    await vi.waitFor(() => expect(kernel.sessions.get(chat).map(shape).at(-1)).toBe("assistant The backup finished."));
+    expect(kernel.sessions.get(chat).map(shape)).toEqual(["user tidy up", "use sdk-t-1", "result sdk-t-1", "assistant Left it.", "assistant The backup finished."]);
+  });
 });

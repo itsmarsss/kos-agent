@@ -1956,8 +1956,8 @@ export class Kernel {
     this.ownerSaid.delete(sessionId);
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
     this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
-    // News that arrived while the transcript was being written goes in now.
-    const held = this.heldNotes.get(sessionId);
+    // News that arrived while the transcript was being written goes in now, once no turn there is still writing it.
+    const held = this.stops.has(sessionId) ? undefined : this.heldNotes.get(sessionId);
     if (held) {
       this.heldNotes.delete(sessionId);
       this.writeNote(sessionId, held);
@@ -2049,7 +2049,9 @@ export class Kernel {
 
   /** Messages for a chat's transcript, held while a turn there is writing it. */
   private keepIn(conversationId: string, messages: ModelMessage[]): void {
-    if (this.working.has(conversationId)) {
+    // A turn held on an approval is not working, but it is still writing its steps: a line between them would cut
+    // its steps in two, the first half drawn again under the live ones.
+    if (this.working.has(conversationId) || this.stops.has(conversationId)) {
       this.heldNotes.set(conversationId, [...(this.heldNotes.get(conversationId) ?? []), ...messages]);
       return;
     }

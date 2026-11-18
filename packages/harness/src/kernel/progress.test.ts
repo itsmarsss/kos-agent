@@ -116,6 +116,23 @@ describe("what a reader who arrives mid-turn is told", () => {
     expect(deltas.at(-1)!.text).toBe("Next.");
   });
 
+  it("keeps a step's input whole when small, its long words cut, and none when still too big", () => {
+    const bus = new ProgressBus();
+    const live: ProgressEvent[] = [];
+    bus.subscribe((e) => live.push(e));
+    bus.emit({ kind: "turn-start", conversationId: "c1" });
+    const big = "x".repeat(10_000);
+    bus.emit({ kind: "tool-start", conversationId: "c1", tool: "files.read", summary: "Read a", input: { path: "a.md" } });
+    bus.emit({ kind: "tool-start", conversationId: "c1", tool: "files.write", summary: "Write b", input: { path: "b.md", content: big } });
+    bus.emit({ kind: "tool-start", conversationId: "c1", tool: "x.y", summary: "Many", input: Object.fromEntries(Array.from({ length: 400 }, (_, i) => [`k${i}`, i])) });
+    const starts = bus.snapshot().filter((e): e is Extract<ProgressEvent, { kind: "tool-start" }> => e.kind === "tool-start");
+    expect(starts[0]!.input).toEqual({ path: "a.md" });
+    expect(starts[1]!.input).toEqual({ path: "b.md", content: `${"x".repeat(500)}…` });
+    expect(starts[2]!.input).toBeUndefined();
+    // A reader watching as it happens still gets each whole.
+    expect((live[2] as { input?: { content?: string } }).input?.content).toBe(big);
+  });
+
   it("stamps when a turn began, so a reader joining later keeps its clock", () => {
     const bus = new ProgressBus();
     const seen: ProgressEvent[] = [];

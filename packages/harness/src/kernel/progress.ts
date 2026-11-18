@@ -133,6 +133,17 @@ export type ProgressListener = (event: ProgressEvent) => void;
  * as one entry, and past this the oldest words go first.
  */
 const MAX_REPLAY_TEXT = 40_000;
+/** How much of a call's input a replayed step keeps: a file being written is words too. */
+const MAX_REPLAY_INPUT = 2_000;
+
+/** A step's input as a replay keeps it: whole when small, each long string cut, and none past that. */
+function replayedInput(input: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (JSON.stringify(input).length <= MAX_REPLAY_INPUT) return input;
+  const cut = Object.fromEntries(
+    Object.entries(input).map(([k, v]) => [k, typeof v === "string" && v.length > MAX_REPLAY_INPUT / 4 ? `${v.slice(0, MAX_REPLAY_INPUT / 4)}…` : v]),
+  );
+  return JSON.stringify(cut).length <= MAX_REPLAY_INPUT ? cut : undefined;
+}
 
 /**
  * A fan-out that remembers the turn currently in flight.
@@ -186,6 +197,12 @@ export class ProgressBus {
     }
     const kept = this.inFlight.get(id);
     if (!kept) return;
+    if (event.kind === "tool-start" && event.input) {
+      const { input, ...step } = event;
+      const short = replayedInput(input);
+      kept.push(short ? { ...step, input: short } : step);
+      return;
+    }
     if (event.kind !== "delta") {
       kept.push(event);
       return;
