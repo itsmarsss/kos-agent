@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { needlesOf, Scrubber, scrubDeep } from "./scrub.js";
+import { needlesOf, Scrubber, scrubDeep, STREAM_REACH } from "./scrub.js";
 import { SecretsRegistry } from "./secrets.js";
 
 /** A made-up key with characters every encoding treats differently. */
@@ -58,9 +58,12 @@ describe("Scrubber", () => {
     expect(both.scrub("xx abcdefghi yy")).toBe("xx [secret a] yy");
   });
 
-  it("knows its longest needle", () => {
-    expect(new Scrubber([["a", "abcdef"]]).longest).toBe(Buffer.from("abcdef").toString("hex").length);
-    expect(new Scrubber([]).longest).toBe(0);
+  it("holds back one less than its longest needle, an encoding counted only up to the stream's reach", () => {
+    expect(new Scrubber([["a", "abcdef"]]).holdBack).toBe(Buffer.from("abcdef").toString("hex").length - 1);
+    expect(new Scrubber([]).holdBack).toBe(0);
+    // A long value's hex would hold back twice its length; only the value itself counts past the reach.
+    expect(new Scrubber([["k", "k".repeat(200)]]).holdBack).toBe(STREAM_REACH - 1);
+    expect(new Scrubber([["pem", "p".repeat(400)]]).holdBack).toBe(399);
   });
 
   it("counts what it took, by name", () => {

@@ -17,6 +17,9 @@
 /** Values shorter than this are not scanned for: they would match ordinary text. */
 export const MIN_SCANNED = 6;
 
+/** Past this, a stream holds back only enough for a value as it is or JSON-escaped, not its longer encodings. */
+export const STREAM_REACH = 256;
+
 /** What a found value is replaced with. */
 export function scrubbedLabel(name: string): string {
   return `[secret ${name}]`;
@@ -172,19 +175,28 @@ class Automaton {
  */
 export class Scrubber {
   private readonly automaton: Automaton | undefined;
-  /** The longest needle, so a stream can hold back enough to never split one. */
-  readonly longest: number;
+  /**
+   * How much of a stream to hold back so no value is split between two of
+   * its pieces: one less than the longest needle, an encoded form counted
+   * only up to STREAM_REACH, a value as it is or JSON-escaped in full.
+   */
+  readonly holdBack: number;
 
   constructor(
     values: Iterable<[name: string, value: string]>,
     private readonly onHit: (name: string, count: number) => void = () => undefined,
   ) {
     const needles: Needle[] = [];
+    let reach = 0;
     for (const [name, value] of values) {
-      for (const text of needlesOf(value)) needles.push({ text, name });
+      const plain = [value, JSON.stringify(value).slice(1, -1)];
+      for (const text of needlesOf(value)) {
+        needles.push({ text, name });
+        reach = Math.max(reach, plain.includes(text) ? text.length : Math.min(text.length, STREAM_REACH));
+      }
     }
     this.automaton = needles.length > 0 ? new Automaton(needles) : undefined;
-    this.longest = Math.max(0, ...needles.map((needle) => needle.text.length));
+    this.holdBack = Math.max(0, reach - 1);
   }
 
   /** `text` with every known value, in any form looked for, replaced by `[secret <name>]`. */

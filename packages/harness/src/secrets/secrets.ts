@@ -170,9 +170,9 @@ export class SecretsRegistry {
     return this.scrubberNow().scrub(text);
   }
 
-  /** The longest text the scrubber looks for: a stream holds back one less than this, so no value is split across pieces. */
-  longestScanned(): number {
-    return this.scrubberNow().longest;
+  /** How much of a stream to hold back so no value is split across its pieces; see Scrubber.holdBack. */
+  holdBack(): number {
+    return this.scrubberNow().holdBack;
   }
 
   /**

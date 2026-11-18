@@ -128,10 +128,10 @@ export type ProgressEvent =
 
 export type ProgressListener = (event: ProgressEvent) => void;
 
-/** What takes secrets out of a turn's words, and how long the longest text it looks for is. */
+/** What takes secrets out of a turn's words, and how much of a stream it needs held back to see a value whole. */
 export interface ProgressScrubber {
   scrub(text: string): string;
-  longest(): number;
+  holdBack(): number;
 }
 
 /**
@@ -196,7 +196,7 @@ export class ProgressBus {
   private readonly held = new Map<string, { of: "reasoning" | "text"; text: string }>();
 
   /** `scrubber` takes secret values out of an event's words before anyone sees or keeps them. */
-  constructor(private readonly scrubber: ProgressScrubber = { scrub: (text) => text, longest: () => 0 }) {}
+  constructor(private readonly scrubber: ProgressScrubber = { scrub: (text) => text, holdBack: () => 0 }) {}
 
   subscribe(listener: ProgressListener): () => void {
     this.listeners.add(listener);
@@ -244,7 +244,8 @@ export class ProgressBus {
     }
     // A run of words between two steps is one entry, as a reader draws it.
     const last = kept.at(-1);
-    if (last?.kind === "delta" && last.of === event.of) kept[kept.length - 1] = { ...last, text: this.joined(last.text, event.text) };
+    // The pieces were scrubbed whole as they streamed, so joined they need nothing more.
+    if (last?.kind === "delta" && last.of === event.of) kept[kept.length - 1] = { ...last, text: last.text + event.text };
     else kept.push({ ...event });
     const size = (this.textSize.get(id) ?? 0) + event.text.length;
     this.textSize.set(id, size - this.forget(kept, size - MAX_REPLAY_TEXT));
@@ -270,14 +271,6 @@ export class ProgressBus {
     return gone;
   }
 
-  /** Two runs of words as one, scrubbed where they meet, for a value split between them. */
-  private joined(before: string, after: string): string {
-    const reach = this.scrubber.longest() - 1;
-    if (reach <= 0) return before + after;
-    const seam = Math.max(0, before.length - reach);
-    return before.slice(0, seam) + this.scrubber.scrub(before.slice(seam) + after);
-  }
-
   emit(given: ProgressEvent): void {
     if (given.kind === "delta") return this.stream(given);
     // Words held for this conversation go first, so they stay ahead of what follows them.
@@ -288,16 +281,16 @@ export class ProgressBus {
   }
 
   /**
-   * A piece of streamed words, passed on scrubbed, all but its end: the last
-   * (longest value - 1) characters are held until more come, so a secret
-   * split across pieces is whole when it is looked for. What is held goes
+   * A piece of streamed words, passed on scrubbed, all but its end: the
+   * scrubber's hold-back is kept until more come, so a secret split across
+   * pieces is whole when it is looked for. What is held goes
    * out before the turn's next step, or its end.
    */
   private stream(event: Extract<ProgressEvent, { kind: "delta" }>): void {
     const id = event.conversationId;
     if (this.held.get(id)?.of !== event.of) this.release(id);
     const clean = this.scrubber.scrub((this.held.get(id)?.text ?? "") + event.text);
-    let cut = Math.max(0, clean.length - Math.max(0, this.scrubber.longest() - 1));
+    let cut = Math.max(0, clean.length - this.scrubber.holdBack());
     // Never between the halves of a character.
     if (cut > 0 && cut < clean.length && /[\uD800-\uDBFF]/.test(clean[cut - 1]!)) cut -= 1;
     if (cut < clean.length) this.held.set(id, { of: event.of, text: clean.slice(cut) });

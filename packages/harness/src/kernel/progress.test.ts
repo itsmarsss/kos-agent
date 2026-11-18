@@ -169,7 +169,7 @@ describe("what a reader who arrives mid-turn is told", () => {
   });
 
   it("takes secrets out of every event's words before a reader or a late reader sees them", () => {
-    const bus = new ProgressBus({ scrub: (text) => text.replaceAll("sk-live", "[secret k]"), longest: () => "sk-live".length });
+    const bus = new ProgressBus({ scrub: (text) => text.replaceAll("sk-live", "[secret k]"), holdBack: () => "sk-live".length - 1 });
     const heard: ProgressEvent[] = [];
     bus.subscribe((e) => heard.push(e));
     bus.emit({ kind: "turn-start", conversationId: "c", said: "use sk-live", at: 1 });
@@ -185,7 +185,7 @@ describe("what a reader who arrives mid-turn is told", () => {
   });
 
   it("finds a secret split across streamed pieces, holding back only what could be its start, and lets it go at the turn's end", () => {
-    const bus = new ProgressBus({ scrub: (text) => text.replaceAll("sk-live", "[secret k]"), longest: () => "sk-live".length });
+    const bus = new ProgressBus({ scrub: (text) => text.replaceAll("sk-live", "[secret k]"), holdBack: () => "sk-live".length - 1 });
     const heard: ProgressEvent[] = [];
     bus.subscribe((e) => heard.push(e));
     bus.emit({ kind: "turn-start", conversationId: "c", at: 1 });
