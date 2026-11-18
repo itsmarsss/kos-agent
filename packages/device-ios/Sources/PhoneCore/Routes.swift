@@ -27,6 +27,7 @@ public enum Routes {
     /// The card as the host lays it out (`askView`): its title, each step's line, where, why it asks.
     public let title: String?
     public let steps: [StepLine]?
+    public let said: String?
     public let place: String?
     public let risk: String?
     public let why: String?
@@ -42,7 +43,7 @@ public enum Routes {
 
     public init(
       id: Int, tool: String, args: String? = nil, reason: String? = nil, summary: String? = nil, mechanics: String? = nil, title: String? = nil,
-      steps: [StepLine]? = nil, place: String? = nil, risk: String? = nil, why: String? = nil,
+      steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, risk: String? = nil, why: String? = nil,
       conversationId: String? = nil, asker: String? = nil, requestedAt: Double, expiresAt: Double? = nil, always: String? = nil,
       alwaysTip: String? = nil, alwaysNote: String? = nil
     ) {
@@ -55,6 +56,7 @@ public enum Routes {
       self.title = title
       self.steps = steps
       self.place = place
+      self.said = said
       self.risk = risk
       self.why = why
       self.conversationId = conversationId

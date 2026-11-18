@@ -20,9 +20,11 @@ public struct AskSummary: View {
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 6) {
+      // With steps, they are what is approved: the title says only what they act on, quieter.
+      let steps = ask.stepLines
       Text(ask.heading)
-        .font(.kos(.body, .semibold))
-        .foregroundStyle(Theme.text)
+        .font(steps.isEmpty ? .kos(.body, .semibold) : .kos(.detail, .semibold))
+        .foregroundStyle(steps.isEmpty ? Theme.text : Theme.muted)
         .fixedSize(horizontal: false, vertical: true)
       if let place = ask.place {
         HStack(spacing: 6) {
@@ -30,10 +32,15 @@ public struct AskSummary: View {
           Text(place).font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }
       }
+      if let said = ask.said {
+        (Text("KOS says: ").foregroundStyle(Theme.faint) + Text("\u{201C}\(said)\u{201D}").foregroundStyle(Theme.muted))
+          .font(.kos(.detail))
+          .fixedSize(horizontal: false, vertical: true)
+      }
       if let why = ask.why {
         Text("\u{201C}\(why)\u{201D}").font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
       }
-      AskStepList(ask.stepLines)
+      AskStepList(steps)
       if let risk = ask.risk ?? ask.reason.flatMap(AskWords.risk) { RiskTag(risk) }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -55,7 +62,7 @@ public struct AskStepList: View {
       VStack(alignment: .leading, spacing: 3) {
         ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
           HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(verbatim: "\(i + 1).").font(.kos(.dense)).monospacedDigit().foregroundStyle(Theme.faint).frame(minWidth: 16, alignment: .trailing)
+            Text(verbatim: "\(i + 1).").font(.kos(.body)).monospacedDigit().foregroundStyle(Theme.faint).frame(minWidth: 16, alignment: .trailing)
             StepWords(line)
           }
         }
@@ -73,7 +80,7 @@ public struct StepWords: View {
   }
 
   public var body: some View {
-    Text(AskWords.attributed(line)).font(.kos(.dense)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+    Text(AskWords.attributed(line)).font(.kos(.body, .medium)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
   }
 }
 

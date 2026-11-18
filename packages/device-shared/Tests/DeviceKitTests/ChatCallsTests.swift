@@ -77,9 +77,9 @@ struct ChatCallsTests {
     try draw(model, "chat.show", #"{"chat":"c1","title":"Chat","messages":[]}"#)
     try draw(
       model, "chat.ask",
-      #"{"chat":"c1","approval":{"id":"14","tool":"browser.act","title":"Zoom out","steps":[[{"text":"Press "},{"key":"⌘−"},{"text":" 4 times, then "},{"key":"⌘Home"}]],"place":"In your Chrome on docs.google.com","risk":"Clicks, types or fills on the page","always":"Always allow on docs.google.com","alwaysTip":"Undo it in Settings, Permissions.","alwaysNote":"Secrets always ask","asker":"Docs"}}"#)
+      #"{"chat":"c1","approval":{"id":"14","tool":"browser.act","title":"Act on the page","said":"Zoom out to see the table","steps":[[{"text":"Press "},{"key":"⌘−"},{"text":" 4 times, then "},{"key":"⌘Home"}]],"place":"In your Chrome on docs.google.com","risk":"Clicks, types or fills on the page","always":"Always allow on docs.google.com","alwaysTip":"Undo it in Settings, Permissions.","alwaysNote":"Secrets always ask","asker":"Docs"}}"#)
     let ask = try #require(model.asks.first)
-    #expect(ask.heading == "Zoom out")
+    #expect(ask.heading == "Act on the page" && ask.said == "Zoom out to see the table")
     #expect(ask.stepLines == [[.text("Press "), .key("⌘−"), .text(" 4 times, then "), .key("⌘Home")]])
     #expect(ask.place == "In your Chrome on docs.google.com" && !ask.tooLong)
     #expect(ask.risk == "Clicks, types or fills on the page" && ask.asker == "Docs")
@@ -89,9 +89,9 @@ struct ChatCallsTests {
   @Test func anAskTooLongToSendComesWithNothingToApprove() throws {
     let model = ChatModel()
     try draw(model, "chat.show", #"{"chat":"c1","title":"Chat","messages":[]}"#)
-    try draw(model, "chat.ask", #"{"chat":"c1","approval":{"id":"15","tool":"computer.act","title":"Paste it","tooLong":true}}"#)
+    try draw(model, "chat.ask", #"{"chat":"c1","approval":{"id":"15","tool":"computer.act","title":"Use your Mac","said":"Paste it","tooLong":true}}"#)
     let ask = try #require(model.asks.first)
-    #expect(ask.tooLong && ask.args == nil && ask.stepLines.isEmpty)
+    #expect(ask.tooLong && ask.args == nil && ask.stepLines.isEmpty && ask.said == "Paste it")
   }
 
   @Test func theChatsComeWithWhereEachLives() throws {

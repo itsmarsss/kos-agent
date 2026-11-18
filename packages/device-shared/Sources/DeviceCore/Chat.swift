@@ -163,6 +163,8 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public let mechanics: String?
   /// The same actions as lines, keys as caps, repeats counted.
   public let steps: [StepLine]?
+  /// What the model said the step is for, in its words: shown as KOS's, quieter than what the step does.
+  public let said: String?
   /// Where it acts: "In your Chrome on docs.google.com".
   public let place: String?
   /// Too big to have been sent whole: no arguments or steps came, so the card offers no Approve.
@@ -184,7 +186,7 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
 
   public init(
     id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
-    steps: [StepLine]? = nil, place: String? = nil, tooLong: Bool? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
+    steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, tooLong: Bool? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
     always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expiresAt: Double? = nil
   ) {
     self.id = id
@@ -196,6 +198,7 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
     self.steps = steps
     self.place = place
     self.tooLong = tooLong
+    self.said = said
     self.risk = risk
     self.why = why
     self.reason = reason
