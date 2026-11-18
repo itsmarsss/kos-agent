@@ -290,6 +290,12 @@ export function ChatsPage({
   // at all, and /clear emptied the chat without saying it had.
   const [notes, setNotes] = useState<{ id: number; text: string }[]>([]);
   const [pending, setPending] = useState<PendingMessage[]>([]);
+  /**
+   * Sent while a turn was running here, until the server answers for it. The
+   * turn takes it in at its next step, or it runs after; either way it waits
+   * under the running turn, never above the steps and words already shown.
+   */
+  const [asides, setAsides] = useState<Aside[]>([]);
   /** The queued message being rewritten, if any. */
   const [editingQueued, setEditingQueued] = useState<{ id: number; text: string } | null>(
     null,
@@ -420,6 +426,9 @@ export function ChatsPage({
   // question.
   const working = Boolean(live) && !live?.ended;
   const running = working || sendingIn === activeId;
+  /** Words the running turn has taken in already: shown in it, so not waiting under it too. */
+  const heardLive = (text: string): boolean =>
+    Boolean(live && !live.ended && (live.said === text || live.steps.some((s) => s.kind === "said" && s.text === text)));
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -631,7 +640,7 @@ export function ChatsPage({
   }, [activeId, stamp, sendingIn, loadedFor, justEnded, turnRunningHere]);
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
-  useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text], `${activeId}:${sendingIn === activeId}`);
+  useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text, asides.length], `${activeId}:${sendingIn === activeId}`);
 
   /*
    * Grow the composer with what is typed.
@@ -940,10 +949,6 @@ export function ChatsPage({
       setDraft("");
       return;
     }
-    // Not blocked while a turn runs. A follow-up is queued on the server and
-    // runs next, which is what the owner meant by sending it.
-    setSendingIn(target);
-
     // The message is sent the moment Send is pressed, so it should read that
     // way: the bubble carries its attachments straight away and the composer
     // is empty. Waiting for the turn meant the files sat in the composer,
@@ -952,7 +957,17 @@ export function ChatsPage({
     // A command is not part of the conversation, so it gets no bubble: one
     // appeared and was taken away again by the reload a moment later.
     const looksLikeCommand = /^\/\S/.test(text) && files.length === 0;
-    if (!looksLikeCommand) {
+    /*
+     * Not blocked while a turn runs: the turn hears it at its next step, or
+     * it runs next. A bubble in the transcript would draw it above the
+     * running turn's steps and words, so it waits under the turn instead,
+     * and the live view puts it where the turn took it in.
+     */
+    const aside: Aside | null =
+      working && !looksLikeCommand ? { key: Date.now(), conversationId: target, text, attachments: files.map((f) => ({ name: f.name })) } : null;
+    if (aside) setAsides((a) => [...a, aside]);
+    else setSendingIn(target);
+    if (!looksLikeCommand && !aside) {
       setEvents((e) => [
         ...e,
         {
@@ -1019,7 +1034,8 @@ export function ChatsPage({
       const msg = err instanceof Error ? err.message : String(err);
       setEvents((e) => [...e, { kind: "message", role: "kos", text: `Error: ${msg}` }]);
     } finally {
-      setSendingIn((id) => (id === target ? null : id));
+      if (aside) setAsides((a) => a.filter((x) => x !== aside));
+      else setSendingIn((id) => (id === target ? null : id));
     }
   }
 
@@ -2303,7 +2319,7 @@ export function ChatsPage({
                     words show now, as they would had they been typed here,
                     rather than when the turn ends. This tab's own message is
                     already in the list above. */}
-                {live?.said && sendingIn !== activeId && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) && (
+                {live?.said && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) && (
                   <div className="turn turn--you">
                     <div className="bubble bubble--you">
                       <Markdown text={live.said} />
@@ -2441,7 +2457,7 @@ export function ChatsPage({
                 {/* A queued message whose turn has just begun is already on
                     the screen as the live turn's own words; shown here too it
                     would read twice until the next fetch. */}
-                {pending.filter((p) => !(live?.said && !live.ended && p.text === live.said)).map((p) => (
+                {pending.filter((p) => !heardLive(p.text)).map((p) => (
                   <m.div
                     className="queued"
                     key={p.id}
@@ -2528,6 +2544,19 @@ export function ChatsPage({
                     )}
                   </m.div>
                 ))}
+                {/* Sent here mid-turn and not yet a row on the server: under the
+                    turn, waiting, until the turn takes it in. */}
+                {asides
+                  .filter((a) => a.conversationId === activeId && !heardLive(a.text) && !pending.some((p) => p.text === a.text))
+                  .map((a) => (
+                    <m.div className="queued" key={`aside-${a.key}`} layout variants={listItem} initial="hidden" animate="show" exit="exit" transition={ease}>
+                      <div className="bubble bubble--you is-queued">
+                        {a.text}
+                        <span className="label queued-mark">queued</span>
+                      </div>
+                      {a.attachments.length > 0 && <AttachmentStrip items={a.attachments} />}
+                    </m.div>
+                  ))}
                 </AnimatePresence>
               </div>
               </MentionNames>
@@ -2756,6 +2785,14 @@ interface ColumnSpec {
   max: number;
   fallback: number;
 }
+/** A message sent while a turn ran here, shown waiting under it until the server has it. */
+interface Aside {
+  key: number;
+  conversationId: string;
+  text: string;
+  attachments: { name: string }[];
+}
+
 /** How long a turn the stream announced is believed over a list that still says idle: three polls. */
 const FRESH_TURN_MS = 15_000;
 
