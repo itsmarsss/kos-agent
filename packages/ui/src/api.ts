@@ -1,6 +1,6 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { DrawnTheme, ExportFormat, HtmlPage, ThemeMode as Theme } from "@kos/shared";
+import type { ChatMode, DrawnTheme, ExportFormat, HtmlPage, ThemeMode as Theme } from "@kos/shared";
 
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
@@ -584,6 +584,8 @@ export interface Conversation {
   unread?: boolean;
   /** Messages waiting behind the turn running here, from any surface. */
   queued?: number;
+  /** The chat's mode when it is in Auto; none is Ask. */
+  mode?: ChatMode;
 }
 
 export interface ChatTurn {
@@ -1492,6 +1494,8 @@ export const api = {
       index,
       ...opts,
     }),
+  /** Set a chat's mode: Ask, or Auto with its bounds. */
+  setChatMode: (id: string, mode: ChatMode) => post<{ id: string; mode: ChatMode }>("/api/conversations/mode", { id, mode }),
   renameConversation: (id: string, title: string) =>
     post<Conversation>("/api/conversations/rename", { id, title }),
   archiveConversation: (id: string, archived = true) =>
