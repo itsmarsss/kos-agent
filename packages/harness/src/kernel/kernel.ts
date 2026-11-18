@@ -1403,6 +1403,9 @@ export class Kernel {
             tools,
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
+            // The owner's own turn on a screen carries on in fresh queries up to its own budget; every other turn
+            // (a schedule, a dispatch, a guest) stops where one query would have.
+            ...(owner ? { turnSteps: this.behaviour().screenSteps } : {}),
             picturesPerQuery: PICTURES_PER_QUERY,
             onFreshQuery: () => {
               this.bus.emit({ kind: "query:fresh", conversationId: sessionId });

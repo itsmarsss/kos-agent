@@ -30,6 +30,12 @@ export interface Behaviour {
   autoFix: boolean;
   /** Model round-trips a turn may take before it stops and says so. */
   maxSteps: number;
+  /**
+   * Round-trips the owner's own turn may take in all when it works a screen
+   * and carries on in fresh queries (the Claude Agent SDK), each query
+   * getting `maxSteps`. Every other turn stops at `maxSteps` in all.
+   */
+  screenSteps: number;
   /** Round-trips a fix attempt gets. Diagnosis is mostly reading. */
   fixSteps: number;
   /** Self-prompting cron fires allowed per rolling hour. */
@@ -82,6 +88,8 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   // on a timer with nobody asking, so it is always opt-in.
   autoFix: true,
   maxSteps: 50,
+  // Four queries' worth: a long task on a screen stopped at about forty calls with the turn's own limit.
+  screenSteps: 200,
   fixSteps: 24,
   selfPromptsPerHour: 10,
   agentMinutes: 15,
@@ -98,12 +106,16 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   memoryDecideAbove: 80,
 };
 
+/** What the screen steps are, unset: this many times the steps in a turn. */
+export const SCREEN_STEPS_PER_STEP = 4;
+
 /** Range for each number, as [min, max]. */
 export const BEHAVIOUR_LIMITS: Record<
   Exclude<keyof Behaviour, "autoFix" | "engine" | "memoryExtraction" | "smartContext">,
   [number, number]
 > = {
   maxSteps: [1, 100],
+  screenSteps: [1, 400],
   fixSteps: [1, 100],
   selfPromptsPerHour: [0, 120],
   agentMinutes: [1, 240],
@@ -142,6 +154,8 @@ export function parseBehaviour(raw: unknown): Behaviour {
     autoFix:
       typeof input["autoFix"] === "boolean" ? input["autoFix"] : BEHAVIOUR_DEFAULTS.autoFix,
     maxSteps: clamp(input["maxSteps"], "maxSteps"),
+    // Unset, four times the steps in a turn, whatever those were set to.
+    screenSteps: clamp(input["screenSteps"] ?? SCREEN_STEPS_PER_STEP * clamp(input["maxSteps"], "maxSteps"), "screenSteps"),
     fixSteps: clamp(input["fixSteps"], "fixSteps"),
     selfPromptsPerHour: clamp(input["selfPromptsPerHour"], "selfPromptsPerHour"),
     agentMinutes: clamp(input["agentMinutes"], "agentMinutes"),

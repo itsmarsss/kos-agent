@@ -724,6 +724,8 @@ export interface Behaviour {
   engine: "api" | "sdk";
   autoFix: boolean;
   maxSteps: number;
+  /** Round trips the owner's own turn on a screen may take in all, across fresh queries. */
+  screenSteps: number;
   fixSteps: number;
   selfPromptsPerHour: number;
   agentMinutes: number;

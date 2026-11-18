@@ -106,12 +106,19 @@ describe("a turn on the SDK", () => {
     expect(Object.keys(options["mcpServers"] as object)).toEqual(["kos"]);
   });
 
-  it("gives each query the step limit, and holds the turn to four queries' worth", async () => {
+  it("holds the turn to its step limit across every fresh query, unless given a turn's own", async () => {
+    run.queries = [];
+    run.script = steps(50);
+    const held = await runSdkChat({ prompt: "go", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked.", images: [picture] })), cwd: process.cwd(), picturesPerQuery: 2, maxTurns: 5 });
+    expect(held.calls.length).toBeLessThanOrEqual(5);
+    expect(held.stopped).toBe(true);
+    expect(run.queries.map((q) => q.options["maxTurns"])).toEqual([5, 3, 1]);
+    // The owner's own screen turn: each query the whole limit, the turn its own budget.
     run.queries = [];
     run.script = steps(500);
-    const r = await runSdkChat({ prompt: "go", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked.", images: [picture] })), cwd: process.cwd(), picturesPerQuery: 3, maxTurns: 5 });
-    expect(r.calls).toHaveLength(20);
-    expect(r.stopped).toBe(true);
+    const long = await runSdkChat({ prompt: "go", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked.", images: [picture] })), cwd: process.cwd(), picturesPerQuery: 3, maxTurns: 5, turnSteps: 20 });
+    expect(long.calls).toHaveLength(20);
+    expect(long.stopped).toBe(true);
     expect(run.queries.map((q) => q.options["maxTurns"])).toEqual([5, 5, 5, 5, 5, 5, 2]);
   });
 

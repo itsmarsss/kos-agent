@@ -74,4 +74,17 @@ describe("a turn on the SDK engine", () => {
     await turn("go");
     expect(kernel.sessions.get(chat).map(shape)).toEqual(["user go", "user meanwhile", "use sdk-t-1", "result sdk-t-1", "use sdk-t-3", "result sdk-t-3", "assistant Done."]);
   });
+
+  it("gives the owner's own turn its screen steps across fresh queries, and any other turn the turn's steps alone", async () => {
+    kernel.settings.set(BEHAVIOUR_KEY, { engine: "sdk", maxSteps: 30 });
+    const asked: (number | undefined)[] = [];
+    sdk.run = async (o) => {
+      asked.push(o.turnSteps);
+      expect(o.maxTurns).toBe(30);
+      return answer([], "ok");
+    };
+    await turn("look at my screen");
+    await kernel.handleMessage("from a schedule", { sessionId: chat, origin: "system" });
+    expect(asked).toEqual([120, undefined]);
+  });
 });

@@ -21,6 +21,13 @@ describe("behaviour settings", () => {
     expect(saved.agentMinutes).toBe(BEHAVIOUR_DEFAULTS.agentMinutes);
   });
 
+  it("gives the owner's screen turns four times the steps in a turn unless set", () => {
+    expect(BEHAVIOUR_DEFAULTS.screenSteps).toBe(4 * BEHAVIOUR_DEFAULTS.maxSteps);
+    expect(parseBehaviour({ maxSteps: 48 }).screenSteps).toBe(192);
+    expect(parseBehaviour({ maxSteps: 48, screenSteps: 60 }).screenSteps).toBe(60);
+    expect(parseBehaviour({ screenSteps: 9999 }).screenSteps).toBe(400);
+  });
+
   it("clamps rather than trusting", () => {
     // These govern spend and runaway loops: a typo must not be able to leave
     // an agent looping for a day.

@@ -148,8 +148,10 @@ export interface SdkChatOptions {
   tools: ToolBox;
   cwd: string;
   model?: string;
-  /** Each query's model round trips; a turn carried on in fresh queries stops at QUERIES_PER_TURN of them. */
+  /** Each query's model round trips. */
   maxTurns?: number;
+  /** The turn's round trips across every query it carries on in; `maxTurns` unless given. */
+  turnSteps?: number;
   /** Streamed reasoning and text, for the live view. */
   onDelta?: (delta: { kind: "reasoning" | "text"; text: string }) => void;
   env?: NodeJS.ProcessEnv;
@@ -419,17 +421,6 @@ export async function* untilStopped<T>(source: AsyncIterable<T>, signal?: AbortS
 }
 
 /**
- * How many queries' worth of steps a turn carried on in fresh ones may take.
- *
- * The step limit was the turn's across every query, so a long task on a
- * screen stopped at about forty calls: a fresh query starts only because the
- * last one filled with pictures, and its steps are screen steps that one query
- * of an ordinary message never takes. Each query now has the whole limit, and
- * the turn stops at this many of them, so a loop still ends on its own.
- */
-const QUERIES_PER_TURN = 4;
-
-/**
  * How long a stopped query is given to report what it spent. Interrupted, the
  * SDK answers with a result carrying the query's usage and cost; past this,
  * the turn ends on what it has seen, since Stop has to feel instant.
@@ -529,7 +520,7 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
 
   /** Each query's model round trips, and the turn's across every query it runs in. */
   const budget = options.maxTurns ?? 24;
-  const ceiling = budget * QUERIES_PER_TURN;
+  const ceiling = Math.max(budget, options.turnSteps ?? budget);
   let used = 0;
   for (;;) {
     // A stop that landed before this query, or between two, starts no new one.
