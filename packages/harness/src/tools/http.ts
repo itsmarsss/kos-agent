@@ -2,10 +2,8 @@ import { Agent, fetch as undiciFetch } from "undici";
 
 import { officeKindOf, officeNote, officeText } from "../files/office.js";
 import { pdfText } from "../files/pdftext.js";
-import { injectSecrets, injectSecretsInString } from "../secrets/inject.js";
-import type { SecretsRegistry } from "../secrets/secrets.js";
+import { hostAllowed, type SecretSlots } from "../secrets/inject.js";
 import type { KosModule } from "../modules/loader.js";
-import { requireServices } from "../modules/loader.js";
 import { guardedLookup, refusedUrl } from "./egress.js";
 
 export type FetchImpl = typeof fetch;
@@ -26,10 +24,15 @@ export interface HttpModuleOptions {
   fetchImpl?: FetchImpl;
   /** KOS's own hosts as they are reached (host, or host:port): never fetched, whatever they resolve to. */
   ownHosts?: () => string[];
+  /**
+   * Reach this machine after all, through the platform's own fetch: for a
+   * test that serves its redirects on loopback. Boot never sets it.
+   */
+  local?: boolean;
 }
 
-/** Redirects followed, each checked as the first request was. */
-const MAX_REDIRECTS = 5;
+/** The own-hosts list a local test passes, by identity: nothing is refused for being local. */
+const LOCAL: readonly string[] = [];
 
 /**
  * The platform's fetch, held to the public internet: every connection's
@@ -74,51 +77,57 @@ function hostOf(url: string): string | undefined {
   }
 }
 
+/**
+ * Where a secret may go: a header, or the URL's query string, never its host
+ * or path, so the host the call is judged and bound by is the one it reaches.
+ * Not the body: a write already asks, and a body is free text the model
+ * shapes, the easiest place to send a key somewhere it was not meant for.
+ * And only to a host the secret is bound to: one bound nowhere is sent nowhere.
+ */
+export const HTTP_SECRET_SLOTS: SecretSlots = {
+  paths: ["headers.*", "url"],
+  urls: ["url"],
+  host: (input) => (typeof input["url"] === "string" ? hostOf(input["url"]) : undefined),
+  admit: (name, input, secrets) => {
+    const bound = secrets.hostsOf(name);
+    if (!bound) return `Secret ${name} is bound to no host, so http.fetch does not send it. The owner binds it with KOS_SECRET_${name.toUpperCase()}_HOSTS.`;
+    const host = typeof input["url"] === "string" ? hostOf(input["url"]) : undefined;
+    return host && hostAllowed(host, bound) ? undefined : `Secret ${name} may be sent only to ${bound.join(", ")}, not ${host ?? "an unknown host"}.`;
+  },
+};
+
+/** The call as it reaches here has its secrets in place: GuardedTools expands them in the slots above. */
 async function doFetch(
   input: Record<string, unknown>,
-  opts: Required<Omit<HttpModuleOptions, "allowedHosts" | "ownHosts">> & { own: () => string[] },
-  secrets: SecretsRegistry,
+  opts: Required<Omit<HttpModuleOptions, "allowedHosts" | "ownHosts" | "local">> & { own: () => readonly string[] },
 ): Promise<string> {
-  const rawUrl = input.url;
-  if (typeof rawUrl !== "string") throw new Error("http.fetch requires a url");
-  // Inject secrets after reasoning, just before the request leaves.
-  const url = injectSecretsInString(rawUrl, secrets);
+  const url = input.url;
+  if (typeof url !== "string") throw new Error("http.fetch requires a url");
   // The list decides what asks, not what runs: a host not on it reached
   // this handler only because the owner said yes to that call.
-  if (!hostOf(url)) throw new Error(`not a url: ${rawUrl}`);
+  if (!hostOf(url)) throw new Error("not a url");
 
-  const headers = injectSecrets(
-    (input.headers as Record<string, string>) ?? {},
-    secrets,
-  );
+  const headers = (input.headers as Record<string, string>) ?? {};
   const method = typeof input.method === "string" ? input.method : "GET";
-  const body =
-    typeof input.body === "string"
-      ? injectSecretsInString(input.body, secrets)
-      : undefined;
+  const body = typeof input.body === "string" ? input.body : undefined;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
-    // Followed by hand, so each hop is checked: a public page that redirects to loopback reaches nothing.
-    let at = url;
-    let res: Response | undefined;
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      const refused = refusedUrl(at, opts.own());
-      if (refused) throw new Error(refused);
-      res = await opts.fetchImpl(at, { method: hop === 0 ? method : "GET", headers, ...(hop === 0 && body !== undefined ? { body } : {}), redirect: "manual", signal: controller.signal });
-      const next = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
-      if (!next) break;
-      if (hop === MAX_REDIRECTS) throw new Error(`more than ${MAX_REDIRECTS} redirects from ${rawUrl}`);
-      at = new URL(next, at).toString();
+    const followed = await follow(url, { method, headers, body, signal: controller.signal }, opts.fetchImpl, opts.own());
+    if ("elsewhere" in followed) {
+      return JSON.stringify({
+        status: followed.status,
+        redirect: followed.elsewhere,
+        note: "The server sent this to another site. Nothing was fetched there; call http.fetch with that url to follow it.",
+      });
     }
-    if (!res) throw new Error(`no answer from ${rawUrl}`);
     // A PDF comes back as its words, not its bytes: a paper or a bill at a
     // url is as ordinary a thing to read as a page.
-    const text = await bodyText(res);
+    const text = await bodyText(followed);
     const capped = text.slice(0, opts.maxBytes);
     return JSON.stringify({
-      status: res.status,
+      status: followed.status,
       truncated: text.length > opts.maxBytes,
       body: capped,
     });
@@ -127,10 +136,59 @@ async function doFetch(
   }
 }
 
+/** Redirects followed within one origin before the chain is called a loop. */
+const REDIRECTS_MAX = 5;
+
+/** The statuses that redirect; a 300 or 304 with a Location is an answer, not a hop. */
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * The request a redirect leads to, as browsers make it: a POST after a 301 or
+ * 302, and anything but HEAD after a 303, becomes a GET with no body, and
+ * the headers that described the body go with it.
+ */
+function afterRedirect(status: number, request: RequestInit): RequestInit {
+  const method = (request.method ?? "GET").toUpperCase();
+  const asRead = ((status === 301 || status === 302) && method === "POST") || (status === 303 && method !== "HEAD");
+  if (!asRead) return request;
+  const headers = new Headers(request.headers);
+  headers.delete("content-type");
+  headers.delete("content-length");
+  return { ...request, method: "GET", body: null, headers };
+}
+
+/**
+ * The request, its redirects followed only within its own origin.
+ *
+ * A redirect to another site is not followed: it would carry the call's
+ * headers, secrets among them, to a host nobody judged or bound them to.
+ * Where it pointed is handed back instead, so following it is a call of its
+ * own, judged and checked against the secret's hosts like any other.
+ */
+async function follow(url: string, init: RequestInit, fetchImpl: FetchImpl, own: readonly string[]): Promise<Response | { status: number; elsewhere: string }> {
+  let at = new URL(url);
+  let request = init;
+  for (let hop = 0; ; hop++) {
+    // Each hop checked before it is asked: this machine, its network and KOS itself are never reached.
+    const refused = own === LOCAL ? undefined : refusedUrl(at.href, own);
+    if (refused) throw new Error(refused);
+    const res = await fetchImpl(at.href, { ...request, redirect: "manual" });
+    const location = res.headers.get("location");
+    if (!REDIRECTS.has(res.status) || !location) return res;
+    const next = new URL(location, at);
+    await res.body?.cancel();
+    if (next.origin !== at.origin) return { status: res.status, elsewhere: next.href };
+    if (hop >= REDIRECTS_MAX) throw new Error(`more than ${REDIRECTS_MAX} redirects`);
+    request = afterRedirect(res.status, request);
+    at = next;
+  }
+}
+
 /**
  * The `http.fetch` tool module: fetch a URL, with a timeout and a size cap.
- * Secrets are referenced by name in args ({{secret:name}}) and injected by
- * the harness at call time, so the model never sees the real value. The
+ * Secrets are referenced by name ({{secret:name}}) in a header or the URL's
+ * query string and injected by the harness at call time, so the model never
+ * sees the real value. The
  * owner's host list says which reads run unasked; any other host asks, and
  * a yes the owner remembers is kept per host (see ops/permissions scopeOf).
  */
@@ -145,8 +203,8 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
   const resolved = {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
-    fetchImpl: options.fetchImpl ?? publicFetch,
-    own: options.ownHosts ?? (() => []),
+    fetchImpl: options.fetchImpl ?? (options.local ? fetch : publicFetch),
+    own: options.local ? () => LOCAL : (options.ownHosts ?? (() => [])),
   };
 
   return {
@@ -157,13 +215,12 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
       riskTier: "risky",
     },
     activate(ctx) {
-      const { secrets } = requireServices(ctx);
       ctx.registerTool(
         {
           name: "http.fetch",
           description:
             "Fetch a URL. A read from a host on the owner's list runs at once; any other host, and any write, asks the owner first, and a yes they remember stands for that host. " +
-            "Reference secrets by name as {{secret:name}} in url/headers/body; the harness injects real values.",
+            "Reference a secret by name as {{secret:name}} in a header or in the URL's query string, nowhere else; the harness injects the real value.",
           inputSchema: {
             type: "object",
             properties: {
@@ -175,7 +232,7 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
             required: ["url"],
           },
         },
-        (input) => doFetch(input, resolved, secrets),
+        (input) => doFetch(input, resolved),
         {
           /*
            * The list is what runs unasked; everything else asks.
@@ -200,6 +257,7 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
             return allowed().has(host) ? false : `${host} is not on the allowed hosts`;
           },
         },
+        { secretSlots: HTTP_SECRET_SLOTS },
       );
     },
   };

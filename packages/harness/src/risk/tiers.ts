@@ -65,7 +65,7 @@ export interface RiskAssessment {
   escalated: boolean;
   /** Why it asks, when the rule or the floor says so in words. */
   reason?: string;
-  /** A risky call no remembered decision or Auto covers. */
+  /** Asked about every time: no remembered yes and no Auto covers it (a call that sends a secret, a tool marked so). */
   asksAlways?: true;
   /** Why a risky call is beyond a chat's Auto mode, when it is. */
   beyondAuto?: string;

@@ -84,9 +84,10 @@ describe("http.fetch and KOS's own API", () => {
       return new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${port}/api/approve` } });
     });
     const res = await registry.execute("http.fetch", { url: "https://example.com/r" });
-    expect(res.isError).toBe(true);
-    expect(res.content).toMatch(/this machine/);
+    // Another origin is never followed: said, and a fetch there would be refused as any other.
+    expect(res.content).toMatch(/Nothing was fetched there/);
     expect(seen).toEqual(["https://example.com/r"]);
+    expect((await registry.execute("http.fetch", { url: JSON.parse(res.content).redirect })).content).toMatch(/never reaches/);
     expect(hits).toBe(0);
   });
 });

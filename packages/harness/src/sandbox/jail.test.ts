@@ -18,6 +18,14 @@ describe("the shell jail", () => {
     expect(p).toContain('(allow file-write* (subpath "/Users/me/kos-workspace")');
   });
 
+  it("denies writing what is read-only, both spellings, after the workspace is allowed", () => {
+    const p = sandboxProfile({ workspaceRoot: "/tmp/ws", homes: [], readOnly: ["/tmp/ws/mcp.json"] });
+    const allow = p.indexOf('(allow file-write* (subpath "/tmp/ws")');
+    const deny = p.indexOf('(deny file-write* (subpath "/tmp/ws/mcp.json") (subpath "/private/tmp/ws/mcp.json"))');
+    expect(allow).toBeGreaterThan(-1);
+    expect(deny).toBeGreaterThan(allow);
+  });
+
   it("spells a /tmp or /var workspace both ways, since macOS links them into /private", () => {
     const p = sandboxProfile({ workspaceRoot: "/tmp/ws", homes: [] });
     expect(p).toContain('(subpath "/tmp/ws") (subpath "/private/tmp/ws")');

