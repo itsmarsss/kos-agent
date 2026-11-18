@@ -30,8 +30,12 @@ export interface JailOptions {
   readOnly?: string[];
   /** Readable although under a denied home: an interpreter's own libraries. */
   reads?: string[];
-  /** False for a program that must not reach the network. */
-  network?: boolean;
+  /**
+   * False for a program that must not reach the network at all; "local" for
+   * one that may reach this machine (a test server it starts) and nothing
+   * past it. KOS's own ports are refused either way, and never bound.
+   */
+  network?: boolean | "local";
   /**
    * KOS's own ports, which no jailed program may connect to, on any address
    * (a v4 address in v6 form included): see `kosPorts`.
@@ -95,6 +99,24 @@ function subpaths(paths: string[]): string {
  * the child's TMPDIR is inside the workspace, and a program that insists on
  * /tmp fails where it can be seen.
  */
+/**
+ * The network a jailed program has. Every program is kept off KOS's own
+ * ports, to connect to (on any address, a v4 one in v6 form included) and
+ * to bind (so it cannot squat on one while KOS restarts). "local" allows
+ * this machine and nothing past it, the order mattering: a later rule wins.
+ */
+function networkRules(network: JailOptions["network"], ports: readonly number[]): string[] {
+  const kos = [
+    ...ports.map((p) => `(deny network-outbound (remote ip ${sb(`*:${p}`)}))`),
+    ...ports.map((p) => `(deny network-bind (local ip ${sb(`*:${p}`)}))`),
+  ];
+  if (network === false) return ["(deny network*)"];
+  if (network === "local") {
+    return ["(deny network*)", '(allow network* (remote ip "localhost:*"))', '(allow network-bind (local ip "localhost:*"))', '(allow network-inbound (local ip "localhost:*"))', ...kos];
+  }
+  return kos;
+}
+
 export function sandboxProfile(options: JailOptions): string {
   const homes = options.homes ?? [homedir()];
   const ws = subpaths([options.workspaceRoot]);
@@ -102,7 +124,7 @@ export function sandboxProfile(options: JailOptions): string {
   const lines = [
     "(version 1)",
     "(allow default)",
-    ...(options.network === false ? ["(deny network*)"] : (options.kosPorts ?? kosPorts()).map((p) => `(deny network-outbound (remote ip ${sb(`*:${p}`)}))`)),
+    ...networkRules(options.network, options.kosPorts ?? kosPorts()),
     "(deny file-write*)",
     `(allow file-write* ${writes} (literal "/dev/null") (regex #"^/dev/tty"))`,
     ...homes.map((h) => `(deny file-read* (subpath ${sb(resolve(h))}))`),

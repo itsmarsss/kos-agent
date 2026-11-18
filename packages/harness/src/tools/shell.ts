@@ -87,7 +87,7 @@ export function runShell(
   const tmp = join(opts.workspaceRoot, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
   // A line Auto let run: the jail, not the list, is the boundary, so it runs with no network and git held to itself.
-  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)), ...(opts.auto ? { network: false } : {}) }), {
+  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)), ...(opts.auto ? { network: "local" as const } : {}) }), {
     cwd: opts.cwd,
     env: { ...childEnv({ home: opts.workspaceRoot, tmp }), ...(opts.auto ? AUTO_GIT_CONFIG : {}) },
     timeoutMs: opts.timeoutMs,
