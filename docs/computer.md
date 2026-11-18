@@ -693,8 +693,9 @@ needs a session ([browser-extension.md](browser-extension.md), and below).
 **What it is at.** KOS sends `session.status` to a computer (never a
 Chrome) as each `computer.act` starts, with the step's line (its `intent`,
 or how it does it when it has none), and whenever an approval in the
-session's chat is asked (`waiting: true`) or the last one there is decided
-(`waiting: false`). It is never waited on. KOS for Mac shows the step on its
+session's chat is asked (`waiting: true`) or the last one there settles,
+however it settled: decided, lapsed or let go (`waiting: false`); each step's
+status also says whether an ask is open. It is never waited on. KOS for Mac shows the step on its
 bar and in the menu bar, whichever chat its window shows, and a device that
 does not know the call answers `bad_request`, which KOS lets be.
 

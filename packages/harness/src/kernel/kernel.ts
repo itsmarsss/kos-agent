@@ -727,6 +727,16 @@ export class Kernel {
     this.conversations = args.conversations;
     this.facts = args.facts;
     this.bus = args.bus;
+    // Every settle, however it came (a decision, a lapse, a turn that stopped waiting), told once.
+    this.approvals.onDecided((action) =>
+      this.bus.emit({
+        kind: "approval:decided",
+        id: action.id,
+        approved: action.status === "approved",
+        ...(action.status !== "pending" ? { status: action.status } : {}),
+        decidedBy: action.decidedBy,
+      }),
+    );
     this.embedder = args.embedder;
     this.presses = args.presses;
     this.daemons = args.daemons;
@@ -2773,15 +2783,11 @@ export class Kernel {
 
   /** Carry out the owner's decision on a queued action. Every surface comes through here. */
   async approve(id: number, decidedBy?: string, options: { remember?: boolean } = {}): Promise<DecisionResult> {
-    const result = await this.decisions.approve(id, decidedBy, options);
-    this.bus.emit({ kind: "approval:decided", id, approved: true, decidedBy: decidedBy ?? null });
-    return result;
+    return this.decisions.approve(id, decidedBy, options);
   }
 
   async deny(id: number, decidedBy?: string): Promise<DecisionResult> {
-    const result = await this.decisions.deny(id, decidedBy);
-    this.bus.emit({ kind: "approval:decided", id, approved: false, decidedBy: decidedBy ?? null });
-    return result;
+    return this.decisions.deny(id, decidedBy);
   }
 
   async dispatchTo(

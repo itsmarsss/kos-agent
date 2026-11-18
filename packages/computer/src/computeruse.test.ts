@@ -46,13 +46,16 @@ describe("a chat's session told of its waits", () => {
     };
     const events = { on, emit: (e: { kind: string; [field: string]: unknown }) => handlers.get(e.kind)?.forEach((h) => h(e)) };
     const told: [string, Record<string, unknown>][] = [];
-    const off = tellWaits(events as unknown as NonNullable<ModuleContext["events"]>, { tellStatus: (chat, status) => void told.push([chat, status]) });
+    const { off, waiting } = tellWaits(events as unknown as NonNullable<ModuleContext["events"]>, { tellStatus: (chat, status) => void told.push([chat, status]) });
     events.emit({ kind: "approval:requested", id: 1, tool: "computer.act", conversationId: "c1" });
     events.emit({ kind: "approval:requested", id: 2, tool: "files.write", conversationId: "c1" });
     // An approval no chat asked for is no session's.
     events.emit({ kind: "approval:requested", id: 3, tool: "files.write", conversationId: null });
+    expect(waiting("c1")).toBe(true);
     events.emit({ kind: "approval:decided", id: 1, approved: true, decidedBy: "owner" });
-    events.emit({ kind: "approval:decided", id: 2, approved: false, decidedBy: "owner" });
+    // Lapsed unanswered: settled all the same.
+    events.emit({ kind: "approval:decided", id: 2, approved: false, status: "expired", decidedBy: null });
+    expect(waiting("c1")).toBe(false);
     events.emit({ kind: "approval:decided", id: 3, approved: true, decidedBy: "owner" });
     off();
     events.emit({ kind: "approval:requested", id: 4, tool: "computer.act", conversationId: "c1" });

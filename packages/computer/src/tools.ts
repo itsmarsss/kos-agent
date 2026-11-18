@@ -58,6 +58,8 @@ export interface ComputerToolsDeps {
   stopTurn?(conversation: string): boolean;
   /** Whether a chat's steps on the screen each ask the owner first: the KOS for Mac window's chat, set to Ask. */
   asksEachStep?(conversation: string): boolean;
+  /** Whether a chat has an approval open: each step's status says so, so a wait the device missed the end of goes. */
+  waitingOn?(conversation: string): boolean;
   /** Subscribe to the owner's words reaching a chat's running turn mid-way: a no they gave may no longer stand. */
   onHeard?(handler: (conversation: string) => void): () => void;
   /** Subscribe to a chat starting afresh (a turn, or a fresh query of one), which has not seen the last picture. */
@@ -746,7 +748,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
             return typeof begun === "string" ? `${begun} ${note}` : { ...begun, text: `${begun.text} ${note}` };
           }
           // The step under way, on the device's bar and in its menu, as the owner reads it in the chat.
-          hub.tellStatus(chat, { step: summarizeAction("computer.act", input) });
+          hub.tellStatus(chat, { step: summarizeAction("computer.act", input), waiting: deps.waitingOn?.(chat) ?? false });
           // The owner has control: wait for them to hand it back, then show what they left rather than act on a screen nobody has seen.
           if (hub.sessionOf(chat)?.paused && (await hub.untilHandedBack(chat, turnStop.getStore()))) return await look(chat, "The owner had control; look again before acting. Nothing else was done.", undefined, 0, true);
           // The owner scrolled since the last picture: its coordinates no longer hold, so the screen as it is now instead.

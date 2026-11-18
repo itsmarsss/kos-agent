@@ -2245,6 +2245,20 @@ describe("KOS end-to-end flows", () => {
     expect(kinds).toContain("approval:decided");
   });
 
+  it("tells every settle of an ask once, one that timed out too", async () => {
+    kernel = await boot(scripted([]).inference);
+    const settled: unknown[] = [];
+    kernel.bus.on("approval:decided", (e) => void settled.push(e));
+    const decided = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "a.txt" }, riskTier: "risky" });
+    await kernel.deny(decided.id, "owner");
+    const waited = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "b.txt" }, riskTier: "risky" });
+    expect(await kernel.approvals.waitFor(waited.id, 5)).toBe("expired");
+    expect(settled).toEqual([
+      { kind: "approval:decided", id: decided.id, approved: false, status: "denied", decidedBy: "owner" },
+      { kind: "approval:decided", id: waited.id, approved: false, status: "expired", decidedBy: "timeout" },
+    ]);
+  });
+
   it("one conversation remembers, another recalls it", async () => {
     const model = scripted([
       toolCall("m1", "memory.remember", {
