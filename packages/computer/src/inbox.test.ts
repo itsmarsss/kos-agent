@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ATTACH_ARRIVING, ATTACH_FILE_BYTES, ATTACH_FILES, ATTACH_KEPT_MS, ATTACH_PART_CHARS, AttachmentInbox } from "./inbox.js";
+import { ATTACH_FILE_BYTES, ATTACH_FILES, ATTACH_HELD_CHARS, AttachmentBudget, ATTACH_KEPT_MS, ATTACH_PART_CHARS, AttachmentInbox } from "./inbox.js";
 
 /**
  * Files a device sends in parts ahead of the words they go with: whole ones
@@ -104,17 +104,31 @@ describe("the attachment inbox", () => {
     }
   });
 
-  it("takes at most two files arriving at once, across every device", () => {
-    const inbox = new AttachmentInbox();
-    // Three devices each begin a file of two parts; the third waits its turn.
-    for (const device of ["dev_a", "dev_b", "dev_c"]) inbox.part(device, { id: "f1", name: "scan.pdf", mediaType: "application/pdf", part: 0, parts: 2, data: "JVBERi0x" });
-    expect(ATTACH_ARRIVING).toBe(2);
-    expect(inbox.take("dev_c", ["f1"])).toEqual({ refused: "KOS is taking other files now. Attach scan.pdf again in a moment." });
-    // One whole frees its place, and a file begun after goes.
-    inbox.part("dev_a", { id: "f1", part: 1, data: "LjcK" });
-    inbox.part("dev_c", { id: "f2", name: "notes.txt", mediaType: "text/plain", part: 0, parts: 1, data: Buffer.from("milk").toString("base64") });
-    expect(inbox.take("dev_a", ["f1"])).toMatchObject({ files: [{ name: "scan.pdf" }] });
-    expect(inbox.take("dev_c", ["f2"])).toMatchObject({ files: [{ name: "notes.txt" }] });
+  it("holds files for every panel's devices within one budget, and refuses past it", () => {
+    // Room for two parts: two inboxes, as two panels have, share it.
+    const budget = new AttachmentBudget(2 * ATTACH_PART_CHARS);
+    const phone = new AttachmentInbox(Date.now, budget);
+    const mac = new AttachmentInbox(Date.now, budget);
+    phone.part("dev_a", { id: "f1", name: "scan.pdf", mediaType: "application/pdf", part: 0, parts: 1, data: "JVBERi0x" });
+    mac.part("dev_b", { id: "f1", name: "scan.pdf", mediaType: "application/pdf", part: 0, parts: 1, data: "JVBERi0x" });
+    mac.part("dev_b", { id: "f2", name: "notes.txt", mediaType: "text/plain", part: 0, parts: 1, data: "bWlsaw==" });
+    expect(mac.take("dev_b", ["f2"])).toEqual({ refused: "KOS is holding as many files as it can now. Attach notes.txt again in a moment." });
+    // A file sent again from its first part is checked again, and what it replaces does not count against it.
+    phone.part("dev_a", { id: "f1", name: "scan.pdf", mediaType: "application/pdf", part: 0, parts: 2, data: "JVBERi0x" });
+    expect(phone.take("dev_a", ["f1"])).toEqual({ refused: "KOS is holding as many files as it can now. Attach scan.pdf again in a moment." });
+    // Taken, a file frees its room.
+    expect(mac.take("dev_b", ["f1"])).toMatchObject({ files: [{ name: "scan.pdf" }] });
+    mac.part("dev_b", { id: "f3", name: "notes.txt", mediaType: "text/plain", part: 0, parts: 1, data: "bWlsaw==" });
+    expect(mac.take("dev_b", ["f3"])).toMatchObject({ files: [{ name: "notes.txt" }] });
+  });
+
+  it("holds a message of four of the largest files whole", () => {
+    expect(ATTACH_HELD_CHARS).toBeLessThan(600 * 1024 * 1024);
+    const inbox = new AttachmentInbox(Date.now, new AttachmentBudget());
+    const parts = Math.ceil((ATTACH_FILE_BYTES * 4) / 3 / ATTACH_PART_CHARS);
+    for (let i = 0; i < ATTACH_FILES; i++) inbox.part("dev_phone", { id: `f${i}`, name: "scan.pdf", mediaType: "application/pdf", part: 0, parts, data: "JVBERi0x" });
+    // Each began without refusal: the one part it brought is in place, the rest awaited.
+    for (let i = 0; i < ATTACH_FILES; i++) expect(inbox.take("dev_phone", [`f${i}`])).toEqual({ refused: "scan.pdf did not arrive whole. Attach it again." });
   });
 
   it("keeps nothing for a device that is no longer on its line", () => {

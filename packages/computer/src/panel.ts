@@ -19,7 +19,7 @@ import { stepMechanics, summarizeAction } from "@kos/shared";
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
 import { loggable, type DeviceHub, type DeviceKind } from "./hub.js";
-import { AttachmentInbox } from "./inbox.js";
+import { AttachmentInbox, attachmentBudget } from "./inbox.js";
 import type { DeviceEvent, PanelMessage, PanelMethod } from "./protocol.js";
 
 /**
@@ -193,7 +193,7 @@ export class DevicePanel implements ChannelAdapter {
   /** The state each chat's devices were last told, so a change is told once. */
   private readonly told = new Map<string, string>();
   /** Files on their way from each device, ahead of the words they go with. */
-  private readonly inbox = new AttachmentInbox();
+  private readonly inbox = new AttachmentInbox(Date.now, attachmentBudget);
   /** The artifacts a device opens, when this panel's devices may. */
   private readonly reader: ArtifactReader | undefined;
   /** Each device's artifact on its way, and the one it asked for since, which replaces any asked before it. */

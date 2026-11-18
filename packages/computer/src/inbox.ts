@@ -18,12 +18,6 @@ export const ATTACH_PART_CHARS = 256 * 1024;
 export const ATTACH_FILE_BYTES = FILE_MAX_BYTES;
 /** Files with one message, and held for one device at once. */
 export const ATTACH_FILES = 4;
-/**
- * Files arriving at once, across every device: each is held whole, as base64,
- * until its words come, so this bounds what devices can make KOS hold while
- * they send. A device sends its files one after another, so one at a time.
- */
-export const ATTACH_ARRIVING = 2;
 /** How long a file waits for the words it goes with. */
 export const ATTACH_KEPT_MS = 5 * 60_000;
 
@@ -64,6 +58,43 @@ const tooBig = (name: string): string => `${name} is more than KOS takes: files 
 const FILE_CHARS = Math.ceil(ATTACH_FILE_BYTES / 3) * 4;
 const PARTS_MAX = Math.ceil(FILE_CHARS / ATTACH_PART_CHARS);
 
+/**
+ * What every device together may make KOS hold of files waiting for their
+ * words, as base64: one message of the largest files goes whole, about
+ * 560 MB, and devices sending at once share it. A file reserves its whole
+ * size (its parts, full) when its first part comes.
+ */
+export const ATTACH_HELD_CHARS = ATTACH_FILES * PARTS_MAX * ATTACH_PART_CHARS;
+
+/** The room for held files, shared by every inbox it is handed to: one for the process, across every panel. */
+export class AttachmentBudget {
+  private readonly inboxes = new Set<WeakRef<AttachmentInbox>>();
+
+  constructor(readonly chars: number = ATTACH_HELD_CHARS) {}
+
+  /** An inbox whose held files count against this budget. */
+  share(inbox: AttachmentInbox): void {
+    this.inboxes.add(new WeakRef(inbox));
+  }
+
+  /** Characters still free. */
+  room(): number {
+    let used = 0;
+    for (const ref of this.inboxes) {
+      const inbox = ref.deref();
+      if (inbox) used += inbox.heldChars();
+      else this.inboxes.delete(ref);
+    }
+    return this.chars - used;
+  }
+}
+
+/** The process's one budget, shared by every panel's inbox. */
+export const attachmentBudget = new AttachmentBudget();
+
+/** What a file holds: its parts, each full, from its first; nothing once refused. */
+const reserved = (file: Arriving): number => file.parts.length * ATTACH_PART_CHARS;
+
 interface Arriving {
   name: string;
   mediaType: string;
@@ -78,7 +109,12 @@ interface Arriving {
 export class AttachmentInbox {
   private readonly byDevice = new Map<string, Map<string, Arriving>>();
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly budget: AttachmentBudget = new AttachmentBudget(),
+  ) {
+    budget.share(this);
+  }
 
   /** One part of a file, as `chat.attach` carries it. A bad part refuses its file. */
   part(device: string, data: Record<string, unknown>): void {
@@ -86,18 +122,16 @@ export class AttachmentInbox {
     if (typeof id !== "string" || !ID.test(id)) return;
     const held = this.held(device);
     let file = held.get(id);
-    if (!file) {
-      if (held.size >= ATTACH_FILES) return;
-      const arriving = this.arriving();
+    // A new file, or a file's first part again, which is the file sent again (after a dropped line, say): it starts over.
+    if (!file || data["part"] === 0) {
+      if (!file && held.size >= ATTACH_FILES) return;
+      // What it replaces no longer counts against the room it needs.
+      held.delete(id);
       file = this.begin(data);
-      if (!file.refused && arriving >= ATTACH_ARRIVING) {
-        file.refused = `KOS is taking other files now. Attach ${file.name} again in a moment.`;
+      if (!file.refused && reserved(file) > this.budget.room()) {
+        file.refused = `KOS is holding as many files as it can now. Attach ${file.name} again in a moment.`;
         file.parts = [];
       }
-      held.set(id, file);
-    } else if (data["part"] === 0) {
-      // A file's first part again is the file sent again (after a dropped line, say): it starts over.
-      file = this.begin(data);
       held.set(id, file);
     }
     if (file.refused) return;
@@ -137,14 +171,12 @@ export class AttachmentInbox {
     for (const device of this.byDevice.keys()) if (!online.has(device)) this.byDevice.delete(device);
   }
 
-  /** Files on their way to any device's hold, begun and not yet whole, and not gone stale. */
-  private arriving(): number {
+  /** The characters this inbox's files hold, or have reserved, and have not gone stale. */
+  heldChars(): number {
     const now = this.now();
-    let count = 0;
-    for (const held of this.byDevice.values()) {
-      for (const file of held.values()) if (!file.refused && file.got < file.parts.length && now - file.at <= ATTACH_KEPT_MS) count += 1;
-    }
-    return count;
+    let chars = 0;
+    for (const held of this.byDevice.values()) for (const file of held.values()) if (now - file.at <= ATTACH_KEPT_MS) chars += reserved(file);
+    return chars;
   }
 
   /** The device's hold, stale files dropped. */

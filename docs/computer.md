@@ -299,8 +299,10 @@ the model takes, at most 2048 px on its long side and 5 MB; a document past
 32 MB or a text file past 5 MB is named to the model where it was kept, to
 read from there. Four go with one message,
 and four are held for a device at once, each for five minutes and never past
-the device's line; across every device, two files arrive at once, and a
-third begun meanwhile is refused, to attach again. A file named by `chat.send` that did not arrive whole, or
+the device's line. Every device together shares one budget of what KOS
+holds waiting, four of the largest files as base64; a file is counted at its
+whole size from its first part, and one that does not fit is refused, to
+attach again in a moment. A file named by `chat.send` that did not arrive whole, or
 was refused on the way in, stops the words: KOS answers with `chat.status`
 carrying `error` and the words as `said`, and nothing is sent to the turn.
 A device downscales a photo before it sends it (KOS for iPhone: 2048 px on
