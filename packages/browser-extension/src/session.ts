@@ -8,7 +8,8 @@
  * them is the owner's hand, which takes the tab over.
  */
 
-export type EndReason = "owner" | "expired" | "idle" | "detached" | "host";
+/** Why a session ended: `restarted` is a worker Chrome started again, which held it in memory alone. */
+export type EndReason = "owner" | "expired" | "idle" | "detached" | "host" | "restarted";
 
 export interface SessionInfo {
   id: string;

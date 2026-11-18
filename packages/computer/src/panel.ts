@@ -18,7 +18,7 @@ import { stepMechanics, summarizeAction } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
-import type { DeviceHub, DeviceKind } from "./hub.js";
+import { loggable, type DeviceHub, type DeviceKind } from "./hub.js";
 import { AttachmentInbox } from "./inbox.js";
 import type { DeviceEvent, PanelMessage, PanelMethod } from "./protocol.js";
 
@@ -112,6 +112,8 @@ export interface PanelDeps {
   dashboard?: PanelDashboard;
   /** The audit log, where what a phone does through the dashboard's routes is written as the phone's. */
   audit?(entry: AuditEntry): void;
+  /** The host's log, where each panel's words and Stops are said as they arrive (never the words themselves); the console's error stream unless given. */
+  log?(line: string): void;
 }
 
 /** As much of what the owner quoted (selected on a page) as rides with their words, and of where it came from. */
@@ -144,6 +146,8 @@ interface Running {
   /** The device whose words these are: its own presence tells it the turn, so it is left out. */
   speaker?: string;
   narrator: TurnNarrator;
+  /** When it began, epoch ms: a device opened mid-turn starts its clock there. */
+  since: number;
   shownAt: number;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -382,8 +386,8 @@ export class DevicePanel implements ChannelAdapter {
       if (event.from === this.name) this.turns.set(id, { ...(speaker ? { device: speaker } : {}), since: Date.now() });
       if (!chat || id !== chat.id) return;
       this.quiet();
-      this.running = { conversation: id, narrator: new TurnNarrator(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
-      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true, command: false }), speaker);
+      this.running = { conversation: id, narrator: new TurnNarrator(), since: Date.now(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
+      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true, command: false, since: this.running.since }), speaker);
       return;
     }
     const running = this.running;
@@ -542,7 +546,7 @@ export class DevicePanel implements ChannelAdapter {
     for (const req of this.deps.waiting?.(chat.id) ?? []) await this.tell(device, "chat.ask", { chat: chat.id, approval: approvalOf(req) });
     const running = this.running;
     if (running?.conversation === chat.id) {
-      if (running.said) await this.tell(device, "chat.status", this.statusOf(chat.id, { said: running.said, taken: true, command: false }));
+      if (running.said) await this.tell(device, "chat.status", this.statusOf(chat.id, { said: running.said, taken: true, command: false, since: running.since }));
       if (running.narrator.worthShowing()) await this.tell(device, "chat.status", this.statusOf(chat.id, { ...this.about(running), story: running.narrator.render() }));
     }
     await this.tell(device, "chat.status", this.statusOf(chat.id, {}));
@@ -570,6 +574,7 @@ export class DevicePanel implements ChannelAdapter {
           return;
         }
         const files = taken.files;
+        this.said(device, `chat.send to chat ${this.deps.current()?.id ?? "none yet"}: ${text.length} chars${files.length ? `, ${files.length} files` : ""}${data["quote"] ? ", a quote" : ""}, beside ${besideKind(data["beside"])}`);
         if (!text && !files.length) return;
         this.last = device;
         this.lastBeside = data["beside"];
@@ -591,7 +596,11 @@ export class DevicePanel implements ChannelAdapter {
         // The chat named, when it is one of this panel's; else the one it shows.
         const named = typeof data["chat"] === "string" ? data["chat"] : undefined;
         const chat = named === undefined ? this.deps.current()?.id : this.isOwnChat(named) ? named : undefined;
-        if (chat) this.stopping?.(chat);
+        // How long ago it was pressed, when it waited on the way: a Stop pressed before the turn running now began is not for it.
+        const waited = typeof data["waited"] === "number" && data["waited"] >= 0 ? data["waited"] : 0;
+        const stale = chat !== undefined && this.pressedBefore(chat, Date.now() - waited);
+        this.said(device, `chat.stop for ${chat ? `chat ${chat}` : named === undefined ? "no chat shown" : `chat ${loggable(named)}, not one of its own`}${named === undefined ? " (the one shown)" : ""}${waited ? `, pressed ${Math.round(waited / 1000)} s ago` : ""}${stale ? ", before the turn running now began: let go" : ""}`);
+        if (chat && !stale) this.stopping?.(chat);
         return;
       }
       case "chat.decide":
@@ -686,6 +695,18 @@ export class DevicePanel implements ChannelAdapter {
   /** A chat of this panel's own: the one it shows, one a turn from it runs in, or one it may switch to. */
   private isOwnChat(id: string): boolean {
     return id === this.deps.current()?.id || this.turns.has(id) || (this.deps.chats?.().some((c) => c.id === id) ?? false);
+  }
+
+  /** Whether a press at `at` came before the turn running in the chat began; false when none runs (a Stop still ends its session and asks). */
+  private pressedBefore(chat: string, at: number): boolean {
+    const since = this.turns.get(chat)?.since ?? (this.running?.conversation === chat ? this.running.since : undefined);
+    return since !== undefined && at < since;
+  }
+
+  /** What a device's panel did, one line in the host's log, by which device. */
+  private said(device: string, what: string): void {
+    const name = this.hub?.list().find((d) => d.id === device)?.name ?? "?";
+    (this.deps.log ?? ((line: string) => console.error(line)))(`${this.name}: ${what}, from ${loggable(name)} (${device})`);
   }
 
   /** A device of the kind this panel is drawn on: a Chrome's words are never the Mac window's, nor the other way round. */
@@ -889,4 +910,10 @@ function argsText(args: ApprovalRequest["args"]): string {
   if (args === undefined) return "";
   const text = typeof args === "string" ? args : JSON.stringify(args);
   return text.length > MAX_ARGS ? `${text.slice(0, MAX_ARGS)}…` : text;
+}
+
+/** Where the owner's words were said, as the host's log names it: the kind of place, never its address. */
+function besideKind(beside: unknown): string {
+  const kind = typeof beside === "object" && beside !== null ? (beside as Record<string, unknown>)["kind"] : undefined;
+  return typeof kind === "string" ? loggable(kind) : "nothing said";
 }

@@ -37,6 +37,22 @@ describe("the side panel's chat", () => {
     expect(c.stories).toEqual([{ after: 1, said, text: "› Read the file" }]);
   });
 
+  it("shows a turn that ran while the panel was away as running, with its story and its clock, once found again", () => {
+    const state = { chat: "c1", conversation: "c1", held: false };
+    const began = Date.now() - 90_000;
+    // Opened (or the worker woke) mid-turn: the chat as it stands, then the turn so far.
+    let c = shown(EMPTY, { conversation: "c1", title: "Mugs", messages: [you("compare these"), kos("The 12 oz."), you("and the blue one?")] });
+    c = statused(c, { ...state, said: "and the blue one?", taken: true, command: false, since: began });
+    c = statused(c, { ...state, said: "and the blue one?", story: "› Opened the blue mug" });
+    c = statused(c, state);
+    expect(c).toMatchObject({ working: true, taken: { said: "and the blue one?", at: began }, stories: [{ after: 2, said: "and the blue one?", text: "› Opened the blue mug" }] });
+    // A turn on none of the owner's words (one KOS started) after an answered one with as many steps: running, not that one retold.
+    c = shown(EMPTY, { conversation: "c1", title: "Mugs", messages: [you("compare these"), { role: "steps", steps: [{ summary: "Looked" }] }, kos("The 12 oz.")] });
+    c = statused(c, { ...state, story: "› Checked the price" });
+    c = statused(c, state);
+    expect(c).toMatchObject({ working: true, stories: [{ after: 1, text: "› Checked the price" }] });
+  });
+
   it("gives words that name no command back to the box when KOS never takes them", () => {
     const c = givenBack(sent({ ...EMPTY, conversation: "c1" }, "/etc/hosts is broken"));
     expect(c).toMatchObject({ sending: [], working: false, unsent: "/etc/hosts is broken" });

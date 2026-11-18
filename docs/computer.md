@@ -480,7 +480,10 @@ steps.
 - **A session is bounded**: one at a time across every KOS the device is
   paired with (another that asks is answered `busy`), ended at its time limit,
   when idle, on Stop, when the app quits, and when the connection to the KOS
-  that owns it drops. Only that KOS can act in it or end it. KOS's
+  that owns it drops (KOS for Chrome alone waits 10 s for it to come back,
+  and KOS keeps a Chrome's session 20 s for it to say it still holds it; a
+  step taken meanwhile waits, and is never sent after Stop). Only that KOS
+  can act in it or end it. KOS's
   kill switch ends every session. The device sets the longest session and the
   idle limit; KOS only says how long it asks for.
 - **Work the owner did not start stays off.** A schedule, a blob's own timer
@@ -547,6 +550,17 @@ that does not read, is let in as a build KOS does not know. A Chrome adds
 `install`, how Chrome says it was installed (`development` for Load
 unpacked); KOS for Mac on the computer KOS runs on adds `here`, its proof
 that it is there.
+
+`session`, when the device sends it, is `{ "id", "ended"? }`: the session it
+held for this KOS when its line last dropped. Without `ended` it still
+holds it, and KOS goes on with it on the new line; with `ended` (a reason
+as `session.ended` gives one) it lost it while away, and KOS ends it there
+with that reason. A session KOS kept for the device that the hello does not
+name is over (`offline`), and one the hello names that KOS no longer has is
+ended on the device with `session.end`. A device that sends none holds
+none. KOS keeps a Chrome's session 20 s after its line drops, for it to
+come back and say so, then ends it as `offline`; any other device's
+session ends with its line.
 
 Nonces are signed as their base64 text. Either side closes on a bad
 signature. Close codes: `4001` malformed, `4003` unknown device, bad
@@ -738,8 +752,18 @@ Device: `{ "t": "event", "name": "session.paused", "data": { "session": "...", "
 | `session.resumed` | `session` |
 | `session.scrolled` | `session` (the owner scrolled without taking over; sent once until KOS takes a whole-screen picture, and until then KOS acts on nothing but a look) |
 | `session.extended` | `session`, `until` (the owner gave it more time on the device) |
-| `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`, `window`) |
+| `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`, `window`, `detached`: Chrome's debugging bar was closed, `restarted`: a Chrome's worker started again and lost it) |
 | `update.state` | `build` (the id KOS told of), `state` (`reloading`: a Chrome reloads into it now; `missing`: its folder never came to hold it, so it is loaded from another, and KOS settles it as still behind) |
+
+### The host's log
+
+KOS writes one line to its log for each device line that comes up (its
+app and build) or goes down (which side closed it, the code and reason),
+each session that begins (its device, its chat, its minutes) or ends (why,
+and who ended it: the owner on the device or the dashboard, the device, its
+line, its time, KOS), and each `chat.send` and `chat.stop` from a device's
+chat (the chat, the size of the words, where they were said, and which
+device). Never the words, a task or a page's address.
 
 ### Errors
 

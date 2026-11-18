@@ -36,6 +36,8 @@ export interface OverlayState {
   face?: { fill: string; ink: string; eyes: string; body: string };
   /** The palette the bar is drawn in: the extension's theme, "system" being the page's own appearance. */
   theme?: "light" | "dark" | "system";
+  /** False when the owner chose the small bar in Settings: KOS's face and Stop alone, still one press to stop, with the border and KOS's cursor. */
+  bar?: boolean;
 }
 
 export function installOverlay(): void {
@@ -89,8 +91,11 @@ export function installOverlay(): void {
   const render = (): void => {
     if (!host || !title || !text || !take || !left) return;
     host.dataset["paused"] = state.paused ? "1" : "";
-    host.dataset["folded"] = state.folded ? "1" : "";
+    const small = state.bar === false;
+    // The small bar is already as small as it goes: never folded, whatever the full bar was left as.
+    host.dataset["folded"] = state.folded && !small ? "1" : "";
     host.dataset["theme"] = state.theme ?? "system";
+    host.dataset["bar"] = state.bar === false ? "chip" : "";
     title.textContent = state.paused ? "Paused, you have control" : "KOS is using this tab";
     text.textContent = state.task || "working";
     left.textContent = minutes();
@@ -102,7 +107,7 @@ export function installOverlay(): void {
       face.dataset["eyes"] = state.face.eyes;
       face.querySelector("path")?.setAttribute("d", state.face.body);
     }
-    bar?.setAttribute("title", state.folded ? `${title.textContent}: ${state.task || "working"}. Press KOS's face to open the bar.` : "Drag to move. Press KOS's face to fold.");
+    bar?.setAttribute("title", small ? `${title.textContent}: ${state.task || "working"}. Drag to move.` : state.folded ? `${title.textContent}: ${state.task || "working"}. Press KOS's face to open the bar.` : "Drag to move. Press KOS's face to fold.");
     place();
   };
 
@@ -141,6 +146,9 @@ export function installOverlay(): void {
         border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent);
         box-shadow: 0 0 12px color-mix(in srgb, var(--tone) 35%, transparent), 0 8px 24px var(--cast); }
       .bar.dragging { cursor: grabbing; }
+      :host([data-bar="chip"]) .bar { gap: 6px; height: 38px; padding: 0 5px 0 7px; }
+      :host([data-bar="chip"]) .words, :host([data-bar="chip"]:not([data-paused="1"])) button:not(.stop) { display: none; }
+      :host([data-bar="chip"]) button { box-sizing: border-box; height: 26px; padding: 0 11px; line-height: 24px; }
       :host([data-folded="1"]) .bar { gap: 0; padding: 0 11px; opacity: 0.85; }
       :host([data-folded="1"]) .bar:hover { opacity: 1; }
       :host([data-folded="1"]) .words, :host([data-folded="1"]) button { display: none; }
@@ -185,11 +193,12 @@ export function installOverlay(): void {
     cursor = shadow.querySelector(".cursor");
     face = shadow.querySelector(".face");
     // A drag moves the bar; a press that does not move is a press, and on the face it folds the bar.
-    let drag: { id: number; dx: number; dy: number; x0: number; y0: number; moved: boolean } | null = null;
+    // Whether it began on the face is kept: with the pointer captured, the release is the bar's, not the face's.
+    let drag: { id: number; dx: number; dy: number; x0: number; y0: number; moved: boolean; face: boolean } | null = null;
     bar?.addEventListener("pointerdown", (e) => {
       if (!bar || (e.target as HTMLElement).closest("button")) return;
       const at = bar.getBoundingClientRect();
-      drag = { id: e.pointerId, dx: e.clientX - at.left, dy: e.clientY - at.top, x0: e.clientX, y0: e.clientY, moved: false };
+      drag = { id: e.pointerId, dx: e.clientX - at.left, dy: e.clientY - at.top, x0: e.clientX, y0: e.clientY, moved: false, face: !!(e.target as HTMLElement).closest(".face") };
       bar.setPointerCapture(e.pointerId);
       e.preventDefault();
     });
@@ -203,11 +212,11 @@ export function installOverlay(): void {
     });
     bar?.addEventListener("pointerup", (e) => {
       if (!bar || !drag || e.pointerId !== drag.id) return;
-      const { moved } = drag;
+      const { moved, face: onFace } = drag;
       drag = null;
       bar.classList.remove("dragging");
       if (moved && state.at) tell({ kind: "place", ...state.at });
-      else if ((e.target as HTMLElement).closest(".face")) tell({ kind: "fold", folded: !state.folded });
+      else if (onFace && state.bar !== false) tell({ kind: "fold", folded: !state.folded });
     });
     addEventListener("resize", place);
     shadow.addEventListener(

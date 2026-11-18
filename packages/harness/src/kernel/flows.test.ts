@@ -1224,9 +1224,11 @@ describe("KOS end-to-end flows", () => {
      * through the same gate it would at 9am: an unattended run queues
      * anything risky for the owner. So running it by hand asks nothing.
      */
-    await kernel.handleMessage("run the morning ping now");
+    await kernel.handleMessage("run the morning ping now", { sessionId: "chat:morning" });
     expect(kernel.approvals.pending()).toHaveLength(0);
     expect(kernel.runs.recent(10).some((r) => r.kind === "cron")).toBe(true);
+    // The turn's own run names the chat it ran in.
+    expect(kernel.runs.recent(10).find((r) => r.kind === "chat")?.ref).toBe("chat:morning");
 
     // And what it does: fire(), so the run log, the kill switch and the
     // health report see it exactly as they would at 9am.

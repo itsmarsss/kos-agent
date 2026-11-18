@@ -29,7 +29,9 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
     halted: () => opts.halted ?? false,
     callTimeoutMs: 500,
+    log: () => undefined,
   });
+  const logged: string[] = [];
   let chat: { id: string; title: string } | undefined;
   let events: ChatEvent[] = [];
   let model = "gpt-5.5";
@@ -55,6 +57,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
       return chat;
     },
     auto: (c) => acting.has(c),
+    log: (line) => void logged.push(line),
     picture: (id) => opts.pictures?.[id],
     ...(opts.glance ? { glance: opts.glance } : {}),
     ...(opts.artifacts ? { artifacts: opts.artifacts } : {}),
@@ -89,6 +92,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
     panel,
     tools,
     pair,
+    logged,
     setChat: (c: typeof chat, e: ChatEvent[] = []) => {
       chat = c;
       events = e;
@@ -596,6 +600,22 @@ describe("a Chrome's side panel", () => {
     expect(identity.resolve("discord", chrome.id)).toBeNull();
   });
 
+  it("says each panel's words and Stops in the host's log, by device, never the words", async () => {
+    const { pair, setChat, logged } = setup();
+    const chrome = pair();
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    chrome.event("chat.send", { text: "buy the secret mug", beside: { kind: "page", url: "https://shop.example/mugs", title: "Mugs" }, quote: { text: "Glazed", from: "https://shop.example/mugs" } });
+    chrome.event("chat.stop", {});
+    chrome.event("chat.stop", { chat: "someone:else" });
+    await flush();
+    expect(logged).toEqual([
+      `chrome: chat.send to chat chrome:owner: 18 chars, a quote, beside page, from Chrome on macOS (${chrome.id})`,
+      `chrome: chat.stop for chat chrome:owner (the one shown), from Chrome on macOS (${chrome.id})`,
+      `chrome: chat.stop for chat someone:else, not one of its own, from Chrome on macOS (${chrome.id})`,
+    ]);
+    expect(logged.join("\n")).not.toMatch(/secret|Glazed|shop\.example/);
+  });
+
   it("shows the chat when the panel opens, and after a turn with what was answered outside it", async () => {
     const { panel, pair, setChat } = setup();
     const chrome = pair();
@@ -646,7 +666,7 @@ describe("a Chrome's side panel", () => {
     const state = { chat: "chrome:owner", conversation: "chrome:owner", waiting: "approval", held: false };
     expect(status()).toEqual([
       // The owner's words at once, then each step as it is taken.
-      { ...state, said: "compare these mugs", taken: true, command: false },
+      { ...state, said: "compare these mugs", taken: true, command: false, since: expect.any(Number) },
       { ...state, said: "compare these mugs", story: "› Read the page" },
     ]);
     // A panel opened mid-turn is told the turn so far, after the chat, and then its state.
@@ -718,6 +738,25 @@ describe("a Chrome's side panel", () => {
     chrome.event("chat.close", { conversation: "cm1:owner" });
     await flush();
     expect(left).toEqual(["chrome:owner"]);
+  });
+
+  it("lets go of a Stop that waited on its way and was pressed before the turn running now began", async () => {
+    const { pair, setChat, panel, logged } = setup();
+    const chrome = pair();
+    const stopped: string[] = [];
+    panel.onStop((c) => void stopped.push(c));
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    panel.watch({ kind: "turn-start", conversationId: "chrome:owner", said: "the next thing", from: "dashboard" });
+    // Pressed a minute ago for a turn long over: the turn running now goes on.
+    chrome.event("chat.stop", { chat: "chrome:owner", waited: 60_000 });
+    await flush();
+    expect(stopped).toEqual([]);
+    expect(logged.at(-1)).toMatch(/pressed 60 s ago, before the turn running now began: let go/);
+    // Pressed just now, or with no wait said: it stops.
+    chrome.event("chat.stop", { chat: "chrome:owner", waited: 0 });
+    chrome.event("chat.stop", { chat: "chrome:owner" });
+    await flush();
+    expect(stopped).toEqual(["chrome:owner", "chrome:owner"]);
   });
 
   it("hears Stop for the chat the panel shows", async () => {

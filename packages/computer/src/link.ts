@@ -11,6 +11,7 @@ import {
   type DeviceEvent,
   type DeviceState,
   type Hello,
+  type HeldSession,
   type Method,
   type Reply,
 } from "./protocol.js";
@@ -30,7 +31,8 @@ export interface Socket {
   send(text: string): void;
   close(code: number, reason: string): void;
   onMessage(handler: (text: string) => void): void;
-  onClose(handler: () => void): void;
+  /** Told once the socket closes, with the close code and reason when the socket has them. */
+  onClose(handler: (code?: number, reason?: string) => void): void;
 }
 
 /** A device's answer that was a refusal, with the protocol's code for why. */
@@ -105,13 +107,20 @@ export class DeviceLink {
   install: string | undefined;
   private here = false;
   state: DeviceState | undefined;
+  /** The session the device said in its hello it holds, or lost while away and why. */
+  held: HeldSession | undefined;
+  /** Why the line closed, for the host's log: which side closed it, and the code and reason given. */
+  closedWith: string | undefined;
 
   constructor(
     private readonly socket: Socket,
     private readonly deps: LinkDeps,
   ) {
     socket.onMessage((text) => this.receive(text));
-    socket.onClose(() => this.gone());
+    socket.onClose((code, reason) => {
+      if (!this.closed) this.closedWith = `closed by the device${closeWords(code, reason)}`;
+      this.gone();
+    });
     socket.send(JSON.stringify({ t: "challenge", protocol: PROTOCOL_VERSION, nonce: this.challenge }));
     this.helloTimer = setTimeout(() => this.close(CLOSE.malformed, "no hello"), deps.helloTimeoutMs ?? HELLO_TIMEOUT_MS);
   }
@@ -151,6 +160,7 @@ export class DeviceLink {
 
   close(code: number, reason: string): void {
     if (this.closed) return;
+    this.closedWith = `closed by KOS${closeWords(code, reason)}`;
     this.socket.close(code, reason);
     this.gone();
   }
@@ -171,6 +181,7 @@ export class DeviceLink {
       this.app = frame.app;
       this.build = frame.build;
       this.install = frame.install;
+      this.held = frame.session;
       // A Mac is reinstalled from here, so its word alone is not enough: it proves it can read this computer's secret.
       const mac = device.platform === "macos";
       this.here = this.deps.local === true && (!mac || (this.deps.localKey !== undefined && verifyHere(this.deps.localKey, this.challenge, device.id, frame.here)));
@@ -232,4 +243,10 @@ export class DeviceLink {
     this.pending.clear();
     this.deps.onClose(this);
   }
+}
+
+/** A close code and reason as a log line says them: " (1001 going away)", or nothing when there are none. */
+function closeWords(code: number | undefined, reason: string | undefined): string {
+  const words = [code === undefined ? "" : String(code), (reason ?? "").replace(/[^\x20-\x7e]/g, "?").slice(0, 80)].filter(Boolean).join(" ");
+  return words ? ` (${words})` : "";
 }

@@ -141,7 +141,7 @@ function asSocket(ws: WebSocket): Socket {
         if (isBinary) ws.close(4001, "text frames only");
         else handler(data.toString());
       }),
-    onClose: (handler) => ws.on("close", handler),
+    onClose: (handler) => ws.on("close", (code, reason) => handler(code, reason.toString())),
   };
 }
 
