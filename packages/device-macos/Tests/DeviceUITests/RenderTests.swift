@@ -129,6 +129,50 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  /// A picture of a screen, as a step would have taken: a window over a desktop, in one colour each.
+  private func screenshot(_ hue: CGFloat) throws -> String {
+    let w = 1232, h = 800
+    let context = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(NSColor(hue: hue, saturation: 0.35, brightness: 0.55, alpha: 1).cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    context.setFillColor(NSColor(white: 0.96, alpha: 1).cgColor)
+    context.fill(CGRect(x: 160, y: 120, width: 900, height: 560))
+    context.setFillColor(NSColor(hue: hue, saturation: 0.7, brightness: 0.8, alpha: 1).cgColor)
+    context.fill(CGRect(x: 200, y: 560, width: 360, height: 60))
+    let rep = NSBitmapImageRep(cgImage: try #require(context.makeImage()))
+    return try #require(rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])).base64EncodedString()
+  }
+
+  /// A turn on the go in the chat: an earlier turn's steps with what they saw, then this one's steps live, its
+  /// pictures under them, and the foot thinking after a finished step.
+  @Test func chatWindowMidTurnWithPictures() async throws {
+    let model = ChatModel()
+    model.paired = true
+    model.link = .connected
+    model.beside = "Safari"
+    model.besideTitle = "Quizzes · Course"
+    model.models(.init(current: "", choices: [], fixed: "Claude Agent SDK"))
+    let shots = [1: try screenshot(0.6), 2: try screenshot(0.08), 3: try screenshot(0.33), 4: try screenshot(0.75)]
+    model.show(
+      conversation: "mac:owner", title: "Quiz form",
+      lines: [
+        .you("Open the quizzes page", files: []),
+        .steps([.init(summary: "Open Safari", frame: 1)]),
+        .kos("It is open on the Quizzes tab."),
+        .you("Now fill in the engagement form", files: []),
+      ],
+      pictures: [1: shots[1]!])
+    model.status(taken: true, story: nil, error: nil, said: "Now fill in the engagement form", conversation: "mac:owner")
+    model.session = .working
+    model.status(taken: false, story: .some("› Open the engagement form (done)\n› Type the student number (done)"), error: nil, said: "Now fill in the engagement form", conversation: "mac:owner")
+    for id in [2, 3, 4] { model.frame(id, image: shots[id]!, said: "Now fill in the engagement form", conversation: "mac:owner") }
+    // Decoded before the picture is drawn, as the window would have them by the time they show.
+    for (id, data) in model.pictures { _ = await Thumbnails.shared.image(id, from: data) }
+    #expect(model.foot == "Thinking")
+    let size = try render("chat-window-mid-turn", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    #expect(size.height == ChatView.size.height)
+  }
+
   /// A time KOS wrote, as its words on the dashboard's grey chip.
   @Test func chatMarkdownWithATime() throws {
     let due = Int(Date().timeIntervalSince1970) + 13 * 86_400

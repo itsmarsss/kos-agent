@@ -92,7 +92,7 @@ those to this table by hand.
 | Row words | A row's title over its line of detail, one line each; `.line-text--wrap` lets a setting's detail run on | `.line-text` (kit) | `.line-text` (the tab card), `.line-text--wrap` (the popup's settings) | `RowText` (Controls) |
 | Tile | A symbol on its tone's tint | `.tile` (kit) | `.tile` | `Tile` (Controls) |
 | Capsule chip | The steps of a turn, the model, the mode | `.composer-engine` | `.steps-head`, `.model`, `.mode`: one rule | `Chip` and `.chip()` (Controls); `opens:` adds the chevron (the steps chip, the model menu) |
-| Hairline, MenuRow | Small pieces | | | `Hairline`, `MenuRow` (Controls) |
+| Hairline, MenuRow, CapsuleEdge | Small pieces; `CapsuleEdge` is the outline to stroke on a capsule (SwiftUI's `Capsule` stroke draws a stray mark at each end) | | | `Hairline`, `MenuRow`, `CapsuleEdge` (Controls) |
 | Turn menu | What KOS is at, at the head of the menu bar's menu: a dot and the state over the step or the ask, then `MenuRow`s (Approve, Deny, Hand back, Take over, +15, Open chat, Stop), one symbol column | | | `TurnMenu` and `MenuTurn` (`TurnMenu.swift`), in `StatusMenu` |
 | Command | A command for the owner to run in Terminal, selectable, with Copy at one width | `CommandLine` (`ui/src/kit.tsx`), in a `FieldRow`'s `after` (a device's) | | `CommandBox` (Controls; the update notice) |
 

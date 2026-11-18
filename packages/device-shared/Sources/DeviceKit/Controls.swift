@@ -242,6 +242,26 @@ public struct Tile: View {
   }
 }
 
+/// A capsule's edge, to stroke. SwiftUI's own Capsule stroke drew a stray straight stroke beside the curve at each
+/// end, a ghost edge on the session bar and every bordered capsule; corners of half the height draw the same
+/// outline without it.
+public struct CapsuleEdge: InsettableShape {
+  private var inset: CGFloat = 0
+
+  public init() {}
+
+  public func path(in rect: CGRect) -> Path {
+    let r = rect.insetBy(dx: inset, dy: inset)
+    return RoundedRectangle(cornerRadius: min(r.width, r.height) / 2, style: .circular).path(in: r)
+  }
+
+  public func inset(by amount: CGFloat) -> CapsuleEdge {
+    var edge = self
+    edge.inset += amount
+    return edge
+  }
+}
+
 /// A round mark of a state: live, paused, waiting.
 public struct Dot: View {
   private let colour: Color
@@ -386,7 +406,7 @@ public struct Tag<Leading: View>: View {
     .padding(.trailing, remove == nil ? 7 : 5)
     .padding(.vertical, 4)
     .background(hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: Capsule())
-    .overlay(Capsule().strokeBorder(hovering ? Theme.lineStrong : Theme.line))
+    .overlay(CapsuleEdge().strokeBorder(hovering ? Theme.lineStrong : Theme.line))
     .onHover { hovering = $0 }
     .animation(Theme.hover, value: hovering)
   }
