@@ -180,37 +180,44 @@ public struct SwitchRow: View {
 
 /// A symbol on its own tint: what a row is about, at a glance. `small` for a line inside something else, as the tab card's is.
 /// What a step saw (a tab, a screen), as the dashboard's and the side panel's StepPicture (kit):
-/// small under its step, larger when `open`, a press asking for the other.
+/// small under its step, larger when `open`, a press asking for the other. Decoded once by its frame id, off the
+/// main actor (Thumbnails); until then it holds its place.
 public struct StepPicture: View {
   /// How wide it is small.
   public static let small: CGFloat = 150
-  private let image: Image?
+  private let picture: ChatModel.Picture
   private let open: Bool
   private let press: () -> Void
+  @State private var image: CGImage?
 
-  public init(_ data: Data, open: Bool = false, press: @escaping () -> Void = {}) {
-    #if os(macOS)
-    image = NSImage(data: data).map(Image.init(nsImage:))
-    #else
-    image = UIImage(data: data).map(Image.init(uiImage:))
-    #endif
+  public init(_ picture: ChatModel.Picture, open: Bool = false, press: @escaping () -> Void = {}) {
+    self.picture = picture
     self.open = open
     self.press = press
   }
 
   public var body: some View {
-    if let image {
-      Button(action: press) {
-        image
-          .resizable()
-          .aspectRatio(contentMode: .fit)
-          .frame(maxWidth: open ? .infinity : Self.small, alignment: .leading)
-          .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-          .overlay(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).strokeBorder(Theme.line))
+    let shown = image ?? Thumbnails.shared.cached(picture.id)
+    Group {
+      if let shown {
+        Button(action: press) {
+          Image(decorative: shown, scale: 2)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(maxWidth: open ? .infinity : Self.small, alignment: .leading)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).strokeBorder(Theme.line))
+        }
+        .buttonStyle(.plain)
+        .help(open ? "Smaller" : "What this step saw")
+        .accessibilityLabel("What this step saw")
+      } else {
+        RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).fill(Theme.panel2)
+          .frame(width: Self.small, height: Self.small * 0.62)
       }
-      .buttonStyle(.plain)
-      .help(open ? "Smaller" : "What this step saw")
-      .accessibilityLabel("What this step saw")
+    }
+    .task(id: picture.id) {
+      if image == nil { image = await Thumbnails.shared.image(picture.id, from: picture.data) }
     }
   }
 }

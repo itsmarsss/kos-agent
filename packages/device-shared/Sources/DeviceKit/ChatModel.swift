@@ -29,6 +29,19 @@ public final class ChatModel: ObservableObject {
     }
   }
 
+  /// A step's picture as the thread draws it: one frame id is one picture for good, so it is the same by its id.
+  public struct Picture: Equatable, Sendable {
+    public let id: Int
+    public let data: Data
+
+    public init(id: Int, data: Data) {
+      self.id = id
+      self.data = data
+    }
+
+    public static func == (a: Picture, b: Picture) -> Bool { a.id == b.id }
+  }
+
   /// How many step pictures the window keeps; the oldest go first.
   public static let picturesKept = 40
 
@@ -441,12 +454,22 @@ public final class ChatModel: ObservableObject {
     live.first { $0.said == said }?.frames ?? []
   }
 
+  /// What an item's steps saw, the pictures the window has of them: a finished turn's by its steps, a running one's
+  /// by the words it is about.
+  public func pictures(for item: Item) -> [Picture] {
+    switch item {
+    case .line(_, .steps(let steps)): return picturesOf(steps.map(\.frame))
+    case .story(_, let story): return picturesOf(liveFrames(of: story.said))
+    default: return []
+    }
+  }
+
   /// The latest turn's steps so far.
   public var story: String? { stories.last?.text }
 
   /// The pictures of these frame ids that the window has, in order.
-  public func picturesOf(_ frames: [Int?]) -> [(id: Int, data: Data)] {
-    frames.compactMap { id in id.flatMap { id in pictures[id].map { (id, $0) } } }
+  public func picturesOf(_ frames: [Int?]) -> [Picture] {
+    frames.compactMap { id in id.flatMap { id in pictures[id].map { Picture(id: id, data: $0) } } }
   }
 
   @discardableResult
