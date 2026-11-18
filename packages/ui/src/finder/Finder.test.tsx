@@ -160,6 +160,25 @@ describe("the finder", () => {
     await waitFor(() => expect(rename).toHaveBeenCalledWith("projects/garden/c.txt", "downloads/c.txt"));
   });
 
+  it("undoes a move and a rename", async () => {
+    const rename = vi.spyOn(api, "renameFile").mockImplementation(async (_from, to) => ({ path: to }));
+    await openGarden();
+    const dt = transfer();
+    fireEvent.dragStart(row("projects/garden/a.md"), { dataTransfer: dt });
+    fireEvent.drop(row("projects/garden/beds"), { dataTransfer: dt });
+    expect(await screen.findByText("Moved a.md to beds")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(rename).toHaveBeenLastCalledWith("projects/garden/beds/a.md", "projects/garden/a.md"));
+    fireEvent.mouseDown(row("projects/garden/b.txt"));
+    key("Enter");
+    const field = screen.getByRole("textbox", { name: "Rename b.txt" });
+    fireEvent.change(field, { target: { value: "c2.txt" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(await screen.findByText("Renamed to c2.txt")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(rename).toHaveBeenLastCalledWith("projects/garden/c2.txt", "projects/garden/b.txt"));
+  });
+
   it("moves nothing for a drop of its type that it did not start", async () => {
     const rename = vi.spyOn(api, "renameFile").mockResolvedValue({ path: "x" });
     await openGarden();

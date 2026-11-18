@@ -71,6 +71,9 @@ export function useFinderOps({ onChanged, send = (file, dir) => api.uploadFile(d
       try {
         const done = await api.renameFile(path, joinPath(parentOf(path), clean));
         onChanged();
+        say(`Renamed to ${clean}`, () => {
+          void each([done.path], (p) => api.renameFile(p, path)).then((back) => back.length && setNotice(null));
+        });
         return done.path;
       } catch (err) {
         fail(err);
@@ -92,13 +95,19 @@ export function useFinderOps({ onChanged, send = (file, dir) => api.uploadFile(d
       // Not into itself, and not where it already is.
       const moving = paths.filter((p) => !within(dir, p) && parentOf(p) !== dir);
       if (!moving.length) return;
-      await each(moving, (p) => api.renameFile(p, joinPath(dir, nameOf(p))));
+      const moved = await each(moving, async (p) => ({ from: p, to: (await api.renameFile(p, joinPath(dir, nameOf(p)))).path }));
+      if (!moved.length) return;
+      say(`Moved ${moved.length === 1 ? nameOf(moved[0]!.from) : `${moved.length} items`} to ${dir === "." ? "the workspace" : nameOf(dir)}`, () => {
+        const back = new Map(moved.map((m) => [m.to, m.from]));
+        void each([...back.keys()], (to) => api.renameFile(to, back.get(to)!)).then((done) => done.length === moved.length && setNotice(null));
+      });
     },
     trash: async (paths) => {
       const items = await each(paths, (p) => api.trashFile(p));
       if (!items.length) return;
       say(`Moved ${items.length === 1 ? items[0]!.name : `${items.length} items`} to the Trash`, () => {
-        void each(items.map((i) => i.id), (id) => api.restoreFile(id)).then(() => setNotice(null));
+        // Only a full put-back clears the word; a failure's own words stay.
+        void each(items.map((i) => i.id), (id) => api.restoreFile(id)).then((back) => back.length === items.length && setNotice(null));
       });
     },
     upload: async (files, dir) => {
