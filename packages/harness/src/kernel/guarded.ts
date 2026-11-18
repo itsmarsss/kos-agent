@@ -6,7 +6,8 @@ import { defang, type HeardWords } from "../models/heard.js";
 import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
-import { injectSecrets } from "../secrets/inject.js";
+import type { RiskAssessment } from "../risk/tiers.js";
+import { placeSecrets, secretsNamed } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, type GuestOrigin, type TurnOrigin } from "./caller.js";
 
@@ -205,8 +206,11 @@ export function parseQueuedApproval(result: string): string | null {
  * The guarded tool path the kernel hands to the agent loop. For every call it:
  *  1. classifies risk in the harness (never the model),
  *  2. queues risky calls for approval and returns without executing,
- *  3. injects `{{secret:name}}` references at call time (model never sees keys),
- *  4. executes safe calls and records a redacted audit entry.
+ *  3. injects `{{secret:name}}` references at call time, only into the slots
+ *     a tool declared (model never sees keys), refusing them anywhere else,
+ *  4. executes safe calls and records a redacted audit entry,
+ *  5. scrubs every secret value from what a call answers, before the model,
+ *     the audit, the shelf or a reader sees it.
  * The model is offered scoped tools when tags are active.
  */
 export class GuardedTools implements ToolBox {
@@ -324,7 +328,7 @@ export class GuardedTools implements ToolBox {
       const tell = (result: ToolExecution): void => {
         if (started.ran) this.deps.onFinishedAfterStop?.(name, result);
       };
-      calling.then(tell, (err: unknown) => tell({ content: err instanceof Error ? err.message : String(err), isError: true }));
+      calling.then(tell, (err: unknown) => tell({ content: this.deps.secrets.scrub(err instanceof Error ? err.message : String(err)), isError: true }));
       return { content: STOPPED_RESULT, isError: true };
     }
     const kept = this.deps.shelve && !called.isError ? { ...called, content: await this.deps.shelve(name, input, called.content, this.cutHuge) } : called;
@@ -358,10 +362,14 @@ export class GuardedTools implements ToolBox {
     const within = <T>(work: () => Promise<T>): Promise<T> =>
       scheduled.run(job, () => guested.run(guest, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))))));
     const run = async (n: string, i: Record<string, unknown>, site?: string): Promise<ToolExecution> => {
+      // Placed at the last moment, so a key changed while the owner was asked is the one sent.
+      const placed = placeSecrets(n, i, registry.secretSlots(n), secrets);
+      if ("refused" in placed) return { content: placed.refused, isError: true };
       started.ran = true;
       const ended = this.deps.running?.(n);
       try {
-        return await within(() => (site ? onSite.run(site, () => registry.execute(n, i)) : registry.execute(n, i)));
+        const done = await within(() => (site ? onSite.run(site, () => registry.execute(n, placed.input)) : registry.execute(n, placed.input)));
+        return { ...done, content: secrets.scrub(done.content) };
       } finally {
         ended?.();
       }
@@ -391,8 +399,19 @@ export class GuardedTools implements ToolBox {
     // what runs, and the call can check it still holds.
     const input = registry.stamp(name, called);
 
-    // Judged inside the turn's stores too: a call's reach depends on whose turn it is.
-    const assessment = await within(async () => registry.classify(name, input));
+    // A secret where its tool declared no slot for one, or bound for another host: refused before anyone is asked.
+    const misplaced = placeSecrets(name, input, registry.secretSlots(name), secrets);
+    if ("refused" in misplaced) return { content: misplaced.refused, isError: true };
+
+    /*
+     * A call that sends a secret asks the owner every time, until the
+     * secrets tools bring their own tier: no remembered yes and no Auto
+     * covers it, and the ask names the secret and the host it goes to.
+     * Judged inside the turn's stores: a call's reach depends on whose turn it is.
+     */
+    const using = secretsNamed(input);
+    const sends = using.length > 0 ? `sends secret ${using.join(", ")} to ${registry.secretSlots(name)?.host?.(input) ?? "an unknown host"}` : undefined;
+    const assessment: RiskAssessment = sends ? { tier: "risky", escalated: true, reason: sends, asksAlways: true } : await within(async () => registry.classify(name, input));
 
     /*
      * Readied before it is judged on where it runs: a browser call from the
@@ -430,15 +449,15 @@ export class GuardedTools implements ToolBox {
       // A call past the turn's own folder is judged as one: no rule made inside it covers the call.
       const given = this.deps.permissionContext?.(name);
       const context = assessment.reached ? { ...given, reached: true } : given;
-      const auto = this.deps.autoApproves?.(name, context) ?? false;
-      const ruled = auto !== true && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true;
+      const auto = assessment.asksAlways ? false : (this.deps.autoApproves?.(name, context) ?? false);
+      const ruled = !assessment.asksAlways && auto !== true && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true;
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
       const bound = auto !== true && (ruled || auto === "site") ? context?.browser?.site : undefined;
       const allowed = auto === true || ((ruled || auto === "site") && !(bound !== undefined && this.deps.leavesSite?.(name, input, bound) === true));
       if (allowed) {
         const unready = await readyNow();
         if (unready) return unready;
-        const allowedResult = await run(name, injectSecrets(input, secrets), bound);
+        const allowedResult = await run(name, input, bound);
         audit.record({
           tool: name,
           args: input,
@@ -454,7 +473,7 @@ export class GuardedTools implements ToolBox {
       // Named now, while the caller's situation is known: the rule a yes-
       // and-remember would keep, and a picture of the page a browser action
       // is aimed at, which the arguments alone cannot show.
-      const rule = this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
+      const rule = assessment.asksAlways ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();
@@ -530,8 +549,7 @@ export class GuardedTools implements ToolBox {
 
       const unready = await readyNow();
       if (unready) return unready;
-      const approvedInput = injectSecrets(input, secrets);
-      const approvedRun = await run(name, approvedInput);
+      const approvedRun = await run(name, input);
       audit.record({
         tool: name,
         args: input,
@@ -545,9 +563,8 @@ export class GuardedTools implements ToolBox {
       return approvedResult(approvedRun);
     }
 
-    // Safe: inject secrets just before execution, then run and audit.
-    const injected = injectSecrets(input, secrets);
-    const result = await run(name, injected);
+    // Safe: run (secrets placed as it starts) and audit.
+    const result = await run(name, input);
     audit.record({
       tool: name,
       args: input, // pre-injection; AuditLog also redacts defensively

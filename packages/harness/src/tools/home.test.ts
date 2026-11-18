@@ -230,6 +230,14 @@ describe("a turn's file home", () => {
     expect((await sh("touch ~/root.txt")).exitCode).toBe(0);
   });
 
+  it.runIf(onMac)("keeps KOS's own settings unwritten even when the owner allows the whole workspace", async () => {
+    writeFileSync(join(root, "mcp.json"), '{"servers":{}}');
+    // Spelled so the courtesy refusal does not catch it: the sandbox is what holds.
+    const res = JSON.parse((await registry.execute("shell.run", { command: "f=mcp; echo x > ~/$f.json", writes: "workspace" })).content) as { exitCode: number };
+    expect(res.exitCode).not.toBe(0);
+    expect(readFileSync(join(root, "mcp.json"), "utf8")).toBe('{"servers":{}}');
+  });
+
   it("asks for the whole workspace by name, beyond Auto, and only from a project or a blob", () => {
     expect(registry.classify("shell.run", { command: "make", writes: "workspace" })).toMatchObject({
       tier: "risky",

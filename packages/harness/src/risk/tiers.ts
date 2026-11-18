@@ -67,6 +67,8 @@ export interface RiskAssessment {
   reached?: true;
   /** Why a risky call is beyond a chat's Auto mode, when it is. */
   beyondAuto?: string;
+  /** Asked about every time: no remembered yes and no Auto covers it (a call that sends a secret). */
+  asksAlways?: true;
 }
 
 export const SAFE: ToolRisk = { floor: "safe" };

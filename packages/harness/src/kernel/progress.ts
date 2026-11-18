@@ -1,4 +1,5 @@
 import type { MessageOrigin } from "../models/types.js";
+import { scrubDeep } from "../secrets/scrub.js";
 
 /**
  * What a turn is doing, while it does it.
@@ -123,9 +124,25 @@ export type ProgressEvent =
       kind: "fresh";
       conversationId: string;
     }
+  | {
+      /**
+       * The chat has a new title: named by KOS as its first turn started, or
+       * renamed by the owner. Not part of any turn, and never replayed: a
+       * reader arriving later reads the title with the chat.
+       */
+      kind: "renamed";
+      conversationId: string;
+      title: string;
+    }
   | { kind: "turn-end"; conversationId: string };
 
 export type ProgressListener = (event: ProgressEvent) => void;
+
+/** What takes secrets out of a turn's words, and how much of a stream it needs held back to see a value whole. */
+export interface ProgressScrubber {
+  scrub(text: string): string;
+  holdBack(): number;
+}
 
 /**
  * How much of a turn's streamed words are kept so a reader arriving late can
@@ -135,6 +152,28 @@ export type ProgressListener = (event: ProgressEvent) => void;
 const MAX_REPLAY_TEXT = 40_000;
 /** How much of a call's input a replayed step keeps: a file being written is words too. */
 const MAX_REPLAY_INPUT = 2_000;
+
+/**
+ * An event with every secret value taken out of the words it carries: what
+ * was said, a step's summary, input and result. The answer as it streams is
+ * scrubbed apart, in ProgressBus.stream, since a value may be split across
+ * its pieces.
+ */
+function scrubbed(event: ProgressEvent, scrub: (text: string) => string): ProgressEvent {
+  switch (event.kind) {
+    case "turn-start":
+    case "heard":
+      return event.said === undefined ? event : { ...event, said: scrub(event.said) };
+    case "tool-start":
+      return { ...event, summary: scrub(event.summary), ...(event.input ? { input: scrubDeep(event.input, scrub) } : {}) };
+    case "tool-end":
+      return event.result === undefined ? event : { ...event, result: scrub(event.result) };
+    case "note":
+      return { ...event, text: scrub(event.text) };
+    default:
+      return event;
+  }
+}
 
 /** A step's input as a replay keeps it: whole when small, each long string cut, and none past that. */
 function replayedInput(input: Record<string, unknown>): Record<string, unknown> | undefined {
@@ -163,6 +202,12 @@ export class ProgressBus {
   private readonly inFlight = new Map<string, ProgressEvent[]>();
   private readonly textSize = new Map<string, number>();
 
+  /** Streamed words not yet passed on, per conversation: a secret's start, perhaps, its rest still to come. */
+  private readonly held = new Map<string, { of: "reasoning" | "text"; text: string }>();
+
+  /** `scrubber` takes secret values out of an event's words before anyone sees or keeps them. */
+  constructor(private readonly scrubber: ProgressScrubber = { scrub: (text) => text, holdBack: () => 0 }) {}
+
   subscribe(listener: ProgressListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -182,6 +227,7 @@ export class ProgressBus {
   }
 
   private remember(event: ProgressEvent): void {
+    if (event.kind === "renamed") return;
     const id = event.conversationId;
     if (event.kind === "turn-start") {
       this.inFlight.set(id, [event]);
@@ -209,6 +255,7 @@ export class ProgressBus {
     }
     // A run of words between two steps is one entry, as a reader draws it.
     const last = kept.at(-1);
+    // The pieces were scrubbed whole as they streamed, so joined they need nothing more.
     if (last?.kind === "delta" && last.of === event.of) kept[kept.length - 1] = { ...last, text: last.text + event.text };
     else kept.push({ ...event });
     const size = (this.textSize.get(id) ?? 0) + event.text.length;
@@ -236,8 +283,41 @@ export class ProgressBus {
   }
 
   emit(given: ProgressEvent): void {
+    if (given.kind === "delta") return this.stream(given);
+    // Words held for this conversation go first, so they stay ahead of what follows them.
+    this.release(given.conversationId);
     // When a turn began, so a reader joining it later counts from then, not from when it joined.
-    const event = given.kind === "turn-start" && given.at === undefined ? { ...given, at: Date.now() } : given;
+    const stamped = given.kind === "turn-start" && given.at === undefined ? { ...given, at: Date.now() } : given;
+    this.deliver(scrubbed(stamped, (text) => this.scrubber.scrub(text)));
+  }
+
+  /**
+   * A piece of streamed words, passed on scrubbed, all but its end: the
+   * scrubber's hold-back is kept until more come, so a secret split across
+   * pieces is whole when it is looked for. What is held goes
+   * out before the turn's next step, or its end.
+   */
+  private stream(event: Extract<ProgressEvent, { kind: "delta" }>): void {
+    const id = event.conversationId;
+    if (this.held.get(id)?.of !== event.of) this.release(id);
+    const clean = this.scrubber.scrub((this.held.get(id)?.text ?? "") + event.text);
+    let cut = Math.max(0, clean.length - this.scrubber.holdBack());
+    // Never between the halves of a character.
+    if (cut > 0 && cut < clean.length && /[\uD800-\uDBFF]/.test(clean[cut - 1]!)) cut -= 1;
+    if (cut < clean.length) this.held.set(id, { of: event.of, text: clean.slice(cut) });
+    else this.held.delete(id);
+    if (cut > 0) this.deliver({ ...event, text: clean.slice(0, cut) });
+  }
+
+  /** What is held for a conversation, passed on now. */
+  private release(id: string): void {
+    const held = this.held.get(id);
+    if (!held) return;
+    this.held.delete(id);
+    this.deliver({ kind: "delta", conversationId: id, of: held.of, text: held.text });
+  }
+
+  private deliver(event: ProgressEvent): void {
     this.remember(event);
     for (const listener of this.listeners) {
       try {

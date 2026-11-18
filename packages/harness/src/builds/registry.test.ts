@@ -27,6 +27,14 @@ describe("builds that are running", () => {
     expect(r.active()).toHaveLength(1);
   });
 
+  it("keeps no secret in what a build said", () => {
+    const r = new BuildRegistry(undefined, (text) => text.replaceAll("sk-build-key", "[secret k]"));
+    const id = started(r);
+    r.record(id, { kind: "tool", text: "curl -H 'x-key: sk-build-key' api", input: { command: "curl -H 'x-key: sk-build-key' api" } });
+    expect(r.get(id)?.latest).toBe("curl -H 'x-key: [secret k]' api");
+    expect(JSON.stringify(r.get(id)?.events)).not.toContain("sk-build-key");
+  });
+
   /*
    * Waiting on a person is not the same as working, and telling them apart is
    * the reason to look at this page at all: one needs patience, the other

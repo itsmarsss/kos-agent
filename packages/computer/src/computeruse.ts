@@ -31,6 +31,8 @@ export interface ComputerUseOptions {
   hostKeyEnv?: string;
   /** Where the secret a KOS for Mac on this computer proves it is here with is kept; none, and no Mac is taken as here. */
   localKeyPath?: string;
+  /** Told each key once it is loaded, as base64, so it is scrubbed should it ever come back in a result. */
+  watchKey?: (name: "device_host_key" | "device_local_key", value: string) => void;
   /** The conversation calling a tool, read at call time. */
   caller(): string | undefined;
   titleOf(conversation: string): string;
@@ -132,19 +134,24 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       if (options.localKeyPath && !localKey && !localProblem) {
         try {
           localKey = loadLocalKey(options.localKeyPath);
+          options.watchKey?.("device_local_key", localKey.toString("base64"));
         } catch (err) {
           localProblem = `KOS can't tell this Mac is its own: remove ${options.localKeyPath} and KOS makes another`;
           (options.updates?.log ?? ((line: string) => console.error(line)))(`devices: ${localProblem} (${err instanceof Error ? err.message : String(err)})`);
         }
       }
-      hub ??= new DeviceHub({
-        store,
-        hostKey: loadHostKey({ path: options.hostKeyPath, ...(options.hostKeyEnv ? { env: options.hostKeyEnv } : {}) }),
-        halted: options.halted,
-        face: options.face,
-        theme: options.theme,
-        ...(localKey ? { localKey } : {}),
-      });
+      if (!hub) {
+        const hostKey = loadHostKey({ path: options.hostKeyPath, ...(options.hostKeyEnv ? { env: options.hostKeyEnv } : {}) });
+        options.watchKey?.("device_host_key", hostKey.privateKey.export({ format: "der", type: "pkcs8" }).toString("base64"));
+        hub = new DeviceHub({
+          store,
+          hostKey,
+          halted: options.halted,
+          face: options.face,
+          theme: options.theme,
+          ...(localKey ? { localKey } : {}),
+        });
+      }
       const devices = hub;
       if (options.updates && !updates) {
         const { expected, mac: installer, log } = options.updates;

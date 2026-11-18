@@ -3,7 +3,7 @@ import { summarizeAction, type ActionHome } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { SHARED_LANE } from "../ops/queue.js";
-import { injectSecrets } from "../secrets/inject.js";
+import { hasSecretRef, placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, guested, ownership } from "./caller.js";
 import { primarySessionId } from "./session.js";
@@ -59,7 +59,10 @@ export interface DecisionsDeps {
   /** Where the asking chat's file paths land, so a rule named now is named by the place, as one named when the call was queued is. */
   homeOf?: (conversationId: string | null) => Pick<PermissionContext, "home" | "root">;
   audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string; conversationId?: string }) => unknown };
-  registry: { execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }> };
+  registry: {
+    execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
+    secretSlots: (tool: string) => SecretSlots | undefined;
+  };
   secrets: SecretsRegistry;
   queue: { enqueue: <T>(work: () => Promise<T>, lane: string) => Promise<T> };
   /** Run work with a conversation as the current one, so tools attribute to it. */
@@ -124,7 +127,8 @@ export class Decisions {
 
     // Kept, when the owner said so: the shape of this call, in the project
     // it came from. A call whose shape cannot be named makes no rule.
-    if (options.remember) {
+    // Never for a call that sends a secret: each of those is asked about.
+    if (options.remember && !hasSecretRef(JSON.parse(action.args))) {
       // The rule named when the call was queued, if there was one: a browser
       // action's site is known then and not now. Otherwise named from the
       // call's shape, as before.
@@ -145,14 +149,20 @@ export class Decisions {
     }
 
     const result = await d.queue.enqueue(async () => {
+      // Secrets only in the slots the tool declared, as GuardedTools places them.
+      const placed = placeSecrets(action.tool, stored, d.registry.secretSlots(action.tool), d.secrets);
       // Run as the turn that asked would have: the owner's reach only if it was the owner's own turn, a guest's room's if a guest's.
-      const r = await guested.run(action.guest ?? undefined, () =>
-        attendance.run(action.attended, () =>
-          ownership.run(action.owner && action.attended, () =>
-            d.inConversation(action.conversationId, () => d.registry.execute(action.tool, injectSecrets(stored, d.secrets))),
-          ),
-        ),
-      );
+      const ran = "refused" in placed
+        ? { content: placed.refused, isError: true }
+        : await guested.run(action.guest ?? undefined, () =>
+            attendance.run(action.attended, () =>
+              ownership.run(action.owner && action.attended, () =>
+                d.inConversation(action.conversationId, () => d.registry.execute(action.tool, placed.input)),
+              ),
+            ),
+          );
+      // What it answered is scrubbed before the audit and the resumed turn read it.
+      const r = { ...ran, content: d.secrets.scrub(ran.content) };
       d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
       if (!r.isError) d.onToolRan(action.tool);
       return r;

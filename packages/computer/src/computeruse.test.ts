@@ -37,6 +37,32 @@ describe("computer use with this computer's secret unreadable", () => {
   });
 });
 
+describe("computer use's own keys", () => {
+  it("are handed to be scrubbed once loaded, as the files and the key itself hold them", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "computeruse-keys-"));
+    const watched = new Map<string, string>();
+    const panel = { current: () => undefined, events: () => [] };
+    const use = createComputerUse({
+      hostKeyPath: join(dir, "device-host.key"),
+      localKeyPath: join(dir, "device-local.key"),
+      watchKey: (name, value) => void watched.set(name, value),
+      caller: () => undefined,
+      titleOf: (id) => id,
+      halted: () => false,
+      face: () => drawingOf(lookOf("kos")),
+      theme: () => ({ mode: "system" }),
+      panels: { chrome: panel, mac: panel, phone: panel },
+    });
+    const ctx = { registerTool: () => undefined, unregisterTool: () => undefined, services: { db: openDatabase(":memory:") } as unknown as ModuleServices } as unknown as ModuleContext;
+    await use.module.activate(ctx);
+    expect(readFileSync(join(dir, "device-local.key"), "utf8").trim()).toBe(watched.get("device_local_key"));
+    // The PEM's body is the PKCS#8 key in base64, one line for an Ed25519 key.
+    expect(readFileSync(join(dir, "device-host.key"), "utf8")).toContain(watched.get("device_host_key"));
+    await use.module.deactivate?.();
+    await use.close();
+  });
+});
+
 describe("a chat's session told of its waits", () => {
   it("waits from an approval asked in its chat until the last one there is decided", () => {
     const handlers = new Map<string, Set<(e: unknown) => void>>();

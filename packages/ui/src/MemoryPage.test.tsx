@@ -36,6 +36,16 @@ describe("the Memory page", () => {
     expect(screen.getByRole("tab", { name: "Callers" }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("leaves a turn's claims behind when another tab is chosen", async () => {
+    window.location.hash = "#/memory?tab=claims&ids=1,2";
+    render(<MemoryPage facts={[]} tags={[]} onChanged={() => undefined} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("tab", { name: "Log" }));
+    await act(async () => {});
+    expect(window.location.hash).toBe("#/memory?tab=log");
+    window.location.hash = "";
+  });
+
   it("puts New claim in the page head, on the Claims tab only", async () => {
     render(<MemoryPage facts={[]} tags={[]} onChanged={() => undefined} />);
     await act(async () => {});

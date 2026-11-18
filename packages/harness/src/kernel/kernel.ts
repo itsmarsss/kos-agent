@@ -129,6 +129,8 @@ import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn, EMBED_MS } from "./afterturn.js";
+import { ChatNamer, type EngineAsk } from "./naming.js";
+import { SdkOneShot, sdkModelFor, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
@@ -492,8 +494,12 @@ export class Kernel {
   readonly caretaker: Caretaker;
   /** Carrying out approve and deny, including the recovery path for an orphaned action. */
   private readonly decisions: Decisions;
-  /** Remembering and naming, once a turn has answered. */
+  /** Remembering what was said, once a turn has answered. */
   private readonly afterTurn: AfterTurn;
+  /** Naming a new chat from its opening message, as its first turn starts. */
+  private readonly namer: ChatNamer;
+  /** Short asks of the Agent SDK engine, for naming without a cheap route. */
+  private readonly oneShot = new SdkOneShot();
   /** Decisions the owner has made before, so the same shape stops asking. */
   readonly permissions: PermissionStore;
   readonly settings: SettingsStore;
@@ -584,7 +590,7 @@ export class Kernel {
   private readonly stops = new Map<string, Map<string, AbortController>>();
 
   /** Turn progress, for readers watching a conversation as it runs. */
-  readonly progress = new ProgressBus();
+  readonly progress = new ProgressBus({ scrub: (text) => this.secrets.scrub(text), holdBack: () => this.secrets.holdBack() });
   /**
    * What each conversation's model has said since its last tool call, from
    * the same stream the dashboard watches, so an approval can quote the
@@ -820,7 +826,6 @@ export class Kernel {
     });
     this.afterTurn = new AfterTurn({
       ownerId: args.profile.ownerId,
-      isClosed: () => this.closed,
       runs: args.runs,
       facts: args.memoryWriter,
       // A blob with memory of its own keeps what the owner tells it.
@@ -828,7 +833,14 @@ export class Kernel {
       embedder: args.embedder,
       events: args.events,
       conversations: args.conversations,
+    });
+    this.namer = new ChatNamer({
+      ownerId: args.profile.ownerId,
+      isClosed: () => this.closed,
+      conversations: args.conversations,
       inference: args.inference,
+      engine: () => this.engineAsk(),
+      warn: (message) => console.warn(`[kernel] ${message}`),
     });
     this.settings = args.settings;
     this.memoryWriter = args.memoryWriter;
@@ -1366,6 +1378,8 @@ export class Kernel {
             sessionId,
             ...(opts.origin === "system" ? [] : [text]),
           );
+          // Named as the turn starts, so the name lands with the first words of the reply; a guest's words never name it. Not awaited.
+          if (opts.origin !== "system" && !opts.guest) void this.namer.nameIfUnnamed(sessionId, text);
         } else if (opts.contextFrom) {
           // An aside: the model sees the context chat's history and any
           // earlier asides, but nothing is recorded anywhere. The main thread
@@ -2243,6 +2257,40 @@ export class Kernel {
       throw new Error(`no chat, project or blob called ${raw}; name one with @chat:, @project: or @blob:`);
     }
     return chat;
+  }
+
+  /**
+   * One short answer from the engine the chats run on, at its smallest
+   * model, for when the cheap route cannot be asked. Only the Agent SDK
+   * engine answers apart from the router; on the API engine the cheap route
+   * is the engine's own way of asking, so there is nothing else to try.
+   */
+  private engineAsk(): EngineAsk | undefined {
+    if (this.behaviour().engine !== "sdk") return undefined;
+    const model = sdkModelFor(this.inference.routeFor?.("cheap"));
+    return (ask) => this.askSdk({ ...ask, model });
+  }
+
+  /** One short answer from the Agent SDK, its spend logged as a cheap call on the chat it was for, answered or not. */
+  private async askSdk(ask: Parameters<EngineAsk>[0] & { model: string }): Promise<string> {
+    const answer = await this.oneShot.ask({ ...ask, spent: (spent) => this.recordCheapSpend(ask.conversationId, spent) });
+    return answer.text;
+  }
+
+  private recordCheapSpend(conversationId: string, { provider, models }: SdkSpent): void {
+    for (const used of models) {
+      this.spend.record({
+        conversationId,
+        task: "cheap",
+        provider,
+        model: used.model,
+        inputTokens: used.inputTokens + used.cacheReadInputTokens + used.cacheCreationInputTokens,
+        outputTokens: used.outputTokens,
+        cacheReadTokens: used.cacheReadInputTokens,
+        cacheCreationTokens: used.cacheCreationInputTokens,
+        costUSD: used.costUSD,
+      });
+    }
   }
 
   /**
@@ -3972,16 +4020,6 @@ export class Kernel {
         sessionId,
         ...(origin === "system" ? [] : [text]),
       );
-      /*
-       * And a name, once, in the background.
-       *
-       * The title is the owner's first message with the end cut off, so a
-       * list of them is a list of half-sentences and none of it reads at a
-       * glance -- in the sidebar, in the Discord picker, or in a card saying
-       * where messages are going. Not awaited: the answer is already written
-       * and nobody should wait on a label for it.
-       */
-      if (origin !== "system") void this.afterTurn.nameIfUnnamed(sessionId, text, reply);
     }
 
     // Only owner turns are remembered; harness-generated ones are plumbing.
@@ -4777,13 +4815,7 @@ export class Kernel {
    * restart, which is exactly what saving from the dashboard is meant to avoid.
    */
   reloadSecrets(): void {
-    const fresh = SecretsRegistry.fromEnv();
-    for (const name of this.secrets.names()) {
-      if (!fresh.has(name)) this.secrets.remove(name);
-    }
-    for (const name of fresh.names()) {
-      this.secrets.set(name, fresh.require(name));
-    }
+    this.secrets.adopt(SecretsRegistry.fromEnv());
   }
 
   /** Repoint the router at the owner's saved choices, without a restart. */
@@ -5370,6 +5402,7 @@ export class Kernel {
     this.cancelRestart();
     this.browser.close();
     this.closed = true;
+    this.oneShot.close();
     this.stopCron();
     this.stopHeartbeat();
     // Not awaited: close is synchronous everywhere it is called from, and the
