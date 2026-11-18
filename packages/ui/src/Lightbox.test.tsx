@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { StepPicture } from "@kos/kit";
 
-import { PictureGallery } from "./Lightbox.js";
+import { clampPan, downloadName, PictureGallery } from "./Lightbox.js";
 
 afterEach(cleanup);
 
@@ -95,5 +95,16 @@ describe("a step's picture outside a gallery", () => {
     fireEvent.click(screen.getByRole("button"));
     expect(container.querySelector(".step-picture.is-open")).not.toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("the picture's own controls", () => {
+  it("keeps a zoomed picture from being dragged off the window", () => {
+    expect(clampPan({ scale: 2, x: 900, y: -900 }, 400, 300)).toEqual({ scale: 2, x: 200, y: -150 });
+    expect(clampPan({ scale: 1, x: 50, y: 50 }, 400, 300)).toEqual({ scale: 1, x: 0, y: 0 });
+  });
+
+  it("names a download by the step's time", () => {
+    expect(downloadName(new Date(2026, 10, 18, 9, 4, 7).getTime())).toBe("kos-step-20261118-090407.png");
   });
 });

@@ -50,7 +50,44 @@ const MAX_ZOOM = 6;
 const SWIPE = 60;
 const PRESS = 6;
 
-interface View {
+/** What a downloaded picture is called: the step's time, else now. */
+export function downloadName(at: number | undefined, now = Date.now()): string {
+  const d = new Date(at ?? now);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `kos-step-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.png`;
+}
+
+/**
+ * A picture as PNG, which the clipboard takes everywhere: a step's picture
+ * is kept as JPEG, which Chrome's clipboard refuses.
+ */
+async function pngOf(src: string): Promise<Blob> {
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  canvas.getContext("2d")?.drawImage(img, 0, 0);
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("no picture"))), "image/png"));
+}
+
+/**
+ * A zoomed picture moved no further than keeps it over the window's middle:
+ * its edge stops at the window's edge, so it cannot be dragged off.
+ */
+export function clampPan(view: View, width: number, height: number): View {
+  const x = ((view.scale - 1) * width) / 2;
+  const y = ((view.scale - 1) * height) / 2;
+  return { ...view, x: Math.max(-x, Math.min(x, view.x)), y: Math.max(-y, Math.min(y, view.y)) };
+}
+
+/** clampPan for the picture as it lies, unscaled. */
+function clamped(view: View, img: HTMLElement): View {
+  return clampPan(view, img.offsetWidth, img.offsetHeight);
+}
+
+export interface View {
   scale: number;
   x: number;
   y: number;
@@ -109,7 +146,7 @@ export function Lightbox({ pictures, index, onIndex, onClose }: { pictures: Show
     if (pointers.current.size === 2 && g.distance > 0) {
       setView({ ...g.view, scale: Math.min(MAX_ZOOM, Math.max(1, (g.view.scale * spread()) / g.distance)) });
     } else if (g.view.scale > 1) {
-      setView({ ...g.view, x: g.view.x + e.clientX - g.x, y: g.view.y + e.clientY - g.y });
+      setView(clamped({ ...g.view, x: g.view.x + e.clientX - g.x, y: g.view.y + e.clientY - g.y }, e.currentTarget));
     }
   };
   const up = (e: PointerEvent<HTMLImageElement>): void => {
@@ -126,7 +163,7 @@ export function Lightbox({ pictures, index, onIndex, onClose }: { pictures: Show
       if (view.scale > 1) setView(FIT);
       else {
         const r = e.currentTarget.getBoundingClientRect();
-        setView({ scale: ZOOM, x: (r.left + r.width / 2 - e.clientX) * (ZOOM - 1), y: (r.top + r.height / 2 - e.clientY) * (ZOOM - 1) });
+        setView(clamped({ scale: ZOOM, x: (r.left + r.width / 2 - e.clientX) * (ZOOM - 1), y: (r.top + r.height / 2 - e.clientY) * (ZOOM - 1) }, e.currentTarget));
       }
     }
   };
@@ -140,9 +177,8 @@ export function Lightbox({ pictures, index, onIndex, onClose }: { pictures: Show
 
   const copy = (): void => {
     if (!picture) return;
-    void fetch(picture.src)
-      .then((r) => r.blob())
-      .then((blob) => navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]))
+    void pngOf(picture.src)
+      .then((png) => navigator.clipboard.write([new ClipboardItem({ "image/png": png })]))
       .then(() => setCopied(true), () => undefined);
   };
 
@@ -169,7 +205,7 @@ export function Lightbox({ pictures, index, onIndex, onClose }: { pictures: Show
               {pictures.length > 1 ? `${index! + 1} of ${pictures.length}` : ""}
             </span>
             <div className="lightbox-actions">
-              <a className="icon-btn" href={picture.src} download aria-label="Download" title="Download">
+              <a className="icon-btn" href={picture.src} download={downloadName(picture.at)} aria-label="Download" title="Download">
                 <DownloadIcon title="" />
               </a>
               <IconButton label={copied ? "Copied" : "Copy image"} onClick={copy}>
