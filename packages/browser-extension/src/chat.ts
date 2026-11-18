@@ -213,7 +213,9 @@ function took(c: Chat, message: Record<string, unknown>): Chat {
   if (said !== undefined && tookAsCommand(message, said)) return { ...c, sending: c.sending.filter((t) => t !== said) };
   if (!said || message["conversation"] !== c.conversation) return c;
   const shown = c.sending.includes(said) || awaiting(c.lines, said);
-  const taken = c.taken?.said === said ? c.taken : { said, at: Date.now() };
+  // When the turn began, as KOS says: a panel opened or found again mid-turn keeps its clock.
+  const since = typeof message["since"] === "number" ? message["since"] : undefined;
+  const taken = c.taken?.said === said ? c.taken : { said, at: since ?? Date.now() };
   return { ...c, sending: shown ? c.sending : [...c.sending, said], working: true, taken };
 }
 
@@ -235,8 +237,9 @@ function storied(c: Chat, message: Record<string, unknown>): Chat {
   if (typeof message["error"] === "string") return givenBack(c);
   if (typeof story !== "string") return { ...c, working: false };
   const after = anchorOf(c, said);
-  // The steps a finished turn already shows, told once more as it closed: nothing new.
-  if (!c.sending.length && answeredWith(c.lines, after) >= stepsIn(story)) return c;
+  // The steps a finished turn already shows, told once more as it closed: nothing new. A turn on no words of the owner's
+  // (one KOS started, told to a panel that opened meanwhile) is never one that closed: its story is of a turn running now.
+  if (said !== undefined && !c.sending.length && answeredWith(c.lines, after) >= stepsIn(story)) return c;
   const next: Extra = { after, text: story, ...(said !== undefined ? { said } : {}) };
   const others = c.stories.filter((x) => (said !== undefined ? x.said !== said : x.after !== after));
   return { ...c, working: true, stories: [...others, next] };

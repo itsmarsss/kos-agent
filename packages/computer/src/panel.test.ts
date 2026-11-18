@@ -666,7 +666,7 @@ describe("a Chrome's side panel", () => {
     const state = { chat: "chrome:owner", conversation: "chrome:owner", waiting: "approval", held: false };
     expect(status()).toEqual([
       // The owner's words at once, then each step as it is taken.
-      { ...state, said: "compare these mugs", taken: true, command: false },
+      { ...state, said: "compare these mugs", taken: true, command: false, since: expect.any(Number) },
       { ...state, said: "compare these mugs", story: "› Read the page" },
     ]);
     // A panel opened mid-turn is told the turn so far, after the chat, and then its state.

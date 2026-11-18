@@ -146,6 +146,8 @@ interface Running {
   /** The device whose words these are: its own presence tells it the turn, so it is left out. */
   speaker?: string;
   narrator: TurnNarrator;
+  /** When it began, epoch ms: a device opened mid-turn starts its clock there. */
+  since: number;
   shownAt: number;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -384,8 +386,8 @@ export class DevicePanel implements ChannelAdapter {
       if (event.from === this.name) this.turns.set(id, { ...(speaker ? { device: speaker } : {}), since: Date.now() });
       if (!chat || id !== chat.id) return;
       this.quiet();
-      this.running = { conversation: id, narrator: new TurnNarrator(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
-      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true, command: false }), speaker);
+      this.running = { conversation: id, narrator: new TurnNarrator(), since: Date.now(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
+      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true, command: false, since: this.running.since }), speaker);
       return;
     }
     const running = this.running;
@@ -544,7 +546,7 @@ export class DevicePanel implements ChannelAdapter {
     for (const req of this.deps.waiting?.(chat.id) ?? []) await this.tell(device, "chat.ask", { chat: chat.id, approval: approvalOf(req) });
     const running = this.running;
     if (running?.conversation === chat.id) {
-      if (running.said) await this.tell(device, "chat.status", this.statusOf(chat.id, { said: running.said, taken: true, command: false }));
+      if (running.said) await this.tell(device, "chat.status", this.statusOf(chat.id, { said: running.said, taken: true, command: false, since: running.since }));
       if (running.narrator.worthShowing()) await this.tell(device, "chat.status", this.statusOf(chat.id, { ...this.about(running), story: running.narrator.render() }));
     }
     await this.tell(device, "chat.status", this.statusOf(chat.id, {}));
