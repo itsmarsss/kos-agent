@@ -7,6 +7,7 @@ import { RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { destructiveCommand } from "../risk/beyondauto.js";
+import { shellBeyondAuto } from "../risk/shellauto.js";
 import { isReadOnlyCommand } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
@@ -128,20 +129,21 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           floor: "risky",
           why: "a command that may write",
           relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
-          // What a chat's Auto never runs unasked: a line that destroys work past undoing.
-          beyondAuto: (input) =>
-            typeof input["command"] === "string" &&
-            destructiveCommand(
-              input["command"],
-              (path) => {
-                try {
-                  return existsSync(ws.resolve(path));
-                } catch {
-                  return true;
-                }
-              },
-              (path) => !outsideScratch(path),
-            ),
+          // What a chat's Auto runs unasked: only a line of reading and building programs (risk/shellauto.ts).
+          // A line that destroys work says so first, as the reason the owner reads.
+          beyondAuto: (input) => {
+            const command = typeof input["command"] === "string" ? input["command"] : "";
+            const cwd = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
+            // A file that exists outside scratch, where the line runs: one the jail would not let it reach is not there for it.
+            const exists = (path: string): boolean => {
+              try {
+                return outsideScratch(join(cwd, path)) && existsSync(ws.resolve(join(cwd, path)));
+              } catch {
+                return false;
+              }
+            };
+            return destructiveCommand(command, exists, (path) => !outsideScratch(join(cwd, path))) || shellBeyondAuto(command, exists);
+          },
           refuse: (input) => {
             if (typeof input["command"] !== "string") return false;
             if (namesHarnessConfig(input["command"])) return CONFIG_REFUSED;
