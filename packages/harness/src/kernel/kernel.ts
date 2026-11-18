@@ -42,8 +42,13 @@ import {
   type BrowserDownload,
   type BrowserStatus,
   type ChromeOptions,
+  type Page,
   type Tab,
 } from "@kos/browser";
+import { addressesIn, looksLikeCheckout, type PageLook } from "../risk/beyondauto.js";
+
+/** What a checkout check reads of a page: its words (the first stretch) and whether it has a card field. */
+const CHECKOUT_LOOK = `JSON.stringify({ text: (document.body ? document.body.innerText : "").slice(0, 4000), cardField: !!document.querySelector('[autocomplete^="cc-"]') })`;
 import { BROWSER_KEY, BROWSER_PORT, browserConfig } from "../ops/browsersettings.js";
 import type { BrowserElsewhere, PageSpot, TabInfo } from "../tools/browser.js";
 import { PageWatchStore, type WatchLook } from "../ops/watches.js";
@@ -3824,6 +3829,7 @@ export class Kernel {
       prepare: (tool) => this.readyBrowser(tool, opts.conversationId, opts.signal),
       ...(opts.heard ? { heard: opts.heard } : {}),
       chatMode: () => (opts.conversationId ? this.modes.of(opts.conversationId) : ASK),
+      beyondAutoNow: (tool, input) => (opts.conversationId && tool.startsWith(BROWSER_PREFIX) ? this.checkoutSays(opts.conversationId, input) : Promise.resolve(undefined)),
       halted: () => this.killSwitch.halted,
       autoApproves: (tool, context) => (opts.conversationId !== undefined && actsInYourChrome(tool, context) ? this.sessionAllows(opts.conversationId, context?.browser?.site) : false),
       leavesSite: (tool, input, site) => tool.startsWith(BROWSER_PREFIX) && opensElsewhere(input, site),
@@ -4564,6 +4570,28 @@ export class Kernel {
    * picture the agent just saw it by, while it still stands for the page
    * (see SeenPages), rather than another taken on the same line to the tab.
    */
+  /**
+   * Whether a browser step in this chat would act on a checkout or a payment
+   * page, in KOS's browser or the owner's Chrome: by the tab's address, the
+   * addresses the step opens, and the page's own words and card fields.
+   * A page that cannot be read in a moment is judged by its address alone.
+   */
+  private async checkoutSays(conversationId: string, input: Record<string, unknown>): Promise<string | undefined> {
+    const away = this.away(conversationId);
+    const spot = away ? away.spot(conversationId) : this.browser.spot(conversationId);
+    const urls = [...(spot ? [spot.url] : []), ...addressesIn(input)];
+    const page = async (): Promise<Page | undefined> => {
+      if (away) return spot ? (await away.tab(conversationId)).page : undefined;
+      const tab = this.browser.tabOf(conversationId);
+      return tab ? this.browser.page(tab) : undefined;
+    };
+    const look = await Promise.race([
+      page().then(async (p) => (p ? (JSON.parse(await p.evaluate(CHECKOUT_LOOK)) as PageLook) : undefined)),
+      new Promise<undefined>((done) => setTimeout(() => done(undefined), 1500).unref()),
+    ]).catch(() => undefined);
+    return looksLikeCheckout(urls, look) || undefined;
+  }
+
   private async browserPicture(tool: string, conversationId?: string): Promise<string | undefined> {
     const context = conversationId ? this.browserContext(tool, conversationId) : undefined;
     if (!conversationId || !context) return undefined;

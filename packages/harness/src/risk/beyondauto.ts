@@ -76,3 +76,49 @@ export function destructiveCommand(command: string, exists: (path: string) => bo
   }
   return false;
 }
+
+/** A page address that is a checkout or a payment step. */
+const CHECKOUT_PATH = /(^|[/._-])(checkout|payment|payments|pay|purchase|place-?order|billing)([/._?#-]|$)/i;
+/** Words a checkout or payment page shows. */
+const CHECKOUT_WORDS = /\b(checkout|check out|place (?:your )?order|buy now|pay now|payment)\b/i;
+
+/** What a browser step's page tells of it: its text, and whether it has a card field (autocomplete cc-*). */
+export interface PageLook {
+  text: string;
+  cardField: boolean;
+}
+
+/**
+ * Whether a browser step acts on a checkout or a payment page, in KOS's
+ * browser or the owner's Chrome, so a chat's Auto does not take it: an
+ * address on the way (the tab's, one a step opens) whose path is a checkout,
+ * a card field on the page, or a checkout's words on it.
+ */
+export function looksLikeCheckout(urls: readonly string[], page: PageLook | undefined): string | false {
+  for (const url of urls) {
+    let path = url;
+    try {
+      const u = new URL(url);
+      path = `${u.pathname}${u.search}`;
+    } catch {
+      // A bare address is read as it was given.
+    }
+    if (CHECKOUT_PATH.test(path)) return "acts on a checkout or payment page";
+  }
+  if (page?.cardField) return "acts on a page with a card field";
+  if (page && CHECKOUT_WORDS.test(page.text)) return "acts on a page that reads like a checkout";
+  return false;
+}
+
+/** The addresses a browser call's steps would open: every string under an open, goto, url or visit key. */
+export function addressesIn(input: unknown): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown, key?: string): void => {
+    if (typeof v === "string") {
+      if (key && /^(open|goto|url|visit|href|navigate)$/i.test(key)) out.push(v);
+    } else if (Array.isArray(v)) v.forEach((x) => walk(x, key));
+    else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, k);
+  };
+  walk(input);
+  return out;
+}

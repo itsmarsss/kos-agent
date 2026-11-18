@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { beyondAutoByName, beyondAutoRule, destructiveCommand } from "./beyondauto.js";
+import { addressesIn, beyondAutoByName, beyondAutoRule, destructiveCommand, looksLikeCheckout } from "./beyondauto.js";
 
 describe("beyondAutoByName", () => {
   it("names a tool that spends money, deletes or cancels", () => {
@@ -74,5 +74,22 @@ describe("destructiveCommand", () => {
     expect(d("cmd > /dev/null 2>&1")).toBe(false);
     expect(d("chmod +x run.sh")).toBe(false);
     expect(d("pnpm build")).toBe(false);
+  });
+});
+
+describe("looksLikeCheckout", () => {
+  const page = (text: string, cardField = false) => ({ text, cardField });
+
+  it("names a checkout by its address, a card field or its words", () => {
+    expect(looksLikeCheckout(["https://shop.example/checkout/step-2"], undefined)).toMatch(/checkout or payment page/);
+    expect(looksLikeCheckout(["https://shop.example/cart"], undefined)).toBe(false);
+    expect(looksLikeCheckout(["https://shop.example/a"], page("Shipping", true))).toMatch(/card field/);
+    expect(looksLikeCheckout(["https://shop.example/a"], page("Review, then Place order"))).toMatch(/reads like a checkout/);
+    expect(looksLikeCheckout(["https://shop.example/a"], page("Buy now and save"))).toMatch(/reads like a checkout/);
+    expect(looksLikeCheckout([], page("The weather in Lisbon"))).toBe(false);
+  });
+
+  it("finds the addresses a call's steps would open", () => {
+    expect(addressesIn({ actions: [{ open: "https://a.example/pay" }, { click: "@e1" }, { goto: "b.example" }] })).toEqual(["https://a.example/pay", "b.example"]);
   });
 });

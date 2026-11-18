@@ -163,6 +163,13 @@ describe("GuardedTools", () => {
       expect((await tools.execute("notify", { text: "hi" })).content).toBe(`${AUTO_PREFIX}\ndone`);
     });
 
+    it("asks for a step on a page that reads as a checkout, which its arguments cannot show", async () => {
+      risky("browser.act");
+      const tools = auto({ beyondAutoNow: async (_tool, input) => (JSON.stringify(input).includes("pay") ? "acts on a checkout or payment page" : undefined) });
+      expect((await tools.execute("browser.act", { actions: [{ click: "@pay" }] })).content).toMatch(/Queued for approval/);
+      expect((await tools.execute("browser.act", { actions: [{ click: "@next" }] })).content).toBe(`${AUTO_PREFIX}\ndone`);
+    });
+
     it("lets nothing through while the kill switch is thrown", async () => {
       risky("files.rm");
       expect((await auto({ halted: () => true }).execute("files.rm", {})).content).toMatch(/Queued for approval/);

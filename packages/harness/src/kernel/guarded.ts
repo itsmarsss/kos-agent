@@ -89,6 +89,12 @@ export interface GuardedToolsDeps {
   chatMode?: () => ChatMode;
   /** Whether the kill switch is thrown: Auto lets nothing through meanwhile. */
   halted?: () => boolean;
+  /**
+   * What the call would act on puts it beyond Auto, read only once Auto
+   * would otherwise cover it: a browser step on a checkout page, which its
+   * arguments alone cannot show. The reason, or undefined.
+   */
+  beyondAutoNow?: (tool: string, input: Record<string, unknown>) => Promise<string | undefined>;
   /** Whether a call allowed on `site` alone sets out for another, so it is asked about instead. */
   leavesSite?: (tool: string, input: Record<string, unknown>, site: string) => boolean;
   /** A picture of what a call would act on, for the approval; base64 JPEG. */
@@ -483,7 +489,8 @@ export class GuardedTools implements ToolBox {
        */
       const context = this.deps.permissionContext?.(name);
       // A chat set to Auto, for the owner's own turn: decided by auto mode, kept in the Inbox as such, and said to the model.
-      if (autoCovers({ mode: this.deps.chatMode?.(), assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true })) {
+      const covered = autoCovers({ mode: this.deps.chatMode?.(), assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
+      if (covered && !(await this.deps.beyondAutoNow?.(name, input).catch(() => undefined))) {
         const unready = await readyNow();
         if (unready) return unready;
         approvals.settled(
