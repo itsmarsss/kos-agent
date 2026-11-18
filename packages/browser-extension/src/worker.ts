@@ -1031,7 +1031,7 @@ function overlayState(): OverlayState {
     until: session?.info.until ?? 0,
     face: { fill: face.fill, ink: face.ink, eyes: face.eyes, body: smoothPath(outline(face.shape)) },
     theme: themeOf(settings.theme, sentTheme),
-    bar: settings.pageBar,
+    bar: settings.fullBar,
     ...barPlace,
   };
 }

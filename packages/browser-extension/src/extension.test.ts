@@ -249,10 +249,10 @@ describe("the owner's settings", () => {
     expect(readSettings({ takeover: "anyInput" }).takeover).toBe("anyInput");
     expect(readSettings({ takeover: "wheel" }).takeover).toBe("clicksAndKeys");
     const s = readSettings({ longestMinutes: 240, promptWaitSeconds: 7, idleMinutes: 3, takeover: "clicksAndKeys", timeOnIcon: false, askFirst: { dev_a: false, dev_b: "no" } });
-    expect(s).toMatchObject({ longestMinutes: 240, promptWaitSeconds: 60, idleMinutes: 3, takeover: "clicksAndKeys", connectOnStart: true, timeOnIcon: false, pageBar: true, askFirst: { dev_a: false } });
+    expect(s).toMatchObject({ longestMinutes: 240, promptWaitSeconds: 60, idleMinutes: 3, takeover: "clicksAndKeys", connectOnStart: true, timeOnIcon: false, fullBar: true, askFirst: { dev_a: false } });
     // KOS's bar on the page shows unless the owner put it away.
-    expect(readSettings({ pageBar: false }).pageBar).toBe(false);
-    expect(readSettings({ pageBar: "no" }).pageBar).toBe(true);
+    expect(readSettings({ fullBar: false }).fullBar).toBe(false);
+    expect(readSettings({ fullBar: "no" }).fullBar).toBe(true);
     expect(asksFirst(s, "dev_a")).toBe(false);
     expect(asksFirst(s, "dev_new")).toBe(true);
   });

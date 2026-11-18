@@ -603,10 +603,10 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
           <Toggle title="Time left on the KOS icon" detail={s.timeOnIcon ? "The icon counts down while a session runs." : "Off: the icon says ON while a session runs."} on={s.timeOnIcon} set={(on) => set({ timeOnIcon: on })} />
           <hr className="rule" />
           <Toggle
-            title="Show KOS's bar on the page while it works"
-            detail={s.pageBar ? "Take over and Stop on the page, beside what KOS is doing." : "Off: the page keeps its glowing border; Stop is on the KOS icon and in the side panel, and your own click still takes over."}
-            on={s.pageBar}
-            set={(on) => set({ pageBar: on })}
+            title="Show KOS's full bar on the page"
+            detail={s.fullBar ? "What KOS is doing, with Take over and Stop, on the page it works in." : "Off: a small Stop with KOS's face, beside the glowing border. Your own click still takes over."}
+            on={s.fullBar}
+            set={(on) => set({ fullBar: on })}
           />
         </div>
       </Section>

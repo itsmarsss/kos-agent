@@ -140,7 +140,7 @@ it does on the dashboard (the same code, `@kos/shared/blobmotion`):
 - **Settings**, behind the gear: the longest session, how long the ask waits,
   the idle limit, whether scrolling a KOS tab pauses KOS, the theme, whether
   each KOS connects when Chrome opens, the time left on the KOS icon,
-  whether KOS's bar shows on the page while it works, and Copy log. The log
+  whether KOS's full bar shows on the page, and Copy log. The log
   is kept for the browser session, and its newest lines (about 40,000
   characters) in local storage too, so a reload of the extension or of
   Chrome keeps them.
@@ -167,9 +167,10 @@ While KOS works in your Chrome:
   press KOS's face on it to fold it to the face, and it stays so for the
   session. Only the page's top frame draws it, and it leaves by itself when
   the extension stops checking in, so a session that ended leaves nothing.
-  With the bar off in Settings the page shows the border and KOS's cursor
-  alone: the KOS icon (ON, or the time left) and the side panel still say
-  KOS is working and offer Stop, and your own click still takes over;
+  With the full bar off in Settings, a small bar takes its place: KOS's
+  face and Stop, one press, beside the border and KOS's cursor; Take over
+  is your own click, and the KOS icon and the side panel still say KOS is
+  working;
 - KOS's own cursor glides to each point it acts at and ripples as it
   presses, as on the Mac;
 - the pictures KOS takes never redraw the page you are looking at: a tab
