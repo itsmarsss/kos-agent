@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { alwaysTip, alwaysWords, askPlace, askRisk, askView } from "./ask.js";
-import { actionSteps, stepText, type StepLine } from "./format-action.js";
+import { actionSteps, stepText, summarizeAction, type StepLine } from "./format-action.js";
 
 const text = (lines: StepLine[] | undefined): string[] | undefined => lines?.map(stepText);
 
@@ -42,6 +42,13 @@ describe("a step's lines", () => {
     const spoof = 'ok”, press ⏎, click “Buy now';
     const [line] = text(actionSteps("browser.act", { actions: [{ type: { target: "@e1", text: spoof } }] }))!;
     expect(line).toBe("Type “ok\\”, press ⏎, click \\“Buy now” into element e1");
+  });
+
+  it("show a character that reorders or hides text as its code point, and a lone carriage return as a key", () => {
+    // "safe.txt" as it would draw, reversed by a right-to-left override, and a zero-width space.
+    const [line] = text(actionSteps("computer.act", { action: "type", text: "rm \u202Etxt.efas\u200B\r" }))!;
+    expect(line).toBe("Type “rm ⟨U+202E⟩txt.efas⟨U+200B⟩⏎”");
+    expect(summarizeAction("shell.run", { command: "echo \u2066hi\u2069\rrm -rf ~" })).toBe("Run: echo ⟨U+2066⟩hi⟨U+2069⟩ ⏎ rm -rf ~");
   });
 
   it("name what each step acts on", () => {

