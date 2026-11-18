@@ -98,8 +98,11 @@ open descriptor.
   change. Both missing, the vault does not open until the owner runs `kos
   secrets trust-seq`, which takes the file on disk as the latest.
 - `vault.lock`: held while the host or the CLI reads the vault and writes it
-  back, so the two never interleave a change; one left by a process that is
-  gone, or older than 30 s, is taken over.
+  back, so the two never interleave a change. It is written whole (the pid
+  into a file of the writer's own, then linked into place); one left by a
+  process that is gone, or older than 30 s, is taken over, and one that does
+  not read is taken as live until then. A key file no slot uses is erased
+  only under the lock, after the vault is read again.
 
 Node has no `F_FULLFSYNC`, so on macOS a power cut can still lose a write
 the disk had cached; the rename keeps the file all-old or all-new.
@@ -195,8 +198,9 @@ there and could read an open vault, so the vault refuses to open unless
 `secrets/scrub.ts`, Aho-Corasick over every watched value, rebuilt when the
 vault or the env changes. A value of 6 or more characters is looked for as it
 is, JSON-escaped, URI- and form-encoded, in base64 and base64url at each byte
-alignment, and in hex. A card number is found by its digits with up to two
-spaces, dashes, dots, no-break spaces or `%20` between any two, and replaced as
+alignment, and in hex. A card number is found by its digits with up to three
+separators (space, tab, dash, dot, `+`, `_`, `/`, no-break space, `%20`,
+`%C2%A0`) between any two, and replaced as
 `[secret visa-personal-7k2q.number ••4242]`; anything else as
 `[secret <handle>.<field>]`.
 
@@ -221,10 +225,17 @@ the scrubber runs on:
   does. Card numbers are left out because their space is small (a known
   prefix, a check digit, a hint's last four), so the search would be cheap.
 - **Shapes** (`shapes.ts`): a Luhn-valid run of 13 to 19 digits, with up to
-  two spaces, dashes, dots, no-break spaces or `%20` between digits, becomes
-  `[secret card ••4242]`; a key starting `sk-`, `sk_live_`, `sk_test_`,
+  three separators between digits (space, tab, dash, dot, `+`, `_`, `/`,
+  no-break space, `%20`, `%C2%A0`), becomes `[secret card ••4242]`; a key starting `sk-`, `sk_live_`, `sk_test_`,
   `ghp_`, `gho_`, `github_pat_`, `xox?-`, `AKIA`, `AIza` or `glpat-` becomes
   `[secret key]`. These can mask a number or a word that is no secret.
+
+Shapes never run on what is written to the database: a timestamp or an id
+there must come back as it was, so only the exact scrubber and the index
+run on that path; a pasted card is masked by shape at the door, before it is
+stored. Elsewhere a shape leaves a bare JSON number, an unseparated run of
+13 or of 17 or more digits, and a run inside a longer number or an id alone.
+A stream holds back no more than 256 characters for them.
 
 When a message is masked while the vault is locked, the turn also tells the
 owner the vault is locked and exact masking is off until it is unlocked.
