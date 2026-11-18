@@ -56,13 +56,15 @@ export function parseChatMode(raw: unknown): ChatMode | undefined {
 export interface AutoSpan {
   id: "off" | "task" | "1h" | "8h";
   label: string;
+  /** The same in a word or two, for a chip. */
+  short: string;
 }
 
 export const AUTO_SPANS: readonly AutoSpan[] = [
-  { id: "off", label: "Until I turn it off" },
-  { id: "task", label: "Until this task finishes" },
-  { id: "1h", label: "For 1 hour" },
-  { id: "8h", label: "For 8 hours" },
+  { id: "off", label: "Until I turn it off", short: "Until off" },
+  { id: "task", label: "Until this task finishes", short: "This task" },
+  { id: "1h", label: "For 1 hour", short: "1 hour" },
+  { id: "8h", label: "For 8 hours", short: "8 hours" },
 ];
 
 /** The `until` a span sets, from `now`. */
@@ -97,14 +99,16 @@ export function modeLabel(mode: ChatMode, now: number): string {
 }
 
 /** What each mode does, for the chip's tooltip and the menu. */
-export const MODE_WORDS: Record<ChatModeName, { label: string; does: string }> = {
+export const MODE_WORDS: Record<ChatModeName, { label: string; does: string; short: string }> = {
   ask: {
     label: "Ask",
     does: "KOS asks you before anything risky in this chat.",
+    short: "Asks you before anything risky",
   },
   auto: {
     label: "Auto",
     does: "KOS goes ahead without asking for risky steps you start in this chat, in its own browser, your Chrome and your Mac too. Each one is in the Inbox as approved by auto mode.",
+    short: "Goes ahead without asking; each step is in the Inbox",
   },
 };
 
@@ -128,8 +132,8 @@ export const AUTO_NEVER: readonly string[] = [
 
 /** The sessions setting, as the menu says it. */
 export const AUTO_SESSIONS = {
-  label: "Start Mac and Chrome sessions too",
-  hint: "For a Mac or Chrome that leaves its sessions to KOS's approvals. One that asks on itself still asks there; that is the device's own setting.",
+  label: "Start sessions too",
+  hint: "On a Mac or Chrome that leaves its sessions to KOS. One that asks on itself still asks there.",
 } as const;
 
 /** The name an auto-approved call is decided by, in the audit and the Inbox. */

@@ -2119,6 +2119,8 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
   .sheet-composer-bar .ctx-track,
   .sheet-composer-bar .ctx-detail { display: none; }
   .sheet-composer-bar .ctx-text { white-space: nowrap; }
+  /* Auto's time left goes to the chip's tooltip, so the row stays one line. */
+  .sheet-composer-bar .mode-chip-left { display: none; }
 }
 
 /* —— conversation switcher —— */

@@ -42,7 +42,7 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
   const [open, setOpen] = useState(false);
   const chip = useRef<HTMLSpanElement>(null);
   const menu = useRef<HTMLDivElement>(null);
-  const [spot, setSpot] = useState<{ left: number; bottom: number } | null>(null);
+  const [spot, setSpot] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
   useDismiss(open, () => setOpen(false), { inside: [chip, menu] });
 
   // Above the chip, inside the window side to side: the side panel is narrow and the chip sits mid-row.
@@ -51,7 +51,8 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
     const at = chip.current?.getBoundingClientRect();
     const width = menu.current?.offsetWidth ?? 0;
     if (!at) return;
-    setSpot({ left: Math.max(8, Math.min(at.left, window.innerWidth - width - 8)), bottom: window.innerHeight - at.top + 6 });
+    // As tall as the room above the chip allows; past that it scrolls.
+    setSpot({ left: Math.max(8, Math.min(at.left, window.innerWidth - width - 8)), bottom: window.innerHeight - at.top + 6, maxHeight: at.top - 14 });
   }, [open]);
 
   const Icon = ICON[live.mode];
@@ -61,14 +62,16 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
     <span ref={chip} className="mode-chip" data-mode={live.mode} data-running={(running && live.mode === "auto") || undefined}>
       <button type="button" className="mode-chip-main" disabled={disabled} title={modeTip(live, now)} aria-label={`Mode: ${modeLabel(live, now)}. Press to change.`} onClick={() => set(cycled(live))}>
         <Icon size={12} />
-        <span>{modeLabel(live, now)}</span>
+        <span>{MODE_WORDS[live.mode].label}</span>
+        {/* How long Auto has left, which a narrow composer leaves to the tooltip. */}
+        {modeLabel(live, now) !== MODE_WORDS[live.mode].label && <span className="mode-chip-left">{modeLabel(live, now).slice(MODE_WORDS[live.mode].label.length)}</span>}
       </button>
       <button type="button" className="mode-chip-more" disabled={disabled} aria-label="Mode options" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <ChevronDown size={10} title="" />
       </button>
       {open &&
         createPortal(
-          <div ref={menu} className="mode-menu kos-pop" role="menu" style={spot ? { left: spot.left, bottom: spot.bottom } : { visibility: "hidden" }}>
+          <div ref={menu} className="mode-menu kos-pop" role="menu" style={spot ?? { visibility: "hidden" }}>
             {(["ask", "auto"] as const).map((name) => {
               const Mark = ICON[name];
               return (
@@ -76,29 +79,31 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
                   <Mark size={13} />
                   <span className="line-text line-text--wrap">
                     <strong>{MODE_WORDS[name].label}</strong>
-                    <span>{MODE_WORDS[name].does}</span>
+                    <span>{MODE_WORDS[name].short}</span>
                   </span>
                   {live.mode === name && <CheckIcon size={13} title="" />}
                 </button>
               );
             })}
             <div className="mode-menu-head label">Auto lasts</div>
-            {AUTO_SPANS.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                role="menuitemradio"
-                aria-checked={live.mode === "auto" && span === s.id}
-                className="mode-menu-row mode-menu-row--span"
-                onClick={() => {
-                  const until = untilOf(s.id, Date.now());
-                  set({ mode: "auto", ...(until !== undefined ? { until } : {}), ...(live.sessions ? { sessions: true } : {}) });
-                }}
-              >
-                <span className="mode-menu-span">{s.label}</span>
-                {live.mode === "auto" && span === s.id && <CheckIcon size={13} title="" />}
-              </button>
-            ))}
+            <div className="mode-menu-spans" role="group" aria-label="Auto lasts">
+              {AUTO_SPANS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="menuitemradio"
+                  title={s.label}
+                  aria-label={s.label}
+                  aria-checked={live.mode === "auto" && span === s.id}
+                  onClick={() => {
+                    const until = untilOf(s.id, Date.now());
+                    set({ mode: "auto", ...(until !== undefined ? { until } : {}), ...(live.sessions ? { sessions: true } : {}) });
+                  }}
+                >
+                  {s.short}
+                </button>
+              ))}
+            </div>
             <label className="mode-menu-switch">
               <span className="line-text line-text--wrap">
                 <strong>{AUTO_SESSIONS.label}</strong>

@@ -39,7 +39,7 @@ export async function chromePanel({ chrome, kos, extDist, workDir, tabUrl }) {
   await sleep(600);
   await q("document.querySelector('.switcher-new')?.click()");
   await sleep(3500);
-  if ((await q("document.querySelector('.mode')?.getAttribute('aria-pressed')")) !== "true") await q("document.querySelector('.mode')?.click()");
+  if ((await q("document.querySelector('.mode-chip')?.getAttribute('data-mode')")) !== "auto") await q("document.querySelector('.mode-chip-main')?.click()");
   await sleep(1000);
   const cards = [];
   // The panel's chat, as KOS keeps it: the newest chat on the Chrome surface, just made by New chat.
