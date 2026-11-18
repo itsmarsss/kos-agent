@@ -1110,6 +1110,8 @@ export class Kernel {
       // owner's own message said so.
       const attended = opts.attended ?? opts.origin !== "system";
       const owner = attended && opts.owner === true && opts.origin !== "system" && !opts.guest && !opts.guested && !sessionId.startsWith("cron:");
+      // Narrower still: the owner's own words, said in this chat. Not work another chat or a door passed on, a handoff's trail or an aside.
+      const ownWords = owner && !opts.from && !opts.trail?.length && !opts.contextFrom && !opts.via && opts.channel !== "dispatch" && text.trim() !== "";
       // A guest's words reach no further than their room's project, here and wherever the work is passed.
       const guest = opts.guested ?? (opts.guest ? this.guestRoomOf(sessionId) : undefined);
       const stop = this.stopFor(sessionId, turnId);
@@ -1178,6 +1180,7 @@ export class Kernel {
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended,
           owner,
+          ownWords,
           ...(guest ? { guest } : {}),
           // The job behind a schedule's run, whose unaddressed messages go to its place.
           ...(opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? { scheduled: Number(opts.from.id) } : {}),
@@ -3770,6 +3773,8 @@ export class Kernel {
     attended?: boolean;
     /** True for the owner's own turn alone. */
     owner?: boolean;
+    /** True when the turn began from the owner's own words in this chat: what a chat's Auto mode covers. */
+    ownWords?: boolean;
     /** The job behind a schedule's run, whose unaddressed messages go to the job's place. */
     scheduled?: number;
     /** The guest's room, for a turn a guest's words started or work they passed on. */
@@ -3823,6 +3828,7 @@ export class Kernel {
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
       ...(opts.attended === false ? { attended: false } : {}),
       ...(opts.owner === true ? { owner: true } : {}),
+      ...(opts.ownWords === true ? { ownWords: true } : {}),
       ...(opts.scheduled !== undefined ? { scheduled: opts.scheduled } : {}),
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),

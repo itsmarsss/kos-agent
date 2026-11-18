@@ -96,7 +96,7 @@ describe("GuardedTools", () => {
     }
 
     function auto(over: Partial<GuardedToolsDeps> = {}): GuardedTools {
-      return guarded({ conversationId: "c1", owner: true, waitForApproval: false, chatMode: () => AUTO, permissionContext: (tool) => (tool.startsWith("browser.") ? yours : undefined), ...over });
+      return guarded({ conversationId: "c1", owner: true, ownWords: true, waitForApproval: false, chatMode: () => AUTO, permissionContext: (tool) => (tool.startsWith("browser.") ? yours : undefined), ...over });
     }
 
     it("runs the owner's risky calls without asking: KOS's browser, the owner's Chrome, files", async () => {
@@ -134,9 +134,16 @@ describe("GuardedTools", () => {
     it("never covers a turn the owner did not start in this chat: a schedule, a guest, a dispatch", async () => {
       risky("files.rm");
       expect((await auto({ owner: false }).execute("files.rm", { a: 1 })).content).toMatch(/Queued for approval/);
+      // The owner's reach, passed on by a dispatch or a handoff: not their own words here.
+      expect((await auto({ ownWords: false }).execute("files.rm", { a: 4 })).content).toMatch(/Queued for approval/);
       expect((await auto({ attended: false }).execute("files.rm", { a: 2 })).content).toMatch(/Queued for approval/);
       expect((await auto({ owner: false, guest: { project: "garden", chat: "room" } }).execute("files.rm", { a: 3 })).content).toMatch(/Queued for approval/);
-      expect(approvals.pending()).toHaveLength(3);
+      expect(approvals.pending()).toHaveLength(4);
+    });
+
+    it("never places a secret unasked", async () => {
+      risky("files.write");
+      expect((await auto().execute("files.write", { path: "a", content: "{{secret:openai}}" })).content).toMatch(/Queued for approval/);
     });
 
     it("never covers script in a page or a handoff, what always asks, or what a rule puts beyond it", async () => {
@@ -168,12 +175,14 @@ describe("GuardedTools", () => {
 
     it("weighs each call on its own facts", () => {
       const risk = { tier: "risky", escalated: false } as const;
-      const call = { mode: AUTO, assessment: risk, owner: true, strict: false, halted: false };
+      const call = { mode: AUTO, assessment: risk, ownWords: true, secret: false, strict: false, halted: false };
       expect(autoCovers(call)).toBe(true);
       expect(autoCovers({ ...call, assessment: { tier: "safe", escalated: false } })).toBe(false);
       expect(autoCovers({ ...call, assessment: { ...risk, beyondAuto: "deletes outside the workspace" } })).toBe(false);
       expect(autoCovers({ ...call, assessment: { ...risk, startsSession: true }, mode: { mode: "auto", sessions: true } })).toBe(true);
       expect(autoCovers({ ...call, mode: undefined })).toBe(false);
+      expect(autoCovers({ ...call, ownWords: false })).toBe(false);
+      expect(autoCovers({ ...call, secret: true })).toBe(false);
     });
   });
 

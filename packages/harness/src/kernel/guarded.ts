@@ -7,7 +7,7 @@ import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import type { RiskAssessment } from "../risk/tiers.js";
-import { injectSecrets } from "../secrets/inject.js";
+import { hasSecretRef, injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, type GuestOrigin, type TurnOrigin } from "./caller.js";
 
@@ -47,6 +47,12 @@ export interface GuardedToolsDeps {
   attended?: boolean;
   /** True for the owner's own turn alone; see `ownership`. */
   owner?: boolean;
+  /**
+   * True when the turn began from the owner's own words in this chat: not a
+   * dispatch, a handoff, a trail, an aside or a resumed approval. Auto
+   * covers only these.
+   */
+  ownWords?: boolean;
   /** The job whose run this is, for a schedule's run; see `scheduled`. */
   scheduled?: number;
   /** The guest's room, for a turn a guest's words started or work they passed on; see `guested`. */
@@ -182,8 +188,10 @@ export function autoResult(result: ToolExecution): ToolExecution {
 export interface AutoCall {
   mode: ChatMode | undefined;
   assessment: RiskAssessment;
-  /** The owner's own turn in this chat: not a schedule, a guest, a dispatch or a resumed approval. */
-  owner: boolean;
+  /** The turn began from the owner's own words in this chat: not a schedule, a guest, a dispatch, a handoff or a resumed approval. */
+  ownWords: boolean;
+  /** The call's input names a secret: placing one asks every time. */
+  secret: boolean;
   /** A tool of the browser's family that asks every time (script in a page, a handoff). */
   strict: boolean;
   halted: boolean;
@@ -198,7 +206,7 @@ export interface AutoCall {
  */
 export function autoCovers(call: AutoCall): boolean {
   const { mode, assessment } = call;
-  if (mode?.mode !== "auto" || call.halted || !call.owner || call.strict) return false;
+  if (mode?.mode !== "auto" || call.halted || !call.ownWords || call.strict || call.secret) return false;
   if (assessment.tier !== "risky" || assessment.asksAlways || assessment.beyondAuto) return false;
   return !assessment.startsSession || mode.sessions === true;
 }
@@ -433,6 +441,8 @@ export class GuardedTools implements ToolBox {
     const input = registry.stamp(name, called);
 
     const assessment = registry.classify(name, input);
+    // A call that places a secret asks every time, whatever its tool's tier: Auto and remembered decisions never cover it.
+    const secret = hasSecretRef(input);
 
     /*
      * Readied before it is judged on where it runs: a browser call from the
@@ -469,7 +479,7 @@ export class GuardedTools implements ToolBox {
        */
       const context = this.deps.permissionContext?.(name);
       // A chat set to Auto, for the owner's own turn: decided by auto mode, kept in the Inbox as such, and said to the model.
-      if (autoCovers({ mode: this.deps.chatMode?.(), assessment, owner, strict, halted: this.deps.halted?.() === true })) {
+      if (autoCovers({ mode: this.deps.chatMode?.(), assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true })) {
         const unready = await readyNow();
         if (unready) return unready;
         approvals.settled(
@@ -492,7 +502,7 @@ export class GuardedTools implements ToolBox {
         return autoResult(ran);
       }
       // What asks every time is covered by no session's yes and no remembered decision either.
-      const always = assessment.asksAlways === true;
+      const always = assessment.asksAlways === true || secret;
       const yes = !always && (this.deps.autoApproves?.(name, context) === "site" || this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true);
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
       const bound = yes ? context?.browser?.site : undefined;

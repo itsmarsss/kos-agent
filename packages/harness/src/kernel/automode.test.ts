@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import type { ModelResponse } from "../models/types.js";
@@ -69,6 +69,16 @@ describe("a chat's mode, through the kernel", () => {
     expect(model.results[0]).toContain(AUTO_PREFIX);
     expect(kernel.chatMode(chat.id)).toEqual({ mode: "ask" });
     expect(told.at(-1)).toEqual({ kind: "chat:mode", conversationId: chat.id, mode: { mode: "ask" } });
+  });
+
+  it("asks for work dispatched into a chat in Auto, even when the owner's turn sent it", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Target" });
+    await setMode(chat.id, { mode: "auto" });
+    const sent = kernel.dispatchTo(chat.id, "clear it", undefined, { attended: true, owner: true });
+    await vi.waitFor(() => expect(kernel.approvals.pending().map((a) => a.tool)).toEqual(["danger.run"]));
+    await kernel.deny(kernel.approvals.pending()[0]!.id);
+    await sent;
+    expect(kernel.approvals.decided()[0]).toMatchObject({ status: "denied" });
   });
 
   it("refuses a mode that is not one", async () => {
