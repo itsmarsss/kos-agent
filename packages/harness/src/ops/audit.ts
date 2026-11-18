@@ -74,6 +74,18 @@ function toRecord(row: Row): AuditRecord {
 }
 
 /**
+ * The audit table as this code reads and writes it: made when missing, and
+ * an older one given the columns added since, in place, so its history keeps
+ * its rows. Called by anything that reads the table without the log itself.
+ */
+export function ensureAuditSchema(db: Db): void {
+  db.exec(SCHEMA);
+  const columns = db.prepare(`PRAGMA table_info(audit_log)`).all() as { name: string }[];
+  // Whose turn wrote a file is then known, not inferred.
+  if (!columns.some((c) => c.name === "conversation_id")) db.exec(`ALTER TABLE audit_log ADD COLUMN conversation_id TEXT`);
+}
+
+/**
  * Append-only record of every tool call. Args and results are redacted through
  * the secrets registry before storage, so keys never leak into history.
  */
@@ -83,10 +95,7 @@ export class AuditLog {
     private readonly secrets?: SecretsRegistry,
     private readonly now: () => number = Date.now,
   ) {
-    this.db.exec(SCHEMA);
-    // Added in place, so a workspace's history keeps its rows: whose turn wrote a file is then known, not inferred.
-    const columns = this.db.prepare(`PRAGMA table_info(audit_log)`).all() as { name: string }[];
-    if (!columns.some((c) => c.name === "conversation_id")) this.db.exec(`ALTER TABLE audit_log ADD COLUMN conversation_id TEXT`);
+    ensureAuditSchema(this.db);
   }
 
   private redact(text: string): string {

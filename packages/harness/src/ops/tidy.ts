@@ -6,6 +6,7 @@ import { LAYOUT_FOLDERS } from "@kos/shared";
 import { MAINTENANCE } from "../kernel/caretaker.js";
 import { RESERVED, uniqueName } from "../kernel/files.js";
 import type { Workspace } from "../store/workspace.js";
+import { ensureAuditSchema } from "./audit.js";
 
 /**
  * Putting a project's files back in its folder.
@@ -177,6 +178,8 @@ function destination(path: string, project: string): string {
 
 /** What tidying would move, without moving anything. */
 export function planTidy(ws: Workspace): TidyPlan {
+  // A workspace the host has not opened since conversation_id was added is read as it will be.
+  ensureAuditSchema(ws.db);
   const slugs = (ws.db.prepare("SELECT slug FROM manifest").all() as { slug: string }[]).map((r) => r.slug);
   const projects = new Set(slugs);
   const named = new Map(slugs.map((slug) => [slug.toLowerCase(), slug]));

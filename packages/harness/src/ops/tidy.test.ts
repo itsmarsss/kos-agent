@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Kernel } from "../kernel/kernel.js";
+import { Workspace } from "../store/workspace.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { applyTidy, describeTidy, planTidy } from "./tidy.js";
 
@@ -160,5 +161,41 @@ describe("tidying a project's files back into its folder", () => {
     expect(done.failed.map((f) => f.from)).toEqual(["school/bu354/review.md"]);
     expect(done.moved.map((m) => m.from)).toContain("drafts/cover-letter.md");
     expect(existsSync(join(root, "school", "bu354", "review.md"))).toBe(true);
+  });
+});
+
+/** As `kos files tidy` opens it: the workspace alone, no kernel, on a database from before audit_log kept its conversation. */
+describe("tidying a workspace whose audit log is older", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-tidy-old-"));
+    ws = Workspace.open(root);
+    ws.db.exec(`
+      CREATE TABLE audit_log (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, args TEXT NOT NULL, result TEXT NOT NULL, is_error INTEGER NOT NULL, risk_tier TEXT, user_id TEXT, created_at INTEGER NOT NULL);
+      CREATE TABLE runs_log (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, ref TEXT, status TEXT NOT NULL, error TEXT, started_at INTEGER NOT NULL, finished_at INTEGER, duration_ms INTEGER);
+      CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_slug TEXT);
+      CREATE TABLE crons (id INTEGER PRIMARY KEY, project_slug TEXT);
+      CREATE TABLE manifest (id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE);
+      INSERT INTO manifest (slug) VALUES ('school');
+      INSERT INTO conversations (id, title, project_slug) VALUES ('c1', 'Mokable', 'school');
+    `);
+    const at = Date.now() + 60_000;
+    ws.db.prepare("INSERT INTO runs_log (kind, ref, status, started_at, finished_at) VALUES ('chat', 'c1', 'ok', ?, ?)").run(at - 1000, at + 1000);
+    ws.db.prepare("INSERT INTO audit_log (tool, args, result, is_error, created_at) VALUES ('files.write', ?, 'ok', 0, ?)").run(JSON.stringify({ path: "drafts/plan.md" }), at);
+    mkdirSync(join(root, "drafts"));
+    writeFileSync(join(root, "drafts", "plan.md"), "plan");
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("adds the column and plans from the runs", () => {
+    expect(planTidy(ws).moves).toEqual([{ from: "drafts/plan.md", to: "projects/school/drafts/plan.md", project: "school", why: "written" }]);
+    const columns = (ws.db.prepare("PRAGMA table_info(audit_log)").all() as { name: string }[]).map((c) => c.name);
+    expect(columns).toContain("conversation_id");
   });
 });
