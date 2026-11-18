@@ -11,7 +11,7 @@ import { shellBeyondAuto } from "../risk/shellauto.js";
 import { isReadOnlyCommand } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
-import { jailedCommand } from "../sandbox/jail.js";
+import { isContained, jailedCommand } from "../sandbox/jail.js";
 import { outsideScratch } from "./files.js";
 
 /**
@@ -30,6 +30,8 @@ export interface ShellModuleOptions {
   timeoutSeconds?: number;
   /** Longest stdout or stderr kept, in characters. */
   maxOutput?: number;
+  /** The host runs in the container, which is the jail: whether it does by default. */
+  contained?: boolean;
 }
 
 export const SHELL_TIMEOUT_SECONDS = 120;
@@ -66,6 +68,13 @@ const UNWRITTEN = [...RESERVED].filter((name) => name !== ".kos");
 export type ShellResult = CapturedRun;
 
 /**
+ * Why no shell line is Auto's in the container: there the container is the
+ * jail, a command runs unwrapped beside KOS, and nothing keeps it off the
+ * network or KOS's own ports, so the offline line Auto relies on is not there.
+ */
+export const CONTAINED_BEYOND_AUTO = "nothing narrower than the container holds the network";
+
+/**
  * What git is told for a line a chat's Auto runs: no hooks, no fsmonitor, no
  * pager, as command-line config that a repository's own cannot override, so a
  * config or a hook the agent wrote runs nothing on a git status.
@@ -99,6 +108,7 @@ export function runShell(
 export function createShellModule(options: ShellModuleOptions = {}): KosModule {
   const timeoutSeconds = options.timeoutSeconds ?? SHELL_TIMEOUT_SECONDS;
   const maxOutput = options.maxOutput ?? SHELL_MAX_OUTPUT;
+  const contained = options.contained ?? isContained();
   return {
     manifest: {
       name: "shell",
@@ -148,6 +158,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           // What a chat's Auto runs unasked: only a line of reading and building programs (risk/shellauto.ts).
           // A line that destroys work says so first, as the reason the owner reads.
           beyondAuto: (input) => {
+            if (contained) return CONTAINED_BEYOND_AUTO;
             const command = typeof input["command"] === "string" ? input["command"] : "";
             const cwd = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
             // A file (not a folder) that is there outside scratch, where the line runs: one the jail would not let it reach is not there for it.

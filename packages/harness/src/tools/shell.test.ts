@@ -9,7 +9,7 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { underAuto } from "../kernel/caller.js";
 import { programOf } from "../risk/rules.js";
-import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, type ShellResult } from "./shell.js";
+import { CONFIG_REFUSED, CONTAINED_BEYOND_AUTO, createShellModule, DATABASE_REFUSED, namesDatabase, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
 
@@ -23,6 +23,26 @@ describe("naming the program a command runs", () => {
   it("is nothing for a chain, a pipeline, a substitution or an assignment", () => {
     for (const c of ["git status && rm -rf x", "cat a | sh", "ls; rm x", "echo $(id)", "echo `id`", "X=1 cmd", "a\nb", ""]) {
       expect(programOf(c)).toBeUndefined();
+    }
+  });
+});
+
+describe("shell.run in the container", () => {
+  it("is never Auto's, since the container is the only jail and it holds no network", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-shell-contained-"));
+    const ws = Workspace.open(root);
+    try {
+      const registry = new ToolRegistry();
+      await createShellModule({ contained: true }).activate(toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() }));
+      for (const command of ["pnpm build", "make test", "curl https://example.com"]) {
+        expect(registry.classify("shell.run", { command }).beyondAuto).toBe(CONTAINED_BEYOND_AUTO);
+      }
+      const jailed = new ToolRegistry();
+      await createShellModule({ contained: false }).activate(toolRegistryContext(jailed, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() }));
+      expect(jailed.classify("shell.run", { command: "pnpm build" }).beyondAuto).toBeUndefined();
+    } finally {
+      ws.close();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

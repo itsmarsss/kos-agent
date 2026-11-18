@@ -54,9 +54,12 @@ address, so a page whose name was rebound onto this machine is refused.
 `http.fetch` never reaches this machine, its local network (IPv6 forms
 that carry an IPv4 address included) or KOS's own hosts, except the places
 `KOS_FETCH_LAN` lists; each redirect and each resolved address is checked
-as it connects. Jailed programs never connect to KOS's ports (the API, the
-sites server, the Wi-Fi listener and KOS's Chrome's debugging port) on any
-address, and KOS's browser never works a tab that is on its dashboard.
+as it connects. On the Mac, jailed programs never connect to KOS's ports
+(the API, the sites server, the Wi-Fi listener and KOS's Chrome's debugging
+port) on any address. In the container the container is the jail: a
+command runs unwrapped beside KOS, on its network, so a chat's Auto never
+runs `shell.run` there unasked. KOS's browser never works a tab that is on
+its dashboard.
 Apps the agent runs are served on the sites server's origin, never the
 dashboard's, without your token, key or cookies.
 

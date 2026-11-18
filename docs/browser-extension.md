@@ -368,7 +368,9 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
   (`risk/shellauto.ts`). The list is not the boundary, the jail is: a line
   Auto lets through runs with no network at all, and git with hooks, the
   fsmonitor and the pager off, so `git fetch`, `pull`, `clone` and installs
-  ask, saying they need the network;
+  ask, saying they need the network. In the container no shell line is
+  covered: the container is the jail there, a command runs unwrapped beside
+  KOS, and nothing narrower holds the network or KOS's ports;
 - deleting for good: `files.rm` of a whole folder, `files.mv` onto a file
   that is there; a shell line with
   `rm -r`, a forced push, `git reset --hard`, `git clean`, `dd`, `mkfs`,

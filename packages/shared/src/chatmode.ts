@@ -124,6 +124,7 @@ export const AUTO_NEVER: readonly string[] = [
   "Secrets, and any step marked to ask every time",
   "Purchases and payments: paying tools, and steps on a checkout or card page",
   "Deleting for good: a whole folder, a destructive command, a permanent delete, or a delete outside the workspace",
+  "A shell command past reading, building and testing, and any in the container, where nothing narrower holds the network",
   "Messages, reactions and roles anyone but you sees, and opening a place to others",
   "Changing KOS itself or what runs without you: a skill, a module, an app, a site, a schedule",
   "Running script in a page, or handing a page to you",

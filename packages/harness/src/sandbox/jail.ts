@@ -147,6 +147,7 @@ export function isContained(): boolean {
 /** A program and its arguments, jailed for this platform. */
 export function jailedProgram(file: string, args: string[], options: JailOptions): JailedCommand {
   const platform = options.platform ?? process.platform;
+  // The container is the jail: network, kosPorts and the rest hold nothing here, so shell.run is never Auto's in it.
   if (options.contained ?? isContained()) {
     return { file, args };
   }
