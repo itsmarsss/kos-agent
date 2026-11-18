@@ -2898,7 +2898,8 @@ li:hover .chats-item-when { opacity: 0; }
 .turn--you > .turn-said { align-self: stretch; justify-content: flex-end; }
 .turn-said > .bubble { min-width: 0; }
 .turn--you > .turn-said > .msg-time { margin-bottom: 0.6rem; }
-.turn--system > .turn-said { position: relative; max-width: 100%; }
+/* A long note leaves its time room on the right, and stays centred. */
+.turn--system > .turn-said { position: relative; max-width: calc(100% - 10rem); }
 .turn--system > .turn-said > .bubble { max-width: none; }
 .turn--system > .turn-said > .msg-time { position: absolute; left: 100%; bottom: 0.2rem; margin-left: 0.5rem; }
 
