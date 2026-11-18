@@ -255,6 +255,28 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  /// The chat's mode under the box: Ask, Auto, Auto counting down while a turn runs, and its menu open in each mode.
+  @Test func chatWindowModes() throws {
+    let model = ChatModel()
+    model.paired = true
+    model.link = .connected
+    model.beside = "Safari"
+    model.models(.init(current: "gpt-5.5", choices: ["gpt-5.5", "gpt-5.4-mini"]))
+    let lines: [ChatModel.Line] = [.you("Book the cheapest flight to Lisbon on Friday", files: []), .kos("On it. I'll compare the three airlines and hold the cheapest seat.")]
+    model.show(conversation: "mac:owner", title: "Lisbon trip", lines: lines)
+    _ = try render("mac-ask", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    model.show(conversation: "mac:owner", title: "Lisbon trip", lines: lines, mode: ChatMode(.auto))
+    _ = try render("mac-auto", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    model.show(conversation: "mac:owner", title: "Lisbon trip", lines: lines, mode: ChatMode(.auto, until: .at(Date().addingTimeInterval(7 * 3600 + 40 * 60 + 20))))
+    model.status(taken: false, story: .some("› Open the airline's page"), error: nil, said: "Book the cheapest flight to Lisbon on Friday", conversation: "mac:owner")
+    _ = try render("mac-auto-timed-working", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    model.show(conversation: "mac:owner", title: "Lisbon trip", lines: lines)
+    _ = try render("mac-menu-ask", ChatView(model: model, modeMenu: true), height: ChatView.size.height, width: ChatView.size.width)
+    model.show(conversation: "mac:owner", title: "Lisbon trip", lines: lines, mode: ChatMode(.auto, until: .task, sessions: true))
+    let size = try render("mac-menu-auto", ChatView(model: model, modeMenu: true), height: ChatView.size.height, width: ChatView.size.width)
+    #expect(size.height == ChatView.size.height)
+  }
+
   /// Paired with nothing, and paired with a KOS that never answers this window.
   @Test func chatWindowUnpairedAndSilent() throws {
     let model = ChatModel()

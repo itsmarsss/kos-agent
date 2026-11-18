@@ -5,7 +5,7 @@ import SwiftUI
 /// as the panel is drawn from the extension's. KOS's face and the chat's
 /// name lead it, the name opening the window's own chats; the app in front
 /// on its card, as the panel's tab; the thread, ending in what waits on the
-/// owner; then the box, with the model and Ask or Auto under it.
+/// owner; then the box, with the model and the chat's mode (`ModeChip`) under it.
 public struct ChatView: View {
   @ObservedObject private var model: ChatModel
   @State private var switching = false
@@ -14,6 +14,8 @@ public struct ChatView: View {
   /// How tall the thread shows, so the empty chat can take that height and sit in its middle.
   @State private var threadHeight: CGFloat = 0
   @FocusState private var typing: Bool
+  /// The mode chip's menu, open over the box as the / menu is.
+  @State private var modeMenu: Bool
 
   public static let size = CGSize(width: 380, height: 560)
   /// The room over the thread's first line, and the gap between its items.
@@ -24,8 +26,9 @@ public struct ChatView: View {
   /// The smallest the window may be: the box and a few lines above it.
   public static let smallest = CGSize(width: 320, height: 380)
 
-  public init(model: ChatModel) {
+  public init(model: ChatModel, modeMenu: Bool = false) {
     self.model = model
+    _modeMenu = State(initialValue: modeMenu)
   }
 
   public var body: some View {
@@ -177,7 +180,7 @@ public struct ChatView: View {
 
   private var composer: some View {
     VStack(alignment: .leading, spacing: 4) {
-      if let menu = model.menu { CommandMenu(options: menu.options, picked: picked, take: model.take) }
+      if let menu = model.menu, !modeMenu { CommandMenu(options: menu.options, picked: picked, take: model.take) }
       if let quote = model.quote {
         QuoteCard(text: quote.text, from: quote.from, label: "Selected text", lines: 2, remove: model.putQuoteAside).padding(.leading, -4).padding(.bottom, 2)
       }
@@ -192,7 +195,7 @@ public struct ChatView: View {
         .onSubmit(sendDraft)
         .onChange(of: model.menu?.token.raw) { picked = 0 }
         .onChange(of: typing) { if typing { model.readSelection() } }
-        .onKeyPress(keys: [.upArrow, .downArrow, .tab, .escape]) { press in menuKey(press.key) }
+        .onKeyPress(keys: [.upArrow, .downArrow, .tab, .escape]) { press in menuKey(press) }
         // The hint drawn here, not as the field's own: in the faint grey, on one line, cut at its end, as the dashboard's.
         .overlay(alignment: .topLeading) {
           if model.draft.isEmpty {
@@ -220,14 +223,7 @@ public struct ChatView: View {
             .menuIndicator(.hidden)
           }
         }
-        Button {
-          model.setAuto(!model.auto)
-        } label: {
-          Chip(model.auto ? "Auto" : "Ask", symbol: model.auto ? "bolt" : "hand.raised", lit: model.auto)
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
-        .help(model.auto ? "KOS acts without asking; strict steps still ask" : "KOS asks before each step")
+        ModeChip(mode: model.mode, open: modeMenu, cycle: { model.cycleMode() }, menu: { modeMenu.toggle() })
         Spacer(minLength: 4)
         // While this chat has something going, the button stops it; words typed meanwhile still go with Return.
         if model.busy {
@@ -254,18 +250,54 @@ public struct ChatView: View {
     .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous))
     .overlay(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous).strokeBorder(typing ? Theme.accent.opacity(0.6) : Theme.line))
     .opacity(model.usable ? 1 : 0.6)
+    // The mode's menu floats over the thread, its foot just above the box, as tall as the window leaves it.
+    .overlay(alignment: .top) {
+      if modeMenu { modeCard.offset(y: -(Self.modeMenuHeight + 6)) }
+    }
     .padding(.horizontal, 12)
     .padding(.bottom, 12)
   }
+
+  /// The mode chip's menu on a card of its own, scrolling when the window is short.
+  private var modeCard: some View {
+    let shape = RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous)
+    return OverlayScroll {
+      ModeMenu(mode: model.mode) { mode in
+        // A mode or a span picked is done with; the sessions switch is not.
+        let onlySessions = mode.mode == model.mode.mode && mode.until == model.mode.until
+        model.choose(mode)
+        if !onlySessions { modeMenu = false }
+      }
+      .padding(14)
+    }
+    .frame(height: Self.modeMenuHeight)
+    .background(Theme.panel, in: shape)
+    .clipShape(shape)
+    .overlay(shape.strokeBorder(Theme.line))
+    .shadow(color: .black.opacity(0.22), radius: 14, y: 4)
+  }
+
+  /// How tall the mode's menu is: the mode and its spans and switch in view, what Auto never covers scrolled to.
+  static let modeMenuHeight: CGFloat = 360
 
   private var canSend: Bool {
     model.usable && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  /// The arrows move through the menu, Tab takes the line picked, Escape closes it; with no menu, the keys are the box's.
-  private func menuKey(_ key: KeyEquivalent) -> KeyPress.Result {
+  /// Shift+Tab cycles the chat's mode, as on the dashboard and in the side panel; Escape closes the mode's menu. With
+  /// the / or @ menu open, the arrows move through it, Tab takes the line picked and Escape closes it; with neither,
+  /// the keys are the box's.
+  private func menuKey(_ press: KeyPress) -> KeyPress.Result {
+    if press.key == .tab && press.modifiers.contains(.shift) {
+      model.cycleMode()
+      return .handled
+    }
+    if modeMenu && press.key == .escape {
+      modeMenu = false
+      return .handled
+    }
     guard let options = model.menu?.options else { return .ignored }
-    switch key {
+    switch press.key {
     case .upArrow: picked = (picked + options.count - 1) % options.count
     case .downArrow: picked = (picked + 1) % options.count
     case .tab: model.take(options[min(picked, options.count - 1)])
