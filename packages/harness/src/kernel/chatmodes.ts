@@ -23,13 +23,20 @@ export class ChatModes {
   constructor(
     private readonly settings: Pick<SettingsStore, "get" | "set" | "delete">,
     private readonly now: () => number = Date.now,
+    /** The kill switch as the store has it: thrown, every chat is back in Ask, at boot or whoever threw it. */
+    private readonly halted: () => boolean = () => false,
   ) {
     this.modes = this.read();
     this.migrated = this.migrate();
+    if (this.halted()) this.clear();
   }
 
   /** A chat's mode as it stands now. */
   of(conversationId: string): ChatMode {
+    if (this.halted()) {
+      this.clear();
+      return ASK;
+    }
     const kept = this.modes[conversationId];
     const live = liveMode(kept, this.now());
     if (kept && live === ASK) this.set(conversationId, ASK);
@@ -62,6 +69,7 @@ export class ChatModes {
 
   /** The chats in Auto now, by id. */
   autoChats(): string[] {
+    if (this.halted()) this.clear();
     const now = this.now();
     return Object.entries(this.modes)
       .filter(([, mode]) => liveMode(mode, now).mode === "auto")

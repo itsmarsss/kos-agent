@@ -106,6 +106,17 @@ describe("a chat's mode, through the kernel", () => {
     await expect(kernel.rewind(chat.id, 1, { owner: true })).rejects.toThrow(/no message #1/);
   });
 
+  it("never covers words that came by text message, and does cover a picture sent alone", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Texted" });
+    await setMode(chat.id, { mode: "auto" });
+    const texted = kernel.handleMessage("clear it", { sessionId: chat.id, userId: kernel.profile.ownerId, owner: true, channel: "sms" });
+    await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(1));
+    await kernel.deny(kernel.approvals.pending()[0]!.id);
+    await texted;
+    await kernel.handleMessage("", { sessionId: chat.id, userId: kernel.profile.ownerId, owner: true, attachments: [{ name: "a.txt", mediaType: "text/plain", data: Buffer.from("x").toString("base64") }] });
+    expect(kernel.ranUnderAuto(chat.id)).toBe(true);
+  });
+
   it("ends every chat's Auto when the kill switch is thrown", async () => {
     const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Halt" });
     await setMode(chat.id, { mode: "auto" });

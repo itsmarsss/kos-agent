@@ -1,6 +1,7 @@
 import {
   closeSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -117,6 +118,15 @@ async function pdfRead(bytes: Buffer, from: number | undefined, to: number | und
 export function outsideScratch(path: string): boolean {
   const norm = path.replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/\/+$/, "");
   return norm !== SCRATCH_PREFIX && !norm.startsWith(`${SCRATCH_PREFIX}/`);
+}
+
+/** Whether a workspace path is there now; a path the jail refuses is not. */
+function exists(ws: Workspace, path: string): boolean {
+  try {
+    return path !== "" && existsSync(ws.resolve(path));
+  } catch {
+    return false;
+  }
 }
 
 /** Whether a workspace path is a folder now; a path the jail refuses is no folder of its own. */
@@ -342,7 +352,12 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       renameSync(fenced(str(input, "from"), "remove"), to);
       return "ok";
     },
-    { floor: "safe", escalate: (input) => (outsideScratch(optStr(input, "from") ?? "") ? "outside the scratch folder" : false) },
+    {
+      floor: "safe",
+      escalate: (input) => (outsideScratch(optStr(input, "from") ?? "") ? "outside the scratch folder" : false),
+      // A move onto a file that is there already replaces it: the owner's to allow, whatever the chat is set to.
+      beyondAuto: (input) => (exists(ws, optStr(input, "to") ?? "") ? "replaces a file that is there" : false),
+    },
   );
 
   ctx.registerTool(

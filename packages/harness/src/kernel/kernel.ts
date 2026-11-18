@@ -856,7 +856,8 @@ export class Kernel {
       warn: (message) => console.warn(`[kernel] ${message}`),
     });
     this.settings = args.settings;
-    this.modes = new ChatModes(args.settings);
+    // Halted is read from the store, so a kill switch thrown by another process (the CLI) ends Auto here too.
+    this.modes = new ChatModes(args.settings, Date.now, () => this.killSwitch.halted);
     // Told once, in the Inbox: the chats whose Chrome steps ran unasked are back in Ask, and Auto is turned on per chat.
     if (this.modes.migrated.length) {
       const named = this.modes.migrated.map((id) => this.conversations.get(id)?.title ?? id).join(", ");
@@ -1062,7 +1063,8 @@ export class Kernel {
     let parked: number | undefined;
     /** The waiting row this turn runs, so a page showing it waiting knows which went. */
     let ran: number | undefined;
-    if (useSession && this.working.has(sessionId) && opts.origin !== "system" && !opts.attachments?.length && !opts.guest && !opts.guested && !opts.contextFrom && (!opts.context || opts.contextRides) && !opts.roomTalk && !opts.quote) {
+    // Heard mid-turn only when they are the owner's own words: another chat's or a door's passed on run as a turn of their own, judged as theirs.
+    if (useSession && this.working.has(sessionId) && opts.origin !== "system" && opts.owner === true && !opts.from && !opts.attachments?.length && !opts.guest && !opts.guested && !opts.contextFrom && (!opts.context || opts.contextRides) && !opts.roomTalk && !opts.quote) {
       const waiting = this.pending.add(sessionId, text, [], originOf(opts), flagsOf(opts));
       const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, ...(opts.channel ? { channel: opts.channel } : {}), taken }]));
       if (how === "heard") return { reply: "", halted: false, sessionId, steered: true };
@@ -1148,8 +1150,10 @@ export class Kernel {
       const attended = opts.attended ?? opts.origin !== "system";
       const owner = attended && opts.owner === true && opts.origin !== "system" && !opts.guest && !opts.guested && !sessionId.startsWith("cron:");
       // Narrower still: the owner's own words, said in this chat. Not work another chat or a door passed on, a handoff's trail or an aside.
-      const ownWords = owner && !opts.from && !opts.trail?.length && !opts.contextFrom && !opts.via && opts.channel !== "dispatch" && text.trim() !== "";
-      this.underAuto.set(sessionId, ownWords && this.modes.of(sessionId).mode === "auto");
+      // SMS is never Auto's: a text's sender is the easiest of all to pass for the owner.
+      const ownWords = owner && !opts.from && !opts.trail?.length && !opts.contextFrom && !opts.via && opts.channel !== "dispatch" && opts.channel !== "sms" && (text.trim() !== "" || (opts.attachments?.length ?? 0) > 0);
+      // Marked once Auto lets a call of this turn run, for a surface to say so with the answer.
+      this.underAuto.set(sessionId, false);
       // A guest's words reach no further than their room's project, here and wherever the work is passed.
       const guest = opts.guested ?? (opts.guest ? this.guestRoomOf(sessionId) : undefined);
       const stop = this.stopFor(sessionId, turnId);
@@ -3888,6 +3892,9 @@ export class Kernel {
       prepare: (tool) => this.readyBrowser(tool, opts.conversationId, opts.signal),
       ...(opts.heard ? { heard: opts.heard } : {}),
       chatMode: () => (opts.conversationId ? this.modes.of(opts.conversationId) : ASK),
+      onAutoRan: () => {
+        if (opts.conversationId) this.underAuto.set(opts.conversationId, true);
+      },
       beyondAutoNow: (tool, input) => (opts.conversationId && tool.startsWith(BROWSER_PREFIX) ? this.checkoutSays(opts.conversationId, input) : Promise.resolve(undefined)),
       halted: () => this.killSwitch.halted,
       autoApproves: (tool, context) => (opts.conversationId !== undefined && actsInYourChrome(tool, context) ? this.sessionAllows(opts.conversationId, context?.browser?.site) : false),
@@ -4170,7 +4177,7 @@ export class Kernel {
    * What a browser action's permission turns on: the browser's tool family,
    * the site the caller's tab is on, and the tools never trusted by site.
    */
-  /** Whether the chat's latest turn began under Auto: the owner's own words, with the chat in Auto. */
+  /** Whether Auto let a call of the chat's latest turn run without asking. */
   ranUnderAuto(conversationId: string): boolean {
     return this.underAuto.get(conversationId) === true;
   }

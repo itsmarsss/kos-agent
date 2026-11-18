@@ -89,6 +89,8 @@ export interface GuardedToolsDeps {
   chatMode?: () => ChatMode;
   /** Whether the kill switch is thrown: Auto lets nothing through meanwhile. */
   halted?: () => boolean;
+  /** Told when Auto lets a call run, so the turn's answer can say it went ahead under Auto. */
+  onAutoRan?: () => void;
   /**
    * What the call would act on puts it beyond Auto, read only once Auto
    * would otherwise cover it: a browser step on a checkout page, which its
@@ -525,6 +527,7 @@ export class GuardedTools implements ToolBox {
           },
           AUTO_DECIDER,
         );
+        this.deps.onAutoRan?.();
         const ran = await run(name, input);
         audit.record({ tool: name, args: input, result: ran.content, isError: ran.isError, riskTier: "risky", approvedBy: AUTO_DECIDER, ...(userId ? { userId } : {}) });
         this.deps.onExecuted?.(name, ran);

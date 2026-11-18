@@ -75,6 +75,21 @@ describe("ChatModes", () => {
     expect(settings.get(CHAT_MODES_KEY)).toEqual({});
   });
 
+  it("reads every chat as Ask, and forgets its Auto, once the kill switch is thrown anywhere", () => {
+    let halted = false;
+    const m = new ChatModes(settings, () => now, () => halted);
+    m.set("c1", { mode: "auto" });
+    halted = true;
+    expect(m.of("c1").mode).toBe("ask");
+    expect(m.autoChats()).toEqual([]);
+    halted = false;
+    expect(m.of("c1").mode).toBe("ask");
+    // Thrown before this boot: Auto is gone as it starts.
+    m.set("c2", { mode: "auto" });
+    expect(new ChatModes(settings, () => now, () => true).autoChats()).toEqual([]);
+    expect(settings.get(CHAT_MODES_KEY)).toEqual({});
+  });
+
   it("ignores a kept value it cannot read", () => {
     settings.set(CHAT_MODES_KEY, { c1: { mode: "sure" }, c2: "auto", c3: { mode: "auto", until: "later" } });
     const m = modes();

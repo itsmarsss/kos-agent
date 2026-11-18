@@ -177,6 +177,8 @@ describe("filesModule", () => {
     await registry.execute("files.write", { path: "projects/a/one.md", content: "x" });
     expect(registry.classify("files.rm", { path: "projects/a" }).beyondAuto).toBe("deletes a whole folder");
     expect(registry.classify("files.rm", { path: "projects/a/one.md" }).beyondAuto).toBeUndefined();
+    expect(registry.classify("files.mv", { from: "projects/x.md", to: "projects/a/one.md" }).beyondAuto).toBe("replaces a file that is there");
+    expect(registry.classify("files.mv", { from: "projects/x.md", to: "projects/a/two.md" }).beyondAuto).toBeUndefined();
   });
 
   it("classifies read/write as safe", () => {
