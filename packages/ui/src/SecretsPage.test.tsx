@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { REVEAL_MS } from "./SecretSheet.js";
 import { SecretsPage } from "./SecretsPage.js";
-import type { SecretSummary, VaultStatus } from "./secrets.js";
+import type { SecretSummary, VaultStatus } from "@kos/shared";
 
 const login: SecretSummary = {
   handle: "github-login-9xq1",

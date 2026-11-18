@@ -5,7 +5,9 @@ import { Card, Empty, NavIcon, Pill, SecretField, Tag, takeSecretValues } from "
 import { PageHead } from "./PageHead.js";
 import { agoWords } from "./schedulewords.js";
 import { SecretSheet, type SecretSheetMode } from "./SecretSheet.js";
-import { KINDS, secretsApi, SecretsError, whereWords, type SecretSummary, type VaultStatus } from "./secrets.js";
+import type { SecretSummary, VaultStatus } from "@kos/shared";
+
+import { KINDS, refusal, secretsApi, whereWords } from "./secrets.js";
 
 /**
  * Secrets: the passwords, cards and keys KOS uses without seeing them.
@@ -28,7 +30,7 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
       setSecrets(s.state === "ready" ? await secretsApi.list() : null);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(refusal(err));
     }
   }, []);
   useEffect(() => {
@@ -138,7 +140,7 @@ function InitCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after: 
       onDone(await secretsApi.init(passphrase));
       await after();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(refusal(err));
     } finally {
       setBusy(false);
     }
@@ -175,7 +177,7 @@ function UnlockCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after
       setError(null);
       await after();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(refusal(err));
     } finally {
       setBusy(false);
     }
@@ -209,7 +211,7 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
         setNote(done);
         onChanged(s);
       })
-      .catch((err: unknown) => setError(err instanceof SecretsError || err instanceof Error ? err.message : String(err)));
+      .catch((err: unknown) => setError(refusal(err)));
   };
   return (
     <Card title="Vault" className="secret-vault">

@@ -1,63 +1,12 @@
 /**
- * The secrets API as the dashboard speaks it.
- *
- * The types are the contract's (packages/shared/src/secrets.ts, from the
- * vault's branch); kept here until that lands. A GET never carries a value;
- * the only answer that does is a reveal, and it goes straight to its caller.
+ * The secrets API as the dashboard speaks it, in the types of
+ * shared/src/secrets.ts. A GET never carries a value; the only answer that
+ * does is a reveal, and it goes straight to its caller.
  */
 
+import type { SecretBilling, SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUse, SecretUseRow, SecretValues, VaultStatus } from "@kos/shared";
+
 import { changeHeaders, readError, tokenHeaders } from "./api.js";
-
-export type SecretKind = "login" | "card" | "apikey" | "note";
-export type SecretFieldName = "username" | "password" | "number" | "expiry" | "cvc" | "name" | "billing" | "token" | "text";
-export interface SecretUse {
-  web: { origins: string[]; frames: string[] };
-  apps: string[];
-  http: { hosts: string[]; as?: "bearer" | "basic" };
-}
-export interface SecretPolicy {
-  ask: "always" | "turn" | "site";
-  unattended: boolean;
-  chats: string[] | null;
-  grants: { origin: string; at: number }[];
-}
-export interface SecretSummary {
-  handle: string;
-  label: string;
-  kind: SecretKind;
-  fields: SecretFieldName[];
-  hint: string;
-  use: SecretUse;
-  policy: SecretPolicy;
-  createdAt: number;
-  updatedAt: number;
-  lastUsedAt?: number;
-  source: "vault" | "env";
-}
-export interface SecretUseRow {
-  id: number;
-  at: number;
-  conversationId?: string;
-  tool: string;
-  surface: "kos-browser" | "chrome" | "mac" | "http";
-  origin?: string;
-  frameOrigin?: string;
-  app?: string;
-  fields: string[];
-  outcome: string;
-  approvalId?: number;
-  decidedBy?: string;
-}
-export interface VaultStatus {
-  state: "absent" | "locked" | "ready";
-  slots: ("keyfile" | "passphrase")[];
-  /** Values masked in KOS's output since boot. */
-  scrubbed: number;
-}
-
-/** A card's billing address, as its parts. */
-export type Billing = Partial<Record<"line1" | "line2" | "city" | "region" | "postal" | "country", string>>;
-export type SecretValues = Partial<Record<SecretFieldName, string | Billing>>;
 
 export interface SecretDraft {
   label: string;
@@ -67,7 +16,7 @@ export interface SecretDraft {
   policy: Omit<SecretPolicy, "grants"> & { grants?: SecretPolicy["grants"] };
 }
 
-/** A refusal with its status, so a locked vault (409) or a spent reveal (429) can be told apart. */
+/** A refusal with its status, so a locked vault (409) or a spent try budget (429) can be told apart. */
 export class SecretsError extends Error {
   constructor(
     message: string,
@@ -75,6 +24,12 @@ export class SecretsError extends Error {
   ) {
     super(message);
   }
+}
+
+/** What a refusal says to the owner: the server's words, or, past the passphrase try budget, when to try again. */
+export function refusal(err: unknown): string {
+  if (err instanceof SecretsError && err.status === 429) return "Too many tries. Wait a few minutes, then try again.";
+  return err instanceof Error ? err.message : String(err);
 }
 
 async function call<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
@@ -101,9 +56,11 @@ export const secretsApi = {
   revokeGrant: (handle: string, origin: string) => call<SecretSummary>("DELETE", `${at(handle)}/grants/${encodeURIComponent(origin)}`),
   uses: (handle: string, limit = 50) => call<{ uses: SecretUseRow[] }>("GET", `${at(handle)}/uses?limit=${limit}`).then((r) => r.uses),
   reveal: (handle: string, field: SecretFieldName, proof: { passphrase: string } | { label: string }) =>
-    call<{ value: string }>("POST", `${at(handle)}/reveal`, { field, ...proof }).then((r) => r.value),
+    call<{ value: string | SecretBilling }>("POST", `${at(handle)}/reveal`, { field, ...proof }).then((r) => r.value),
   rotate: () => call<VaultStatus>("POST", "/api/secrets/rotate"),
-  wipe: () => call<VaultStatus>("POST", "/api/secrets/wipe", { confirm: "wipe" }),
+  /** Add or change the passphrase (`passphrase` given), or remove it; `current` when the vault has one. */
+  passphrase: (change: { current?: string; passphrase?: string }) => call<VaultStatus>("POST", "/api/secrets/passphrase", change),
+  wipe: (passphrase?: string) => call<VaultStatus>("POST", "/api/secrets/wipe", { confirm: "wipe", ...(passphrase ? { passphrase } : {}) }),
 };
 
 /** Each kind in words, and the fields it is made of. */
@@ -126,7 +83,7 @@ export const FIELD_LABEL: Record<SecretFieldName, string> = {
   text: "Text",
 };
 
-export const BILLING_PARTS: readonly { key: keyof Billing; label: string }[] = [
+export const BILLING_PARTS: readonly { key: keyof SecretBilling; label: string }[] = [
   { key: "line1", label: "Address" },
   { key: "line2", label: "Address, line 2" },
   { key: "city", label: "City" },

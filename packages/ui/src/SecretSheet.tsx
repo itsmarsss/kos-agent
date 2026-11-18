@@ -5,6 +5,8 @@ import { Chips, Empty, Field, OriginList, PAYMENT_FRAMES, Pill, SecretField, Sec
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
+import { SECRET_KINDS, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSummary, type SecretUse, type SecretUseRow, type SecretValues, type VaultStatus } from "@kos/shared";
+
 import {
   ASK_WORDS,
   BILLING_PARTS,
@@ -13,17 +15,9 @@ import {
   FIELD_LABEL,
   KINDS,
   secretsApi,
-  SecretsError,
   SURFACE_WORDS,
-  type Billing,
+  refusal,
   type SecretDraft,
-  type SecretFieldName,
-  type SecretKind,
-  type SecretSummary,
-  type SecretUse,
-  type SecretUseRow,
-  type SecretValues,
-  type VaultStatus,
 } from "./secrets.js";
 
 /** What the owner typed elsewhere (the composer) to start a new secret with; held by the opener, never in a URL. */
@@ -95,7 +89,7 @@ export function SecretSheet({
                     void secretsApi
                       .remove(editing.handle)
                       .then(() => onDeleted(editing.handle))
-                      .catch((err: unknown) => setDeleteError(err instanceof Error ? err.message : String(err)))
+                      .catch((err: unknown) => setDeleteError(refusal(err)))
                   }
                 />
               </span>
@@ -150,7 +144,7 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
         onSaved(await secretsApi.create({ label: label.trim(), kind, values, use, policy: { ...policy, grants: [] } }));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(refusal(err));
     } finally {
       setSaving(false);
     }
@@ -174,7 +168,7 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
         </Field>
         {!editing && (
           <Field label="Kind" group>
-            <Chips options={(Object.keys(KINDS) as SecretKind[]).map((k) => [k, KINDS[k].label] as const)} selected={kind} onChoose={setKind} label="Kind" />
+            <Chips options={SECRET_KINDS.map((k) => [k, KINDS[k].label] as const)} selected={kind} onChoose={setKind} label="Kind" />
           </Field>
         )}
 
@@ -278,10 +272,10 @@ const MAIN = new Set<SecretFieldName>(["password", "number", "token", "text"]);
 /** The typed values as the API takes them: billing's parts gathered into one, a card number's spaces gone. */
 function valuesOf(typed: Record<string, string>): SecretValues {
   const out: SecretValues = {};
-  const billing: Billing = {};
+  const billing: SecretBilling = {};
   for (const [name, value] of Object.entries(typed)) {
-    if (name.startsWith("billing.")) billing[name.slice(8) as keyof Billing] = value;
-    else out[name as SecretFieldName] = name === "number" ? value.replace(/[\s-]/g, "") : value;
+    if (name.startsWith("billing.")) billing[name.slice(8) as keyof SecretBilling] = value;
+    else out[name as Exclude<SecretFieldName, "billing">] = name === "number" ? value.replace(/[\s-]/g, "") : value;
   }
   if (Object.keys(billing).length) out.billing = billing;
   return out;
@@ -341,7 +335,7 @@ function Grants({ secret, disabled, onChanged }: { secret: SecretSummary; disabl
                     void secretsApi
                       .revokeGrant(secret.handle, g.origin)
                       .then(onChanged)
-                      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+                      .catch((err: unknown) => setError(refusal(err)))
                   }
                 >
                   Revoke
@@ -364,7 +358,7 @@ function Uses({ handle }: { handle: string }): ReactElement {
     secretsApi
       .uses(handle)
       .then((u) => live && setUses(u))
-      .catch((err: unknown) => live && setError(err instanceof Error ? err.message : String(err)));
+      .catch((err: unknown) => live && setError(refusal(err)));
     return () => {
       live = false;
     };
@@ -435,11 +429,12 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
     try {
       const shown = await secretsApi.reveal(secret.handle, field, byPassphrase ? { passphrase: proof } : { label: proof });
       clear();
-      value.current = shown;
+      // Billing is not offered here, so the answer is a string; an address would be read as its lines.
+      value.current = typeof shown === "string" ? shown : Object.values(shown).filter(Boolean).join("\n");
       setUntil(Date.now() + REVEAL_MS);
       timer.current = setTimeout(clear, REVEAL_MS);
     } catch (err) {
-      setError(err instanceof SecretsError && err.status === 429 ? "Too many reveals. Try again in a few minutes." : err instanceof Error ? err.message : String(err));
+      setError(refusal(err));
     }
   };
   // Written once the box is drawn, so the value goes from the answer to the page and nowhere else.
