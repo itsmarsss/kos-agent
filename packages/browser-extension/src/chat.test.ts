@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { asked, EMPTY, givenBack, isCommand, sent, shown, statused } from "./chat.js";
+import { asked, EMPTY, givenBack, isCommand, sent, shown, statused, storyStep } from "./chat.js";
 
 /** KOS's acknowledgement of words, as the host sends it: a chat not yet made is null, and it says whether they were a command. */
 const taken = (said: string, conversation: string | null): Record<string, unknown> => ({ chat: conversation, conversation, held: false, said, taken: true, command: isCommand(said) });
@@ -51,6 +51,26 @@ describe("the side panel's chat", () => {
     c = statused(c, { ...state, story: "› Checked the price" });
     c = statused(c, state);
     expect(c).toMatchObject({ working: true, stories: [{ after: 1, text: "› Checked the price" }] });
+  });
+
+  it("keeps the running story through a wait on the owner or words the turn heard, and lets it go on KOS's answer", () => {
+    const state = { chat: "c1", conversation: "c1", held: false };
+    let c = shown(EMPTY, { conversation: "c1", title: "Mugs", messages: [you("buy the blue one")] });
+    c = statused(c, { ...state, said: "buy the blue one", taken: true, command: false });
+    c = statused(c, { ...state, said: "buy the blue one", story: "› Open the cart (done)" });
+    c = statused(c, { ...state, said: "buy the blue one", frame: { id: 4, image: "QUJD", mediaType: "image/jpeg" } });
+    for (const notice of [{ text: "Waiting on you: browser.act needs approval.", waiting: true }, { text: "Heard: and the lid", waiting: true }]) {
+      c = shown(c, { conversation: "c1", title: "Mugs", messages: [you("buy the blue one")], notice });
+      expect(c).toMatchObject({ working: true, stories: [{ text: "› Open the cart (done)" }], live: [{ frames: [4] }] });
+    }
+    c = shown(c, { conversation: "c1", title: "Mugs", messages: [you("buy the blue one"), { role: "steps", steps: [{ summary: "Open the cart" }] }, kos("Bought.")] });
+    expect(c).toMatchObject({ working: false, stories: [], live: [] });
+  });
+
+  it("reads a story's step as it ended", () => {
+    expect(storyStep("› Open the cart (done)")).toEqual({ summary: "Open the cart" });
+    expect(storyStep("› Pay (failed)")).toEqual({ summary: "Pay", failed: true });
+    expect(storyStep("› Looking again")).toEqual({ summary: "Looking again" });
   });
 
   it("gives words that name no command back to the box when KOS never takes them", () => {

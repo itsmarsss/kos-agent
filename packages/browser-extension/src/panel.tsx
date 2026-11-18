@@ -5,7 +5,7 @@ import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/rea
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 
-import { asked, EMPTY, givenBack, isCommand, isShown, PANEL_COMMANDS, sent, shown, statused, STEP, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
+import { asked, DONE, EMPTY, FAILED, givenBack, isCommand, isShown, PANEL_COMMANDS, sent, shown, statused, STEP, storyStep, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
 import { pictureSrc, showable, type Pictured } from "./frames.js";
 import { linkWords } from "./linkwords.js";
 import { lapsed } from "./waiting.js";
@@ -772,12 +772,11 @@ function Steps({ steps, live, frames }: { steps: Step[]; live?: boolean; frames?
   );
 }
 
-/** What KOS is at, from the running story: its latest step while that is the last thing told, else working. */
+/** What KOS is at, from the running story: its latest step while that runs, thinking once it has finished or before any, else working. */
 function workingWhat(stories: Extra[]): string {
-  const story = stories.at(-1);
-  if (!story) return "Thinking";
-  const last = story.text.split("\n").filter((l) => l.trim()).at(-1) ?? "";
-  return last.startsWith(STEP) && !last.endsWith(" (failed)") ? last.slice(STEP.length) : "Working";
+  const last = stories.at(-1)?.text.split("\n").filter((l) => l.trim()).at(-1);
+  if (last === undefined || (last.startsWith(STEP) && last.endsWith(DONE))) return "Thinking";
+  return last.startsWith(STEP) && !last.endsWith(FAILED) ? last.slice(STEP.length) : "Working";
 }
 
 /**
@@ -823,7 +822,7 @@ function Held({ say }: { say: (m: Record<string, unknown>) => void }): ReactElem
 function Story({ text, frames }: { text: string; frames: number[] }): ReactElement {
   // A long story comes as its tail, cut mid-line after a "…": that first line is a fragment.
   const lines = (text.startsWith("…") ? text.split("\n").slice(1) : text.split("\n")).filter((l) => l.trim());
-  const steps = lines.filter((l) => l.startsWith(STEP)).map((l) => ({ summary: l.slice(STEP.length).replace(/ \(failed\)$/, ""), ...(l.endsWith(" (failed)") ? { failed: true as const } : {}) }));
+  const steps = lines.filter((l) => l.startsWith(STEP)).map(storyStep);
   const words = lines.filter((l) => !l.startsWith(STEP)).join("\n");
   return (
     <>
