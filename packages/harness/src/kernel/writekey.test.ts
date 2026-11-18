@@ -124,6 +124,14 @@ describe("this boot's write key", () => {
         req.end();
       });
     expect(await as("evil.example:4317")).toBe(421);
+    const said = await new Promise<string>((done) => {
+      httpRequest(`${base}/api/status`, { headers: { host: "evil.example" } }, (res) => {
+        let body = "";
+        res.on("data", (c: Buffer) => (body += c.toString()));
+        res.on("end", () => done(body));
+      }).end();
+    });
+    expect((JSON.parse(said) as { error: string }).error).toMatch(/evil\.example.*KOS_HOST_NAMES/);
     expect(await as("localhost:4317")).toBe(200);
     expect(await as("kos.example.com")).toBe(200);
     expect(await as("192.168.1.4:4317")).toBe(200);

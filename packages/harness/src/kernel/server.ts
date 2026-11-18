@@ -3827,7 +3827,7 @@ export function createDashboardServer(
       // A name KOS does not go by, on any route: a page whose name was rebound onto this machine.
       if (!ownHost(req.headers.host, options.hostNames ?? [])) {
         res.writeHead(421, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "KOS does not answer to that name" }));
+        res.end(JSON.stringify({ error: `KOS does not answer to the name ${String(req.headers.host).replace(/:\d+$/, "")}. If you reach KOS by it (a tunnel, Tailscale, a proxy), add it to KOS_HOST_NAMES and restart KOS.` }));
         return;
       }
 

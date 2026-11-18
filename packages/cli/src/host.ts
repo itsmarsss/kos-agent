@@ -202,6 +202,17 @@ export function listenThen(server: Server, port: number, host: string, then: () 
   });
 }
 
+/**
+ * The names KOS answers to besides an address: the bound host, the Wi-Fi
+ * host, KOS_PUBLIC_URL's, and KOS_HOST_NAMES for the rest (a tunnel's, a
+ * tailnet's, a proxy's).
+ */
+export function hostNamesOf(host: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  return [host, env.KOS_DEVICE_LAN_HOST, ...publicHostsOf(env.KOS_PUBLIC_URL).map((h) => h.replace(/:\d+$/, "")), ...(env.KOS_HOST_NAMES ?? "").split(",")]
+    .map((h) => h?.trim())
+    .filter((h): h is string => !!h);
+}
+
 /** The host a public url reaches KOS on, for the agent's fetches to keep away from. */
 function publicHostsOf(url: string | undefined): string[] {
   try {
@@ -780,7 +791,7 @@ export async function runHost(options: HostOptions): Promise<void> {
   const contained = isContained();
   const writeKey = contained ? undefined : randomBytes(32).toString("base64url");
   // The names KOS answers to; an address is always taken (a rebinding needs a name).
-  const hostNames = [options.host, process.env.KOS_DEVICE_LAN_HOST, ...publicHostsOf(process.env.KOS_PUBLIC_URL).map((h) => h.replace(/:\d+$/, ""))].filter((h): h is string => !!h?.trim());
+  const hostNames = hostNamesOf(options.host);
   const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : { tokenForWrites: true }), hostNames });
 
   // A chat that borrowed the owner's Chrome browses there.

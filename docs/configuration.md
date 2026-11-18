@@ -31,6 +31,7 @@ KOS_DASHBOARD_TOKEN=     bearer token for every API route; set one if reachable 
 KOS_HOOK_SECRET=         enables POST /api/hooks/<job>
 KOS_ALLOWED_HOSTS=       hosts http.fetch reads without asking; any other host asks you first, and a yes you remember stands for that host
 KOS_FETCH_LAN=           places on your own network http.fetch may reach, empty by default: host:port, address:port or CIDR:port, and loopback:<port> for a program on this machine, comma separated (192.168.1.0/24:8123, nas.local:5000, loopback:8080); KOS's own ports never, whatever is listed
+KOS_HOST_NAMES=          other names you reach KOS by, comma separated: a tunnel's (Cloudflare, ngrok), your tailnet's (my-mac.tail1234.ts.net under tailscale serve), a proxy's, the host Twilio posts to when it is not KOS_PUBLIC_URL's. Every route answers only to localhost, the bound host, KOS_PUBLIC_URL's host, KOS_DEVICE_LAN_HOST, these, or an address; any other name is refused with 421
 KOS_WRITE_KEY_FILE=      where this boot's write key is kept for the kos CLI, default ~/.kos/write.key (write-<port>.key for another port)
 KOS_UI_DIST=             built UI, default packages/ui/dist
 KOS_DEVICE_KEY_FILE=     KOS's key for paired computers, default ~/.kos/device-host.key
