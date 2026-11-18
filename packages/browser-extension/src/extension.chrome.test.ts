@@ -114,6 +114,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
   const unpaired = new Set<string>();
   const forgotten = new Set<string>();
   const events: { name: string; data: Record<string, unknown> }[] = [];
+  /** Each hello the extension sent, in order. */
+  const hellos: Record<string, unknown>[] = [];
   const replies = new Map<number, (r: Record<string, unknown>) => void>();
   let nextCall = 1;
 
@@ -169,6 +171,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       ws.on("message", (raw) => {
         const m = JSON.parse(raw.toString()) as Record<string, unknown>;
         if (m["t"] === "hello") {
+          hellos.push(m);
           const id = String(m["device"]);
           // A device this KOS has forgotten, turned away as the real one does, its reason in the close.
           if (forgotten.has(id)) return ws.close(4003, "unknown device: KOS has no device by this id; pair again");
@@ -560,6 +563,31 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       await until(() => false, 300);
       expect(await debugged()).toBe(false);
     }, 30_000);
+
+    it("tells KOS a session its stopped worker held is over, in the next worker's hello, and lets its tab go", async () => {
+      await begin("r1");
+      expect(await call("cdp.send", { session: "r1", tab, method: "Runtime.evaluate", params: { expression: "1", returnByValue: true } })).toMatchObject({ ok: true });
+      expect(await debugged()).toBe(true);
+      // Chrome stops the worker, as it does when it likes; the next one starts on the popup's word.
+      const { targetInfos } = (await devtools.send("Target.getTargets")) as { targetInfos: { targetId: string; type: string; url: string }[] };
+      const worker = targetInfos.find((t) => t.type === "service_worker" && t.url.endsWith("/worker.js"))!;
+      const before = hellos.length;
+      await devtools.send("Target.closeTarget", { targetId: worker.targetId });
+      for (let i = 0; i < 100 && hellos.length === before; i++) {
+        await popupSays({ type: "state" }).catch(() => undefined);
+        await until(() => false, 100);
+      }
+      await until(() => hellos.length > before && device?.readyState === 1);
+      expect(hellos.at(-1)?.["session"]).toEqual({ id: "r1", ended: "restarted" });
+      expect((await call("tabs.list", { session: "r1" }))["error"]).toMatchObject({ code: "no_session" });
+      await until(() => false, 300);
+      expect(await debugged()).toBe(false);
+      // Told once: the hello after that says nothing of it.
+      const told = hellos.length;
+      device!.close();
+      await until(() => hellos.length > told, 15_000);
+      expect(hellos.at(-1)?.["session"]).toBeUndefined();
+    }, 45_000);
   });
 
   it("carries a side panel's chat, asks for a session there, and works in the tab beside it", async () => {
