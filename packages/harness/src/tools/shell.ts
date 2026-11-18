@@ -137,8 +137,8 @@ export async function runShell(
     /**
      * True for a line a chat's Auto let run unasked. It writes as an
      * approved run does (Auto must be able to build), but the jail, not the
-     * list of programs, is the boundary: this machine's network only, and
-     * git held as for a read-only run.
+     * list of programs, is the boundary: this machine's network only, git
+     * held as for a read-only run, and no reach past the sandbox (sealed).
      */
     auto?: boolean;
   },
@@ -161,7 +161,8 @@ export async function runShell(
         readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
         ...(opts.writes ? { writes: opts.writes } : {}),
         ...(opts.hidden ? { hidden: opts.hidden } : {}),
-        ...(opts.auto ? { network: "local" as const } : {}),
+        // Auto's line reaches no further than its sandbox: no app opened, no other process signalled, no preference written.
+        ...(opts.auto ? { network: "local" as const, sealed: true, unreadable: [GIT_INFO_ATTRIBUTES] } : {}),
       };
   // A read-only run writes no cache; an approved one keeps its home's own.
   const extra: Record<string, string> = opts.readOnlyRun ? { NPM_CONFIG_UPDATE_NOTIFIER: "false" } : opts.dirs ? cacheEnv(opts.dirs.cache) : {};

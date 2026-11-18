@@ -98,6 +98,46 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(existsSync(join(ws.root, "fsmonitor-ran"))).toBe(false);
   });
 
+  it("keeps an Auto line in its sandbox: its home and loopback, no apps, signals, preferences or internet", async () => {
+    const homed = new ToolRegistry();
+    await createShellModule({ timeoutSeconds: 10 }).activate(
+      toolRegistryContext(homed, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerHome: () => ({ folder: "projects/books" }), callerProject: () => "books" }),
+    );
+    const auto = async (command: string): Promise<ShellResult> => {
+      const res = await underAuto.run(true, () => homed.execute("shell.run", { command }));
+      return JSON.parse(res.content) as ShellResult;
+    };
+    const sleeper = spawn("/bin/sleep", ["30"]);
+    const domain = `kos.test.auto.${process.pid}`;
+    try {
+      for (const command of [
+        "open -g -a Finder && echo REACHED",
+        `kill -0 ${sleeper.pid} && echo REACHED`,
+        `defaults write ${domain} a b && echo REACHED`,
+        "/usr/bin/curl -sS -m 3 -o /dev/null https://example.com && echo REACHED",
+        "/usr/bin/nc -z -w 2 1.1.1.1 443 && echo REACHED",
+        "echo x > ../other/x.txt && echo REACHED",
+      ]) {
+        expect((await auto(command)).stdout, command).not.toContain("REACHED");
+      }
+      expect(sleeper.exitCode).toBeNull();
+      expect(spawnSync("defaults", ["read", domain]).status).not.toBe(0);
+      expect(existsSync(join(root, "projects/other/x.txt"))).toBe(false);
+    } finally {
+      sleeper.kill("SIGKILL");
+      spawnSync("defaults", ["delete", domain], { timeout: 5000 });
+    }
+    // It builds: writes in its own folder, and serves and fetches a test server on loopback.
+    const port = 46_000 + Math.floor(Math.random() * 900);
+    const local = await auto(`echo built > out.txt && (echo served | /usr/bin/nc -l 127.0.0.1 ${port} &) && sleep 0.5 && /usr/bin/nc -w 2 127.0.0.1 ${port}; cat out.txt`);
+    expect(local.stdout).toContain("served");
+    expect(local.stdout).toContain("built");
+    expect(readFileSync(join(root, "projects/books/out.txt"), "utf8")).toBe("built\n");
+    // Git held as for a run nobody approved: no hooks, no transport, no lazy fetch.
+    const git = await auto(`printf '%s|%s|' "$GIT_ALLOW_PROTOCOL" "$GIT_NO_LAZY_FETCH" && git config core.hooksPath`);
+    expect(git.stdout.trim()).toBe("|1|/dev/null");
+  }, 30_000);
+
   it("runs a command in the workspace and hands back what it said", async () => {
     const r = await run({ command: "echo hello && pwd" });
     expect(r.exitCode).toBe(0);
