@@ -161,6 +161,23 @@ describe("the Secrets page", () => {
     expect(pw.value).toBe("");
   });
 
+  it("saves an API key's hosts with bearer, as its chips show", async () => {
+    serve("ready", { "POST /api/secrets": () => ({ handle: "openai-x1y2" }) });
+    render(<SecretsPage />);
+    fireEvent.click(await screen.findByText("Add secret"));
+    fireEvent.click(await screen.findByRole("button", { name: "API key" }));
+    fireEvent.change(screen.getByLabelText("Label", { exact: false }), { target: { value: "OpenAI" } });
+    fireEvent.change(screen.getByLabelText(/^Token/), { target: { value: "sk-proj-abcdefghijklmnop" } });
+    const host = screen.getByLabelText("Add to API hosts");
+    fireEvent.change(host, { target: { value: "api.openai.com" } });
+    fireEvent.keyDown(host, { key: "Enter" });
+    fireEvent.click(screen.getAllByText("Add secret").find((b) => b.closest(".drawer-foot"))!);
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/api/secrets")).toBe(true));
+    const sent = calls.find((c) => c.method === "POST" && c.path === "/api/secrets")!.body as { use: { http: unknown }; values: unknown };
+    expect(sent.use.http).toEqual({ hosts: ["api.openai.com"], as: "bearer" });
+    expect(sent.values).toEqual({ token: "sk-proj-abcdefghijklmnop" });
+  });
+
   it("revokes a remembered site and lists the uses", async () => {
     serve("ready", { "DELETE /api/secrets/github-login-9xq1/grants/https%3A%2F%2Fgithub.com": () => ({ ...login, policy: { ...login.policy, grants: [] } }) });
     render(<SecretsPage />);

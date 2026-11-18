@@ -129,6 +129,8 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
     }
     // Read from the fields and cleared at once: the values live only in the request below.
     const values = valuesOf(takeSecretValues(e.currentTarget));
+    // An API key's hosts go with the way it is sent; the chips show bearer until another is chosen, so bearer is what is saved.
+    const sent: SecretUse = kind === "apikey" && use.http.hosts.length && !use.http.as ? { ...use, http: { ...use.http, as: "bearer" } } : use;
     setSaving(true);
     setError(null);
     try {
@@ -136,12 +138,12 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
         const saved = await secretsApi.update(editing.handle, {
           label: label.trim(),
           ...(Object.keys(values).length ? { values } : {}),
-          use,
+          use: sent,
           policy: { ...policy, grants: summary?.policy.grants ?? [] },
         });
         onSaved(saved);
       } else {
-        onSaved(await secretsApi.create({ label: label.trim(), kind, values, use, policy: { ...policy, grants: [] } }));
+        onSaved(await secretsApi.create({ label: label.trim(), kind, values, use: sent, policy: { ...policy, grants: [] } }));
       }
     } catch (err) {
       setError(refusal(err));
