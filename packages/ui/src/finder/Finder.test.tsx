@@ -160,6 +160,20 @@ describe("the finder", () => {
     await waitFor(() => expect(rename).toHaveBeenCalledWith("projects/garden/c.txt", "downloads/c.txt"));
   });
 
+  it("moves nothing for a drop of its type that it did not start", async () => {
+    const rename = vi.spyOn(api, "renameFile").mockResolvedValue({ path: "x" });
+    await openGarden();
+    const forged = transfer();
+    forged.setData("application/x-kos-paths", JSON.stringify({ token: "guess", paths: ["projects/garden/a.md"] }));
+    fireEvent.drop(row("projects/garden/beds"), { dataTransfer: forged });
+    const old = transfer();
+    fireEvent.dragStart(row("projects/garden/a.md"), { dataTransfer: old });
+    fireEvent.dragEnd(row("projects/garden/a.md"));
+    fireEvent.drop(row("projects/garden/beds"), { dataTransfer: old });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(rename).not.toHaveBeenCalled();
+  });
+
   it("moves to the trash on Cmd+Delete, with an Undo that puts it back", async () => {
     const trash = vi.spyOn(api, "trashFile").mockResolvedValue({ id: "1-aa", path: "projects/garden/a.md", name: "a.md", kind: "file", size: 1, trashedAt: 1 });
     const restore = vi.spyOn(api, "restoreFile").mockResolvedValue({ path: "projects/garden/a.md" });

@@ -20,7 +20,7 @@ export interface RowHandlers {
   menu: (e: MouseEvent, entry: DirEntry) => void;
   /** The new name, or null to leave it as it was. */
   renamed: (entry: DirEntry, name: string | null) => void;
-  drag: (entry: DirEntry) => { draggable: true; onDragStart: (e: DragEvent) => void };
+  drag: (entry: DirEntry) => { draggable: true; onDragStart: (e: DragEvent) => void; onDragEnd: () => void };
   /** A folder that takes a drop: a row dragged from here, or files from the desktop. */
   drop: (dir: string) => { onDragOver: (e: DragEvent) => void; onDragLeave: (e: DragEvent) => void; onDrop: (e: DragEvent) => void };
 }

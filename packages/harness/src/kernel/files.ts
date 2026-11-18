@@ -1,5 +1,5 @@
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, relative as pathRelative, sep } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
 import { isPdf, pdfText } from "../files/pdftext.js";
@@ -251,11 +251,14 @@ export const RESERVED = new Set([".kos", "kos.sqlite", "kos.sqlite-shm", "kos.sq
 
 /** A path the manager may touch: inside the jail, not the root, not the workspace's own files. */
 export function managedPath(ws: Workspace, requestPath: unknown): { rel: string; abs: string } {
-  const rel = relative(requestPath).replace(/\/+$/, "");
-  if (rel === "." || rel === "") throw new Error("the workspace itself cannot be moved or removed");
+  // Through the jail first, then named as the jail resolved it: "./kos.sqlite",
+  // "projects//x" and "a/./b" are tested as what they are, not as typed.
+  const abs = ws.resolve(relative(requestPath));
+  const rel = pathRelative(ws.root, abs).split(sep).join("/");
+  if (rel === "") throw new Error("the workspace itself cannot be moved or removed");
   const top = rel.split("/")[0]!;
   if (RESERVED.has(top.toLowerCase())) throw new Error(`${top} is the workspace's own; leave it be`);
-  return { rel, abs: ws.resolve(rel) };
+  return { rel, abs };
 }
 
 /** Something at the top level is part of the workspace's layout, not a thing to move. */

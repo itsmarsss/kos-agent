@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -193,6 +193,27 @@ describe("managing files by hand", () => {
     expect(() => renameEntry(ws, "projects", "stuff")).toThrow(/layout/);
     expect(() => renameEntry(ws, "projects/budget/spec.json", "kos.sqlite")).toThrow(/workspace's own/);
     expect(() => renameEntry(ws, "projects/budget/spec.json", "../outside.json")).toThrow();
+  });
+
+  it("tests a path as the jail resolves it, however it is written", () => {
+    writeFileSync(join(ws.root, "kos.sqlite-wal"), "");
+    mkdirSync(join(ws.root, ".kos", "trash"), { recursive: true });
+    for (const path of ["./kos.sqlite", "./KOS.sqlite-wal", "kos.sqlite/", ".//kos.sqlite", "./.kos/evil", ".kos/x", "./.kos/trash/", "./mcp.json"]) {
+      expect(() => trashEntry(ws, path), path).toThrow(/workspace's own/);
+      expect(() => renameEntry(ws, path, "projects/budget/x"), path).toThrow(/workspace's own/);
+      expect(() => renameEntry(ws, "projects/budget/spec.json", path), path).toThrow(/workspace's own/);
+      expect(() => copyEntry(ws, path), path).toThrow(/workspace's own/);
+      expect(() => copyEntry(ws, "projects/budget/spec.json", path), path).toThrow(/workspace's own/);
+      expect(() => makeDir(ws, `${path}/sub`), path).toThrow(/workspace's own/);
+    }
+    for (const path of ["./projects", "projects/", "./projects/", "projects/./", "./notes.md"]) {
+      expect(() => trashEntry(ws, path), path).toThrow(/layout/);
+      expect(() => renameEntry(ws, path, "projects/budget/moved"), path).toThrow(/layout/);
+    }
+    for (const path of [".", "./", "", "/"]) expect(() => trashEntry(ws, path), path).toThrow(/workspace itself/);
+    expect(existsSync(join(ws.root, "kos.sqlite"))).toBe(true);
+    // A doubled slash names the same file, and is recorded as it is.
+    expect(trashEntry(ws, "projects//budget/spec.json").path).toBe("projects/budget/spec.json");
   });
 
   it("hands a file's bytes over for saving, with its name and a type", () => {

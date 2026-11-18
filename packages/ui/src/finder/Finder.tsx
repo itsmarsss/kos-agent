@@ -71,6 +71,24 @@ function readSort(): Sort {
 }
 
 const carriesPaths = (e: DragEvent): boolean => Array.from(e.dataTransfer.types).includes(DRAG_TYPE);
+
+/**
+ * The drag this page started, by a token it made: a drop carrying our type
+ * from anywhere else (another site's page, a crafted drag) names paths this
+ * page never chose, and moves nothing.
+ */
+let dragging: string | null = null;
+
+/** The paths a drop carries, only when they are this page's own drag. */
+function droppedPaths(e: DragEvent): string[] | undefined {
+  try {
+    const got = JSON.parse(e.dataTransfer.getData(DRAG_TYPE)) as { token?: unknown; paths?: unknown };
+    if (!dragging || got.token !== dragging || !Array.isArray(got.paths) || !got.paths.every((p) => typeof p === "string")) return undefined;
+    return got.paths as string[];
+  } catch {
+    return undefined;
+  }
+}
 const carriesFiles = (e: DragEvent): boolean => Array.from(e.dataTransfer.types).includes("Files");
 
 export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavigate, sidebar = true, upload, onAsk, onOpenInFiles, onChanged, paused = false }: FinderProps): ReactElement {
@@ -331,11 +349,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       e.stopPropagation();
       setOver(null);
       if (carriesPaths(e)) {
-        try {
-          void ops.move(JSON.parse(e.dataTransfer.getData(DRAG_TYPE)) as string[], dir);
-        } catch {
-          // Not one of ours after all.
-        }
+        const paths = droppedPaths(e);
+        if (paths) void ops.move(paths, dir);
       } else if (e.dataTransfer.files.length) void ops.upload(Array.from(e.dataTransfer.files), dir);
     },
   });
@@ -374,9 +389,14 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       draggable: true,
       onDragStart: (e) => {
         const paths = sel.paths.includes(entry.path) ? sel.paths : [entry.path];
-        e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(paths));
+        dragging = crypto.randomUUID();
+        e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ token: dragging, paths }));
         e.dataTransfer.setData("text/plain", paths.join("\n"));
         e.dataTransfer.effectAllowed = "move";
+      },
+      // After the drop, if there was one: a later drop of the same data is no longer ours.
+      onDragEnd: () => {
+        dragging = null;
       },
     }),
     drop: dropInto,
@@ -393,11 +413,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       if (!carriesPaths(e)) return;
       e.preventDefault();
       setOver(null);
-      try {
-        trashChosen(JSON.parse(e.dataTransfer.getData(DRAG_TYPE)) as string[]);
-      } catch {
-        // Not one of ours.
-      }
+      const paths = droppedPaths(e);
+      if (paths) trashChosen(paths);
     },
   };
 
