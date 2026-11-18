@@ -78,6 +78,7 @@ import { ChatConfig } from "./ChatConfig.js";
 import { Modal } from "./Modal.js";
 import { HandoffForm } from "./HandoffForm.js";
 import { hrefFor } from "./routes.js";
+import { fileMention } from "./finder/model.js";
 import { backInComposer, composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
 
 /**
@@ -165,6 +166,10 @@ export interface ChatsPageProps {
    * about nothing, and the question it was answering appeared a minute later.
    */
   seed?: { id: string; text: string };
+  /** Words to put in the composer once, as asking about a file from Files does; stamped so the same words can be asked again. */
+  compose?: { text: string; n: number };
+  /** The composer took them. */
+  onComposed?: () => void;
 }
 
 
@@ -261,6 +266,8 @@ export function ChatsPage({
   onChanged,
   onDecide,
   seed,
+  compose,
+  onComposed,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   /** KOS's face, wherever KOS is drawn on this page. */
@@ -282,6 +289,22 @@ export function ChatsPage({
       : [];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  /** References put in the composer after what is typed, and the composer focused for the question. */
+  const addToDraft = (words: string): void => {
+    setDraft((d) => (d.trim() ? `${d.replace(/\s+$/, "")} ${words} ` : `${words} `));
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  useEffect(() => {
+    if (!compose) return;
+    addToDraft(compose.text);
+    onComposed?.();
+    // The stamp is what makes this fire: the same words asked twice are put in twice.
+  }, [compose?.n]);
+  /** Files asked about from the panel beside the chat: referenced in its composer. */
+  const askAboutFiles = (paths: string[]): void => {
+    drawer.close();
+    addToDraft(paths.map(fileMention).join(" "));
+  };
   // The tools a typed block's Send may name; none known, it offers no Send.
   const [toolNames, setToolNames] = useState<string[]>([]);
   useEffect(() => {
@@ -2750,6 +2773,7 @@ export function ChatsPage({
             slug={project.slug}
             rail={<ArtifactRail {...railProps} />}
             onOpenFile={project.onOpenFile}
+            onAskAboutFiles={askAboutFiles}
             onChanged={onChanged}
             onError={project.onError}
             hidden={!panelShown}
@@ -2760,6 +2784,7 @@ export function ChatsPage({
           <AgentPanel
             name={agent.name}
             onOpenFile={agent.onOpenFile}
+            onAskAboutFiles={askAboutFiles}
             onChanged={onChanged}
             onError={agent.onError}
             onNotice={onNotice}
