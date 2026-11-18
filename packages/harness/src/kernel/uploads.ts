@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, posix } from "node:path";
 
 import { PROJECTS_DIR } from "../sites/server.js";
+import { DOCUMENT_MAX_BYTES, decodedBytes, megabytes } from "./attachments.js";
 import { RESERVED } from "./files.js";
 import type { Workspace } from "../store/workspace.js";
 
@@ -24,8 +25,19 @@ export interface Upload {
   dir: string;
 }
 
-/** Same ceiling as a chat attachment: this is a reference, not a backup. */
-export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+/**
+ * The ceiling of the largest chat attachment, a document's: a file put in a
+ * project is one a chat reads, so it is held to what a chat can read.
+ */
+export const MAX_UPLOAD_BYTES = DOCUMENT_MAX_BYTES;
+
+/** Refuse an upload past the ceiling, sized from the encoding before it is decoded. */
+function assertUploadFits(name: string, data: string): void {
+  const bytes = decodedBytes(data);
+  if (bytes > MAX_UPLOAD_BYTES) {
+    throw new Error(`${name} is ${megabytes(bytes)}; files can be up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB, the most a chat reads of a document`);
+  }
+}
 
 export interface WrittenFile {
   /** Workspace-relative path, forward-slashed. */
@@ -74,12 +86,7 @@ export function writeProjectFile(ws: Workspace, slug: string, upload: Upload): W
   const name = uploadName(upload.name);
   // Sized from the encoding before decoding, so an oversize body is refused
   // without first being turned into the bytes it was too big to be.
-  const approx = Math.floor((upload.data.length * 3) / 4);
-  if (approx > MAX_UPLOAD_BYTES) {
-    throw new Error(
-      `${name} is ${Math.round(approx / 1024 / 1024)}MB; the limit is ${MAX_UPLOAD_BYTES / 1024 / 1024}MB`,
-    );
-  }
+  assertUploadFits(name, upload.data);
   const bytes = Buffer.from(upload.data, "base64");
   const rel = `${uploadDir(slug, upload.dir)}/${name}`;
   const abs = ws.resolve(rel);
@@ -106,10 +113,7 @@ export function uploadDirAnywhere(dir: string): string {
 /** A file the owner put into a folder of the workspace from the dashboard. */
 export function writeFileInto(ws: Workspace, dir: string, upload: Upload): WrittenFile {
   const name = uploadName(upload.name);
-  const approx = Math.floor((upload.data.length * 3) / 4);
-  if (approx > MAX_UPLOAD_BYTES) {
-    throw new Error(`${name} is ${Math.round(approx / 1024 / 1024)}MB; the limit is ${MAX_UPLOAD_BYTES / 1024 / 1024}MB`);
-  }
+  assertUploadFits(name, upload.data);
   const bytes = Buffer.from(upload.data, "base64");
   const rel = `${uploadDirAnywhere(dir)}/${name}`;
   const abs = ws.resolve(rel);
