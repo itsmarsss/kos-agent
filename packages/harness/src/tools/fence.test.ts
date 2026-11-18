@@ -215,6 +215,12 @@ describe("the fence around the tables", () => {
     expect(trust.reason).toMatch(/trust tables are never written/);
     expect(fence(db, "UPDATE 'pending_actions' SET status = 'approved'", reach("books")).reason).toMatch(/trust tables/);
     expect(fence(db, "SELECT * FROM pending_actions", reach("maintenance")).ok).toBe(true);
+    // Settings SQLite keeps, and its catalogue: refused to everyone.
+    for (const sql of ["PRAGMA writable_schema = 1", "pragma foreign_keys=OFF", "PRAGMA journal_mode(DELETE)", "PRAGMA main.writable_schema", "PRAGMA user_version = 9"]) {
+      expect(fence(db, sql, reach("maintenance")).reason, sql).toMatch(/PRAGMA that changes/);
+    }
+    expect(fence(db, "PRAGMA table_info(books_notes)", reach("maintenance")).ok).toBe(true);
+    expect(fence(db, "PRAGMA table_list", reach("maintenance")).ok).toBe(true);
     // A chat's mode, what runs unattended, and the record of what ran: no statement widens its own reach.
     for (const sql of ["UPDATE settings SET value = '{}' WHERE key = 'chat.modes'", "DELETE FROM crons", "INSERT INTO crons (id) VALUES (9)", "DELETE FROM pending_actions"]) {
       expect(fence(db, sql, reach("maintenance")).reason, sql).toMatch(/trust tables/);

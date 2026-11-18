@@ -261,9 +261,21 @@ export const HAND_ON = "hand the question to the project that owns the data (cha
  * compile is let through for SQLite to say why, but an EXPLAIN of its own
  * has no plan to judge, so only Maintenance runs one.
  */
+/** Pragmas that change how SQLite keeps the database, whatever their form. */
+const WRITABLE_PRAGMAS = /^\s*pragma\s+(?:\w+\.)?(writable_schema|foreign_keys|journal_mode|synchronous|locking_mode|legacy_alter_table|recursive_triggers|trusted_schema|cell_size_check|ignore_check_constraints|defer_foreign_keys|auto_vacuum|secure_delete|schema_version|user_version|application_id|page_size|max_page_count|temp_store|mmap_size|cache_size|busy_timeout|query_only)\b/i;
+
 export function fence(db: Db, sql: string, reach: Reach, params: readonly unknown[] = []): FenceVerdict {
+  // A pragma that sets something (=), or one that changes how the database is kept in any form, run by nobody.
+  const code = codeOf(sql);
+  if (/^\s*pragma\b/i.test(code) && (code.includes("=") || WRITABLE_PRAGMAS.test(code))) {
+    return refuse("A PRAGMA that changes SQLite's settings is never run through sql: they are KOS's to set.");
+  }
   const plan = planOf(db, sql, params);
   if (!plan) return /^\s*explain\b/i.test(codeOf(sql)) && !maintains(reach) ? refuse("EXPLAIN is Maintenance's: send the statement itself.") : { ok: true };
+  // The schema's own table, written only by migrate's DDL.
+  if (plan.writes.some((t) => /^sqlite_(master|schema|temp_master|temp_schema)$/i.test(t))) {
+    return refuse("sqlite_master is SQLite's own catalogue: it is changed only through migrate, never written through sql.");
+  }
   const trust = plan.writes.filter((t) => TRUST_TABLES.has(t));
   if (trust.length) {
     return refuse(`${trust.join(", ")}: KOS's trust tables are never written through sql. Approvals and permissions are the owner's, in the dashboard.`);
