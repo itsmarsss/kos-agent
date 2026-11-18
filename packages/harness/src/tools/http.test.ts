@@ -125,6 +125,17 @@ describe("http.fetch module", () => {
       }).tier,
     ).toBe("risky");
   });
+
+  it("puts a delete, and sending to a site off the owner's list, beyond a chat's Auto", async () => {
+    const registry = await load({ allowedHosts: ["api.example.com"], fetchImpl: async () => new Response("") });
+    const beyond = (input: Record<string, unknown>): string | undefined => registry.classify("http.fetch", input).beyondAuto;
+    expect(beyond({ url: "https://api.example.com/x", method: "DELETE" })).toBe("deletes something outside the workspace");
+    expect(beyond({ url: "https://other.example/x", method: "POST" })).toBe("sends to an outside site");
+    expect(beyond({ url: "https://other.example/x", method: "PUT" })).toBe("sends to an outside site");
+    expect(beyond({ url: "https://other.example/x", body: "a=1" })).toBe("sends to an outside site");
+    expect(beyond({ url: "https://api.example.com/x", method: "POST", body: "a=1" })).toBeUndefined();
+    expect(beyond({ url: "https://other.example/x" })).toBeUndefined();
+  });
 });
 
 /**
