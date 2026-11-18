@@ -9,7 +9,7 @@ import { InMemoryAdapter } from "../channels/memory.js";
 import type { ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import type { ChannelRuntime } from "../channels/runtime.js";
-import { connectChannel } from "./channel.js";
+import { AUTO_MARK, connectChannel } from "./channel.js";
 import { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 
@@ -101,6 +101,16 @@ describe("connectChannel", () => {
     );
     await adapter.receive({ channel: "memory", senderId: "u1", text: "hi" });
     expect(adapter.sent[0]?.msg.text).toBe("hi back");
+  });
+
+  it("says an answer came from a chat in Auto, where no chip shows it", async () => {
+    await boot(stub([]));
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "hi" });
+    expect(adapter.sent[0]?.msg.text).toBe("done");
+    const chat = kernel.conversations.list(kernel.profile.ownerId).find((c) => c.channel === "memory")!;
+    kernel.setChatMode(chat.id, { mode: "auto" });
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "again" });
+    expect(adapter.sent.at(-1)?.msg.text).toBe(`${AUTO_MARK} done`);
   });
 
   it("decides what the chat is waiting on with /approve and /deny", async () => {

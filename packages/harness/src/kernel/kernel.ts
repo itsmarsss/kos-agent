@@ -503,6 +503,8 @@ export class Kernel {
   readonly settings: SettingsStore;
   /** Each chat's mode: Ask, or Auto within its bounds. */
   readonly modes: ChatModes;
+  /** Whether each chat's latest turn began under Auto, for a surface to say so with its answer. */
+  private readonly underAuto = new Map<string, boolean>();
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
 
@@ -1129,6 +1131,7 @@ export class Kernel {
       const owner = attended && opts.owner === true && opts.origin !== "system" && !opts.guest && !opts.guested && !sessionId.startsWith("cron:");
       // Narrower still: the owner's own words, said in this chat. Not work another chat or a door passed on, a handoff's trail or an aside.
       const ownWords = owner && !opts.from && !opts.trail?.length && !opts.contextFrom && !opts.via && opts.channel !== "dispatch" && text.trim() !== "";
+      this.underAuto.set(sessionId, ownWords && this.modes.of(sessionId).mode === "auto");
       // A guest's words reach no further than their room's project, here and wherever the work is passed.
       const guest = opts.guested ?? (opts.guest ? this.guestRoomOf(sessionId) : undefined);
       const stop = this.stopFor(sessionId, turnId);
@@ -4123,6 +4126,11 @@ export class Kernel {
    * What a browser action's permission turns on: the browser's tool family,
    * the site the caller's tab is on, and the tools never trusted by site.
    */
+  /** Whether the chat's latest turn began under Auto: the owner's own words, with the chat in Auto. */
+  ranUnderAuto(conversationId: string): boolean {
+    return this.underAuto.get(conversationId) === true;
+  }
+
   /** A chat's mode as it stands now. */
   chatMode(conversationId: string): ChatMode {
     return this.modes.of(conversationId);
