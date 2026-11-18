@@ -86,7 +86,7 @@ describe("approving", () => {
           sent = input;
           return { content: "echoed sk-orphan-key", isError: false };
         },
-        secretSlots: () => ({ paths: ["headers.*"] }),
+        secretSlots: () => ({ paths: ["headers.*"], admit: () => undefined }),
       },
       audit: { record: (e) => void audited.push(e.result) },
       handleMessage: async (text) => {

@@ -1,16 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { HTTP_SECRET_SLOTS as SLOTS } from "../tools/http.js";
 import { SecretsRegistry } from "./secrets.js";
-import { hasSecretRef, placeSecrets, type SecretSlots } from "./inject.js";
-
-const SLOTS: SecretSlots = {
-  paths: ["headers.*", "url"],
-  urls: ["url"],
-  host: (input) => (typeof input["url"] === "string" ? new URL(input["url"]).hostname : undefined),
-};
+import { hasSecretRef, placeSecrets, secretsNamed } from "./inject.js";
 
 describe("secret placement", () => {
-  const secrets = new SecretsRegistry({ openai: "sk-real", stripe: "sk+stripe/1" }, { stripe: ["api.stripe.com", "*.stripe.net"] });
+  const secrets = new SecretsRegistry(
+    { openai: "sk-real", stripe: "sk+stripe/1", loose: "unbound-key", pin: "1234" },
+    { openai: { hosts: ["api.example.com"] }, stripe: { hosts: ["api.stripe.com", "*.stripe.net"] }, pin: { hosts: ["api.example.com"] } },
+  );
 
   it("expands a reference in a declared slot", () => {
     const placed = placeSecrets("http.fetch", { url: "https://api.example.com", headers: { authorization: "Bearer {{secret:openai}}" } }, SLOTS, secrets);
@@ -41,8 +39,20 @@ describe("secret placement", () => {
     expect(to("https://files.stripe.net/x")).toHaveProperty("input");
     expect(to("https://evil.example/")).toEqual({ refused: expect.stringMatching(/only to api\.stripe\.com, \*\.stripe\.net, not evil\.example/) });
     expect(to("https://stripe.net.evil.example/")).toHaveProperty("refused");
-    // Unbound, a secret goes wherever the call is allowed to.
-    expect(placeSecrets("http.fetch", { url: "https://anywhere.example", headers: { a: "{{secret:openai}}" } }, SLOTS, secrets)).toHaveProperty("input");
+    // Bound nowhere, a secret is sent nowhere.
+    expect(placeSecrets("http.fetch", { url: "https://anywhere.example", headers: { a: "{{secret:loose}}" } }, SLOTS, secrets)).toEqual({
+      refused: expect.stringMatching(/loose is bound to no host.*KOS_SECRET_LOOSE_HOSTS/),
+    });
+  });
+
+  it("refuses a secret too short for the scrubber to find again", () => {
+    expect(placeSecrets("http.fetch", { url: "https://api.example.com", headers: { a: "{{secret:pin}}" } }, SLOTS, secrets)).toEqual({
+      refused: expect.stringMatching(/pin is shorter than 6 characters/),
+    });
+  });
+
+  it("names the secrets a call uses, each once", () => {
+    expect(secretsNamed({ a: "{{secret:x}} {{secret:y}}", b: ["{{secret:x}}"] })).toEqual(["x", "y"]);
   });
 
   it("refuses an unknown secret by name", () => {

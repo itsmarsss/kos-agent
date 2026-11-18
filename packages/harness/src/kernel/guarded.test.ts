@@ -225,7 +225,7 @@ describe("GuardedTools", () => {
         return "ok";
       },
       undefined,
-      { secretSlots: { paths: ["headers.*"] } },
+      { secretSlots: { paths: ["headers.*"], admit: () => undefined } },
     );
     const res = await guarded().execute("send", { headers: { auth: "Bearer {{secret:openai}}" } });
     expect(res.isError).toBe(false);

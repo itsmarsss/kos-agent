@@ -1,6 +1,6 @@
 import { officeKindOf, officeNote, officeText } from "../files/office.js";
 import { pdfText } from "../files/pdftext.js";
-import type { SecretSlots } from "../secrets/inject.js";
+import { hostAllowed, type SecretSlots } from "../secrets/inject.js";
 import type { KosModule } from "../modules/loader.js";
 
 export type FetchImpl = typeof fetch;
@@ -60,11 +60,18 @@ function hostOf(url: string): string | undefined {
  * or path, so the host the call is judged and bound by is the one it reaches.
  * Not the body: a write already asks, and a body is free text the model
  * shapes, the easiest place to send a key somewhere it was not meant for.
+ * And only to a host the secret is bound to: one bound nowhere is sent nowhere.
  */
 export const HTTP_SECRET_SLOTS: SecretSlots = {
   paths: ["headers.*", "url"],
   urls: ["url"],
   host: (input) => (typeof input["url"] === "string" ? hostOf(input["url"]) : undefined),
+  admit: (name, input, secrets) => {
+    const bound = secrets.hostsOf(name);
+    if (!bound) return `Secret ${name} is bound to no host, so http.fetch does not send it. The owner binds it with KOS_SECRET_${name.toUpperCase()}_HOSTS.`;
+    const host = typeof input["url"] === "string" ? hostOf(input["url"]) : undefined;
+    return host && hostAllowed(host, bound) ? undefined : `Secret ${name} may be sent only to ${bound.join(", ")}, not ${host ?? "an unknown host"}.`;
+  },
 };
 
 /** The call as it reaches here has its secrets in place: GuardedTools expands them in the slots above. */

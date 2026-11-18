@@ -88,7 +88,7 @@ describe("http.fetch module", () => {
       sent.push({ url: String(url), headers: init?.headers, body: init?.body });
       return new Response("ok", { status: 200 });
     };
-    const secrets = new SecretsRegistry({ openai: "sk-real", stripe: "sk-stripe" }, { stripe: ["api.stripe.com"] });
+    const secrets = new SecretsRegistry({ openai: "sk-real", stripe: "sk-stripe" }, { openai: { hosts: ["api.example.com"] }, stripe: { hosts: ["api.stripe.com"] } });
     const registry = await load({ allowedHosts: ["api.example.com", "api.stripe.com", "evil.example"], fetchImpl }, secrets);
     const tools = new GuardedTools({ registry, secrets, audit: new AuditLog(ws.db), approvals: new ApprovalQueue(ws.db) });
 
