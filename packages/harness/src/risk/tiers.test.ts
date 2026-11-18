@@ -37,6 +37,31 @@ describe("classifyRisk", () => {
     expect(classifyRisk({ floor: "risky", why: "deletes it for good" }, {})).toEqual({ tier: "risky", escalated: false, reason: "deletes it for good" });
   });
 
+  it("raises a safe call one notch for where it reaches, and says what Auto may not cover", () => {
+    const risk: ToolRisk = {
+      floor: "safe",
+      reach: (i) => (i.into ? { why: "outside this project, in the resume project", beyondAuto: "writes into another project" } : i.root ? { why: "outside this project, in the workspace root" } : false),
+    };
+    expect(classifyRisk(risk, { into: true })).toEqual({
+      tier: "risky",
+      escalated: true,
+      reason: "outside this project, in the resume project",
+      reached: true,
+      beyondAuto: "writes into another project",
+    });
+    expect(classifyRisk(risk, { root: true })).toEqual({ tier: "risky", escalated: true, reason: "outside this project, in the workspace root", reached: true });
+    expect(classifyRisk(risk, {})).toEqual({ tier: "safe", escalated: false });
+    // A call that asks anyway keeps its own reason first.
+    const both: ToolRisk = { ...risk, escalate: () => "outside the scratch folder" };
+    expect(classifyRisk(both, { root: true }).reason).toBe("outside the scratch folder, outside this project, in the workspace root");
+    expect(classifyRisk({ floor: "risky", why: "a command that may write", reach: risk.reach }, { root: true })).toEqual({
+      tier: "risky",
+      escalated: false,
+      reason: "a command that may write, outside this project, in the workspace root",
+      reached: true,
+    });
+  });
+
   it("relaxes a risky floor only when the rule proves the call harmless", () => {
     const risk: ToolRisk = { floor: "risky", relax: (i) => i.reads === true };
     expect(classifyRisk(risk, { reads: true })).toEqual({ tier: "safe", escalated: false });

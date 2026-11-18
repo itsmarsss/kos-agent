@@ -1,6 +1,7 @@
-import { summarizeAction } from "@kos/shared";
+import { summarizeAction, type ActionHome } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
+import type { PermissionContext } from "../ops/permissions.js";
 import { SHARED_LANE } from "../ops/queue.js";
 import { hasSecretRef, placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
@@ -25,8 +26,8 @@ export const BUILD_ACTION_PREFIX = "build.";
 export const RESUME_HEAD = "System: the owner decided on";
 
 /** One decided action, as the resumed turn is told it: what it was, and what came of it. */
-export function decidedLine(id: number, tool: string, args: string, outcome: { approved: true; isError: boolean; result: string } | { approved: false }): string {
-  const head = `@approval:${id} ${summarizeAction(tool, args)}`;
+export function decidedLine(id: number, tool: string, args: string, outcome: { approved: true; isError: boolean; result: string } | { approved: false }, where?: ActionHome): string {
+  const head = `@approval:${id} ${summarizeAction(tool, args, undefined, where)}`;
   if (!outcome.approved) return `${head}: the owner denied this. It was not done.`;
   // On one line: a result's own lines could otherwise pass for another decision.
   const result = outcome.result.replace(/\s*\n\s*/g, " ");
@@ -51,11 +52,13 @@ export interface DecisionsDeps {
     pending: () => PendingAction[];
   };
   permissions: {
-    ruleFor: (tool: string, input: Record<string, unknown>, project: string | null) => { tool: string; scope: string | null; project: string | null } | undefined;
+    ruleFor: (tool: string, input: Record<string, unknown>, project: string | null, context?: PermissionContext) => { tool: string; scope: string | null; project: string | null } | undefined;
     add: (rule: { tool: string; scope: string | null; project: string | null }) => unknown;
   };
   conversations: { get: (id: string) => { projectSlug: string | null } | undefined };
-  audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string }) => unknown };
+  /** Where the asking chat's file paths land, so a rule named now is named by the place, as one named when the call was queued is. */
+  homeOf?: (conversationId: string | null) => Pick<PermissionContext, "home" | "root">;
+  audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string; conversationId?: string }) => unknown };
   registry: {
     execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
     secretSlots: (tool: string) => SecretSlots | undefined;
@@ -105,6 +108,12 @@ export class Decisions {
     ].join("\n");
   }
 
+  /** Where the asking chat's paths land, for the line that tells it the outcome. */
+  private whereOf(conversationId: string | null | undefined): ActionHome | undefined {
+    const at = this.deps.homeOf?.(conversationId ?? null);
+    return at?.home ? { home: at.home, ...(at.root ? { root: at.root } : {}) } : undefined;
+  }
+
   private stillWaiting(ids: number[]): string {
     return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
   }
@@ -124,7 +133,8 @@ export class Decisions {
       // action's site is known then and not now. Otherwise named from the
       // call's shape, as before.
       const project = action.conversationId ? (d.conversations.get(action.conversationId)?.projectSlug ?? null) : null;
-      const rule = action.rule ?? d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project);
+      // A call that reached past its turn's folder makes no rule, here as when it was queued.
+      const rule = action.reached ? undefined : (action.rule ?? d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project, d.homeOf?.(action.conversationId ?? null)));
       if (rule) d.permissions.add(rule);
     }
 
@@ -135,7 +145,7 @@ export class Decisions {
     const by = decidedBy ?? d.ownerId;
     if (action.tool.startsWith(BUILD_ACTION_PREFIX)) {
       const wanted = action.tool.slice(BUILD_ACTION_PREFIX.length);
-      d.audit.record({ tool: action.tool, args: stored, result: `approved; the build runs ${wanted} itself`, isError: false, riskTier: "risky", userId: by });
+      d.audit.record({ tool: action.tool, args: stored, result: `approved; the build runs ${wanted} itself`, isError: false, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
       return { ok: true, message: `Approved. The build continues with ${wanted}.` };
     }
 
@@ -154,13 +164,13 @@ export class Decisions {
           );
       // What it answered is scrubbed before the audit and the resumed turn read it.
       const r = { ...ran, content: d.secrets.scrub(ran.content) };
-      d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by });
+      d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
       if (!r.isError) d.onToolRan(action.tool);
       return r;
     }, action.conversationId ?? SHARED_LANE);
 
     const sessionId = action.conversationId ?? primarySessionId(d.ownerId);
-    const outcome = decidedLine(id, action.tool, action.args, { approved: true, isError: result.isError, result: result.content });
+    const outcome = decidedLine(id, action.tool, action.args, { approved: true, isError: result.isError, result: result.content }, this.whereOf(action.conversationId));
     const waiting = this.siblingsWaiting(action.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);
@@ -185,7 +195,7 @@ export class Decisions {
       return { ok: true, message: `Declined. The build was told it may not ${denied.tool.slice(BUILD_ACTION_PREFIX.length)}.` };
     }
     const sessionId = denied.conversationId ?? primarySessionId(d.ownerId);
-    const outcome = decidedLine(id, denied.tool, denied.args, { approved: false });
+    const outcome = decidedLine(id, denied.tool, denied.args, { approved: false }, this.whereOf(denied.conversationId));
     const waiting = this.siblingsWaiting(denied.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);

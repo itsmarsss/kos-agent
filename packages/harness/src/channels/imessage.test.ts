@@ -104,6 +104,15 @@ describe("an approval as plain lines", () => {
     ]);
     expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" } })).toEqual(["Approve files.rm?", "Delete a.txt"]);
   });
+
+  it("names where a project chat's path really lands", () => {
+    const where = { home: { folder: "projects/school" }, root: "/ws" };
+    expect(approvalLines({ id: "9", text: "Approve files.write?", tool: "files.write", args: { path: "projects/resume/cv.md" }, where })).toEqual([
+      "Approve files.write?",
+      "Write file projects/resume/cv.md (outside this project, in the resume project)",
+    ]);
+    expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" }, where })).toEqual(["Approve files.rm?", "Delete projects/school/a.txt"]);
+  });
 });
 
 describe("saying why iMessage could not start", () => {

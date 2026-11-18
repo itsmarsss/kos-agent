@@ -284,7 +284,7 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingAction & { asker?
   return {
     ...a,
     asker: kernel.askerOf(a.conversationId)?.name,
-    summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)),
+    summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id), kernel.actionHome(a.conversationId)),
     ...(mechanics ? { mechanics } : {}),
   };
 }
@@ -295,7 +295,7 @@ function decidedView(kernel: Kernel, a: PendingAction): Omit<PendingAction, "arg
   return {
     ...rest,
     asker: kernel.askerOf(a.conversationId)?.name,
-    summary: summarizeAction(a.tool, args, (kind, id) => kernel.labelFor(kind, id)),
+    summary: summarizeAction(a.tool, args, (kind, id) => kernel.labelFor(kind, id), kernel.actionHome(a.conversationId)),
   };
 }
 
@@ -2898,7 +2898,7 @@ export async function handleApiRequest(
     return ok({
       id,
       messages: transcriptOf(kernel, id),
-      events: withFrames(withKeptPaths(kernel, id, historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id))), kernel.frames.listFor(id)),
+      events: withFrames(withKeptPaths(kernel, id, historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id), kernel.actionHome(id))), kernel.frames.listFor(id)),
       // Sent but not yet run. Shown after the transcript because that is where
       // they will land, and separately because they have not happened yet.
       pending: kernel.pending.forConversation(id).map((m) => ({
@@ -3200,7 +3200,7 @@ export function mentionsOf(kernel: Kernel, q: string, limit: number, kind?: stri
       // The browser's tabs, each named for whose it is in words.
       tabs: kernel.browser.tabs().map(({ owner, ...t }) => ({ ...t, ...(owner ? { owner: kernel.conversations.get(owner)?.title ?? owner } : {}) })),
       channels: knownChannels(kernel),
-      approvals: kernel.approvals.pending().map((a) => ({ id: a.id, summary: summarizeAction(a.tool, a.args, (k, id) => kernel.labelFor(k, id)) })),
+      approvals: kernel.approvals.pending().map((a) => ({ id: a.id, summary: summarizeAction(a.tool, a.args, (k, id) => kernel.labelFor(k, id), kernel.actionHome(a.conversationId)) })),
     },
     q,
     limit,

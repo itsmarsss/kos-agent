@@ -68,6 +68,7 @@ Typical flow:
 Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.
   module install <git url | folder> [--name x] | update <name> | remove <name> | list
   skill install <git url | folder> [--name x] | update <name> | remove <name> | list
+  files tidy [--yes]   move projects' files written loose at the workspace root into their folders, after asking
   mcp add <name> (--command "<cmd args>" | --url <url>) [--risk safe] | add --json '<config>'
   mcp list | enable <name> | disable <name> | remove <name>`;
 

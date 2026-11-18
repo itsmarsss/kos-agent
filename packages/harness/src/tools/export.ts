@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, relative } from "node:path";
+import { dirname } from "node:path";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
@@ -8,6 +8,7 @@ import { foldedPath, type Workspace } from "../store/workspace.js";
 import { runDisplayQuery } from "../systems/display.js";
 import { fence } from "./fence.js";
 import { reservedRefusal } from "./files.js";
+import { placeFor, reachOutside } from "./home.js";
 import { reachOf } from "./sql.js";
 import { toPdf } from "./pdf.js";
 
@@ -88,7 +89,7 @@ function defineExportTool(ws: Workspace, ctx: ModuleContext): void {
           query: { type: "string", description: "a single SELECT/WITH" },
           path: {
             type: "string",
-            description: "workspace-relative output path, e.g. exports/spend.csv",
+            description: "output path, e.g. exports/spend.csv: a relative path is inside your own folder (your project's, or the workspace at the root); workspace:<path> is from the workspace root, and writing outside your folder asks the owner",
           },
           format: { type: "string", enum: [...FORMATS] },
           title: {
@@ -115,9 +116,8 @@ function defineExportTool(ws: Workspace, ctx: ModuleContext): void {
       const result = runDisplayQuery(ws.reader, str(input, "query"), {
         ...(rowCap !== undefined ? { rowCap } : {}),
       });
-      const rel = str(input, "path");
-      const abs = ws.resolve(rel);
-      const reserved = reservedRefusal(ws, relative(ws.root, abs)) ?? gitControlRefusal(foldedPath(ws.root, rel));
+      const { abs, rel } = placeFor(ws, ctx, str(input, "path"));
+      const reserved = reservedRefusal(ws, rel) ?? gitControlRefusal(foldedPath(ws.root, rel));
       if (reserved) throw new Error(reserved);
       mkdirSync(dirname(abs), { recursive: true });
       const title = typeof input.title === "string" ? input.title : undefined;
@@ -131,7 +131,7 @@ function defineExportTool(ws: Workspace, ctx: ModuleContext): void {
         truncated: result.truncated,
       });
     },
-    { floor: "safe" },
+    { floor: "safe", reach: reachOutside(ws, ctx, (input) => [input.path]) },
     { tags: ["export", "systems"] },
   );
 }

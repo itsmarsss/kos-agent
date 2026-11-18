@@ -590,6 +590,18 @@ describe("the approval prompt", () => {
     expect(file?.attachment.toString("utf8").trim().split("\n")).toHaveLength(20);
   });
 
+  it("names where a project chat's path really lands, and why it asks", () => {
+    const card = approvalCard({
+      id: "24",
+      text: "x",
+      tool: "files.write",
+      args: { path: "projects/resume/cv.md", content: "x" },
+      reason: "outside this project, in the resume project",
+      where: { home: { folder: "projects/school" }, root: "/ws" },
+    });
+    expect(card.content).toContain("Write file projects/resume/cv.md \\(outside this project, in the resume project\\)");
+  });
+
   it("settles with the verb and the thing in inline code", () => {
     expect(settledText("approved", "Run: rm -rf build (in /w)", "12")).toBe("-# ✅ Approved · Run `rm -rf build (in /w)`");
     expect(settledText("denied", undefined, "7")).toBe("-# ❌ Denied · #7");
