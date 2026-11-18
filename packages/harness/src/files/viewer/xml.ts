@@ -20,6 +20,8 @@ export type XmlChild = XmlNode | string;
 
 /** Past this many elements a part is refused: a document has thousands, a bomb millions. */
 export const XML_NODES_MAX = 2_000_000;
+/** Past this a single tag (its name and attributes) is refused: a real one is a few hundred bytes. */
+export const XML_TAG_MAX = 64 * 1024;
 
 export function decodeEntities(text: string): string {
   if (!text.includes("&")) return text;
@@ -65,6 +67,7 @@ export function parseXml(xml: string): XmlNode {
     }
     const gt = tagEnd(xml, lt);
     if (gt < 0) break;
+    if (gt - lt > XML_TAG_MAX) throw new Error("the document is not one KOS can read: a tag runs past 64 KB");
     const body = xml.slice(lt + 1, gt);
     at = gt + 1;
     if (body.startsWith("/")) {
@@ -130,19 +133,25 @@ export function path(node: XmlNode | undefined, ...names: string[]): XmlNode | u
 /** Every descendant of that name, in document order, not looking inside a match. */
 export function find(node: XmlNode | undefined, name: string): XmlNode[] {
   const out: XmlNode[] = [];
-  const walk = (n: XmlNode): void => {
-    for (const c of n.children) {
-      if (!isNode(c)) continue;
-      if (c.name === name) out.push(c);
-      else walk(c);
-    }
-  };
-  if (node) walk(node);
+  // A stack, not recursion: a part nested thousands deep is read, not a stack overflow.
+  const stack: XmlNode[] = node ? [...kids(node)].reverse() : [];
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (n.name === name) out.push(n);
+    else for (let i = n.children.length - 1; i >= 0; i--) if (isNode(n.children[i]!)) stack.push(n.children[i] as XmlNode);
+  }
   return out;
 }
 
-/** All the text under a node. */
+/** All the text under a node, in order. */
 export function textOf(node: XmlNode | undefined): string {
   if (!node) return "";
-  return node.children.map((c) => (typeof c === "string" ? c : textOf(c))).join("");
+  let text = "";
+  const stack: XmlChild[] = [...node.children].reverse();
+  while (stack.length) {
+    const c = stack.pop()!;
+    if (typeof c === "string") text += c;
+    else for (let i = c.children.length - 1; i >= 0; i--) stack.push(c.children[i]!);
+  }
+  return text;
 }

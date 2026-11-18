@@ -194,34 +194,44 @@ const MEDIA_TYPES: Record<string, string> = {
   ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".wav": "audio/wav", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".flac": "audio/flac",
   ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
 };
-/** The most one answer carries: a player asks for the rest by range. */
-const MEDIA_CHUNK = 16 * 1024 * 1024;
+/** A range not to be served: past the end, backwards, several at once, or not a range at all. */
+export class BadRange extends Error {
+  constructor(readonly size: number) {
+    super("that range cannot be served");
+  }
+}
 
-/** A piece of a sound or video file, as a player asks for it by range; the start of it when it asks for none. */
-export function readMedia(ws: Workspace, requestPath: unknown, range?: string): { bytes: Buffer; contentType: string; partial?: string } {
+/** A sound or video file for a player: the whole of it, or the one range it asks for, read as a stream. */
+export interface Media {
+  contentType: string;
+  size: number;
+  /** The bytes served, inclusive; the whole file when no range was asked. */
+  start: number;
+  end: number;
+  partial: boolean;
+  path: string;
+}
+
+export function readMedia(ws: Workspace, requestPath: unknown, range?: string): Media {
   const rel = relOf(requestPath);
   const contentType = MEDIA_TYPES[extname(rel).toLowerCase()];
   if (!contentType) throw new Error(`not a sound or video file: ${rel}`);
   const abs = ws.resolve(rel);
   const st = statSync(abs);
   if (!st.isFile()) throw new Error(`not a file: ${rel}`);
-  const asked = /^bytes=(\d*)-(\d*)$/.exec(range?.trim() ?? "");
-  if (!asked && st.size <= MEDIA_CHUNK) return { bytes: head(abs, st.size), contentType };
-  let start = asked?.[1] ? Number(asked[1]) : 0;
-  let end = asked?.[2] ? Number(asked[2]) : st.size - 1;
-  // "bytes=-500" is the last 500 bytes.
-  if (asked && !asked[1] && asked[2]) {
+  if (range === undefined || range.trim() === "") return { contentType, size: st.size, start: 0, end: st.size - 1, partial: false, path: abs };
+  const asked = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+  if (!asked || (!asked[1] && !asked[2])) throw new BadRange(st.size);
+  let start: number;
+  let end: number;
+  if (!asked[1]) {
+    // "bytes=-500" is the last 500 bytes.
     start = Math.max(0, st.size - Number(asked[2]));
     end = st.size - 1;
+  } else {
+    start = Number(asked[1]);
+    end = asked[2] ? Math.min(Number(asked[2]), st.size - 1) : st.size - 1;
   }
-  end = Math.min(end, st.size - 1, start + MEDIA_CHUNK - 1);
-  if (start > end) throw new Error("that range is past the end of the file");
-  const fd = openSync(abs, "r");
-  try {
-    const bytes = Buffer.alloc(end - start + 1);
-    readSync(fd, bytes, 0, bytes.length, start);
-    return { bytes, contentType, partial: `bytes ${start}-${end}/${st.size}` };
-  } finally {
-    closeSync(fd);
-  }
+  if (start >= st.size || start > end) throw new BadRange(st.size);
+  return { contentType, size: st.size, start, end, partial: true, path: abs };
 }

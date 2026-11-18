@@ -24,8 +24,11 @@ describe("sanitizeHtml", () => {
     ['<base href="//evil/">t', "t"],
     ['<link rel=stylesheet href=//x>t', "t"],
     ['<object data=x></object><embed src=x>t', "t"],
-    ['<p style="background:url(https://x/y.png);color:red">s</p>', '<p style="background:https://x/y.png);color:red">s</p>'],
-    ['<p style="color:red;behavior:url(x.htc)">s</p>', '<p style="color:red;x.htc)">s</p>'],
+    ['<p style="background:url(https://x/y.png);color:red">s</p>', '<p style=";color:red">s</p>'],
+    ['<p style="color:red;behavior:url(x.htc)">s</p>', '<p style="color:red;">s</p>'],
+    ['<p style="background:u/**/rl(x);color:red">s</p>', '<p style=";color:red">s</p>'],
+    ['<p style="background:\\75 rl(x)">s</p>', "<p>s</p>"],
+    ['<p style="background:urlurl((x))">s</p>', "<p>s</p>"],
     ['<p class="a&quot; onclick=&quot;x">c</p>', "<p>c</p>"],
     ['<td width="100" height="javascript:1">w</td>', '<td width="100">w</td>'],
     ["<noscript><p>hidden</p></noscript>v", "v"],
@@ -37,7 +40,7 @@ describe("sanitizeHtml", () => {
   });
 
   it("keeps a top-level style made inert, and none deeper", () => {
-    expect(sanitizeHtml('<style>@import "//x"; p { color: red } p > b { font: 12px Times } </style><p>t</p>')).toBe('<style> "//x"; p { color: red } p > b { font: 12px Times } </style><p>t</p>');
+    expect(sanitizeHtml('<style>@import "//x"; p { color: red } p > b { font: 12px Times; background: url(//x) } @font-face { src: url(//f) } </style><p>t</p>')).toBe("<style> p { color: red } p > b { font: 12px Times;}  </style><p>t</p>");
     expect(sanitizeHtml("<style>p{}</style><p>t<style>p{}</style></p>")).toBe("<style>p{}</style><p>t</p>");
     expect(sanitizeHtml("<style>p{}</style\\><p>t")).not.toContain("</style\\");
   });

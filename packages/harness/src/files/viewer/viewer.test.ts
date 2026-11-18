@@ -148,7 +148,7 @@ describe("OfficeViewer", () => {
     writeFileSync(join(dir, "old.doc"), "x");
     const view = (await viewer.view(join(dir, "old.doc"), "old.doc")) as DocView;
     expect(textutil).toHaveBeenCalledWith(expect.any(Uint8Array), "doc");
-    expect(view.html).toBe('<style>p.p1 {font: 12px Times; background: https://x.example/a.png)}</style><p class="p1">Hello</p>');
+    expect(view.html).toBe('<style>p.p1 {font: 12px Times;}</style><p class="p1">Hello</p>');
     await expect(new OfficeViewer(inProcess).view(join(dir, "old.doc"), "old.doc")).rejects.toThrow(/textutil, which this host does not have/);
   });
 
@@ -212,5 +212,16 @@ describe("the bounded run", () => {
     const view = (await run({ op: "convert", bytes: sampleDocx(), format: "docx" })) as DocView;
     expect(view.html).toContain("<h1>Garden plan</h1>");
     await expect(run({ op: "convert", bytes: zipBomb("xl/workbook.xml", 80 * 1024 * 1024), format: "xls" })).rejects.toThrow(/refused/);
+  });
+});
+
+describe("the XML reader", () => {
+  it("reads deep nesting without recursion, and refuses a runaway tag", async () => {
+    const { find, parseXml, textOf } = await import("./xml.js");
+    const deep = `${"<a>".repeat(50_000)}<b>x</b>${"</a>".repeat(50_000)}`;
+    const root = parseXml(deep);
+    expect(textOf(root)).toBe("x");
+    expect(find(root, "b")).toHaveLength(1);
+    expect(() => parseXml(`<a x="${"y".repeat(70_000)}"/>`)).toThrow(/64 KB/);
   });
 });

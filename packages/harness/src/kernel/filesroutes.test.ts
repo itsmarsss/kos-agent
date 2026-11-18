@@ -134,15 +134,28 @@ describe("the file manager's routes", () => {
     for (const id of ["../../etc", "1", { $ne: 1 }]) expect((await post("/api/files/restore", { id }))?.status).toBe(400);
   });
 
-  it("plays sound and video by range, and nothing that is not media", async () => {
+  it("plays sound and video whole or by range, refuses a bad range, and nothing that is not media", async () => {
     writeFileSync(join(root, "projects/garden/clip.mp4"), Buffer.from("0123456789"));
-    const whole = await get("/api/file/media", { path: "projects/garden/clip.mp4" });
+    const read = async (body: unknown): Promise<string> => {
+      const chunks: Buffer[] = [];
+      for await (const c of body as AsyncIterable<Buffer>) chunks.push(c);
+      return Buffer.concat(chunks).toString();
+    };
+    const media = (range?: string) => handleFilesRoute(ws, { method: "GET", path: "/api/file/media", query: new URLSearchParams({ path: "projects/garden/clip.mp4" }), body: {}, ...(range ? { range } : {}) }, deps);
+    const whole = await media();
     expect(whole?.status).toBe(200);
-    expect(whole?.headers).toMatchObject({ "content-type": "video/mp4", "accept-ranges": "bytes", "x-content-type-options": "nosniff" });
-    const part = await handleFilesRoute(ws, { method: "GET", path: "/api/file/media", query: new URLSearchParams({ path: "projects/garden/clip.mp4" }), body: {}, range: "bytes=2-4" }, deps);
+    expect(whole?.headers).toMatchObject({ "content-type": "video/mp4", "content-length": "10", "accept-ranges": "bytes", "x-content-type-options": "nosniff" });
+    expect(await read(whole?.body)).toBe("0123456789");
+    const part = await media("bytes=2-4");
     expect(part?.status).toBe(206);
-    expect(String(part?.body)).toBe("234");
     expect(part?.headers?.["content-range"]).toBe("bytes 2-4/10");
+    expect(await read(part?.body)).toBe("234");
+    expect(await read((await media("bytes=-3"))?.body)).toBe("789");
+    for (const bad of ["bytes=10-", "bytes=5-2", "bytes=0-1,4-5", "lines=1-2", "bytes=-"]) {
+      const res = await media(bad);
+      expect(res?.status, bad).toBe(416);
+      expect(res?.headers?.["content-range"]).toBe("bytes */10");
+    }
     expect((await get("/api/file/media", { path: "projects/garden/plan.docx" }))?.status).toBe(400);
   });
 

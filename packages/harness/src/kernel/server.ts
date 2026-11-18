@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { Readable } from "node:stream";
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
@@ -3802,6 +3803,8 @@ export function createDashboardServer(
         // A route that answers with bytes has already said what they are; JSON
         // encoding them would turn an image into a list of numbers.
         else if (Buffer.isBuffer(result.body)) res.end(result.body);
+        // A file streamed from disk (a film for a player); a read that fails ends the answer.
+        else if (result.body instanceof Readable) result.body.on("error", () => res.destroy()).pipe(res);
         else res.end(JSON.stringify(result.body));
         return;
       }

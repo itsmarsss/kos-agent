@@ -36,12 +36,18 @@ const ATTRS = new Set(["class", "style", "colspan", "rowspan", "alt", "src", "wi
 /** A raster picture inline; anything else (a URL, an SVG, a script) is no source. */
 const PICTURE = /^data:image\/(png|jpeg|gif|webp|bmp);base64,[A-Za-z0-9+/=\s]+$/;
 
-/** CSS that fetches or escapes its own reading: url(), @import, expressions, escapes, behaviours. */
-const CSS_UNSAFE = /url\s*\(|@import|expression\s*\(|\\|behavior\s*:|-moz-binding|javascript:|@font-face|image-set\s*\(|<\//gi;
+/** In a declaration, what would fetch, run or hide what it does: the whole declaration goes. */
+const CSS_DANGER = /url\s*\(|expression\s*\(|\\|behavior\s*:|-moz-binding|javascript:|image-set\s*\(|<\/|@/i;
 
-/** CSS made inert: anything that would fetch or hide what it does is cut out. */
+/**
+ * CSS made inert by dropping, never patching: comments go first (they can
+ * split a word), then any at-rule that fetches (@import, @font-face,
+ * @namespace), then each declaration that holds anything dangerous, whole,
+ * so no removal can join two halves into something new.
+ */
 export function cleanCss(css: string): string {
-  return css.replace(CSS_UNSAFE, "");
+  const plain = css.replace(/\/\*[\s\S]*?(\*\/|$)/g, "").replace(/@(import|font-face|namespace)\b[^;{}]*(;|\{[^}]*\}?)/gi, "");
+  return plain.replace(/(^|[{};])([^{};]*)(?=[;}]|$)/g, (whole, lead: string, declaration: string) => (CSS_DANGER.test(declaration) ? lead : whole));
 }
 
 const escapeText = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

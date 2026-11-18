@@ -1,7 +1,9 @@
 import type { Converter } from "../files/images.js";
 import { OfficeViewer } from "../files/viewer/viewer.js";
 import type { Workspace } from "../store/workspace.js";
-import { fileInfo, readMedia, recentFiles, searchContents, searchNames } from "./fileinfo.js";
+import { createReadStream } from "node:fs";
+
+import { BadRange, fileInfo, readMedia, recentFiles, searchContents, searchNames } from "./fileinfo.js";
 import { emptyTrash, listTrash, restoreEntry, trashEntry } from "./filetrash.js";
 import { THUMB_EDGES, thumbnail } from "./filethumbs.js";
 
@@ -66,16 +68,23 @@ export async function handleFilesRoute(ws: Workspace, req: FilesRequest, deps: F
     }
     if (method === "GET" && path === "/api/file/media") {
       if (!target) return bad("path required");
-      const media = readMedia(ws, target, req.range);
+      let media;
+      try {
+        media = readMedia(ws, target, req.range);
+      } catch (err) {
+        if (err instanceof BadRange) return { status: 416, body: null, headers: { ...INERT, "content-range": `bytes */${err.size}` } };
+        throw err;
+      }
       return {
         status: media.partial ? 206 : 200,
-        body: media.bytes,
+        // Streamed from disk: a film is not read into memory to be sent.
+        body: media.end < media.start ? Buffer.alloc(0) : createReadStream(media.path, { start: media.start, end: media.end }),
         headers: {
           ...INERT,
           "content-type": media.contentType,
-          "content-length": String(media.bytes.byteLength),
+          "content-length": String(media.end - media.start + 1),
           "accept-ranges": "bytes",
-          ...(media.partial ? { "content-range": media.partial } : {}),
+          ...(media.partial ? { "content-range": `bytes ${media.start}-${media.end}/${media.size}` } : {}),
         },
       };
     }
