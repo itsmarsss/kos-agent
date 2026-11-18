@@ -791,8 +791,14 @@ export class Vault {
     });
   }
 
-  /** Crypto-erase: the vault, its last copy, the key and both sequence records overwritten and unlinked, and the keys in memory zeroed. */
-  wipe(): void {
+  /**
+   * Crypto-erase: the vault, its last copy, the key and both sequence
+   * records overwritten and unlinked, and the keys in memory zeroed. A
+   * passphrase vault is wiped only with its passphrase: its owner proved it
+   * is them, not only whoever holds the dashboard.
+   */
+  async wipe(passphrase?: string): Promise<void> {
+    if (this.hasPassphrase() && !(await this.checkPassphrase(passphrase ?? ""))) throw new VaultError("passphrase", "wiping this vault takes its passphrase");
     this.locked(() => {
       for (const path of [this.file, this.prev, `${this.prev}.tmp`, `${this.file}.tmp`, this.keyPath, `${this.keyPath}.next`, `${this.keyPath}.tmp`, this.seqPath, `${this.seqPath}.tmp`, this.seqCopy, `${this.seqCopy}.tmp`, this.indexPath, `${this.indexPath}.tmp`, this.indexKeyPath, `${this.indexKeyPath}.tmp`]) shred(path);
       this.index = undefined;

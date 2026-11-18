@@ -27,7 +27,7 @@ export const SECRETS_USAGE = [
   "                               a new data key; or set a passphrase (its slot alone, the key file erased);",
   "                               or take it off (back to a key file); or a new key file",
   "  export <file>                a copy only the passphrase opens",
-  "  wipe [--yes]                 crypto-erase the vault and its key",
+  "  wipe [--yes]                 crypto-erase the vault and its key (a passphrase vault asks for it)",
 ].join("\n");
 
 /** The fields a terminal asks for without echo: the ones that are secret on their own. */
@@ -183,7 +183,7 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
       case "wipe": {
         if (vault.status().state === "absent") throw new VaultError("absent", "there is no vault to wipe");
         if (!(await confirmed("This erases every secret for good.", "wipe"))) return 1;
-        vault.wipe();
+        await vault.wipe(vault.hasPassphrase() ? await ask("Vault passphrase: ", true) : undefined);
         out("vault wiped");
         return 0;
       }

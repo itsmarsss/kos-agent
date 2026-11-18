@@ -72,7 +72,8 @@ describe("kos secrets", () => {
     const [note] = handle.list();
     expect(await runSecrets(["rm", note!.handle], {}, cli(["a long passphrase", "not it"]))).toBe(1);
     expect(await runSecrets(["rm", note!.handle], { yes: true }, cli(["a long passphrase"]))).toBe(0);
-    expect(await runSecrets(["wipe"], {}, cli(["wipe"]))).toBe(0);
+    expect(await runSecrets(["wipe"], {}, cli(["wipe", "not the passphrase"]))).toBe(1);
+    expect(await runSecrets(["wipe"], {}, cli(["wipe", "a long passphrase"]))).toBe(0);
     expect(existsSync(join(root, "secrets", "vault.kosv"))).toBe(false);
   }, 30_000);
 

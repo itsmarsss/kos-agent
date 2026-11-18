@@ -255,14 +255,15 @@ in `packages/shared/src/secrets.ts`.
 | `GET /api/secrets/:handle/uses?limit=50` | | `{uses: SecretUseRow[]}` |
 | `POST /api/secrets/:handle/reveal` | `{field, passphrase?, label?}` | `{value}` |
 | `POST /api/secrets/rotate` | | `VaultStatus` |
-| `POST /api/secrets/wipe` | `{confirm: "wipe"}` | `VaultStatus` |
+| `POST /api/secrets/wipe` | `{confirm: "wipe", passphrase?}` | `VaultStatus`; a passphrase vault needs its passphrase |
 
 Errors are `{error}`: 400 bad input or a failed step-up, 404 no such handle,
 409 the vault is locked, absent, refused or already there, 423 an env secret,
 429 past the reveal limit.
 
-Passphrase tries (`unlock`, and `current` on the passphrase route) are
-limited to 5 in ten minutes, wrong or right; a wrong one is 400, past the
+Passphrase tries (`unlock`, `current` on the passphrase route, a reveal's
+or a wipe's passphrase) share one budget of 5 in ten minutes, wrong or
+right; a wrong one is 400, past the
 limit 429. Both limits are kept in the workspace database (`secret_tries`,
 a kernel trust table), so a restart does not reset them, and every unlock,
 refused or not, is audited as `secrets.unlock`.

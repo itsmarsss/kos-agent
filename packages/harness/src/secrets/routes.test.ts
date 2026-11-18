@@ -119,6 +119,19 @@ describe("secrets routes", () => {
     expect((await call("POST", "/api/secrets/unlock", { passphrase: "wrong once more" })).status).toBe(400);
   }, 30_000);
 
+  it("wipes a passphrase vault only with its passphrase, and counts the tries with unlock and reveal", async () => {
+    await call("POST", "/api/secrets/init", { passphrase: "the vault passphrase" });
+    const { handle } = (await call("POST", "/api/secrets", login)).body as { handle: string };
+    expect((await call("POST", "/api/secrets/wipe", { confirm: "wipe" })).status).toBe(400);
+    expect((await call("POST", "/api/secrets/wipe", { confirm: "wipe", passphrase: "not the one" })).status).toBe(400);
+    for (let i = 0; i < 2; i++) expect((await call("POST", `/api/secrets/${handle}/reveal`, { field: "password", passphrase: "wrong" })).status).toBe(400);
+    expect((await call("POST", "/api/secrets/unlock", { passphrase: "the vault passphrase" })).status).toBe(200);
+    // Five passphrase tries spent across wipe, reveal and unlock.
+    expect((await call("POST", "/api/secrets/wipe", { confirm: "wipe", passphrase: "the vault passphrase" })).status).toBe(429);
+    clock += REVEAL_WINDOW_MS;
+    expect((await call("POST", "/api/secrets/wipe", { confirm: "wipe", passphrase: "the vault passphrase" })).body).toMatchObject({ state: "absent" });
+  }, 30_000);
+
   it("adds, changes and takes off the passphrase, audited", async () => {
     await call("POST", "/api/secrets/init", {});
     expect((await call("POST", "/api/secrets/passphrase", {})).status).toBe(400);

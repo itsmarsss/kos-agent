@@ -235,7 +235,7 @@ describe("Vault", () => {
   it("wipes by crypto-erase: every file gone, nothing in memory", async () => {
     const vault = await twoSecrets();
     vault.rotateDataKey();
-    vault.wipe();
+    await vault.wipe();
     for (const f of ["vault.kosv", "vault.kosv.prev", "key", "seq"]) expect(existsSync(join(dir, f))).toBe(false);
     expect(vault.status().state).toBe("absent");
     expect(vault.list()).toEqual([]);

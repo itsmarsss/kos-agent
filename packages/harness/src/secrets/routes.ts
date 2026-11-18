@@ -132,6 +132,8 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
     if (!field || !meta.fields.includes(field)) return fail(400, `field is one of ${meta.fields.join(", ")}`);
     if (!admitReveal()) return fail(429, `at most ${REVEALS_PER_WINDOW} reveals in ${REVEAL_WINDOW_MS / 60_000} minutes; try again later`);
     const passphrase = vault.hasPassphrase();
+    // A passphrase asked here is a passphrase guess like an unlock's: one budget for both.
+    if (passphrase && !admitUnlock()) return tooManyTries();
     const audited = (result: string, isError: boolean): void => deps.audit({ tool: "secrets.reveal", args: { handle, field, step: passphrase ? "passphrase" : "label" }, result, isError });
     const proved = passphrase ? await vault.checkPassphrase(text(body.passphrase) ?? "") : text(body.label)?.trim() === meta.label;
     if (!proved) {
@@ -196,7 +198,13 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
       }
       if (method === "POST" && name === "wipe") {
         if (body.confirm !== "wipe") return fail(400, 'confirm with { "confirm": "wipe" }');
-        vault.wipe();
+        if (vault.hasPassphrase() && !admitUnlock()) return tooManyTries();
+        try {
+          await vault.wipe(text(body.passphrase));
+        } catch (err) {
+          if (err instanceof VaultError && err.code === "passphrase") deps.audit({ tool: "secrets.wipe", args: {}, result: "refused: not the passphrase", isError: true });
+          throw err;
+        }
         deps.audit({ tool: "secrets.wipe", args: {}, result: "wiped", isError: false });
         return ok(status());
       }
