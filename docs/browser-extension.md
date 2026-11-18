@@ -377,7 +377,8 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
   checkout, charge, buy, order, transfer, send_money, refund, donate,
   subscribe), and a browser step whose tab or target address is a checkout
   or payment path, or whose page has a card field (`autocomplete` `cc-*`)
-  or reads as a checkout (checkout, place order, buy now, pay now, payment);
+  or reads as a checkout (checkout, place order, buy now, pay now, payment),
+  KOS's own browser steps and an MCP server's alike (`mcpBrowserStep`);
 - a shell line unless every program in it is on a short list of reading,
   building and testing programs, called plainly (by name, not by a path;
   with no assignment before it but CI, NODE_ENV, FORCE_COLOR, NO_COLOR, TZ,
@@ -394,7 +395,13 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
   pinned), so `git fetch`, `pull`, `clone` and installs ask, saying they
   need the network. In the container no shell line is
   covered: the container is the jail there, a command runs unwrapped beside
-  KOS, and nothing narrower holds the network or KOS's ports;
+  KOS, and nothing narrower holds the network or KOS's ports. The same
+  goes for `python.run` wherever the macOS jail does not hold it.
+  An Auto line also writes no repository's config, hooks, info, modules or
+  worktrees, no `.git` file and no git global config under the workspace
+  (`GIT_CONTROL_WRITES`, `gitGlobalConfig`), nothing of `.kos` but its temp
+  and caches, and no `.env`; and it reads none of KOS's settings or a
+  `.env`. `git add` and `git commit` still work;
 - deleting for good: `files.rm` of a whole folder, `files.mv` onto a file
   that is there; a shell line with
   `rm -r`, a forced push, `git reset --hard`, `git clean`, `dd`, `mkfs`,
@@ -405,13 +412,16 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
 - a write into another project's or a blob's folder, or a project's
   command asking to write the whole workspace (the reach rule's
   `beyondAuto`, `tools/home.ts`);
+- an MCP tool named for sending or publishing (send, post, message, email,
+  mail, reply, publish, tweet, comment, invite, share), and an `http.fetch`
+  with a body or a method past GET and HEAD to a host off the owner's list;
 - a message to anyone but the owner (`notify` to a channel or a user) and
   opening a place to others (`discord.audience` past the owner,
   `discord.access`);
 - changing KOS itself or what runs without the owner: `skills.commit`,
   `skills.promote`, `modules.instantiate`, `modules.create`,
   `modules.promote`, `daemons.create`, `daemons.start`, `sites.create`,
-  `cron.schedule`;
+  `cron.schedule`, `builds.run` (a coding agent that runs on its own);
 - speaking in public on the server: `discord.react`, `discord.role`;
 - `browser.eval` and `browser.handoff`;
 - typing on a computer after it reported a password field, until a click
