@@ -17,7 +17,7 @@ function deps(action: PendingAction | undefined, awaited: boolean, over: Partial
     permissions: { ruleFor: (tool, _i, project) => ({ tool, scope: "dir:projects/books", project }), add: (r) => { log.push(`rule:${r.tool}:${r.scope}:${r.project}`); } },
     conversations: { get: () => ({ projectSlug: "books" }) },
     audit: { record: (e) => { log.push(`audit:${e.tool}:${e.isError ? "err" : "ok"}`); } },
-    registry: { execute: async (tool) => { log.push(`run:${tool}`); return { content: "removed", isError: false }; } },
+    registry: { execute: async (tool) => { log.push(`run:${tool}`); return { content: "removed", isError: false }; }, secretSlots: () => undefined },
     secrets: new SecretsRegistry(),
     queue: { enqueue: async (work, lane) => { log.push(`lane:${lane}`); return work(); } },
     inConversation: async (id, work) => { log.push(`in:${id}`); return work(); },
@@ -63,7 +63,7 @@ describe("approving", () => {
     const as = async (asked: { owner: boolean; attended: boolean }): Promise<{ owner: boolean; attended: boolean }> => {
       let seen = { owner: true, attended: true };
       const { d } = deps(pending(asked), false, {
-        registry: { execute: async () => { seen = { owner: isOwnerTurn(), attended: isAttended() }; return { content: "ok", isError: false }; } },
+        registry: { execute: async () => { seen = { owner: isOwnerTurn(), attended: isAttended() }; return { content: "ok", isError: false }; }, secretSlots: () => undefined },
       });
       await new Decisions(d).approve(5);
       return seen;
@@ -73,6 +73,46 @@ describe("approving", () => {
     expect(await as({ owner: false, attended: false })).toEqual({ owner: false, attended: false });
     // A turn nobody attended is never the owner's.
     expect(await as({ owner: true, attended: false })).toEqual({ owner: false, attended: false });
+  });
+
+  it("keeps no rule for a call that sends a secret, even when the owner says remember", async () => {
+    const { d, log } = deps(pending({ tool: "http.fetch", args: JSON.stringify({ url: "https://a.example", headers: { k: "{{secret:openai}}" } }) }), true);
+    await new Decisions(d).approve(5, "owner", { remember: true });
+    expect(log.some((l) => l.startsWith("rule:"))).toBe(false);
+  });
+
+  it("runs an orphaned action with secrets only in its slots, and scrubs what it answered", async () => {
+    const audited: string[] = [];
+    const resumed: string[] = [];
+    let sent: unknown;
+    const { d } = deps(pending({ tool: "http.fetch", args: JSON.stringify({ url: "https://a.example", headers: { k: "{{secret:openai}}" } }) }), false, {
+      secrets: new SecretsRegistry({ openai: "sk-orphan-key" }),
+      registry: {
+        execute: async (_tool, input) => {
+          sent = input;
+          return { content: "echoed sk-orphan-key", isError: false };
+        },
+        secretSlots: () => ({ paths: ["headers.*"], admit: () => undefined }),
+      },
+      audit: { record: (e) => void audited.push(e.result) },
+      handleMessage: async (text) => {
+        resumed.push(text);
+        return { reply: "ok" };
+      },
+    });
+    await new Decisions(d).approve(5);
+    expect(sent).toEqual({ url: "https://a.example", headers: { k: "sk-orphan-key" } });
+    expect([...audited, ...resumed].join("\n")).not.toContain("sk-orphan-key");
+    expect(audited[0]).toBe("echoed [secret openai]");
+
+    const refused: string[] = [];
+    const { d: other } = deps(pending({ tool: "notify", args: JSON.stringify({ text: "{{secret:openai}}" }) }), false, {
+      secrets: new SecretsRegistry({ openai: "sk-orphan-key" }),
+      registry: { execute: async () => ({ content: "sent", isError: false }), secretSlots: () => undefined },
+      audit: { record: (e) => void refused.push(e.result) },
+    });
+    await new Decisions(other).approve(5);
+    expect(refused[0]).toMatch(/notify takes no secret in text/);
   });
 
   it("holds the chat while a sibling is still waiting, then resumes once with every outcome", async () => {
