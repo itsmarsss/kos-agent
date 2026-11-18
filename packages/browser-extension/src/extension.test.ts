@@ -7,6 +7,7 @@ import { Link, said, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { installOverlay } from "./overlay.js";
+import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { checkCommand, forwarded, isWebUrl, Worlds } from "./relay.js";
 import { GRACE_MS, Session } from "./session.js";
@@ -238,6 +239,42 @@ describe("the look", () => {
     expect(source).toContain(kos.ink);
     // Told no theme, the bar is the page's own appearance, as the pages are before KOS sends one.
     expect(source).toMatch(/state\.theme \?\? "system"/);
+  });
+});
+
+describe("KOS's cursor", () => {
+  it("goes to each point KOS's hands act at: gliding for a move, a press or a wheel, following a drag", () => {
+    const mouse = (type: string, extra: Record<string, unknown> = {}) => aimOf("Input.dispatchMouseEvent", { type, x: 10, y: 20, ...extra });
+    expect(mouse("mouseMoved")).toEqual({ at: { x: 10, y: 20 }, how: "move" });
+    expect(mouse("mouseWheel", { deltaY: 300 })).toEqual({ at: { x: 10, y: 20 }, how: "move" });
+    expect(mouse("mousePressed", { button: "left" })).toEqual({ at: { x: 10, y: 20 }, how: "press" });
+    expect(mouse("mouseMoved", { buttons: 1 })).toEqual({ at: { x: 10, y: 20 }, how: "drag" });
+    expect(mouse("mouseReleased")).toEqual({ at: { x: 10, y: 20 }, how: "drag" });
+    expect(aimOf("Input.dispatchDragEvent", { type: "drop", x: 10, y: 20 })).toEqual({ at: { x: 10, y: 20 }, how: "drag" });
+    expect(aimOf("Input.dispatchMouseEvent", { type: "mouseMoved" })).toBeUndefined();
+  });
+
+  it("goes to an element focused or scrolled to, and says KOS is typing for keys and text", () => {
+    expect(aimOf("DOM.focus", { backendNodeId: 7 })).toEqual({ node: { backendNodeId: 7 } });
+    expect(aimOf("DOM.scrollIntoViewIfNeeded", { backendNodeId: 7 })).toEqual({ node: { backendNodeId: 7 } });
+    expect(aimOf("DOM.focus", { nodeId: 7 })).toBeUndefined();
+    expect(aimOf("Input.insertText", { text: "a" })).toEqual({ typing: true });
+    expect(aimOf("Input.dispatchKeyEvent", { type: "keyDown", key: "a" })).toEqual({ typing: true });
+    expect(aimOf("Input.dispatchKeyEvent", { type: "keyUp", key: "a" })).toBeUndefined();
+    expect(aimOf("Runtime.evaluate", { expression: "1" })).toBeUndefined();
+  });
+
+  it("takes an element's middle from its first box with any area", () => {
+    expect(middleOf([[0, 0, 0, 0, 0, 0, 0, 0], [10, 20, 30, 20, 30, 40, 10, 40]])).toEqual({ x: 20, y: 30 });
+    expect(middleOf([])).toBeUndefined();
+    expect(middleOf(undefined)).toBeUndefined();
+  });
+
+  it("wears the dashboard's accent and its ink in both palettes, and never takes the owner's clicks", () => {
+    const source = installOverlay.toString();
+    expect(source).toMatch(/--accent: #7c9cff; --on-accent: #0b0e14;/);
+    expect(source).toMatch(/--accent: #3558d6; --on-accent: #ffffff;/);
+    expect(source).toMatch(/\.cursor \{ position: fixed;[^}]*pointer-events: none;/);
   });
 });
 

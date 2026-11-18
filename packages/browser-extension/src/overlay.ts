@@ -5,9 +5,15 @@
  * still while the owner has it; the bar with KOS's face, two lines and the
  * app's own buttons, capsules inside a capsule. The bar is the owner's to
  * put out of the way: dragged anywhere on the page, or folded to KOS's face
- * by a press on the face, and kept so for the session's other pages. Where
- * KOS points, its own cursor glides there and ripples when it presses, as
- * on the Mac.
+ * by a press on the face, and kept so for the session's other pages.
+ *
+ * KOS's cursor is the Mac's: an arrow in KOS's blue with a halo round its
+ * tip and a tag saying whose it is. It is on the page from the start, in the
+ * middle until KOS points somewhere, glides to each point before KOS acts
+ * there, ripples on a press and stays where it last was, as a pointer does
+ * when the page under it scrolls. It goes while the owner has the tab and
+ * comes back where it was on Hand back. It is in KOS's own pictures, as the
+ * Mac's pointer is in its: at the point KOS just acted on, which KOS knows.
  *
  * Only the top frame draws: a page of frames would otherwise wear a border
  * and a bar in each. Every frame reports the owner's hand, since a click in
@@ -40,15 +46,32 @@ export interface OverlayState {
   bar?: boolean;
 }
 
+/**
+ * How KOS's cursor goes to a point: `move` glides there, `press` glides and
+ * ripples, `drag` follows at once (a held button is its own glide), and
+ * `rest` puts it there unseen, on a new page of the same tab.
+ */
+export type PointHow = "move" | "press" | "drag" | "rest";
+
 export function installOverlay(): void {
   const w = window as unknown as {
-    __kos?: { set(state: OverlayState): void; remove(): void; alive(): void; point(x: number, y: number, press: boolean): void };
+    __kos?: {
+      set(state: OverlayState): void;
+      remove(): void;
+      alive(): void;
+      point(x: number, y: number, how: PointHow): Promise<void>;
+      typing(): void;
+    };
     kosOverlay?: (payload: string) => void;
   };
   if (w.__kos) return;
   const top = window.top === window;
   // Gone unless the extension says otherwise this often: it does every few seconds while the session lasts.
   const ALIVE_MS = 9_000;
+  // A glide takes longer the further it goes, within bounds, as the Mac's does (DeviceCore's Glide).
+  const glideMs = (distance: number): number => (distance < 1 ? 0 : Math.round(150 + 300 * Math.min(1, distance / 1500)));
+  // A held button's moves come every few milliseconds; the cursor follows each at once, smoothed a little.
+  const DRAG_MS = 60;
   const tell = (message: Record<string, unknown>): void => {
     try {
       w.kosOverlay?.(JSON.stringify(message));
@@ -64,8 +87,12 @@ export function installOverlay(): void {
   let take: HTMLButtonElement | null = null;
   let bar: HTMLElement | null = null;
   let cursor: HTMLElement | null = null;
+  let tag: HTMLElement | null = null;
   let face: HTMLElement | null = null;
-  let idle: ReturnType<typeof setTimeout> | undefined;
+  /** Where KOS has pointed, in the page's viewport; until it has, its cursor is in the middle, however the page is resized. */
+  let at: { x: number; y: number } | null = null;
+  const middle = (): { x: number; y: number } => ({ x: innerWidth / 2, y: innerHeight / 2 });
+  let resting: ReturnType<typeof setTimeout> | undefined;
   let removed = false;
   let lastAlive = Date.now();
 
@@ -88,6 +115,20 @@ export function installOverlay(): void {
     bar.style.left = `${x}px`;
     bar.style.top = `${y}px`;
   };
+  /** The cursor's tip on a point, over `ms`: answered when it is there. */
+  const goTo = (to: { x: number; y: number }, ms: number): Promise<void> => {
+    if (!cursor) return Promise.resolve();
+    cursor.style.setProperty("--glide", `${ms}ms`);
+    cursor.style.transform = `translate(${to.x}px, ${to.y}px)`;
+    return new Promise((r) => (ms ? setTimeout(r, ms) : r()));
+  };
+  const ripple = (): void => {
+    if (!cursor) return;
+    cursor.classList.remove("press");
+    void cursor.offsetWidth;
+    cursor.classList.add("press");
+  };
+
   const render = (): void => {
     if (!host || !title || !text || !take || !left) return;
     host.dataset["paused"] = state.paused ? "1" : "";
@@ -123,11 +164,11 @@ export function installOverlay(): void {
     const kos = { fill: "#3585ed", ink: "#141d29" };
     // The light palette, the dashboard's light tokens: on its own choice, or on the page's light appearance under "system".
     // The bar is opaque, edged in its tone and shadowed either way, so it reads on a light site and a dark one alike.
-    const light = `--accent: #3558d6; --violet: #7b4fd6; --warn: #7d5400; --danger: #cf3b47;
+    const light = `--accent: #3558d6; --on-accent: #ffffff; --violet: #7b4fd6; --warn: #7d5400; --danger: #cf3b47;
         --bar: rgba(255, 255, 255, 0.97); --ink: #161a22; --sub: #58607a; --btn: #eceef3; --btn-line: #dde1e8; --btn-line-lit: #bfc6d3;
         --btn-lit: #dde1e8; --cast: rgba(16, 24, 40, 0.2);`;
     shadow.innerHTML = `<style>
-      :host { --accent: #7c9cff; --violet: #a57cff; --warn: #e6b84d; --danger: #f07178; --tone: var(--accent);
+      :host { --accent: #7c9cff; --on-accent: #0b0e14; --violet: #a57cff; --warn: #e6b84d; --danger: #f07178; --tone: var(--accent);
         --bar: rgba(18, 21, 28, 0.96); --ink: #e7ebf3; --sub: #8b93a7; --btn: #181c26; --btn-line: #262b36; --btn-line-lit: #3a4150;
         --btn-lit: rgba(38, 43, 54, 0.7); --cast: rgba(0, 0, 0, 0.35); }
       :host([data-theme="light"]) { ${light} }
@@ -173,16 +214,21 @@ export function installOverlay(): void {
       button:hover { border-color: var(--btn-line-lit); background: var(--btn-lit); }
       button.stop { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
       button.stop:hover { background: color-mix(in srgb, var(--danger) 17%, transparent); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
-      .cursor { position: fixed; left: 0; top: 0; width: 22px; height: 22px; pointer-events: none; opacity: 0; transform: translate(-100px, -100px);
-        transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1), opacity 240ms ease; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45)); }
-      .cursor.shown { opacity: 1; }
-      .cursor svg { display: block; }
-      .cursor i { position: absolute; left: -12px; top: -12px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
-      .cursor.press i { animation: ripple 420ms ease-out; }
-      @keyframes ripple { from { opacity: 0.9; transform: scale(0.3); } to { opacity: 0; transform: scale(1.6); } }
-      @media (prefers-reduced-motion: reduce) { .glow, .face b { animation: none; } .cursor { transition: opacity 240ms ease; } }
+      .cursor { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; transition: transform var(--glide, 0ms) cubic-bezier(0.32, 0.72, 0, 1); }
+      :host([data-paused="1"]) .cursor { visibility: hidden; }
+      .cursor svg { position: absolute; left: 0; top: 0; overflow: visible; filter: drop-shadow(0 0 5px var(--accent)); }
+      .cursor .halo { position: absolute; left: -15px; top: -15px; width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%;
+        background: color-mix(in srgb, var(--accent) 16%, transparent); border: 1.2px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+      .cursor .ring { position: absolute; left: -18px; top: -18px; width: 36px; height: 36px; box-sizing: border-box; border-radius: 50%; opacity: 0;
+        background: color-mix(in srgb, var(--accent) 18%, transparent); border: 2px solid var(--accent); }
+      .cursor.press .ring { animation: ripple 450ms ease-out; }
+      @keyframes ripple { from { opacity: 0.95; transform: scale(0.35); } to { opacity: 0; transform: scale(1.5); } }
+      .cursor .tag { position: absolute; left: 14px; top: 28px; height: 16px; padding: 0 6px; border-radius: 6px; white-space: nowrap;
+        background: var(--accent); color: var(--on-accent); font: 600 10px/16px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+      @media (prefers-reduced-motion: reduce) { .glow, .face b { animation: none; } .cursor { transition: none; } }
     </style>
-    <div class="cursor"><i></i><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M3 2.5v15.2l4.2-4.1 2.7 6.1 2.6-1.1-2.7-6h5.9z" style="fill: var(--accent)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
+    <div class="cursor"><span class="halo"></span><span class="ring"></span><svg width="19" height="30" viewBox="0 0 19 30" aria-hidden="true"><path d="M0 0V25.5L6.3 19.95 10.5 29.25 14.4 27.6 10.35 18.45H18.75Z" style="fill: var(--accent)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg><span class="tag">KOS</span></div>
     <div class="glow"></div>
     <div class="bar"><span class="face"><svg viewBox="0 0 100 100" aria-hidden="true"><path/></svg><i></i><i></i><b></b></span><span class="words"><span class="title"></span><span class="sub"><span class="text"></span><span class="left"></span></span></span><button data-act="take"></button><button class="stop" data-act="stop">Stop</button></div>`;
     title = shadow.querySelector(".title");
@@ -191,7 +237,9 @@ export function installOverlay(): void {
     take = shadow.querySelector('button[data-act]:not(.stop)');
     bar = shadow.querySelector(".bar");
     cursor = shadow.querySelector(".cursor");
+    tag = shadow.querySelector(".tag");
     face = shadow.querySelector(".face");
+    void goTo(at ?? middle(), 0);
     // A drag moves the bar; a press that does not move is a press, and on the face it folds the bar.
     // Whether it began on the face is kept: with the pointer captured, the release is the bar's, not the face's.
     let drag: { id: number; dx: number; dy: number; x0: number; y0: number; moved: boolean; face: boolean } | null = null;
@@ -218,7 +266,10 @@ export function installOverlay(): void {
       if (moved && state.at) tell({ kind: "place", ...state.at });
       else if (onFace && state.bar !== false) tell({ kind: "fold", folded: !state.folded });
     });
-    addEventListener("resize", place);
+    addEventListener("resize", () => {
+      place();
+      if (!at) void goTo(middle(), 0);
+    });
     shadow.addEventListener(
       "click",
       (e) => {
@@ -269,19 +320,26 @@ export function installOverlay(): void {
     alive() {
       lastAlive = Date.now();
     },
-    // KOS's pointer, where its hands are about to act: glides there, and ripples on a press.
-    point(x, y, press) {
-      if (!cursor) return;
+    // KOS's cursor to where its hands are about to act: answered once it is there, so the act comes after the glide.
+    point(x, y, how) {
       lastAlive = Date.now();
-      cursor.classList.add("shown");
-      cursor.style.transform = `translate(${x - 3}px, ${y - 2}px)`;
-      if (press) {
-        cursor.classList.remove("press");
-        void cursor.offsetWidth;
-        cursor.classList.add("press");
-      }
-      clearTimeout(idle);
-      idle = setTimeout(() => cursor?.classList.remove("shown"), 4_000);
+      const from = at ?? middle();
+      at = { x, y };
+      if (!cursor) return Promise.resolve();
+      const shown = document.visibilityState === "visible" && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const ms = !shown || how === "rest" ? 0 : how === "drag" ? DRAG_MS : glideMs(Math.hypot(x - from.x, y - from.y));
+      const arrived = goTo(at, ms);
+      if (how === "press") void arrived.then(ripple);
+      return how === "move" || how === "press" ? arrived : Promise.resolve();
+    },
+    // While KOS types, the tag says so; it settles back once the typing stops.
+    typing() {
+      if (!tag) return;
+      tag.textContent = "KOS · typing";
+      clearTimeout(resting);
+      resting = setTimeout(() => {
+        if (tag) tag.textContent = "KOS";
+      }, 800);
     },
   };
   // Re-read the time left, and go if the extension has not been heard from: the session is over.
