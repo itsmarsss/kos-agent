@@ -1,8 +1,11 @@
 import {
+  closeSync,
   copyFileSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -51,17 +54,29 @@ function optInt(input: Record<string, unknown>, key: string, least = 1, what = "
 /** The most of a text file one read hands back, as the most of a PDF's text one read does. */
 export const TEXT_READ_MAX = PDF_TEXT_MAX;
 
+/** Bytes `from` up to `to` of a file, read alone. */
+function readRange(abs: string, from: number, to: number): Buffer {
+  const fd = openSync(abs, "r");
+  try {
+    const out = Buffer.alloc(Math.max(0, to - from));
+    return out.subarray(0, readSync(fd, out, 0, out.byteLength, from));
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /**
  * A text file whole when it is small and no part was asked for; otherwise
  * the bytes asked for, at most TEXT_READ_MAX, headed by where they sit in
- * the file and where to read on.
+ * the file and where to read on. Only those bytes are read.
  */
-function textRead(bytes: Buffer, offset: number | undefined, limit: number | undefined): string {
-  if (offset === undefined && limit === undefined && bytes.byteLength <= TEXT_READ_MAX) return bytes.toString("utf8");
-  const from = Math.min(offset ?? 0, bytes.byteLength);
-  const to = Math.min(bytes.byteLength, from + Math.min(limit ?? TEXT_READ_MAX, TEXT_READ_MAX));
-  const on = to < bytes.byteLength ? `; read on with offset: ${to}` : "";
-  return `[text, ${bytes.byteLength} bytes, bytes ${from} to ${to}${on}]\n${bytes.subarray(from, to).toString("utf8")}`;
+function textRead(abs: string, offset: number | undefined, limit: number | undefined): string {
+  const size = statSync(abs).size;
+  if (offset === undefined && limit === undefined && size <= TEXT_READ_MAX) return readFileSync(abs, "utf8");
+  const from = Math.min(offset ?? 0, size);
+  const to = Math.min(size, from + Math.min(limit ?? TEXT_READ_MAX, TEXT_READ_MAX));
+  const on = to < size ? `; read on with offset: ${to}` : "";
+  return `[text, ${size} bytes, bytes ${from} to ${to}${on}]\n${readRange(abs, from, to).toString("utf8")}`;
 }
 
 /** A PDF's text, headed by what was read of it and, when the cap cut it, where to read on. */
@@ -151,13 +166,15 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     },
     async (input) => {
       const abs = fenced(str(input, "path"), "read");
-      const bytes = readFileSync(abs);
-      if (isPdf(bytes)) return pdfRead(bytes, optInt(input, "from"), optInt(input, "to"));
-      if (isOffice(bytes, abs)) {
+      // Its head says what it is; a text file is then read only as far as asked, however long it is.
+      const head = readRange(abs, 0, 8);
+      if (isPdf(head) || isOffice(head, abs)) {
+        const bytes = readFileSync(abs);
+        if (isPdf(bytes)) return pdfRead(bytes, optInt(input, "from"), optInt(input, "to"));
         const read = officeText(new Uint8Array(bytes), abs);
         return `[${officeNote(read)}]\n${read.text}`;
       }
-      return textRead(bytes, optInt(input, "offset", 0, "a byte offset, from 0"), optInt(input, "limit", 1, "a number of bytes, from 1"));
+      return textRead(abs, optInt(input, "offset", 0, "a byte offset, from 0"), optInt(input, "limit", 1, "a number of bytes, from 1"));
     },
     SAFE,
   );
