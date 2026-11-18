@@ -129,6 +129,19 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  @Test func theAskCards() throws {
+    for (name, ask) in AskCases.all {
+      let card = AskCard(ask: ask) { _, _, _ in }.padding(12).frame(width: ChatView.size.width).background(Theme.bg)
+      let size = try render("ask-\(name)", card, width: ChatView.size.width)
+      #expect(size.width <= ChatView.size.width + 0.5)
+    }
+    // Details unfolded: fields by name, a list numbered, a long string cut, in a box that scrolls.
+    for (name, ask) in AskCases.all where name == "browser" || name == "email" {
+      let details = AskDetails(tool: ask.tool, args: ask.args ?? "", open: true).padding(12).frame(width: ChatView.size.width).background(Theme.panel)
+      _ = try render("ask-\(name)-details", details, width: ChatView.size.width)
+    }
+  }
+
   /// A picture of a screen, as a step would have taken: a window over a desktop, in one colour each.
   private func screenshot(_ hue: CGFloat) throws -> String {
     let w = 1232, h = 800

@@ -203,7 +203,7 @@ extension Routes.Pending {
   /// The ask as the chat's card holds it, to decide in the same sheet.
   var ask: ChatModel.Ask {
     .init(
-      id: String(id), tool: tool, summary: summary, args: args, mechanics: mechanics, why: why, reason: reason, always: always, expires: expiresAt?.at,
-      chat: conversationId)
+      id: String(id), tool: tool, summary: summary, title: title, args: args, mechanics: mechanics, steps: steps, place: place, site: site,
+      risk: risk, why: why, reason: reason, always: always, alwaysTip: alwaysTip, asker: asker, expires: expiresAt?.at, chat: conversationId)
   }
 }

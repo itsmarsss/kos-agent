@@ -119,34 +119,84 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
   public var turnChat: String? { chat ?? conversation }
 }
 
-/// An approval to decide in the window: the tool, what it would be given, and why.
+/// A piece of an ask's step line (`@kos/shared` StepPiece): words, or one key chord as its keycap ("⌘−").
+public enum StepPiece: Decodable, Equatable, Sendable {
+  case text(String)
+  case key(String)
+
+  private enum Keys: String, CodingKey { case text, key }
+
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: Keys.self)
+    if let key = try c.decodeIfPresent(String.self, forKey: .key) {
+      self = .key(key)
+    } else {
+      self = .text(try c.decode(String.self, forKey: .text))
+    }
+  }
+
+  /// The piece as plain words, a key as its cap.
+  public var words: String {
+    switch self {
+    case .text(let text), .key(let text): return text
+    }
+  }
+}
+
+/// One line of an ask's steps: "Press ", ⌘−, " 4 times, then ", ⌘Home.
+public typealias StepLine = [StepPiece]
+
+/// An approval to decide in the window, as every card lays it out (`askView`): what KOS wants to do, where, each
+/// action it takes, why it asks and what a remembered yes keeps; then the arguments, cut to fit, for Details.
 public struct ChatApproval: Decodable, Equatable, Sendable {
   public let id: String
   public let tool: String
-  /// The action in words with its ids named, as the Inbox titles it.
+  /// The action in words with its ids named, as the Inbox lists it.
   public let summary: String?
+  /// What the card leads with: the step's purpose, or what a run of actions acts on.
+  public let title: String?
   public let args: String?
   /// Every action a step said by its purpose takes, which the arguments, cut to fit, may not reach.
   public let mechanics: String?
+  /// The same actions as lines, keys as caps, repeats counted.
+  public let steps: [StepLine]?
+  /// Where it acts: "In your Chrome on docs.google.com".
+  public let place: String?
+  /// The site it acts on, for its icon.
+  public let site: String?
+  /// Why it asks, as a phrase: "Clicks, types or fills on the page".
+  public let risk: String?
   public let why: String?
   public let reason: String?
   /// What a remembered yes covers, as its button says it, when one may be.
   public let always: String?
+  /// What that yes keeps, exactly, and where to take it back.
+  public let alwaysTip: String?
+  /// Who asks, by the name the owner knows the chat by.
+  public let asker: String?
   /// When it is decided for the owner if they do not, epoch milliseconds.
   public let expiresAt: Double?
 
   public init(
-    id: String, tool: String, summary: String? = nil, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil,
-    always: String? = nil, expiresAt: Double? = nil
+    id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
+    steps: [StepLine]? = nil, place: String? = nil, site: String? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
+    always: String? = nil, alwaysTip: String? = nil, asker: String? = nil, expiresAt: Double? = nil
   ) {
     self.id = id
     self.tool = tool
     self.summary = summary
+    self.title = title
     self.args = args
     self.mechanics = mechanics
+    self.steps = steps
+    self.place = place
+    self.site = site
+    self.risk = risk
     self.why = why
     self.reason = reason
     self.always = always
+    self.alwaysTip = alwaysTip
+    self.asker = asker
     self.expiresAt = expiresAt
   }
 }

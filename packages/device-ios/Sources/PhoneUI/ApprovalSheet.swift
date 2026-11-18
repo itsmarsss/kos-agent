@@ -1,10 +1,10 @@
 import DeviceKit
 import SwiftUI
 
-/// What waits on the owner, decided in one tap: what KOS would run, every
-/// step it takes (the ask's mechanics, never cut), why, and when it lapses;
-/// Deny and Approve for the thumb, and the remembered yes when one may be.
-/// The arguments fold away under Details. Several waiting, the oldest first.
+/// What waits on the owner, decided in one tap: what KOS wants to do and
+/// where, every step it takes, why, and when it lapses; Approve, the
+/// remembered yes when one may be, and Deny for the thumb. The arguments fold
+/// away under Details. Several waiting, the oldest first.
 struct ApprovalSheet: View {
   @ObservedObject var chat: ChatModel
   let close: () -> Void
@@ -30,7 +30,8 @@ struct ApprovalSheet: View {
   }
 }
 
-/// One ask, as the sheet lays it out.
+/// One ask, as the sheet lays it out: the dashboard's card (`AskSummary`, `AskDetails`) under who asks, then how
+/// long it has and the buttons for the thumb, full width, Approve first.
 struct AskBody: View {
   let ask: ChatModel.Ask
   /// How many more wait after this one.
@@ -38,22 +39,14 @@ struct AskBody: View {
   /// The chat it is for, when it is not the one shown: an ask opened from the glance.
   var from: String? = nil
   let answer: (_ approved: Bool, _ remember: Bool) -> Void
-  @State private var details = false
-  @Environment(\.accessibilityReduceMotion) private var still
-
-  /// The steps, one to a line, as the ask's mechanics say them.
-  private var steps: [String] {
-    (ask.mechanics ?? "").split(whereSeparator: \.isNewline).map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack(spacing: 12) {
         KOSFace(size: 44, mood: .needsYou)
         VStack(alignment: .leading, spacing: 2) {
-          Text("KOS asks to run").font(.kos(.detail, .semibold)).foregroundStyle(Theme.warn)
-          Text(ask.tool).font(.kos(.title, .semibold, design: .monospaced)).lineLimit(2)
-          if let from { Text("For \(from)").font(.kos(.detail)).foregroundStyle(Theme.muted).lineLimit(1) }
+          Text((from ?? ask.asker).map { "\($0) asks" } ?? "KOS asks").font(.kos(.detail, .semibold)).foregroundStyle(Theme.warn).lineLimit(1)
+          Text(ask.tool).font(.kos(.detail, design: .monospaced)).foregroundStyle(Theme.faint).lineLimit(1)
         }
         Spacer(minLength: 0)
         if more > 0 { Pill("\(more) more", tone: .warn) }
@@ -62,44 +55,8 @@ struct AskBody: View {
 
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
-          if !steps.isEmpty {
-            KOSSection("Steps") {
-              Card(padding: EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12), spacing: 6) {
-                ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
-                  HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(verbatim: "\(i + 1).").monospacedDigit().foregroundStyle(Theme.faint).frame(minWidth: 16, alignment: .trailing)
-                    Text(step).fixedSize(horizontal: false, vertical: true)
-                  }
-                  .font(.kos(.dense))
-                }
-              }
-            }
-          }
-          if let why = ask.why ?? ask.reason {
-            KOSSection("Why") {
-              Text(why).font(.kos(.dense)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
-            }
-          }
-          if let args = ask.args {
-            Button {
-              withAnimation(still ? nil : Theme.spring) { details.toggle() }
-            } label: {
-              Chip("Details", symbol: "curlybraces", opens: details)
-            }
-            .buttonStyle(.plain)
-            .frame(minHeight: 44)
-            .accessibilityLabel(details ? "Hide the details" : "Show the details")
-            if details {
-              Text(args)
-                .font(.kos(.small, design: .monospaced))
-                .foregroundStyle(Theme.muted)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(Theme.bg, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-                .transition(.opacity)
-            }
-          }
+          AskSummary(ask)
+          if let args = ask.args { AskDetails(tool: ask.tool, args: args) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -107,19 +64,17 @@ struct AskBody: View {
 
       if let expires = ask.expires { Lapse(until: expires) }
       VStack(spacing: 8) {
-        HStack(spacing: 10) {
-          Button("Deny") { answer(false, false) }
-            .buttonStyle(KOSButtonStyle(.danger, large: true))
-            .accessibilityHint("KOS will not run \(ask.tool)")
-          Button("Approve") { answer(true, false) }
-            .buttonStyle(KOSButtonStyle(.primary, large: true))
-            .accessibilityHint("KOS runs \(ask.tool) once")
-        }
+        Button("Approve") { answer(true, false) }
+          .buttonStyle(KOSButtonStyle(.primary, large: true))
+          .accessibilityHint("KOS runs \(ask.tool) once")
         if let always = ask.always {
           Button(always) { answer(true, true) }
-            .buttonStyle(KOSButtonStyle(.ghost, large: true))
-            .accessibilityHint("Approves, and stops asking for this")
+            .buttonStyle(KOSButtonStyle(.secondary, large: true))
+            .accessibilityHint(ask.alwaysTip ?? "Approves, and stops asking for this")
         }
+        Button("Deny") { answer(false, false) }
+          .buttonStyle(KOSButtonStyle(.secondary, large: true))
+          .accessibilityHint("KOS will not run \(ask.tool)")
       }
     }
     .padding(.horizontal, 20)

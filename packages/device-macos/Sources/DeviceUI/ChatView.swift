@@ -492,45 +492,82 @@ private struct ConsentCard: View {
   }
 }
 
-/// An approval to decide in the thread, as the panel's card asks it: what KOS would run, why, with what, and the dashboard's buttons.
-private struct AskCard: View {
+/// An approval to decide in the thread, as the dashboard's card asks it (`AskSummary`): who asks and how long it
+/// has, what KOS wants to do and where, each step with its keys as keycaps, why, the arguments under Details, then
+/// Deny, the remembered yes and Approve at one height. Focused, Return approves and Escape or ⌘⌫ denies.
+struct AskCard: View {
   let ask: ChatModel.Ask
   let answer: (String, Bool, Bool) -> Void
+  @FocusState private var focused: Bool
 
   var body: some View {
     Card(tone: Theme.warn, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
-      SectionLabel("KOS asks to run")
-      Text(ask.tool).font(.kos(.dense, .semibold, design: .monospaced))
-      // The actions the yes is for, whole: the arguments under them are cut at eight lines.
-      if let mechanics = ask.mechanics {
-        Text(mechanics).font(.kos(.detail)).fixedSize(horizontal: false, vertical: true)
-      }
-      if let why = ask.why ?? ask.reason {
-        Text(why).font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-      }
-      if let args = ask.args {
-        Text(args)
-          .font(.kos(.small, design: .monospaced))
-          .foregroundStyle(Theme.muted)
-          .lineLimit(8)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(8)
-          .background(Theme.bg, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-      }
-      HStack(spacing: 6) {
-        Button("Approve") { answer(ask.id, true, false) }.buttonStyle(KOSButtonStyle(.primary))
-        if let always = ask.always { Button(always) { answer(ask.id, true, true) }.buttonStyle(KOSButtonStyle(.secondary)).help("Approve, and stop asking for this") }
-        Button("Deny") { answer(ask.id, false, false) }.buttonStyle(KOSButtonStyle(.danger))
+      HStack(alignment: .firstTextBaseline) {
+        SectionLabel(ask.asker.map { "\($0) asks" } ?? "KOS asks")
+        Spacer(minLength: 6)
         if let expires = ask.expires {
-          Spacer(minLength: 4)
           TimelineView(.periodic(from: .now, by: 1)) { context in
-            Text("Times out in \(secondsLeft(until: expires, now: context.date))")
+            Text("lapses in \(secondsLeft(until: expires, now: context.date))")
               .font(.kos(.detail).monospacedDigit())
-              .foregroundStyle(Theme.faint)
+              .foregroundStyle(expires.timeIntervalSince(context.date) <= 15 ? Theme.warn : Theme.faint)
           }
         }
       }
+      AskSummary(ask)
+      if let args = ask.args { AskDetails(tool: ask.tool, args: args) }
+      // One row at the foot when it fits; else one to a row, full width, Approve first.
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 6) {
+          Spacer(minLength: 0)
+          deny(wide: false)
+          always(wide: false)
+          approve(wide: false)
+        }
+        VStack(spacing: 6) {
+          approve(wide: true)
+          always(wide: true)
+          deny(wide: true)
+        }
+      }
+      .padding(.top, 2)
     }
+    .focusable()
+    .focused($focused)
+    .focusEffectDisabled()
+    .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd + 2, style: .continuous).strokeBorder(Theme.accent, lineWidth: 2).padding(-3).opacity(focused ? 1 : 0))
+    .onKeyPress(.return) {
+      answer(ask.id, true, false)
+      return .handled
+    }
+    .onKeyPress(.escape) {
+      answer(ask.id, false, false)
+      return .handled
+    }
+    .onKeyPress(.delete, phases: .down) { press in
+      guard press.modifiers.contains(.command) else { return .ignored }
+      answer(ask.id, false, false)
+      return .handled
+    }
+  }
+
+  private func approve(wide: Bool) -> some View {
+    Button { answer(ask.id, true, false) } label: { Text("Approve").frame(maxWidth: wide ? .infinity : nil) }
+      .buttonStyle(KOSButtonStyle(.primary))
+      .help("Approve (Return)")
+  }
+
+  @ViewBuilder private func always(wide: Bool) -> some View {
+    if let always = ask.always {
+      Button { answer(ask.id, true, true) } label: { Text(always).frame(maxWidth: wide ? .infinity : nil) }
+        .buttonStyle(KOSButtonStyle(.secondary))
+        .help(ask.alwaysTip ?? "Approves this, and stops asking for the same again. Undo it in Settings, Permissions.")
+    }
+  }
+
+  private func deny(wide: Bool) -> some View {
+    Button { answer(ask.id, false, false) } label: { Text("Deny").frame(maxWidth: wide ? .infinity : nil) }
+      .buttonStyle(KOSButtonStyle(.secondary))
+      .help("Deny (Esc)")
   }
 }
 

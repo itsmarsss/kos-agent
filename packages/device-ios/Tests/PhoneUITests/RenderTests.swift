@@ -67,10 +67,7 @@ struct RenderTests {
       ])
   }
 
-  private static let ask = ChatModel.Ask(
-    id: "41", tool: "shell.run", args: #"{"command":"git -C ~/kos-workspace/garden push origin main"}"#,
-    mechanics: "run: git -C garden push origin main\nthen: report what was pushed", why: "Push the garden plan you approved this morning.",
-    always: "Always for git push", expires: Date().addingTimeInterval(4 * 60 + 12), chat: "phone:owner")
+  private static let ask = AskCases.all[0].ask
 
   static func glance() -> Glance {
     let now = Date().timeIntervalSince1970 * 1000
@@ -165,6 +162,21 @@ struct RenderTests {
     try render("chat-ask", only: ["390"]) { Tabbed { ChatScreen(phone: phone) } }
     try render("approval") {
       SheetOver(height: 0.62) { Tabbed { ChatScreen(phone: phone) } } sheet: { ApprovalSheet(chat: phone.chat) {} }
+    }
+  }
+
+  @Test func theAskCases() throws {
+    let phone = Phone.preview()
+    conversation(phone)
+    for (name, ask) in AskCases.all {
+      try render("approval-\(name)", only: ["390"]) {
+        SheetOver(height: 0.8) { Tabbed { ChatScreen(phone: phone) } } sheet: {
+          AskBody(ask: ask, more: 0) { _, _ in }.frame(maxHeight: .infinity, alignment: .top)
+        }
+      }
+    }
+    try render("approval-details", only: ["390"]) {
+      AskDetails(tool: AskCases.all[2].ask.tool, args: AskCases.all[2].ask.args ?? "", open: true).padding(20).frame(maxHeight: .infinity, alignment: .top).background(Theme.panel)
     }
   }
 
