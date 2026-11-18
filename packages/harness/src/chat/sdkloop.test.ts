@@ -106,6 +106,13 @@ describe("a turn on the SDK", () => {
     expect(Object.keys(options["mcpServers"] as object)).toEqual(["kos"]);
   });
 
+  it("writes no transcript to disk, in the workspace or the owner's home", async () => {
+    run.queries = [];
+    run.script = steps(1, "notify");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["notify"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(run.queries[0]!.options["persistSession"]).toBe(false);
+  });
+
   it("holds the turn to its step limit across every fresh query, unless given a turn's own", async () => {
     run.queries = [];
     run.script = steps(50);
