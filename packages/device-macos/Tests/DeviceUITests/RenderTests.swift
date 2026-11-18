@@ -392,6 +392,30 @@ struct RenderTests {
     #expect(size.height == SessionBar.height + 28)
   }
 
+  @Test func sessionBarAtAStepAndWaiting() throws {
+    let model = SessionBarModel(task: "Export the deck from Keynote as a PDF", until: Date().addingTimeInterval(12 * 60))
+    model.step = "Open the File menu (click)"
+    let size = try render("bar-step", SessionBar(model: model))
+    model.waiting = true
+    #expect(try render("bar-waiting", SessionBar(model: model)) == size)
+  }
+
+  /// The menu bar's menu at its head, in each state: every row one height, the head over them.
+  @Test func turnMenu() throws {
+    let ask = ChatModel.Ask(id: "a1", tool: "computer.act", summary: "Click Submit on the engagement form", chat: "mac:owner")
+    let turns: [(String, MenuTurn)] = [
+      ("working", MenuTurn(state: .working, step: "Open the Quizzes tab (click)", task: "Fill in the form", session: true)),
+      ("working-chat", MenuTurn(state: .working, step: "Thinking")),
+      ("waiting", MenuTurn(state: .waiting, step: "Click Submit (click)", task: "Fill in the form", ask: ask, session: true)),
+      ("paused", MenuTurn(state: .paused, task: "Fill in the form", kos: "home.local", session: true)),
+    ]
+    for (name, turn) in turns {
+      // On the menu's own ground, which the menu bar draws under it.
+      let size = try render("menu-\(name)", TurnMenu(turn: turn, actions: MenuTurnActions()).background(Theme.panel))
+      #expect(size.width == TurnMenu.width)
+    }
+  }
+
   @Test func consent() throws {
     let model = ConsentModel(
       task: "Open the Figma file from yesterday and export the cover frame", requester: "Design",

@@ -4,6 +4,7 @@ import Foundation
 public enum CallMethod: String, CaseIterable, Sendable {
   case sessionBegin = "session.begin"
   case sessionEnd = "session.end"
+  case sessionStatus = "session.status"
   case screenCapture = "screen.capture"
   case pointerMove = "pointer.move"
   case pointerClick = "pointer.click"
@@ -40,6 +41,13 @@ public struct SessionBeginParams: Decodable, Sendable {
 
 public struct SessionRef: Decodable, Sendable {
   public let session: String
+}
+
+/// What KOS says the session is at: the step under way, and whether its chat waits on the owner. Either may be left out.
+public struct SessionStatusParams: Decodable, Sendable {
+  public let session: String
+  public let step: String?
+  public let waiting: Bool?
 }
 
 public struct CaptureParams: Decodable, Sendable {
