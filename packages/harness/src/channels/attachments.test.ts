@@ -3,6 +3,7 @@ import type { Message } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { PICTURES } from "../files/images.fixture.js";
+import { FILE_MAX_BYTES } from "../kernel/attachments.js";
 import { collectAttachments } from "./discord.js";
 
 /**
@@ -108,6 +109,13 @@ describe("attachments sent on discord", () => {
     );
     expect(attachments).toEqual([]);
     expect(skipped).toEqual(["huge.png (120.0 MB, too large: files go up to 100 MB)"]);
+  });
+
+  it("stops a download that runs past 100 MB, whatever size Discord said", async () => {
+    files["/liar.png"] = { body: Buffer.alloc(FILE_MAX_BYTES + 1024 * 1024, 1), status: 200 };
+    const { attachments, skipped } = await collectAttachments(fakeMessage([{ name: "liar.png", url: `${base}/liar.png`, size: 10, contentType: "image/png" }]));
+    expect(attachments).toEqual([]);
+    expect(skipped[0]).toMatch(/^liar\.png \(100\.\d MB, too large: files go up to 100 MB\)$/);
   });
 
   it("takes an iPhone's HEIC, whatever type Discord gives it, and a picture past the old 5 MB", async () => {

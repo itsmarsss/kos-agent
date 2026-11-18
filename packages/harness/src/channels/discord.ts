@@ -782,6 +782,34 @@ export function bindingOf(
  * identity mapping) before it touches anything, so it enforces the gate without
  * knowing who the owner is.
  */
+/**
+ * A file's bytes, read as they arrive and given up on past FILE_MAX_BYTES:
+ * the size Discord reports is not the size that arrives, so the cap is kept
+ * on what came, not on what was said. The bytes read when it gave up, past
+ * the cap; undefined when it could not be fetched.
+ */
+async function download(url: string): Promise<Buffer | number | undefined> {
+  const res = await fetch(url);
+  if (!res.ok || !res.body) return undefined;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  // Leaving the loop early cancels the download.
+  for await (const chunk of res.body) {
+    total += chunk.byteLength;
+    if (total > FILE_MAX_BYTES) return total;
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * What a guest attached, by name alone: a guest's files are never kept or
+ * read (the turn is told they came), so they are not fetched either.
+ */
+export function guestAttachments(message: Message): Attachment[] {
+  return [...(message.attachments?.values?.() ?? [])].map((file) => ({ name: file.name, mediaType: file.contentType ?? "", data: "" }));
+}
+
 /** A file past what KOS takes of one, as every surface says it. */
 const tooLarge = (name: string, bytes: number): string => `${name} (${megabytes(bytes)}, too large: files go up to ${FILE_MAX_BYTES / 1024 / 1024} MB)`;
 
@@ -817,16 +845,13 @@ export async function collectAttachments(
       continue;
     }
     try {
-      const res = await fetch(file.url);
-      if (!res.ok) {
+      const bytes = await download(file.url);
+      if (bytes === undefined) {
         skipped.push(`${name} (could not fetch)`);
         continue;
       }
-      const bytes = Buffer.from(await res.arrayBuffer());
-      // Checked again after the fact: the size Discord reported is not the
-      // size that arrived, and the cap exists to bound what is sent to a model.
-      if (bytes.byteLength > FILE_MAX_BYTES) {
-        skipped.push(tooLarge(name, bytes.byteLength));
+      if (typeof bytes === "number") {
+        skipped.push(tooLarge(name, bytes));
         continue;
       }
       attachments.push({
@@ -1395,7 +1420,7 @@ export class DiscordAdapter implements ChannelAdapter {
     const { binding, guest } = admitted;
     /** What was said in a mention-gated room since its chat last heard, when this message is one it hears. */
     const unheard = admitted.gated ? await this.unheardIn(message) : "";
-    const { attachments, skipped } = await collectAttachments(message);
+    const { attachments, skipped } = guest ? { attachments: guestAttachments(message), skipped: [] } : await collectAttachments(message);
     // A file KOS cannot read is said out loud rather than dropped, so the
     // owner is not left asking about a picture it was never shown.
     const note = skipped.length
