@@ -76,6 +76,12 @@ describe("what a spawned skill inherits", () => {
 });
 
 describe("where user-installed tools are found", () => {
+  it("keeps only absolute PATH entries outside the child's home", async () => {
+    const { childEnv } = await import("./env.js");
+    const env = childEnv({ home: "/ws" }, {}, { PATH: "/usr/bin:.:bin:/ws/bin:/ws:/wsx/bin:/bin" }, []);
+    expect(env.PATH).toBe("/usr/bin:/wsx/bin:/bin");
+  });
+
   it("puts the user's bin directories on the end of PATH, once each", async () => {
     const { childEnv, withBins } = await import("./env.js");
     expect(withBins("/usr/bin:/bin", ["/home/me/.local/bin", "/usr/bin"])).toBe("/usr/bin:/bin:/home/me/.local/bin");
