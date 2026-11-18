@@ -46,6 +46,9 @@ describe("tidying a project's files back into its folder", () => {
     put("scratch/python/run/out.txt");
     put("uploads/photo.png");
 
+    // Runs the host went down under, long before, and one with no chat, cover nothing now.
+    ran("chat", root_, -10_000_000, null);
+    kernel.workspace.db.prepare("INSERT INTO runs_log (kind, ref, status, started_at) VALUES ('chat', NULL, 'running', 0)").run();
     // A resume chat wrote the cover letter while only it ran.
     ran("chat", resume, 1000, 2000);
     audit("files.write", { path: "drafts/cover-letter.md" }, 1500);
@@ -70,7 +73,11 @@ describe("tidying a project's files back into its folder", () => {
       ["school/bu252/mokable/doc.md", "projects/school/bu252/mokable/doc.md", "named"],
       ["school/bu354/review.md", "projects/school/bu354/review.md", "named"],
     ]);
-    expect(plan.unknown.sort()).toEqual(["drafts/ambiguous.md", "drafts/from-root.md", "notes/unknown.md"]);
+    expect(plan.unknown.sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { path: "drafts/ambiguous.md", why: "written while several chats ran" },
+      { path: "drafts/from-root.md", why: 'written by the root chat "Loose"' },
+      { path: "notes/unknown.md", why: "no record of what wrote it" },
+    ]);
     expect(describeTidy(plan)).toContain("Into projects/school/:\n  school/bu252/mokable/doc.md -> projects/school/bu252/mokable/doc.md");
   });
 
@@ -112,6 +119,6 @@ describe("tidying a project's files back into its folder", () => {
     ran("chat", kernel.conversations.list(kernel.profile.ownerId).find((c) => c.projectSlug === "school")!.id, 7000, 8000);
     // The school chat wrote drafts/placed.md inside its own folder; the root file of that name is not its.
     audit("files.write", { path: "drafts/placed.md" }, 7500, "wrote projects/school/drafts/placed.md");
-    expect(planTidy(kernel.workspace).unknown).toContain("drafts/placed.md");
+    expect(planTidy(kernel.workspace).unknown.map((u) => u.path)).toContain("drafts/placed.md");
   });
 });

@@ -43,8 +43,8 @@ export interface TidyMove {
 
 export interface TidyPlan {
   moves: TidyMove[];
-  /** Files under the root's other folders that no project can be told for: listed, never moved. */
-  unknown: string[];
+  /** Files under the root's other folders that no project can be told for, and why: listed, never moved. */
+  unknown: { path: string; why: string }[];
 }
 
 export interface TidyResult {
@@ -86,32 +86,42 @@ function writtenPath(row: { tool: string; args: string; result: string }): strin
   }
 }
 
+/** A run never marked finished (the host went down under it) is taken to have covered at most this long. */
+const LONGEST_RUN_MS = 60 * 60 * 1000;
+
+/** Whose turns a written path came from: a project's, or words for why it is nobody's to move. */
+type Writer = { project: string } | { why: string };
+
 /**
- * Which project each written path's turns belonged to, from the audit log
- * and the runs that were going at the time. A write is a project's only when
- * every chat or job running then was that project's; one at the root, or two
- * projects at once, leaves it unattributed. The latest write of a path wins.
+ * Whose turns wrote each path, from the audit log and the runs going at the
+ * time. A write is a project's only when every chat or job running then was
+ * that project's; one at the root, or two at once, leaves it where it is.
+ * The latest write of a path wins.
  */
-function writers(ws: Workspace, projects: Set<string>): Map<string, string> {
+function writers(ws: Workspace, projects: Set<string>): Map<string, Writer> {
   const rows = ws.db
     .prepare(`SELECT tool, args, result, created_at AS at FROM audit_log WHERE is_error = 0 AND tool IN (${Object.keys(WRITES).map(() => "?").join(", ")}) ORDER BY id`)
     .all(...Object.keys(WRITES)) as { tool: string; args: string; result: string; at: number }[];
   const running = ws.db.prepare(
-    `SELECT CASE r.kind WHEN 'chat' THEN c.project_slug ELSE j.project_slug END AS project
+    `SELECT CASE r.kind WHEN 'chat' THEN c.project_slug ELSE j.project_slug END AS project, c.title AS title
        FROM runs_log r
        LEFT JOIN conversations c ON r.kind = 'chat' AND c.id = r.ref
        LEFT JOIN crons j ON r.kind = 'cron' AND CAST(j.id AS TEXT) = r.ref
-      WHERE r.started_at <= ? AND (r.finished_at IS NULL OR r.finished_at >= ?)`,
+      WHERE r.ref IS NOT NULL AND r.started_at <= @at
+        AND (r.finished_at >= @at OR (r.finished_at IS NULL AND r.started_at >= @at - ${LONGEST_RUN_MS}))`,
   );
-  const out = new Map<string, string>();
+  const out = new Map<string, Writer>();
   for (const row of rows) {
     const path = writtenPath(row);
     if (path === undefined) continue;
-    const owners = new Set((running.all(row.at, row.at) as { project: string | null }[]).map((r) => r.project ?? ""));
+    const runs = running.all({ at: row.at }) as { project: string | null; title: string | null }[];
+    const owners = new Set(runs.map((r) => r.project ?? ""));
     const [only] = owners;
     const key = path.replace(/\\/g, "/").replace(/^\.?\/+/, "");
-    if (owners.size === 1 && only && projects.has(only) && only !== MAINTENANCE.slug) out.set(key, only);
-    else out.delete(key);
+    if (owners.size === 1 && only && projects.has(only) && only !== MAINTENANCE.slug) out.set(key, { project: only });
+    else if (owners.size === 1 && only === "" && runs.length === 1) out.set(key, { why: `written by the root chat "${runs[0]!.title ?? "a job"}"` });
+    else if (owners.size === 1 && only !== undefined) out.set(key, { why: only === "" ? "written by chats at the root" : `written by ${only}, which reaches as the root does` });
+    else out.set(key, { why: owners.size ? "written while several chats ran" : "no record of what wrote it" });
   }
   return out;
 }
@@ -129,13 +139,14 @@ export function planTidy(ws: Workspace): TidyPlan {
   const named = new Map(slugs.map((slug) => [slug.toLowerCase(), slug]));
   const written = writers(ws, projects);
   const moves: TidyMove[] = [];
-  const unknown: string[] = [];
+  const unknown: TidyPlan["unknown"] = [];
   for (const folder of rootFolders(ws)) {
     const owner = named.get(folder.toLowerCase());
     for (const from of filesUnder(ws, folder)) {
-      const project = written.get(from) ?? owner;
-      if (!project) unknown.push(from);
-      else moves.push({ from, to: destination(from, project), project, why: written.has(from) ? "written" : "named" });
+      const writer = written.get(from);
+      if (writer && "project" in writer) moves.push({ from, to: destination(from, writer.project), project: writer.project, why: "written" });
+      else if (owner) moves.push({ from, to: destination(from, owner), project: owner, why: "named" });
+      else unknown.push({ path: from, why: writer?.why ?? "no record of what wrote it" });
     }
   }
   return { moves, unknown };
@@ -191,7 +202,7 @@ export function describeTidy(plan: TidyPlan): string {
   }
   if (plan.unknown.length) {
     lines.push("Left where they are (no project could be told for them):");
-    for (const path of plan.unknown) lines.push(`  ${path}`);
+    for (const left of plan.unknown) lines.push(`  ${left.path} (${left.why})`);
   }
   return lines.join("\n");
 }
