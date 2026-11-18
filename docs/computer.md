@@ -480,9 +480,10 @@ steps.
 - **A session is bounded**: one at a time across every KOS the device is
   paired with (another that asks is answered `busy`), ended at its time limit,
   when idle, on Stop, when the app quits, and when the connection to the KOS
-  that owns it drops and does not come back within a few seconds (KOS for
-  Chrome waits 10 s, and KOS keeps a session 20 s for its device to say it
-  still holds it). Only that KOS can act in it or end it. KOS's
+  that owns it drops (KOS for Chrome alone waits 10 s for it to come back,
+  and KOS keeps a Chrome's session 20 s for it to say it still holds it; a
+  step taken meanwhile waits, and is never sent after Stop). Only that KOS
+  can act in it or end it. KOS's
   kill switch ends every session. The device sets the longest session and the
   idle limit; KOS only says how long it asks for.
 - **Work the owner did not start stays off.** A schedule, a blob's own timer
@@ -557,8 +558,9 @@ as `session.ended` gives one) it lost it while away, and KOS ends it there
 with that reason. A session KOS kept for the device that the hello does not
 name is over (`offline`), and one the hello names that KOS no longer has is
 ended on the device with `session.end`. A device that sends none holds
-none. KOS keeps a session 20 s after its device's line drops, for the
-device to come back and say so, then ends it as `offline`.
+none. KOS keeps a Chrome's session 20 s after its line drops, for it to
+come back and say so, then ends it as `offline`; any other device's
+session ends with its line.
 
 Nonces are signed as their base64 text. Either side closes on a bad
 signature. Close codes: `4001` malformed, `4003` unknown device, bad

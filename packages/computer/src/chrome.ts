@@ -1,5 +1,5 @@
 import { PICTURE, Page, sendEach, type Call, type Session as TabSession, type Tab } from "@kos/browser";
-import type { BrowserElsewhere, PageSpot, TabInfo } from "@kos/harness";
+import { turnStop, type BrowserElsewhere, type PageSpot, type TabInfo } from "@kos/harness";
 
 import { kindOf, type DeviceHub, type Session } from "./hub.js";
 import { DeviceError } from "./link.js";
@@ -234,7 +234,7 @@ export class OwnerChrome implements BrowserElsewhere {
   /** A call in the conversation's session; one refused for want of a session says why the last one ended. */
   private async act(conversation: string, method: "tabs.list" | "tabs.open" | "cdp.send" | "cdp.batch", params: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
     try {
-      return await this.hub.act(conversation, method, params, timeoutMs);
+      return await this.hub.act(conversation, method, params, timeoutMs, turnStop.getStore());
     } catch (err) {
       if (err instanceof DeviceError && err.code === "no_session") throw new DeviceError("no_session", refusalText(err, this.hub.takeEnding(conversation), "browser"));
       throw err;
@@ -293,7 +293,7 @@ export class OwnerChrome implements BrowserElsewhere {
    */
   private async capture(conversation: string, tab: string, maxEdge: number = PICTURE.edge): Promise<string | undefined> {
     const send = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> =>
-      this.hub.act(conversation, "cdp.send", { tab, method, params }, 20_000).catch(() => ({}) as Record<string, unknown>);
+      this.hub.act(conversation, "cdp.send", { tab, method, params }, 20_000, turnStop.getStore()).catch(() => ({}) as Record<string, unknown>);
     const dataOf = (shot: Record<string, unknown>): string | undefined => (typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined);
     const b = this.held.get(conversation);
     if (!b?.fullPictures) {

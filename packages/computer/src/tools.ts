@@ -362,7 +362,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
 
   /** A picture of the session's screen, or a part of it, as a tool result. */
   const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }, settleMs = 0, always = false): Promise<Look> => {
-    const result = await hub.act(chat, "screen.capture", { ...(region ? { region } : {}), ...(settleMs > 0 && !region ? { settle: settleMs } : {}) });
+    const result = await hub.act(chat, "screen.capture", { ...(region ? { region } : {}), ...(settleMs > 0 && !region ? { settle: settleMs } : {}) }, undefined, turnStop.getStore());
     if (result.settled === true) settling.add(chat);
     const capture = readCapture(result);
     const text = `${prefix}${prefix ? " " : ""}${describe(capture, region !== undefined)}`.trim();
@@ -903,7 +903,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
         const why = await Promise.race([sleep(slice).then(() => undefined), woken]);
         if (why) throw why;
         left -= slice;
-        if (left > 0) await hub.act(chat, "screen.capture", TOUCH);
+        if (left > 0) await hub.act(chat, "screen.capture", TOUCH, undefined, turnStop.getStore());
       }
     } finally {
       offChange();
@@ -919,7 +919,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
    * waiting on it rather than on the device.
    */
   const perform = async (chat: string, session: Session, action: Action, input: Record<string, unknown>, waits: WaitBudget, signal?: AbortSignal): Promise<string> => {
-    const call = (method: Parameters<DeviceHub["act"]>[1], params: Record<string, unknown>): Promise<unknown> => abortable(hub.act(chat, method, params), signal);
+    const call = (method: Parameters<DeviceHub["act"]>[1], params: Record<string, unknown>): Promise<unknown> => abortable(hub.act(chat, method, params, undefined, signal), signal);
     const at = pair(input.coordinate, "coordinate");
     const click = CLICKS[action];
     if (click) {

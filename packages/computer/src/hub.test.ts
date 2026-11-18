@@ -46,6 +46,20 @@ async function online(hub: DeviceHub, name = "Studio MacBook"): Promise<FakeDevi
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
+/** What KOS for Chrome says of itself in its hello. */
+const CHROME_APP = { app: { version: "0.1.0", platform: "chrome", os: "macOS" }, permissions: { tabs: true }, displays: [] };
+
+/** A KOS for Chrome paired and connected: a device that says in its hello whether it still holds its session. */
+async function chromeOnline(hub: DeviceHub): Promise<FakeDevice> {
+  const fake = new FakeDevice();
+  fake.id = hub.pair({ code: hub.issueCode().code, name: "Chrome", platform: "chrome", publicKey: fake.publicKey }).device;
+  fake.answers.set("session.begin", () => ({ ok: true, result: { granted: true, until: Date.now() + 15 * 60_000 } }));
+  hub.accept(fake.socket);
+  fake.hello(CHROME_APP);
+  await Promise.resolve();
+  return fake;
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -382,7 +396,7 @@ describe("a session", () => {
   it("waits a moment for a device whose line dropped, and goes on when it comes back holding the session", async () => {
     vi.useFakeTimers();
     const { hub, logged } = setup({ lineGraceMs: 20_000 });
-    const fake = await online(hub, "Chrome");
+    const fake = await chromeOnline(hub);
     const session = await hub.begin({ conversation: "a", device: hub.find("Chrome")!, task: "buy the mug", requester: "Shopping", minutes: 5 });
     fake.drop();
     vi.advanceTimersByTime(10_000);
@@ -390,7 +404,7 @@ describe("a session", () => {
     // Back within the wait, saying it still holds it: the same session, on the new line.
     const back = new FakeDevice(fake.id, fake.key);
     hub.accept(back.socket);
-    back.hello({ session: { id: session.id } });
+    back.hello({ ...CHROME_APP, session: { id: session.id } });
     vi.advanceTimersByTime(30_000);
     expect(hub.sessionOf("a")?.id).toBe(session.id);
     expect(logged.some((l) => l.includes(`session ${session.id}`) && l.includes("goes on across the new line"))).toBe(true);
@@ -404,32 +418,58 @@ describe("a session", () => {
 
   it("holds a step taken while the line is down until the device is back with the session, and refuses it when it comes back without", async () => {
     const { hub } = setup({ lineGraceMs: 20_000 });
-    const fake = await online(hub, "Chrome");
+    const fake = await chromeOnline(hub);
     const session = await hub.begin({ conversation: "a", device: hub.find("Chrome")!, task: "t", requester: "r", minutes: 5 });
     fake.drop();
     const step = hub.act("a", "screen.capture", {});
     const back = new FakeDevice(fake.id, fake.key);
     hub.accept(back.socket);
-    back.hello({ session: { id: session.id } });
+    back.hello({ ...CHROME_APP, session: { id: session.id } });
     expect(await step).toMatchObject({ image: "SU1H" });
     expect(back.calls.map((c) => c.method)).toEqual(["screen.capture"]);
     back.drop();
     const lost = hub.act("a", "screen.capture", {}).catch((err: unknown) => err);
     const again = new FakeDevice(fake.id, fake.key);
     hub.accept(again.socket);
-    again.hello({ session: { id: session.id, ended: "restarted" } });
+    again.hello({ ...CHROME_APP, session: { id: session.id, ended: "restarted" } });
     expect(await lost).toMatchObject({ code: "no_session" });
     expect(hub.takeEnding("a")).toBe("restarted");
   });
 
+  it("sends nothing held for a dropped line once the owner pressed Stop, though the line comes back holding the session", async () => {
+    const { hub } = setup({ lineGraceMs: 20_000 });
+    const fake = await chromeOnline(hub);
+    const session = await hub.begin({ conversation: "a", device: hub.find("Chrome")!, task: "t", requester: "r", minutes: 5 });
+    fake.drop();
+    const stop = new AbortController();
+    const step = hub.act("a", "cdp.send", { tab: "1", method: "Input.dispatchMouseEvent" }, undefined, stop.signal).catch((err: unknown) => err);
+    stop.abort();
+    const back = new FakeDevice(fake.id, fake.key);
+    hub.accept(back.socket);
+    back.hello({ ...CHROME_APP, session: { id: session.id } });
+    expect(await step).toMatchObject({ code: "stopped" });
+    await settle();
+    expect(back.calls).toEqual([]);
+    expect(hub.sessionOf("a")?.id).toBe(session.id);
+  });
+
+  it("ends a Mac's session with its line at once: only a Chrome says whether it still holds one", async () => {
+    const { hub } = setup({ lineGraceMs: 20_000 });
+    const mac = await online(hub, "Laptop");
+    await hub.begin({ conversation: "a", device: hub.find("Laptop")!, task: "t", requester: "r", minutes: 5 });
+    mac.drop();
+    expect(hub.sessionOf("a")).toBeUndefined();
+    expect(hub.takeEnding("a")).toBe("offline");
+  });
+
   it("ends a session the device came back without, with the reason it lost it for, and ends there one KOS no longer has", async () => {
     const { hub } = setup({ lineGraceMs: 20_000 });
-    const fake = await online(hub, "Chrome");
+    const fake = await chromeOnline(hub);
     const first = await hub.begin({ conversation: "a", device: hub.find("Chrome")!, task: "t", requester: "r", minutes: 5 });
     // Its worker restarted: a new line, replacing the one KOS still thought was up, says it lost the session.
     const restarted = new FakeDevice(fake.id, fake.key);
     hub.accept(restarted.socket);
-    restarted.hello({ session: { id: first.id, ended: "restarted" } });
+    restarted.hello({ ...CHROME_APP, session: { id: first.id, ended: "restarted" } });
     await settle();
     expect(fake.closed?.code).toBe(CLOSE.replaced);
     expect(hub.sessionOf("a")).toBeUndefined();
@@ -438,7 +478,7 @@ describe("a session", () => {
     const second = await hub.begin({ conversation: "b", device: hub.find("Chrome")!, task: "t", requester: "r", minutes: 5 });
     const silent = new FakeDevice(fake.id, fake.key);
     hub.accept(silent.socket);
-    silent.hello();
+    silent.hello(CHROME_APP);
     await settle();
     expect(hub.sessionOf("b")).toBeUndefined();
     expect(hub.takeEnding("b")).toBe("offline");
@@ -446,7 +486,7 @@ describe("a session", () => {
     // One that holds a session KOS has no more is told to end it.
     const stale = new FakeDevice(fake.id, fake.key);
     hub.accept(stale.socket);
-    stale.hello({ session: { id: "ses_gone" } });
+    stale.hello({ ...CHROME_APP, session: { id: "ses_gone" } });
     await settle();
     expect(stale.calls).toEqual([{ method: "session.end", params: { session: "ses_gone" } }]);
   });

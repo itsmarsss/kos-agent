@@ -299,9 +299,12 @@ export class DeviceHub {
     this.links.delete(id);
     this.deps.store.seen(id);
     const held = [...this.sessions.values()].filter((s) => s.device === id);
-    this.log(`devices: ${this.named(id)} line down: ${link.closedWith ?? "closed"}${held.length ? `; its session waits ${Math.round(this.graceMs / 1000)} s for it to come back` : ""}`);
-    // The device may be back in a moment holding its session (a Chrome's worker woke, a laptop's Wi-Fi blinked); one that is not loses it.
-    if (held.length) {
+    // A Chrome says in its hello whether it still holds its session, so its session may wait for it to come back
+    // (its worker woke, the Wi-Fi blinked); any other device's ends with its line, as it does on the device.
+    const waits = held.length > 0 && kindOf(link.device!) === "browser";
+    this.log(`devices: ${this.named(id)} line down: ${link.closedWith ?? "closed"}${waits ? `; its session waits ${Math.round(this.graceMs / 1000)} s for it to come back` : ""}`);
+    if (!waits) for (const s of held) this.drop(s, "offline", "its line dropping");
+    if (waits) {
       clearTimeout(this.graces.get(id));
       this.graces.set(
         id,
@@ -559,8 +562,12 @@ export class DeviceHub {
     });
   }
 
-  /** Something done in the conversation's session; the device's result. */
-  async act(conversation: string, method: Exclude<Method, "session.begin" | "session.end" | PanelMethod>, params: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
+  /**
+   * Something done in the conversation's session; the device's result.
+   * `signal` is the turn's Stop: a step waiting for a dropped line is never
+   * sent once the owner has stopped.
+   */
+  async act(conversation: string, method: Exclude<Method, "session.begin" | "session.end" | PanelMethod>, params: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (this.deps.halted()) {
       this.endAll("host");
       throw new DeviceError("halted", "KOS is halted by the kill switch");
@@ -570,7 +577,13 @@ export class DeviceHub {
     if (session.paused) throw new DeviceError("paused", "the owner has taken over");
     // Only a look goes ahead on a screen the owner scrolled: an action would be aimed by a picture that no longer holds.
     if (session.scrolled && method !== "screen.capture") throw new DeviceError("scrolled", "the owner scrolled; look again before acting");
-    const link = this.links.get(session.device)?.ready ? this.links.get(session.device) : await this.lineBack(session);
+    const link = this.links.get(session.device)?.ready ? this.links.get(session.device) : await this.lineBack(session, signal);
+    // The wait may have been long: Stop or the kill switch meanwhile, and nothing is sent.
+    if (signal?.aborted) throw new DeviceError("stopped", "the owner pressed Stop while the device's line was down");
+    if (this.deps.halted()) {
+      this.endAll("host");
+      throw new DeviceError("halted", "KOS is halted by the kill switch");
+    }
     if (!link) {
       // Ended meanwhile, as the device said when it came back: that is the answer, with its reason kept.
       if (!this.sessions.has(session.id)) throw new DeviceError("no_session", "the session ended while its device's line was down");
@@ -594,15 +607,18 @@ export class DeviceHub {
    * session, rather than ending it. Undefined when it is not back in time,
    * or came back without the session.
    */
-  private async lineBack(session: Session): Promise<DeviceLink | undefined> {
-    if (!this.graces.has(session.device)) return undefined;
+  private async lineBack(session: Session, signal?: AbortSignal): Promise<DeviceLink | undefined> {
+    if (!this.graces.has(session.device) || signal?.aborted) return undefined;
     await new Promise<void>((resolve) => {
+      const done = (): void => {
+        off();
+        signal?.removeEventListener("abort", done);
+        resolve();
+      };
       const off = this.onChange(() => {
-        if (this.links.get(session.device)?.ready || !this.sessions.has(session.id) || !this.graces.has(session.device)) {
-          off();
-          resolve();
-        }
+        if (this.links.get(session.device)?.ready || !this.sessions.has(session.id) || !this.graces.has(session.device)) done();
       });
+      signal?.addEventListener("abort", done, { once: true });
     });
     const link = this.links.get(session.device);
     return link?.ready && this.sessions.has(session.id) ? link : undefined;
