@@ -30,18 +30,32 @@ KOS_PORT=                default 4317; sites are served on the next port
 KOS_DASHBOARD_TOKEN=     bearer token for every API route; set one if reachable beyond this machine
 KOS_HOOK_SECRET=         enables POST /api/hooks/<job>
 KOS_ALLOWED_HOSTS=       hosts http.fetch reads without asking; any other host asks you first, and a yes you remember stands for that host
+KOS_FETCH_LAN=           places on your own network http.fetch may reach, empty by default: host:port, address:port or CIDR:port, and loopback:<port> for a program on this machine, comma separated (192.168.1.0/24:8123, nas.local:5000, loopback:8080); KOS's own ports never, whatever is listed
+KOS_WRITE_KEY_FILE=      where this boot's write key is kept for the kos CLI, default ~/.kos/write.key (write-<port>.key for another port)
 KOS_UI_DIST=             built UI, default packages/ui/dist
 KOS_DEVICE_KEY_FILE=     KOS's key for paired computers, default ~/.kos/device-host.key
 KOS_DEVICE_HOST_KEY=     the same key as base64 PKCS#8, for a container whose home does not last
 ```
 
 Every request that changes something carries this boot's write key
-(`x-kos-write`), which KOS writes into the dashboard page it serves and
-keeps nowhere else, or the dashboard token: a program on the machine that
-sends no Origin is not the owner. `http.fetch` never reaches this machine,
-its local network or KOS's own hosts (each redirect and each resolved
-address is checked), jailed programs never connect to KOS's ports, and
-KOS's browser never opens its dashboard.
+(`x-kos-write`) or the dashboard token: a program on the machine that sends
+no Origin is not the owner. KOS writes the key into the dashboard page it
+serves and into a file only you can read (0600, `KOS_WRITE_KEY_FILE`),
+which the kos CLI and the dev server's proxy read and every jailed program
+is denied; it is never in the environment. In the container, where the
+agent's programs share loopback with KOS, there is no key: every change
+needs `KOS_DASHBOARD_TOKEN`. Every route answers only to KOS's own names
+(localhost, the bound host, `KOS_PUBLIC_URL`'s, the Wi-Fi host) or an
+address, so a page whose name was rebound onto this machine is refused.
+
+`http.fetch` never reaches this machine, its local network (IPv6 forms
+that carry an IPv4 address included) or KOS's own hosts, except the places
+`KOS_FETCH_LAN` lists; each redirect and each resolved address is checked
+as it connects. Jailed programs never connect to KOS's ports (the API, the
+sites server, the Wi-Fi listener and KOS's Chrome's debugging port) on any
+address, and KOS's browser never works a tab that is on its dashboard.
+Apps the agent runs are served on the sites server's origin, never the
+dashboard's, without your token, key or cookies.
 
 Computer use and pairing a device: [computer.md](computer.md).
 

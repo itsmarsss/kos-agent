@@ -393,6 +393,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       // call rather than the next restart.
       allowedHosts: options.allowedHosts ?? [],
       ...(options.ownHosts ? { ownHosts: options.ownHosts } : {}),
+      // The owner's own network, place by place, read at each call so a change in .env needs no restart.
+      lan: () => process.env.KOS_FETCH_LAN,
     }),
     createSearchModule({ events, embedder }),
     createShellModule(),

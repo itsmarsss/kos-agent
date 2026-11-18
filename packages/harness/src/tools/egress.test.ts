@@ -8,7 +8,7 @@ import { ToolRegistry } from "../agent/registry.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { blockedAddress, guardedLookup, reachesKos, refusedUrl } from "./egress.js";
+import { blockedAddress, guardedLookup, lanAllows, lookupFor, parseLanAllow, reachesKos, refusedUrl } from "./egress.js";
 import { createHttpModule, type FetchImpl } from "./http.js";
 
 describe("where http.fetch may not go", () => {
@@ -16,6 +16,8 @@ describe("where http.fetch may not go", () => {
     for (const a of ["127.0.0.1", "127.9.9.9", "10.1.2.3", "172.20.0.1", "192.168.1.10", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "::", "fe80::1", "fd00::5", "::ffff:127.0.0.1", "[::1]"]) {
       expect(blockedAddress(a), a).toBe(true);
     }
+    // IPv6 forms that carry an IPv4 address inside, and the old site-local range.
+    for (const a of ["::7f00:1", "64:ff9b::7f00:1", "2002:7f00:1::", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "fec0::1"]) expect(blockedAddress(a), a).toBe(true);
     for (const a of ["93.184.216.34", "1.1.1.1", "2606:4700:4700::1111"]) expect(blockedAddress(a), a).toBe(false);
   });
 
@@ -28,6 +30,29 @@ describe("where http.fetch may not go", () => {
     expect(refusedUrl("file:///etc/passwd")).toMatch(/only http and https/);
     expect(refusedUrl("https://kos.example.com/api/approve", ["kos.example.com"])).toMatch(/KOS itself/);
     expect(refusedUrl("https://example.com/feed")).toBeUndefined();
+    expect(refusedUrl("http://localhost.:4317/")).toMatch(/this machine/);
+    expect(refusedUrl("https://kos.example.com./x", ["kos.example.com"])).toMatch(/KOS itself/);
+  });
+
+  it("reaches only the places the owner listed on their network, never KOS's ports, loopback port by port", async () => {
+    const allow = parseLanAllow("192.168.1.0/24:8123, nas.local:5000, loopback:8080, 10.0.0.9:4317, junk", [4317, 4318]);
+    expect(lanAllows(allow, "192.168.1.40", 8123)).toBe(true);
+    expect(lanAllows(allow, "192.168.1.40", 8124)).toBe(false);
+    expect(lanAllows(allow, "192.168.2.40", 8123)).toBe(false);
+    expect(lanAllows(allow, "127.0.0.1", 8080)).toBe(true);
+    expect(lanAllows(allow, "127.0.0.1", 8123)).toBe(false);
+    expect(lanAllows(allow, "10.0.0.9", 4317)).toBe(false);
+    expect(lanAllows(allow, "192.168.5.5", 5000, "nas.local")).toBe(true);
+    expect(refusedUrl("http://192.168.1.40:8123/api", [], allow)).toBeUndefined();
+    expect(refusedUrl("http://nas.local:5000/", [], allow)).toBeUndefined();
+    expect(refusedUrl("http://nas.local:5001/", [], allow)).toMatch(/this machine/);
+    expect(refusedUrl("http://127.0.0.1:4317/", [], parseLanAllow("loopback:4317", [4317]))).toMatch(/KOS itself/);
+    // Empty by default: nothing local.
+    expect(refusedUrl("http://192.168.1.40:8123/", [], parseLanAllow(undefined))).toMatch(/local network/);
+    const lookedUp = await new Promise<NodeJS.ErrnoException | null>((done) => lookupFor(8080, allow)("localhost", { all: true }, (e) => done(e)));
+    expect(lookedUp).toBeNull();
+    const refused = await new Promise<NodeJS.ErrnoException | null>((done) => lookupFor(8081, allow)("localhost", { all: true }, (e) => done(e)));
+    expect(refused?.message).toMatch(/this machine/);
   });
 
   it("refuses a name that resolves to this machine at the moment of connecting", async () => {
