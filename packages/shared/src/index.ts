@@ -228,3 +228,24 @@ export {
   type CheckItem,
   type FieldSpec,
 } from "./blockkinds.js";
+
+export {
+  ASK,
+  AUTO_DECIDER,
+  AUTO_NEVER,
+  AUTO_SESSIONS,
+  AUTO_SPANS,
+  CHAT_MODES,
+  leftWords,
+  liveMode,
+  MODE_WORDS,
+  modeLabel,
+  modeTip,
+  nextMode,
+  parseChatMode,
+  spanOf,
+  untilOf,
+  type AutoSpan,
+  type ChatMode,
+  type ChatModeName,
+} from "./chatmode.js";
