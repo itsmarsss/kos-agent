@@ -333,3 +333,60 @@ describe("the picture kept after a step", () => {
     expect(framesOf(chat)).toEqual([{ picture: "VEFC", site: "a.example", tool: "browser.tabs" }]);
   });
 });
+
+describe("KOS's own browser, for a chat working in the owner's Chrome", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** Every browser tool, with an input it takes. */
+  const calls: [string, Record<string, unknown>][] = [
+    ["browser.tabs", {}],
+    ["browser.use_tab", { tab: "77" }],
+    ["browser.new_tab", {}],
+    ["browser.look", {}],
+    ["browser.visit", { url: "https://shop.example/cart" }],
+    ["browser.act", { action: "click", ref: "e1" }],
+    ["browser.eval", { expression: "1" }],
+    ["browser.handoff", { reason: "sign in" }],
+    ["browser.watch", { url: "https://shop.example/cart" }],
+  ];
+
+  /** One call in a turn of the chat, its start as the dashboard hears it; a turn left waiting on an ask is stopped. */
+  async function started(tool: string, input: Record<string, unknown>, chrome: (chat: string) => BrowserElsewhere): Promise<Record<string, unknown>[]> {
+    root = mkdtempSync(join(tmpdir(), "kos-kosbrowser-"));
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: oneCall(tool, input).inference, profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shop" }).id;
+    kernel.setBrowserElsewhere(chrome(chat));
+    const starts: Record<string, unknown>[] = [];
+    kernel.progress.subscribe((e) => void (e.kind === "tool-start" && starts.push(e as unknown as Record<string, unknown>)));
+    const turn = kernel.handleMessage("in my Chrome, the cart", { sessionId: chat, owner: true });
+    for (let i = 0; i < 40 && kernel.approvals.pending().length === 0 && starts.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 30));
+    kernel.stop(chat);
+    await turn;
+    return starts;
+  }
+
+  it.each(calls)("%s from the side panel's chat starts nothing of KOS's and opens no window", async (tool, input) => {
+    const starts = await started(tool, input, (chat) => ({ ...ownerChrome({ starts: true }), claims: (c) => c === chat }));
+    expect(starts).toEqual([expect.objectContaining({ tool, yours: true })]);
+    expect(kernel.browser.status()).toMatchObject({ chrome: "stopped", attached: false });
+  });
+
+  it.each(calls)("%s from a chat holding a session in the owner's Chrome starts nothing of KOS's and opens no window", async (tool, input) => {
+    const starts = await started(tool, input, (chat) => ({ ...ownerChrome({ starts: false }), active: (c) => c === chat, claims: () => false, actsAlone: () => true }));
+    expect(starts).toEqual([expect.objectContaining({ tool, yours: true })]);
+    expect(kernel.browser.status()).toMatchObject({ chrome: "stopped", attached: false });
+  });
+
+  it("lists KOS's tabs for a chat in neither without starting its browser, said as KOS's own", async () => {
+    const starts = await started("browser.tabs", {}, () => ({ ...ownerChrome({ starts: false }), active: () => false, claims: () => false }));
+    expect(starts).toEqual([expect.not.objectContaining({ yours: true })]);
+    expect(kernel.browser.status()).toMatchObject({ chrome: "stopped", attached: false });
+  });
+});

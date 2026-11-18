@@ -5,9 +5,18 @@
  * still while the owner has it; the bar with KOS's face, two lines and the
  * app's own buttons, capsules inside a capsule. The bar is the owner's to
  * put out of the way: dragged anywhere on the page, or folded to KOS's face
- * by a press on the face, and kept so for the session's other pages. Where
- * KOS points, its own cursor glides there and ripples when it presses, as
- * on the Mac.
+ * by a press on the face, and kept so for the session's other pages.
+ *
+ * KOS's cursor is KOS for Mac's, drawn the same (KOSCursor.swift): the arrow
+ * in the overlay's blue, lit from behind, a halo round its tip and a tag that
+ * says whose it is, in the dark palette over any page as the Mac's is over any
+ * screen. It moves as the Mac's does (DeviceCore's Glide): along a shallow
+ * arc, eased in and out, longer the further it goes, and ripples on a press.
+ * It is on the page from the start, in the middle until KOS points somewhere,
+ * and stays where it last was, as a pointer does when the page under it
+ * scrolls. It goes while the owner has the tab and comes back where it was on
+ * Hand back. Its arrow is in KOS's own pictures, as the Mac's pointer is in
+ * its; its halo and tag are not, so they cover nothing KOS reads.
  *
  * Only the top frame draws: a page of frames would otherwise wear a border
  * and a bar in each. Every frame reports the owner's hand, since a click in
@@ -22,6 +31,8 @@
  * reports the owner's clicks and keys, for the extension to tell from
  * KOS's own. It runs in the page, so it stands alone: nothing from outside.
  */
+
+import type { CursorLook } from "./cursorlook.js";
 
 export interface OverlayState {
   task: string;
@@ -40,15 +51,59 @@ export interface OverlayState {
   bar?: boolean;
 }
 
-export function installOverlay(): void {
+/**
+ * How KOS's cursor goes to a point: `move` glides there, `press` glides and
+ * ripples, `drag` follows the held button closely, `rest` puts it there a
+ * moment later unless KOS points again first (an element scrolled to, where
+ * a press often follows somewhere near), and `place` puts it there at once,
+ * on a new page of the same tab.
+ */
+export type PointHow = "move" | "press" | "drag" | "rest" | "place";
+
+export function installOverlay(look: CursorLook): void {
   const w = window as unknown as {
-    __kos?: { set(state: OverlayState): void; remove(): void; alive(): void; point(x: number, y: number, press: boolean): void };
+    __kos?: {
+      set(state: OverlayState): void;
+      remove(): void;
+      alive(): void;
+      point(x: number, y: number, how: PointHow): number;
+      typing(): void;
+      capturing(on: boolean): Promise<void>;
+    };
     kosOverlay?: (payload: string) => void;
   };
   if (w.__kos) return;
   const top = window.top === window;
   // Gone unless the extension says otherwise this often: it does every few seconds while the session lasts.
   const ALIVE_MS = 9_000;
+  // KOS for Mac's glide (DeviceCore's Glide), its quick one: longer the further it goes, within bounds, eased in and out.
+  const { glide: g } = look;
+  const glideMs = (distance: number): number => (distance > 0 ? 1000 * g.quickShare * (g.shortest + (g.longest - g.shortest) * Math.min(1, distance / g.far)) : 0);
+  const ease = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  // A held button's moves come a few milliseconds apart: each is followed this quickly.
+  const DRAG_MS = 60;
+  // An element scrolled to: the cursor goes there this much later, unless KOS points again first.
+  const REST_MS = 150;
+  /**
+   * At most `n` a second of something a page could make the overlay do over
+   * and over; one asked for past that runs once more as the second ends, so
+   * the page's last word is answered too.
+   */
+  const limited = (n: number, run: () => void): (() => void) => {
+    let since = 0;
+    let used = 0;
+    let trailing: ReturnType<typeof setTimeout> | undefined;
+    const go = (): void => {
+      const now = Date.now();
+      if (now - since > 1000) [since, used] = [now, 0];
+      if (++used <= n) return run();
+      trailing ??= setTimeout(() => {
+        trailing = undefined;
+        go();
+      }, since + 1000 - now + 1);
+    };
+    return go;
+  };
   const tell = (message: Record<string, unknown>): void => {
     try {
       w.kosOverlay?.(JSON.stringify(message));
@@ -64,8 +119,14 @@ export function installOverlay(): void {
   let take: HTMLButtonElement | null = null;
   let bar: HTMLElement | null = null;
   let cursor: HTMLElement | null = null;
+  let tag: HTMLElement | null = null;
   let face: HTMLElement | null = null;
-  let idle: ReturnType<typeof setTimeout> | undefined;
+  /** Where KOS has pointed, in the page's viewport; until it has, its cursor is in the middle, however the page is resized. */
+  let at: { x: number; y: number } | null = null;
+  const middle = (): { x: number; y: number } => ({ x: innerWidth / 2, y: innerHeight / 2 });
+  let glide: Animation | undefined;
+  let resting: ReturnType<typeof setTimeout> | undefined;
+  let typed: ReturnType<typeof setTimeout> | undefined;
   let removed = false;
   let lastAlive = Date.now();
 
@@ -88,14 +149,85 @@ export function installOverlay(): void {
     bar.style.left = `${x}px`;
     bar.style.top = `${y}px`;
   };
+  /** Where the cursor's tip is drawn now, mid-glide or not. */
+  const drawnAt = (): { x: number; y: number } => {
+    const m = cursor ? new DOMMatrix(getComputedStyle(cursor).transform) : undefined;
+    return m ? { x: m.e, y: m.f } : (at ?? middle());
+  };
+  /** Whether anyone sees the cursor move: on a tab in front (its window need not be, as while the owner types beside it), for an owner who has not asked for less motion. */
+  const seen = (): boolean => document.visibilityState === "visible" && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  /** The cursor's tip on a point at once. */
+  const setTip = (to: { x: number; y: number }): void => {
+    glide?.cancel();
+    if (cursor) cursor.style.transform = `translate(${to.x}px, ${to.y}px)`;
+  };
+  /**
+   * The cursor's tip to a point along the Mac's path: a control point off to
+   * one side of the straight line bends it into a shallow arc, as a hand
+   * moving a mouse does. Says how long it takes (none when no one would see
+   * it), and when it is there; `ms` fixes the time.
+   */
+  const glideTo = (to: { x: number; y: number }, ms?: number): { ms: number; arrived: Promise<void> } => {
+    const it = cursor;
+    if (!it) return { ms: 0, arrived: Promise.resolve() };
+    const from = drawnAt();
+    setTip(to);
+    const distance = Math.hypot(to.x - from.x, to.y - from.y);
+    const duration = ms ?? glideMs(distance);
+    const steps = Math.round((duration / 1000) * g.rate);
+    if (steps <= 1 || !seen()) return { ms: 0, arrived: Promise.resolve() };
+    const bend = Math.min(g.bendMost, distance * g.bendShare);
+    const control = { x: (from.x + to.x) / 2 - ((to.y - from.y) / distance) * bend, y: (from.y + to.y) / 2 + ((to.x - from.x) / distance) * bend };
+    const frames = [from];
+    for (let step = 1; step <= steps; step++) {
+      const t = ease(step / steps);
+      const u = 1 - t;
+      frames.push({ x: u * u * from.x + 2 * u * t * control.x + t * t * to.x, y: u * u * from.y + 2 * u * t * control.y + t * t * to.y });
+    }
+    glide = it.animate(
+      frames.map((p) => ({ transform: `translate(${p.x}px, ${p.y}px)` })),
+      { duration, easing: "linear" },
+    );
+    return {
+      ms: duration,
+      arrived: glide.finished.then(
+        () => undefined,
+        () => undefined,
+      ),
+    };
+  };
+  /** The overlay to the top of the top layer, over whatever the page last put there. */
+  const raise = limited(10, () => {
+    if (!host?.isConnected || removed) return;
+    try {
+      if (host.matches(":popover-open")) host.hidePopover();
+      host.showPopover();
+    } catch {
+      /* a browser without popovers: the z-index is all there is */
+    }
+  });
+  const ripple = (): void => {
+    if (!cursor) return;
+    cursor.classList.remove("press");
+    void cursor.offsetWidth;
+    cursor.classList.add("press");
+  };
+
+  /** A mark on the host, written only when it changes: the host is watched, and a write that changes nothing is still heard. */
+  const mark = (key: string, value: string): void => {
+    if (host && host.dataset[key] !== value) host.dataset[key] = value;
+  };
+  let capture = false;
+  let stopped = false;
   const render = (): void => {
     if (!host || !title || !text || !take || !left) return;
-    host.dataset["paused"] = state.paused ? "1" : "";
+    mark("paused", state.paused ? "1" : "");
     const small = state.bar === false;
     // The small bar is already as small as it goes: never folded, whatever the full bar was left as.
-    host.dataset["folded"] = state.folded && !small ? "1" : "";
-    host.dataset["theme"] = state.theme ?? "system";
-    host.dataset["bar"] = state.bar === false ? "chip" : "";
+    mark("folded", state.folded && !small ? "1" : "");
+    mark("theme", state.theme ?? "system");
+    mark("bar", state.bar === false ? "chip" : "");
+    mark("capture", capture ? "1" : "");
     title.textContent = state.paused ? "Paused, you have control" : "KOS is using this tab";
     text.textContent = state.task || "working";
     left.textContent = minutes();
@@ -111,11 +243,35 @@ export function installOverlay(): void {
     place();
   };
 
+  // Every rule its own and important, so no style of the page's reaches it.
+  const HOST_STYLE = "all: initial !important; position: fixed !important; inset: 0 !important; z-index: 2147483647 !important; pointer-events: none !important;";
+  const STOPPED_STYLE = `${HOST_STYLE} display: none !important;`;
+  /** The host's style as the browser wrote it back, to tell the page's change from none. */
+  let styled = "";
+  const styleHost = (style: string): void => {
+    if (!host) return;
+    host.setAttribute("style", style);
+    styled = host.getAttribute("style") ?? "";
+  };
+  /** The host as the overlay made it, put back when the page changes its style, its popover or its marks. */
+  const restore = limited(10, () => {
+    if (!host || removed) return;
+    if (host.getAttribute("style") !== styled) styleHost(stopped ? STOPPED_STYLE : HOST_STYLE);
+    if (host.getAttribute("popover") !== "manual") {
+      host.setAttribute("popover", "manual");
+      raise();
+    }
+    if (host.getAttribute("aria-hidden") !== "true") host.setAttribute("aria-hidden", "true");
+    render();
+  });
+
   const build = (): void => {
     if (!top || removed || host || !document.documentElement) return;
     host = document.createElement("kos-overlay");
     host.setAttribute("aria-hidden", "true");
-    host.style.cssText = "all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;";
+    styleHost(HOST_STYLE);
+    // Drawn in the top layer, over the page's own dialogs and anything it puts full screen, which no z-index is above.
+    host.setAttribute("popover", "manual");
     const shadow = host.attachShadow({ mode: "closed" });
     // KOS's face as @kos/shared colours it, written in rather than imported,
     // since this function runs in the page on its own; extension.test.ts keeps
@@ -123,16 +279,22 @@ export function installOverlay(): void {
     const kos = { fill: "#3585ed", ink: "#141d29" };
     // The light palette, the dashboard's light tokens: on its own choice, or on the page's light appearance under "system".
     // The bar is opaque, edged in its tone and shadowed either way, so it reads on a light site and a dark one alike.
-    const light = `--accent: #3558d6; --violet: #7b4fd6; --warn: #7d5400; --danger: #cf3b47;
+    // Each token important: a page's rule on the host would otherwise win over :host, and recolour or hide the overlay.
+    const important = (tokens: string): string => tokens.replace(/;/g, " !important;");
+    const light = important(`--accent: #3558d6; --violet: #7b4fd6; --warn: #7d5400; --danger: #cf3b47;
         --bar: rgba(255, 255, 255, 0.97); --ink: #161a22; --sub: #58607a; --btn: #eceef3; --btn-line: #dde1e8; --btn-line-lit: #bfc6d3;
-        --btn-lit: #dde1e8; --cast: rgba(16, 24, 40, 0.2);`;
-    shadow.innerHTML = `<style>
-      :host { --accent: #7c9cff; --violet: #a57cff; --warn: #e6b84d; --danger: #f07178; --tone: var(--accent);
+        --btn-lit: #dde1e8; --cast: rgba(16, 24, 40, 0.2);`);
+    const dark = important(`--accent: #7c9cff; --violet: #a57cff; --warn: #e6b84d; --danger: #f07178; --tone: var(--accent);
         --bar: rgba(18, 21, 28, 0.96); --ink: #e7ebf3; --sub: #8b93a7; --btn: #181c26; --btn-line: #262b36; --btn-line-lit: #3a4150;
-        --btn-lit: rgba(38, 43, 54, 0.7); --cast: rgba(0, 0, 0, 0.35); }
+        --btn-lit: rgba(38, 43, 54, 0.7); --cast: rgba(0, 0, 0, 0.35);`);
+    const c = look;
+    const px = (n: number): string => `${n}px`;
+    const blue = (share: number): string => `color-mix(in srgb, var(--kos-blue) ${share * 100}%, transparent)`;
+    shadow.innerHTML = `<style>
+      :host { ${dark} }
       :host([data-theme="light"]) { ${light} }
       @media (prefers-color-scheme: light) { :host([data-theme="system"]) { ${light} } }
-      :host([data-paused="1"]) { --tone: var(--warn); }
+      :host([data-paused="1"]) { --tone: var(--warn) !important; }
       .glow { position: fixed; inset: 0; pointer-events: none; border-radius: 6px;
         box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 24px 4px color-mix(in srgb, var(--accent) 40%, transparent);
         animation: sweep 3.2s ease-in-out infinite; }
@@ -173,16 +335,24 @@ export function installOverlay(): void {
       button:hover { border-color: var(--btn-line-lit); background: var(--btn-lit); }
       button.stop { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
       button.stop:hover { background: color-mix(in srgb, var(--danger) 17%, transparent); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
-      .cursor { position: fixed; left: 0; top: 0; width: 22px; height: 22px; pointer-events: none; opacity: 0; transform: translate(-100px, -100px);
-        transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1), opacity 240ms ease; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45)); }
-      .cursor.shown { opacity: 1; }
-      .cursor svg { display: block; }
-      .cursor i { position: absolute; left: -12px; top: -12px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
-      .cursor.press i { animation: ripple 420ms ease-out; }
-      @keyframes ripple { from { opacity: 0.9; transform: scale(0.3); } to { opacity: 0; transform: scale(1.6); } }
-      @media (prefers-reduced-motion: reduce) { .glow, .face b { animation: none; } .cursor { transition: opacity 240ms ease; } }
+      .cursor { --kos-blue: ${c.blue}; --kos-ink: ${c.ink}; position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+      :host([data-paused="1"]) .cursor, :host([data-capture="1"]) .cursor :is(.halo, .ring, .tag) { visibility: hidden; }
+      .cursor svg { position: absolute; left: 0; top: 0; overflow: visible;
+        filter: drop-shadow(0 0 ${px(c.glow.radius / 2)} var(--kos-blue)) drop-shadow(0 0 ${px(c.glow.radius / 2)} ${blue(c.glow.opacity)}); }
+      .cursor path { fill: var(--kos-blue); stroke: #fff; stroke-width: ${px(c.stroke)}; stroke-linejoin: round; }
+      .cursor .halo { position: absolute; left: ${px(-c.halo.radius)}; top: ${px(-c.halo.radius)}; width: ${px(2 * c.halo.radius)}; height: ${px(2 * c.halo.radius)};
+        box-sizing: border-box; border-radius: 50%; background: ${blue(c.halo.fill)}; border: ${px(c.halo.line)} solid ${blue(c.halo.edge)}; }
+      .cursor .ring { position: absolute; left: ${px(-c.ripple.radius)}; top: ${px(-c.ripple.radius)}; width: ${px(2 * c.ripple.radius)}; height: ${px(2 * c.ripple.radius)};
+        box-sizing: border-box; border-radius: 50%; opacity: 0; background: ${blue(c.ripple.fill)}; border: ${px(c.ripple.line)} solid var(--kos-blue); }
+      .cursor.press .ring { animation: ripple ${c.ripple.ms}ms ease-out; }
+      @keyframes ripple { from { opacity: 0.95; transform: scale(${c.ripple.from}); } to { opacity: 0; transform: scale(${c.ripple.to}); } }
+      .cursor .tag { position: absolute; left: ${px(c.tag.left)}; top: ${px(c.tag.top)}; height: ${px(c.tag.height)}; padding: 0 ${px(c.tag.padding)};
+        border-radius: ${px(c.tag.radius)}; white-space: nowrap; background: var(--kos-blue); color: var(--kos-ink);
+        font: ${c.tag.weight} ${px(c.tag.font)}/${px(c.tag.height)} -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased; box-shadow: 0 1px 3px rgba(0, 0, 0, ${c.tag.shadow}); }
+      @media (prefers-reduced-motion: reduce) { .glow, .face b, .cursor.press .ring { animation: none; } }
     </style>
-    <div class="cursor"><i></i><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M3 2.5v15.2l4.2-4.1 2.7 6.1 2.6-1.1-2.7-6h5.9z" style="fill: var(--accent)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
+    <div class="cursor"><span class="halo"></span><span class="ring"></span><svg width="${13 * c.scale}" height="${20 * c.scale}" aria-hidden="true"><path d="M${c.outline.map(([x, y]) => `${x * c.scale} ${y * c.scale}`).join("L")}Z"/></svg><span class="tag">KOS</span></div>
     <div class="glow"></div>
     <div class="bar"><span class="face"><svg viewBox="0 0 100 100" aria-hidden="true"><path/></svg><i></i><i></i><b></b></span><span class="words"><span class="title"></span><span class="sub"><span class="text"></span><span class="left"></span></span></span><button data-act="take"></button><button class="stop" data-act="stop">Stop</button></div>`;
     title = shadow.querySelector(".title");
@@ -191,7 +361,9 @@ export function installOverlay(): void {
     take = shadow.querySelector('button[data-act]:not(.stop)');
     bar = shadow.querySelector(".bar");
     cursor = shadow.querySelector(".cursor");
+    tag = shadow.querySelector(".tag");
     face = shadow.querySelector(".face");
+    setTip(at ?? middle());
     // A drag moves the bar; a press that does not move is a press, and on the face it folds the bar.
     // Whether it began on the face is kept: with the pointer captured, the release is the bar's, not the face's.
     let drag: { id: number; dx: number; dy: number; x0: number; y0: number; moved: boolean; face: boolean } | null = null;
@@ -218,7 +390,10 @@ export function installOverlay(): void {
       if (moved && state.at) tell({ kind: "place", ...state.at });
       else if (onFace && state.bar !== false) tell({ kind: "fold", folded: !state.folded });
     });
-    addEventListener("resize", place);
+    addEventListener("resize", () => {
+      place();
+      if (!at) setTip(middle());
+    });
     shadow.addEventListener(
       "click",
       (e) => {
@@ -227,16 +402,28 @@ export function installOverlay(): void {
         e.stopPropagation();
         e.preventDefault();
         // Stop is the owner's at once: the page is theirs again before the extension has done its part.
-        if (button.dataset["act"] === "stop" && host) host.style.display = "none";
+        if (button.dataset["act"] === "stop" && host) {
+          stopped = true;
+          styleHost(STOPPED_STYLE);
+        }
         tell({ kind: button.dataset["act"] });
       },
       true,
     );
     document.documentElement.appendChild(host);
+    raise();
     // A page that rewrites itself takes the overlay with it; put back.
-    new MutationObserver(() => {
-      if (!removed && host && !host.isConnected) document.documentElement?.appendChild(host);
-    }).observe(document.documentElement, { childList: true });
+    const reappend = limited(10, () => {
+      if (removed || !host || host.isConnected) return;
+      document.documentElement?.appendChild(host);
+      raise();
+    });
+    new MutationObserver(() => host && !host.isConnected && reappend()).observe(document.documentElement, { childList: true });
+    new MutationObserver(restore).observe(host, { attributes: true, attributeFilter: ["style", "popover", "aria-hidden", "data-paused", "data-folded", "data-theme", "data-bar", "data-capture"] });
+    // The page's own popover or full screen goes over it in the top layer: it goes back over them. (A modal dialog
+    // makes the rest of the page inert, the overlay too wherever it is drawn: the popup and the side panel still stop KOS.)
+    document.addEventListener("toggle", (e) => e.target !== host && (e as ToggleEvent).newState === "open" && raise(), true);
+    document.addEventListener("fullscreenchange", raise);
     render();
   };
 
@@ -269,25 +456,46 @@ export function installOverlay(): void {
     alive() {
       lastAlive = Date.now();
     },
-    // KOS's pointer, where its hands are about to act: glides there, and ripples on a press.
-    point(x, y, press) {
-      if (!cursor) return;
+    // KOS's cursor to where its hands are about to act: answered at once with how long its glide takes, for KOS's hands to wait on their own clock.
+    point(x, y, how) {
       lastAlive = Date.now();
-      cursor.classList.add("shown");
-      cursor.style.transform = `translate(${x - 3}px, ${y - 2}px)`;
-      if (press) {
-        cursor.classList.remove("press");
-        void cursor.offsetWidth;
-        cursor.classList.add("press");
+      clearTimeout(resting);
+      at = { x, y };
+      if (!cursor) return 0;
+      if (how === "rest") {
+        resting = setTimeout(() => at && setTip(at), REST_MS);
+        return 0;
       }
-      clearTimeout(idle);
-      idle = setTimeout(() => cursor?.classList.remove("shown"), 4_000);
+      if (how === "place") {
+        setTip(at);
+        return 0;
+      }
+      const glided = glideTo(at, how === "drag" ? DRAG_MS : undefined);
+      if (how === "press") void glided.arrived.then(ripple);
+      return how === "drag" ? 0 : glided.ms;
+    },
+    // While KOS types, the tag says so; it settles back once the typing stops.
+    typing() {
+      if (!tag) return;
+      tag.textContent = "KOS · typing";
+      clearTimeout(typed);
+      typed = setTimeout(() => {
+        if (tag) tag.textContent = "KOS";
+      }, 800);
+    },
+    // While KOS takes its picture of the page: the arrow alone, answered once a frame without the rest is drawn.
+    capturing(on) {
+      if (!host) return Promise.resolve();
+      capture = on;
+      mark("capture", on ? "1" : "");
+      if (!on || document.visibilityState !== "visible") return Promise.resolve();
+      return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
     },
   };
   // Re-read the time left, and go if the extension has not been heard from: the session is over.
   const ticker = setInterval(() => {
     if (Date.now() - lastAlive > ALIVE_MS) remove();
-    else render();
+    else restore();
   }, 3_000);
   if (document.documentElement) build();
   else document.addEventListener("readystatechange", build, { once: true });

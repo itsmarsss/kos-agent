@@ -149,7 +149,7 @@ public struct ConsentView: View {
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
 
-      VStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: 12) {
         HStack(spacing: 8) {
           Button("Deny", action: model.deny)
             .buttonStyle(KOSButtonStyle(.secondary))
@@ -159,25 +159,42 @@ public struct ConsentView: View {
             .buttonStyle(KOSButtonStyle(.primary))
             .keyboardShortcut(.defaultAction)
         }
-        GeometryReader { geo in
-          ZStack(alignment: .leading) {
-            Capsule().fill(Theme.line)
-            Capsule()
-              .fill(Theme.faint)
-              .frame(width: geo.size.width * CGFloat(model.remaining) / CGFloat(max(model.timeout, 1)))
-              .animation(.linear(duration: 1), value: model.remaining)
-          }
-        }
-        .frame(height: 3)
-        Text("Says no by itself in \(model.remaining) s")
-          .font(.kos(.tiny))
-          .foregroundStyle(Theme.faint)
-          .frame(maxWidth: .infinity, alignment: .trailing)
+        Countdown(remaining: model.remaining, timeout: model.timeout)
       }
     }
     .padding(Theme.gutter)
     .frame(width: model.targets.count > 1 ? 420 : 380)
     .background(Theme.bg)
+  }
+}
+
+/// A thin bar running down under the buttons, edge to edge with them, and the seconds until the ask says no by itself.
+struct Countdown: View {
+  let remaining: Int
+  let timeout: Int
+
+  /// The last seconds of the wait, when the bar and the words turn warn.
+  static let soon = 10
+
+  var body: some View {
+    let soon = remaining <= Self.soon
+    VStack(alignment: .leading, spacing: 6) {
+      GeometryReader { geo in
+        ZStack(alignment: .leading) {
+          Capsule().fill(Theme.line)
+          Capsule()
+            .fill(soon ? Theme.warn : Theme.accent.opacity(0.55))
+            .frame(width: geo.size.width * CGFloat(remaining) / CGFloat(max(timeout, 1)))
+            .animation(.linear(duration: 1), value: remaining)
+        }
+      }
+      .frame(height: 3)
+      Text("Says no in \(remaining) s")
+        .font(.kos(.tiny))
+        .monospacedDigit()
+        .foregroundStyle(soon ? Theme.warn : Theme.faint)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 

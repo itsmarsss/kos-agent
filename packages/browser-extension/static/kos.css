@@ -144,6 +144,8 @@ body.popup #root { height: 100%; }
 .btn:disabled { opacity: 0.45; cursor: default; }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .btn--primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+/* An outline a gap off a filled button reads as a second button round it: a filled one wears the fields' halo instead. */
+.btn--primary:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
 .btn--primary:hover:not(:disabled) { background: var(--accent-lit); border-color: transparent; }
 .btn--ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn--ghost:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--text); }

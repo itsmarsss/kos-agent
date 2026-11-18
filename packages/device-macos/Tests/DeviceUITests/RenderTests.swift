@@ -467,5 +467,8 @@ struct RenderTests {
     model.remaining = 44
     let size = try render("consent", ConsentView(model: model))
     #expect(size.width == 380)
+    // The last seconds: the bar and the words in warn, the sheet the same size.
+    model.remaining = 8
+    #expect(try render("consent-soon", ConsentView(model: model)) == size)
   }
 }
