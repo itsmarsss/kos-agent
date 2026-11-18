@@ -37,6 +37,8 @@ final class HUDPanel: NSPanel {
     level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
     collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     contentView = host
+    // Never in a picture: not KOS's, nor a screen share's.
+    sharingType = .none
     place(bottom: false, animated: false)
   }
 

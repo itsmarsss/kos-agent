@@ -12,6 +12,8 @@ final class OverlayWindow: NSWindow {
     level = .screenSaver
     collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     animationBehavior = .none
+    // Never in a picture: not KOS's, nor a screen share's.
+    sharingType = .none
   }
 
   override var canBecomeKey: Bool { false }

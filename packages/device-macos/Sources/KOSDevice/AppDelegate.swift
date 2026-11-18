@@ -373,10 +373,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     return MenuTurn.of(session: controller.live, kos: kos, chat: chat.model)
   }
 
-  /// The turn moved: the menu bar says so, and the Mac stays awake while anything runs.
+  /// The turn moved: the menu bar says so, the chat window keeps clear of what KOS works in, and the Mac stays awake
+  /// while anything runs.
   private func turnChanged() {
     let now = turn()
     menu.refresh()
+    chat.keepClear(of: controller.liveTarget, needsOwner: now.state == .waiting || now.state == .paused)
     stayAwake(now.state != .idle || controller.asking != nil)
   }
 

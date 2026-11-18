@@ -78,6 +78,8 @@ final class DeviceController {
   private(set) var asking: Asking?
 
   var live: LiveSession? { sessions.live }
+  /// What the live session works in, in AppKit's screen points: its window, or its whole display.
+  var liveTarget: CGRect? { sessions.live.map { Displays.cocoa($0.space.display.cg) } }
   /// The KOS the live session is for.
   var liveOrigin: String? { sessions.live == nil ? nil : sessions.origin }
 
@@ -210,6 +212,8 @@ final class DeviceController {
       if let window = windows.first(where: { String($0.id) == picked }) { await WindowCatalog.raise(window) }
     } else {
       overlay.show(display: id, task: task, until: session.until, face: faceOf(origin))
+      // The app KOS said it would work in, up front once, so its first look is at it; the screen is still all shared.
+      if let suggested { await WindowCatalog.raise(suggested) }
     }
     owner.start(grace: Self.handOverGrace, takeover: settings.takeover)
     ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in

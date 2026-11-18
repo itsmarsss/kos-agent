@@ -1,3 +1,4 @@
+import CoreGraphics
 import DeviceCore
 import DeviceKit
 import Foundation
@@ -58,5 +59,46 @@ struct MenuTurnTests {
     let turn = MenuTurn.of(session: try live(paused: true, waiting: true), kos: "home.local", chat: ChatModel())
     #expect(turn.state == .paused && turn.title == nil)
     #expect(turn.detail == "Fill in the form, for home.local")
+  }
+}
+
+@Suite("The chat window during a session")
+struct ChatAsideTests {
+  @Test func stepsAsideWhenItCoversTheTargetAndComesBackWhenNeeded() {
+    var aside = ChatAside()
+    #expect(aside.take(.live(open: true, covers: false)) == .stay)
+    #expect(aside.take(.live(open: false, covers: true)) == .stay)
+    #expect(aside.take(.needsOwner) == .stay)
+    #expect(aside.take(.live(open: true, covers: true)) == .hide)
+    #expect(aside.take(.needsOwner) == .show(clear: true))
+    #expect(aside.take(.ended) == .stay)
+    #expect(aside.take(.live(open: true, covers: true)) == .hide)
+    #expect(aside.take(.ended) == .show(clear: false))
+    // Opened by the owner meanwhile, it is theirs: nothing to bring back.
+    #expect(aside.take(.live(open: true, covers: true)) == .hide)
+    #expect(aside.take(.opened) == .stay)
+    #expect(aside.take(.ended) == .stay)
+  }
+
+  @Test func standsClearOfAWindowKOSWorksIn() throws {
+    let screen = CGRect(x: 0, y: 0, width: 1512, height: 944)
+    let target = CGRect(x: 300, y: 200, width: 800, height: 600)
+    let window = CGRect(x: 900, y: 300, width: 380, height: 560)
+    #expect(ChatPlacement.covers(window, target: target))
+    let to = try #require(ChatPlacement.clear(of: target, window: window, in: screen))
+    let placed = CGRect(origin: to, size: window.size)
+    #expect(!placed.intersects(target) && screen.contains(placed))
+    // The nearest clear side: right of the target, at the same height.
+    #expect(to == CGPoint(x: 1112, y: 300))
+  }
+
+  @Test func findsNoRoomBesideTheWholeScreen() {
+    let screen = CGRect(x: 0, y: 0, width: 1512, height: 944)
+    let window = CGRect(x: 1100, y: 360, width: 380, height: 560)
+    #expect(ChatPlacement.clear(of: screen, window: window, in: screen) == nil)
+    // On another screen, the corner it had on its own.
+    let other = CGRect(x: 1512, y: 0, width: 1920, height: 1080)
+    let to = ChatPlacement.onAnother(other, window: window, from: screen)
+    #expect(to == CGPoint(x: 1512 + 1920 - 12 - 380, y: 1080 - 12 - 560))
   }
 }

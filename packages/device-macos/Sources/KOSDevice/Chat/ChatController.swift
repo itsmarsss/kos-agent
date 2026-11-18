@@ -21,6 +21,8 @@ final class ChatController {
   /// The session on this Mac, and the ask for one, by the KOS and the chat they are for: the window shows its own chat's alone.
   var session: (origin: String, conversation: String?, paused: Bool)? { didSet { scope() } }
   var asking: (origin: String, conversation: String?, task: String, until: Date)? { didSet { scope() } }
+  /// Told after each call from KOS is drawn: the menu bar follows the turn.
+  var onDrawn: (() -> Void)?
 
   private lazy var window: ChatWindow = {
     let window = ChatWindow(model: model)
@@ -31,6 +33,11 @@ final class ChatController {
   }()
   /// Whether the window was ever made: stepping aside does not make one.
   private var made = false
+  /// What KOS works in while a session runs, in AppKit's screen points: the window keeps clear of it.
+  private var workingIn: CGRect?
+  /// The window put away for the session, and where it stood then.
+  private var aside = ChatAside()
+  private var before: CGRect?
   private var talkingTo: String?
   private var wasOnline = false
   private var taking: Timer?
@@ -84,6 +91,8 @@ final class ChatController {
 
   func open() {
     made = true
+    // Opened by the owner while it stood aside, it is theirs again.
+    _ = aside.take(.opened)
     noteFront()
     // One read for the opening: becoming key, this, and the box taking focus all ask, and only the first reads.
     openRead = true
@@ -139,6 +148,7 @@ final class ChatController {
       case .other:
         break
       }
+      onDrawn?()
       return try? Outbound.reply(id: call.id, result: EmptyResult())
     } catch let error as DeviceError {
       return try? Outbound.reply(id: call.id, error: error)
@@ -165,6 +175,54 @@ final class ChatController {
       MainActor.assumeIsolated {
         self?.model.giveBack("KOS did not take that. It may be a KOS without the Mac window, or not reachable now; your words are back in the box.")
       }
+    }
+  }
+
+  // MARK: While KOS works this Mac
+
+  /// A session's target, or none once it ends, and whether its turn needs the owner. Live, the window drops under
+  /// what KOS works in and steps aside when it covers it; it comes back, without taking the front, when the owner is
+  /// needed (clear of the target) or the session ends (where it stood).
+  func keepClear(of target: CGRect?, needsOwner: Bool) {
+    let was = workingIn
+    workingIn = target
+    guard made else { return }
+    if let target {
+      window.level = .normal
+      if was == nil { move(aside.take(.live(open: isOpen, covers: ChatPlacement.covers(window.frame, target: target)))) }
+      if needsOwner { move(aside.take(.needsOwner)) }
+    } else if was != nil {
+      window.level = .floating
+      move(aside.take(.ended))
+    }
+  }
+
+  private func move(_ move: ChatAside.Move) {
+    switch move {
+    case .stay:
+      return
+    case .hide:
+      before = window.frame
+      window.orderOut(nil)
+    case .show(let clear):
+      if clear, let target = workingIn {
+        stand(clearOf: target)
+      } else if let before {
+        window.setFrame(before, display: false)
+      }
+      // Up, never key: the app KOS works in, or the owner's, keeps the keyboard.
+      window.orderFrontRegardless()
+    }
+  }
+
+  /// Beside what KOS works in on its screen, or on another screen when the whole of that one is shared.
+  private func stand(clearOf target: CGRect) {
+    let frame = window.frame
+    let here = NSScreen.screens.first { $0.frame.intersects(target) } ?? window.screen ?? NSScreen.main
+    if let here, let to = ChatPlacement.clear(of: target, window: frame, in: here.visibleFrame) {
+      window.setFrameOrigin(to)
+    } else if let other = NSScreen.screens.first(where: { !$0.frame.intersects(target) }) {
+      window.setFrameOrigin(ChatPlacement.onAnother(other.visibleFrame, window: frame, from: here?.frame ?? target))
     }
   }
 
