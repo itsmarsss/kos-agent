@@ -40,6 +40,23 @@ function optStr(input: Record<string, unknown>, key: string): string | undefined
   return typeof v === "string" ? v : undefined;
 }
 
+function optInt(input: Record<string, unknown>, key: string): number | undefined {
+  const v = input[key];
+  if (v === undefined) return undefined;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1) throw new Error(`${key} must be a page number, from 1`);
+  return v;
+}
+
+/** A PDF's text, headed by what was read of it and, when the cap cut it, where to read on. */
+async function pdfRead(bytes: Buffer, from: number | undefined, to: number | undefined): Promise<string> {
+  const read = await pdfText(new Uint8Array(bytes), undefined, { ...(from ? { from } : {}), ...(to ? { to } : {}) });
+  const whole = read.from === 1 && read.to === read.pages && !read.truncated;
+  const pages = `${read.pages} page${read.pages === 1 ? "" : "s"}`;
+  const part = whole ? "" : read.from === read.to ? `, page ${read.from}` : `, pages ${read.from} to ${read.to}`;
+  const cut = read.truncated ? `, cut at the cap in page ${read.to}; read on with from: ${read.to}` : "";
+  return `[PDF, ${pages}${part}${cut}]\n${read.text}`;
+}
+
 /** True if a workspace-relative path is outside the scratch area. */
 export function outsideScratch(path: string): boolean {
   const norm = path.replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/\/+$/, "");
@@ -102,20 +119,21 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "files.read",
-      description: "Read a file from the workspace: UTF-8 text as it is; a PDF as its text page by page; a Word, Excel or PowerPoint file (.docx, .xlsx, .pptx) as its paragraphs, rows or slides.",
+      description: "Read a file from the workspace: UTF-8 text as it is; a PDF as its text page by page (from and to read some of its pages, as a long one is read); a Word, Excel or PowerPoint file (.docx, .xlsx, .pptx) as its paragraphs, rows or slides.",
       inputSchema: {
         type: "object",
-        properties: { path: { type: "string" } },
+        properties: {
+          path: { type: "string" },
+          from: { type: "integer", minimum: 1, description: "A PDF's first page to read." },
+          to: { type: "integer", minimum: 1, description: "A PDF's last page to read." },
+        },
         required: ["path"],
       },
     },
     async (input) => {
       const abs = fenced(str(input, "path"), "read");
       const bytes = readFileSync(abs);
-      if (isPdf(bytes)) {
-        const read = await pdfText(new Uint8Array(bytes));
-        return `[PDF, ${read.pages} page${read.pages === 1 ? "" : "s"}${read.truncated ? ", cut at the cap" : ""}]\n${read.text}`;
-      }
+      if (isPdf(bytes)) return pdfRead(bytes, optInt(input, "from"), optInt(input, "to"));
       if (isOffice(bytes, abs)) {
         const read = officeText(new Uint8Array(bytes), abs);
         return `[${officeNote(read)}]\n${read.text}`;

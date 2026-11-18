@@ -1,14 +1,15 @@
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 
-import { IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, base64Length, forModel, headerSize, imageTypeOf, type Converter, type ImageType } from "./images.js";
+import { IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, base64Length, forModel, headerSize, imageTypeOf, type Converter } from "./images.js";
 import { PICTURES } from "./images.fixture.js";
 import { downscale, pixels } from "./pixels.js";
 import { sips } from "./sips.js";
 
 const MB = 1024 * 1024;
-const picture = (type: ImageType): Buffer => Buffer.from(PICTURES[type], "base64");
-const TYPES = Object.keys(PICTURES) as ImageType[];
+type Kind = keyof typeof PICTURES;
+const picture = (type: Kind): Buffer => Buffer.from(PICTURES[type], "base64");
+const TYPES = Object.keys(PICTURES) as Kind[];
 
 /** Noise, which no encoder can make small: a PNG of it is about as big as its pixels. */
 function noisyPng(width: number, height: number): Buffer {

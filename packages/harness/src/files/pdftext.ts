@@ -14,6 +14,15 @@ export interface PdfText {
   pages: number;
   /** True when the cap cut the text short. */
   truncated: boolean;
+  /** The first and last page read, the last in part when the cap cut it. */
+  from: number;
+  to: number;
+}
+
+/** Pages to read, counted from 1, both ends kept; the whole file when unset. */
+export interface PageRange {
+  from?: number;
+  to?: number;
 }
 
 /** About what a model can take in one go without the rest of the turn going. */
@@ -24,8 +33,10 @@ export function isPdf(bytes: Uint8Array): boolean {
   return bytes.length > 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
 }
 
-/** The file's text, in reading order, each page under a marker. */
-export async function pdfText(bytes: Uint8Array, maxChars = PDF_TEXT_MAX): Promise<PdfText> {
+type PdfDocument = Awaited<ReturnType<typeof import("pdfjs-dist/legacy/build/pdf.mjs").getDocument>["promise"]>;
+
+/** The PDF opened, handed to `use`, and closed again whatever happens. */
+async function withPdf<T>(bytes: Uint8Array, use: (doc: PdfDocument) => Promise<T>): Promise<T> {
   if (!isPdf(bytes)) throw new Error("not a PDF: the file does not start with %PDF");
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = getDocument({
@@ -37,12 +48,33 @@ export async function pdfText(bytes: Uint8Array, maxChars = PDF_TEXT_MAX): Promi
     disableFontFace: true,
     stopAtErrors: false,
   });
-  const doc = await task.promise;
   try {
+    return await use(await task.promise);
+  } finally {
+    await task.destroy();
+  }
+}
+
+/** How many pages the PDF has, without reading them. */
+export function pdfPages(bytes: Uint8Array): Promise<number> {
+  return withPdf(bytes, async (doc) => doc.numPages);
+}
+
+/**
+ * The file's text, in reading order, each page under a marker; `range` reads
+ * part of a long one, as a book is read a chapter at a time.
+ */
+export function pdfText(bytes: Uint8Array, maxChars = PDF_TEXT_MAX, range: PageRange = {}): Promise<PdfText> {
+  return withPdf(bytes, async (doc) => {
+    const from = Math.max(1, Math.floor(range.from ?? 1));
+    const to = Math.min(doc.numPages, Math.floor(range.to ?? doc.numPages));
+    if (from > to) throw new Error(`pages ${from} to ${to} are not in it: it has ${doc.numPages} page${doc.numPages === 1 ? "" : "s"}`);
     const parts: string[] = [];
     let length = 0;
     let truncated = false;
-    for (let i = 1; i <= doc.numPages; i += 1) {
+    let last = from;
+    for (let i = from; i <= to; i += 1) {
+      last = i;
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
       const lines = content.items
@@ -59,8 +91,6 @@ export async function pdfText(bytes: Uint8Array, maxChars = PDF_TEXT_MAX): Promi
       parts.push(block);
       length += block.length + 2;
     }
-    return { text: parts.join("\n\n"), pages: doc.numPages, truncated };
-  } finally {
-    await task.destroy();
-  }
+    return { text: parts.join("\n\n"), pages: doc.numPages, truncated, from, to: last };
+  });
 }

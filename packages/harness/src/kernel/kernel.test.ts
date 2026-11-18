@@ -14,6 +14,8 @@ import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
 import { BindingGoneError } from "../channels/types.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { toPdf } from "../tools/pdf.js";
+import { PICTURES } from "../files/images.fixture.js";
+import { pdfOf } from "../files/pdf.fixture.js";
 import { bodyHexOf } from "@kos/shared";
 import { primarySessionId, upkeepSessionId } from "./session.js";
 import { BEHAVIOUR_KEY } from "./behaviour.js";
@@ -770,7 +772,7 @@ describe("Kernel", () => {
     kernel.bus.on("turn:said", (e) => {
       files.push({ conversationId: e.conversationId, files: e.files });
     });
-    const png = Buffer.from("not really a png").toString("base64");
+    const png = PICTURES["image/png"];
     // A root chat: the workspace's own uploads folder, as the file came.
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Receipts" });
     // The live view is told the kept files as the turn starts, so a page can show them at once.
@@ -790,7 +792,7 @@ describe("Kernel", () => {
     // The same bytes sent again are the file already there; a different file under the same name is kept beside it, not over it.
     await kernel.handleMessage("again", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: png }] });
     expect(files.at(-1)!.files).toEqual([{ name: "receipt.png", path: "uploads/receipt.png" }]);
-    await kernel.handleMessage("and this", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: Buffer.from("another picture").toString("base64") }] });
+    await kernel.handleMessage("and this", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: PICTURES["image/jpeg"] }] });
     expect(files.at(-1)!.files).toEqual([{ name: "receipt.png", path: "uploads/receipt copy.png" }]);
     // A project's chat keeps them with the project; a blob's thread, in the blob's folder.
     const project = kernel.standUpProject({ name: "Garden", type: "notes" });
@@ -806,14 +808,34 @@ describe("Kernel", () => {
     expect(readFileSync(join(root, "blobs", "recap", "uploads", "notes.txt"), "utf8")).toBe("hi");
   });
 
-  it("refuses a file past its kind's ceiling before keeping it, saying why", async () => {
+  it("refuses a file past 100 MB before keeping it, saying why", async () => {
     kernel = await boot(stubInference([]));
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Scans" });
-    const big = Buffer.alloc(33 * 1024 * 1024, 0x20).toString("base64");
+    const big = Buffer.alloc(120 * 1024 * 1024, 0x20).toString("base64");
     await expect(kernel.handleMessage("read this", { sessionId: c.id, attachments: [{ name: "scan.pdf", mediaType: "application/pdf", data: big }] })).rejects.toThrow(
-      /scan\.pdf is 33\.0 MB; a document can be up to 32 MB/,
+      /scan\.pdf is 120\.0 MB; a file can be up to 100 MB, the most KOS takes of one/,
     );
     expect(existsSync(join(root, "uploads", "scan.pdf"))).toBe(false);
+  });
+
+  it("keeps a 60 MB PDF whole, names it to the model, and the model reads its pages from there", async () => {
+    const requests: GenerateRequest[] = [];
+    kernel = await boot({
+      async generate(_t, r) {
+        requests.push(r);
+        return { content: [{ type: "text", text: "Read." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Manuals" });
+    const rows = Array.from({ length: 300 }, (_, i) => ({ item: `thing ${i}`, price: String(i) }));
+    const data = pdfOf(60 * 1024 * 1024, rows);
+    await kernel.handleMessage("what is in this?", { sessionId: c.id, attachments: [{ name: "manual.pdf", mediaType: "application/pdf", data }] });
+    expect(readFileSync(join(root, "uploads", "manual.pdf")).equals(Buffer.from(data, "base64"))).toBe(true);
+    const sent = JSON.stringify(requests.at(-1));
+    expect(sent).toMatch(/manual\.pdf: a 60\.0 MB PDF of \d+ pages, kept at uploads\/manual\.pdf/);
+    expect(sent).not.toContain("thing 0");
+    const page = await kernel.registry.execute("files.read", { path: "uploads/manual.pdf", from: 2, to: 2 });
+    expect(page.content).toMatch(/^\[PDF, \d+ pages, page 2\]\n--- page 2 of \d+ ---\n/);
   });
 
   it("keeps a cleared chat on the page above a line, and tells the mirror a command ran", async () => {

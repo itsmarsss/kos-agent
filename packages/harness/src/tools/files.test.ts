@@ -11,6 +11,7 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { filesModule, outsideScratch } from "./files.js";
 import { toPdf } from "./pdf.js";
+import { pdfOf } from "../files/pdf.fixture.js";
 
 describe("outsideScratch", () => {
   it("recognizes the scratch area", () => {
@@ -82,6 +83,18 @@ describe("filesModule", () => {
     expect(read.isError).toBe(false);
     expect(read.content.startsWith("[PDF, 1 page]\n")).toBe(true);
     expect(read.content).toContain("kettle 42");
+  });
+
+  it("reads some pages of a long PDF, as a kept 60 MB one is read", async () => {
+    const rows = Array.from({ length: 300 }, (_, i) => ({ item: `thing ${i}`, price: String(i) }));
+    writeFileSync(join(ws.root, "manual.pdf"), Buffer.from(pdfOf(60 * 1024 * 1024, rows), "base64"));
+    const read = await registry.execute("files.read", { path: "manual.pdf", from: 2, to: 3 });
+    expect(read.isError).toBe(false);
+    expect(read.content).toMatch(/^\[PDF, (\d+) pages, pages 2 to 3\]\n--- page 2 of \1 ---\n/);
+    expect(read.content).toContain("--- page 3 of ");
+    expect(read.content).not.toMatch(/--- page [14] of /);
+    expect((await registry.execute("files.read", { path: "manual.pdf", from: 0 })).content).toMatch(/from must be a page number, from 1/);
+    expect((await registry.execute("files.read", { path: "manual.pdf", from: 999 })).content).toMatch(/pages 999 to \d+ are not in it: it has \d+ pages/);
   });
 
   it("edits a file by string replacement", async () => {

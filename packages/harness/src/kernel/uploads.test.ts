@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { MAX_UPLOAD_BYTES, parseUpload, uploadDir, uploadDirAnywhere, uploadName, writeFileInto, writeProjectFile } from "./uploads.js";
+import { FILE_MAX_BYTES } from "./attachments.js";
+import { parseUpload, uploadDir, uploadDirAnywhere, uploadName, writeFileInto, writeProjectFile } from "./uploads.js";
 
 const b64 = (text: string): string => Buffer.from(text).toString("base64");
 
@@ -102,9 +103,14 @@ describe("writeProjectFile", () => {
     expect(writeProjectFile(ws, "budget", { name: "docs.pdf", data, dir: "" }).size).toBe(6 * 1024 * 1024);
   });
 
-  it("refuses an upload past the cap before decoding it", () => {
-    const data = "A".repeat(Math.ceil((MAX_UPLOAD_BYTES + 1024) / 3) * 4);
-    expect(() => writeProjectFile(ws, "budget", { name: "big.bin", data, dir: "" })).toThrow(/big\.bin is 32\.0 MB; files can be up to 32 MB, the most a chat reads of a document/);
+  it("takes a 60 MB scan, which the old 32 MB cap refused", () => {
+    const data = Buffer.alloc(60 * 1024 * 1024, 0x25).toString("base64");
+    expect(writeProjectFile(ws, "budget", { name: "scan.pdf", data, dir: "" }).size).toBe(60 * 1024 * 1024);
+  });
+
+  it("refuses an upload past 100 MB before decoding it, saying why", () => {
+    const data = "A".repeat(Math.ceil((FILE_MAX_BYTES + 1024) / 3) * 4);
+    expect(() => writeProjectFile(ws, "budget", { name: "big.bin", data, dir: "" })).toThrow(/big\.bin is 100\.0 MB; a file can be up to 100 MB, the most KOS takes of one/);
     expect(existsSync(join(ws.root, "projects", "budget"))).toBe(false);
   });
 });
