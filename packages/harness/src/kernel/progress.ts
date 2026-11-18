@@ -123,6 +123,16 @@ export type ProgressEvent =
       kind: "fresh";
       conversationId: string;
     }
+  | {
+      /**
+       * The chat has a new title: named by KOS as its first turn started, or
+       * renamed by the owner. Not part of any turn, and never replayed: a
+       * reader arriving later reads the title with the chat.
+       */
+      kind: "renamed";
+      conversationId: string;
+      title: string;
+    }
   | { kind: "turn-end"; conversationId: string };
 
 export type ProgressListener = (event: ProgressEvent) => void;
@@ -182,6 +192,7 @@ export class ProgressBus {
   }
 
   private remember(event: ProgressEvent): void {
+    if (event.kind === "renamed") return;
     const id = event.conversationId;
     if (event.kind === "turn-start") {
       this.inFlight.set(id, [event]);

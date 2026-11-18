@@ -944,6 +944,26 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.conversations.get(chat.id)?.title).toBe("3js shooter game");
   });
 
+  it("never holds a turn for its name, and tells every surface when the name lands", async () => {
+    let name: (title: string) => void = () => undefined;
+    const inference = {
+      generate: async (task: string) =>
+        task === "cheap" ? new Promise((r) => (name = (title) => r(text(title)))) : text("Made the tracker."),
+    } as unknown as Inference;
+    kernel = await boot(inference);
+    const renamed: unknown[] = [];
+    kernel.progress.subscribe((event) => {
+      if (event.kind === "renamed") renamed.push(event);
+    });
+    const chat = kernel.conversations.create({ userId: "owner" });
+    // Answered while the cheap route has still said nothing.
+    expect((await kernel.handleMessage("can you build a mini 3js shooter game project for me", { sessionId: chat.id })).reply).toBe("Made the tracker.");
+    expect(kernel.conversations.get(chat.id)?.title).toBe("can you build a mini 3js shooter game project for me");
+    name("3js shooter game");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(renamed.at(-1)).toEqual({ kind: "renamed", conversationId: chat.id, title: "3js shooter game" });
+  });
+
   it("leaves a name the owner chose alone", async () => {
     const model = scripted([text("ok"), text("ok")]);
     kernel = await boot(model.inference);
@@ -1509,8 +1529,9 @@ describe("KOS end-to-end flows", () => {
     await kernel.handleMessage("plan the diecast shelf build", {
       sessionId: created.id,
     });
+    // This cheap route answers no title, so the opening words stand in, cased as a title.
     expect(kernel.conversations.get(created.id)?.title).toBe(
-      "plan the diecast shelf build",
+      "Plan the diecast shelf build",
     );
   });
 

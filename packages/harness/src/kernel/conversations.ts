@@ -55,7 +55,15 @@ export interface Conversation {
    * list's green dot means.
    */
   readAt: number | null;
+  /**
+   * Who chose the title: the owner, by renaming it, or KOS, by naming it
+   * after its first message. Null while it is a placeholder or the opening
+   * words themselves, which is the only time KOS may name it.
+   */
+  titledBy: TitledBy | null;
 }
+
+export type TitledBy = "owner" | "kos";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -93,6 +101,7 @@ interface Row {
   project_slug?: string | null;
   role?: string | null;
   read_at?: number | null;
+  titled_by?: string | null;
 }
 
 function toConversation(row: Row): Conversation {
@@ -109,6 +118,7 @@ function toConversation(row: Row): Conversation {
     projectSlug: row.project_slug ?? null,
     role: row.role ?? null,
     readAt: row.read_at ?? null,
+    titledBy: row.titled_by === "owner" || row.titled_by === "kos" ? row.titled_by : null,
   };
 }
 
@@ -131,8 +141,8 @@ function parseAllow(raw: string | null): string[] | null {
 const MAX_TITLE = 60;
 
 /**
- * A title from the opening message. Deterministic and free: an LLM pass would
- * cost a call on every new conversation, and the user can rename.
+ * A title from the opening message, shown until KOS names the chat
+ * (naming.ts) a moment later. Deterministic and free.
  */
 export function titleFromText(text: string): string {
   const line = text.replace(/\s+/g, " ").trim();
@@ -253,6 +263,7 @@ export class ConversationStore {
       this.db.exec(`UPDATE conversations SET read_at = updated_at WHERE read_at IS NULL`);
     }
     if (!has("role")) this.db.exec(`ALTER TABLE conversations ADD COLUMN role TEXT`);
+    if (!has("titled_by")) this.db.exec(`ALTER TABLE conversations ADD COLUMN titled_by TEXT`);
   }
 
   /** Ids are readable and sortable; uniqueness is enforced by the primary key. */
@@ -280,8 +291,9 @@ export class ConversationStore {
       projectSlug: input.projectSlug ?? null,
       role: input.role ?? null,
       readAt: null,
+      titledBy: null,
     };
-    const { readAt: _unread, ...columns } = row;
+    const { readAt: _unread, titledBy: _untitled, ...columns } = row;
     const inserted = this.db
       .prepare(
         `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived, brief, tool_allow, project_slug, role)
@@ -321,13 +333,14 @@ export class ConversationStore {
     return this.get(id);
   }
 
-  rename(id: string, title: string): Conversation | undefined {
+  /** A title someone chose: the owner's unless KOS says it named the chat itself. */
+  rename(id: string, title: string, by: TitledBy = "owner"): Conversation | undefined {
     const clean = title.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
     if (clean === "") return this.get(id);
     const was = this.get(id)?.title;
     this.db
-      .prepare(`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`)
-      .run(clean, this.now(), id);
+      .prepare(`UPDATE conversations SET title = ?, titled_by = ?, updated_at = ? WHERE id = ?`)
+      .run(clean, by, this.now(), id);
     const now = this.get(id);
     this.renamed(id, was, now?.title);
     return now;
