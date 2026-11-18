@@ -290,6 +290,23 @@ describe("Vault keys and files", () => {
     expect(existsSync(join(dir, "key"))).toBe(false);
   }, 20_000);
 
+  it("never erases a key file outside the lock, where another process may have just written it", async () => {
+    const host = vaultAt();
+    await host.init({ passphrase: "a long passphrase" });
+    host.add({ label: "GitHub", kind: "login", values: { password: "pw-correct-horse" } });
+    // The CLI, taking the passphrase off, has written its new key and not yet the vault.
+    writeFileSync(join(dir, "key"), `${range(0x40, 32).toString("base64")}\n`, { mode: 0o600 });
+    host.poll();
+    expect(host.status().state).toBe("ready");
+    expect(existsSync(join(dir, "key"))).toBe(true);
+    // The CLI finishes under the lock; the host sees a key-file vault and the key stays.
+    const cli = vaultAt();
+    await cli.unlock("a long passphrase");
+    cli.removePassphrase();
+    expect(host.status().slots).toEqual(["keyfile"]);
+    expect(existsSync(join(dir, "key"))).toBe(true);
+  }, 20_000);
+
   it("refuses a key file or a folder others can read, and a key file that is a link", async () => {
     await twoSecrets();
     const { chmodSync, symlinkSync, renameSync } = await import("node:fs");

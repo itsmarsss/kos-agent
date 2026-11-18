@@ -489,6 +489,8 @@ export class Vault {
     this.stamp = "";
     this.refresh();
     if (!this.dek) throw new VaultError("tampered", this.problem ?? "the vault would not open");
+    // Opened: a key file left beside a vault that no longer uses one goes now.
+    this.locked(() => undefined);
   }
 
   /** Whether `passphrase` opens the passphrase slot, for a reveal's step-up. */
@@ -715,6 +717,16 @@ export class Vault {
     });
   }
 
+  /**
+   * A key file no slot of an opened vault uses (a passphrase added while
+   * KOS was away): erased, nothing should be left to try. Only under the
+   * lock, after the vault was read again: outside it, the key a CLI just
+   * wrote for its next write would look orphaned.
+   */
+  private dropOrphanKey(): void {
+    if (this.dek && this.doc && !this.options.envKey && !this.doc.slots.some((sl) => sl.kind === "keyfile")) this.dropKeyFile();
+  }
+
   /** A key file no slot needs any more, overwritten and unlinked: a copy of it opens nothing, but nothing should be left to try. */
   private dropKeyFile(): void {
     for (const path of [this.keyPath, `${this.keyPath}.next`, `${this.keyPath}.tmp`]) shred(path);
@@ -937,8 +949,6 @@ export class Vault {
         this.dek = opened.dek;
         if (this.opener && this.opener !== opened.opener) this.opener.kek.fill(0);
         this.opener = opened.opener;
-        // A key file no slot uses any more (a passphrase added while KOS was away): nothing should be left to try.
-        if (!doc.slots.some((sl) => sl.kind === "keyfile") && !this.options.envKey) this.dropKeyFile();
         // A vault from before the scrub index gets one the first time it opens.
         if (!existsSync(this.indexPath)) this.writeIndex();
       }
@@ -997,7 +1007,13 @@ export class Vault {
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     this.lockDepth++;
     try {
-      return withFileLock(this.lockPath, run);
+      return withFileLock(this.lockPath, () => {
+        // Read again under the lock: what another process wrote before it let go is what this change starts from.
+        this.stamp = "";
+        this.refresh();
+        this.dropOrphanKey();
+        return run();
+      });
     } catch (err) {
       // A file that is not private, or a lock held too long: the vault is shut for this change, and the owner is told why.
       if (err instanceof VaultFsError) throw new VaultError("refused", err.message);
