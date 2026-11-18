@@ -1,11 +1,11 @@
-import { execFileSync } from "node:child_process";
 import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUse, SecretValues, VaultSlotKind } from "@kos/shared";
 
+import { checkDir, copyAtomic, excludeFromBackup, fsyncDir, readPrivate, shred, VaultFsError, withFileLock, writeAtomic } from "./vaultfs.js";
 import { checkPolicy, checkUse, checkValues, hintOf, labelOf, originAllowed, scannedOf, slugOf, type ScannedValue } from "./records.js";
 
 /**
@@ -36,6 +36,7 @@ const VAULT_FILE = "vault.kosv";
 const KEY_FILE = "key";
 /** The highest sequence number this machine has seen, so an older copy put back is refused. */
 const SEQ_FILE = "seq";
+const LOCK_FILE = "vault.lock";
 /** How often a hot caller looks for a change another process made. */
 const POLL_MS = 1_000;
 
@@ -193,6 +194,16 @@ function unwrapDek(kek: Buffer, slot: Slot, vault: string, dekId: string): Buffe
   }
 }
 
+/** A passphrase's key-encryption key and the salt it was made with. */
+interface PassphraseKey {
+  kek: Buffer;
+  salt: Buffer;
+}
+
+function passphraseSlotOf(pass: PassphraseKey, dek: Buffer, vault: string, id: string, dekId: string): PassphraseSlot {
+  return { id, kind: "passphrase", kdf: { alg: "scrypt", ...SCRYPT, salt: b64(pass.salt) }, wrap: wrapDek(pass.kek, dek, vault, id, dekId) };
+}
+
 const ENTRY_ID = /^e_[0-9a-f]{16}$/;
 const VAULT_ID = /^v_[0-9a-f]{16}$/;
 const DEK_ID = /^k[1-9][0-9]*$/;
@@ -240,60 +251,6 @@ function parseVault(text: string): VaultFile {
   return v;
 }
 
-/** Write `data` so the file is either all old or all new: a temp file, fsynced, renamed over. */
-function writeAtomic(path: string, data: string | Buffer): void {
-  const tmp = `${path}.tmp`;
-  const fd = openSync(tmp, "w", 0o600);
-  try {
-    writeSync(fd, typeof data === "string" ? Buffer.from(data, "utf8") : data);
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-}
-
-function fsyncDir(dir: string): void {
-  try {
-    const fd = openSync(dir, "r");
-    try {
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-  } catch {
-    // Not every filesystem lets a directory be synced; the rename is still atomic.
-  }
-}
-
-/** Overwrite a file with random bytes, sync it, then unlink it. */
-function shred(path: string): void {
-  if (!existsSync(path)) return;
-  try {
-    const size = statSync(path).size;
-    const fd = openSync(path, "r+");
-    try {
-      writeSync(fd, randomBytes(Math.max(size, 32)), 0, Math.max(size, 32), 0);
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-  } finally {
-    unlinkSync(path);
-  }
-}
-
-/** Keep the key file out of Time Machine, by the attribute tmutil sets; no tmutil, so no prompt. */
-function excludeFromBackup(path: string): void {
-  if (process.platform !== "darwin") return;
-  try {
-    execFileSync("xattr", ["-w", "com.apple.metadata:com_apple_backup_excludeItem", "com.apple.backupd", path], { stdio: "ignore", timeout: 5_000 });
-  } catch {
-    // Best effort: a key file in a backup is still useless without the vault, which is never in the workspace.
-  }
-}
-
 export interface VaultOptions {
   dir: string;
   /** KOS_VAULT_KEY: the key file's 32 bytes as base64, for the container, where there is no key file. */
@@ -302,6 +259,8 @@ export interface VaultOptions {
   contained?: boolean;
   /** KOS_VAULT_ALLOW_SHARED_UID=1: open the vault in the container anyway. */
   allowSharedUid?: boolean;
+  /** The second record of the highest sequence written, outside the vault's folder: `<dir>.seq` unless given. */
+  seqCopy?: string;
   now?: () => number;
 }
 
@@ -342,7 +301,11 @@ export class Vault {
   private readonly prev: string;
   private readonly keyPath: string;
   private readonly seqPath: string;
+  private readonly seqCopy: string;
+  private readonly lockPath: string;
   private readonly now: () => number;
+  /** How deep this process is inside the vault's file lock, so a change made inside another takes it once. */
+  private lockDepth = 0;
 
   private doc: VaultFile | undefined;
   /** mtime, size and inode of the file last read, so a change made by another process is noticed. */
@@ -350,6 +313,8 @@ export class Vault {
   private dek: Buffer | undefined;
   private opener: Opener | undefined;
   private problem: string | undefined;
+  /** Something the owner should see about a vault that still opened. */
+  private warning: string | undefined;
   private held = new Map<string, Held>();
   private polled = 0;
   private readonly listeners = new Set<() => void>();
@@ -360,6 +325,8 @@ export class Vault {
     this.prev = `${this.file}.prev`;
     this.keyPath = join(this.dir, KEY_FILE);
     this.seqPath = join(this.dir, SEQ_FILE);
+    this.seqCopy = options.seqCopy ?? `${this.dir.replace(/\/+$/, "")}.seq`;
+    this.lockPath = join(this.dir, LOCK_FILE);
     this.now = options.now ?? Date.now;
     this.refresh();
   }
@@ -392,7 +359,8 @@ export class Vault {
     // A file that is there but will not read is a vault shut, not one missing: init must not write over it.
     if (!this.doc) return { state: this.stamp ? "locked" : "absent", slots: [], ...(this.problem ? { problem: this.problem } : {}) };
     const slots = [...new Set(this.doc.slots.map((s) => s.kind))];
-    return { state: this.dek ? "ready" : "locked", slots, ...(this.problem ? { problem: this.problem } : {}) };
+    const problem = this.problem ?? (this.dek ? this.warning : undefined);
+    return { state: this.dek ? "ready" : "locked", slots, ...(problem ? { problem } : {}) };
   }
 
   hasPassphrase(): boolean {
@@ -501,65 +469,68 @@ export class Vault {
    * key-file slot, and the vault opens by itself.
    */
   async init(options: { passphrase?: string } = {}): Promise<void> {
-    this.refresh();
-    if (this.doc || existsSync(this.file)) throw new VaultError("exists", "there is a vault already");
     this.refuseShared();
-    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    chmodSync(this.dir, 0o700);
-    const dek = randomBytes(32);
-    const vault = `v_${hex(8)}`;
-    const dekId = "k1";
-    let slot: Slot;
-    let opener: Opener;
-    if (options.passphrase !== undefined) {
-      const made = await this.passphraseSlot(options.passphrase, dek, vault, "s1", dekId);
-      slot = made.slot;
-      opener = { kind: "passphrase", kek: made.kek };
-      this.dropKeyFile();
-    } else {
-      const key = this.keyBytes() ?? this.makeKey();
-      slot = { id: "s1", kind: "keyfile", wrap: wrapDek(key, dek, vault, "s1", dekId) };
-      opener = { kind: "keyfile", kek: key };
-    }
-    this.write({ format: VAULT_FORMAT, version: VAULT_VERSION, vault, dek: dekId, slots: [slot], entries: [], index: { seq: 0, mac: "" } }, dek, opener);
+    const pass = options.passphrase !== undefined ? await this.passphraseKey(options.passphrase) : undefined;
+    this.locked(() => {
+      this.refresh();
+      if (this.doc || existsSync(this.file)) throw new VaultError("exists", "there is a vault already");
+      chmodSync(this.dir, 0o700);
+      const dek = randomBytes(32);
+      const vault = `v_${hex(8)}`;
+      const dekId = "k1";
+      let slot: Slot;
+      let opener: Opener;
+      if (pass) {
+        slot = passphraseSlotOf(pass, dek, vault, "s1", dekId);
+        opener = { kind: "passphrase", kek: pass.kek };
+        this.dropKeyFile();
+      } else {
+        const key = this.keyBytes() ?? this.makeKey();
+        slot = { id: "s1", kind: "keyfile", wrap: wrapDek(key, dek, vault, "s1", dekId) };
+        opener = { kind: "keyfile", kek: key };
+      }
+      this.write({ format: VAULT_FORMAT, version: VAULT_VERSION, vault, dek: dekId, slots: [slot], entries: [], index: { seq: 0, mac: "" } }, dek, opener, true);
+    });
   }
 
-  private async passphraseSlot(passphrase: string, dek: Buffer, vault: string, id: string, dekId: string): Promise<{ slot: PassphraseSlot; kek: Buffer }> {
+  /** scrypt of a new passphrase with a fresh salt: slow, so done before the vault is locked for the write. */
+  private async passphraseKey(passphrase: string): Promise<PassphraseKey> {
     if (passphrase.length < 8) throw new VaultError("invalid", "a passphrase is at least 8 characters");
     const salt = randomBytes(16);
-    const kek = await passphraseKek(passphrase, salt);
-    return { slot: { id, kind: "passphrase", kdf: { alg: "scrypt", ...SCRYPT, salt: b64(salt) }, wrap: wrapDek(kek, dek, vault, id, dekId) }, kek };
+    return { kek: await passphraseKek(passphrase, salt), salt };
   }
 
   // Changing
 
   add(input: NewSecret): string {
-    const { doc, dek } = this.ready();
-    const label = labelOf(input.label);
-    const kind = input.kind;
-    const values = checkValues(kind, input.values, undefined);
-    const now = this.now();
-    let handle: string;
-    do handle = `${slugOf(label)}-${randomBytes(3).readUIntBE(0, 3).toString(36).padStart(4, "0").slice(-4)}`;
-    while (this.held.has(handle));
-    const record: SecretRecord = {
-      handle,
-      label,
-      kind,
-      values,
-      use: checkUse(input.use),
-      policy: checkPolicy(input.policy, undefined),
-      hint: hintOf(kind, values),
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-    };
-    let id: string;
-    do id = `e_${hex(8)}`;
-    while (doc.entries.some((e) => e.id === id));
-    const entries = [...doc.entries, this.sealEntry(doc.vault, doc.dek, dek, id, record)].sort((a, b) => (a.id < b.id ? -1 : 1));
-    this.write({ ...doc, entries }, dek, this.opener!);
-    return handle;
+    return this.locked(() => {
+      const { doc, dek } = this.ready();
+      const label = labelOf(input.label);
+      const kind = input.kind;
+      const values = checkValues(kind, input.values, undefined);
+      const now = this.now();
+      let handle: string;
+      do handle = `${slugOf(label)}-${randomBytes(3).readUIntBE(0, 3).toString(36).padStart(4, "0").slice(-4)}`;
+      while (this.held.has(handle));
+      const record: SecretRecord = {
+        handle,
+        label,
+        kind,
+        values,
+        use: checkUse(input.use),
+        policy: checkPolicy(input.policy, undefined),
+        hint: hintOf(kind, values),
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+      };
+      let id: string;
+      do id = `e_${hex(8)}`;
+      while (doc.entries.some((e) => e.id === id));
+      const entries = [...doc.entries, this.sealEntry(doc.vault, doc.dek, dek, id, record)].sort((a, b) => (a.id < b.id ? -1 : 1));
+      this.write({ ...doc, entries }, dek, this.opener!);
+      return handle;
+    });
   }
 
   update(handle: string, patch: SecretPatch): SecretMeta {
@@ -585,33 +556,46 @@ export class Vault {
   }
 
   private change(handle: string, edit: (record: SecretRecord) => SecretRecord): SecretMeta {
-    const { doc, dek } = this.ready();
-    const held = this.held.get(handle);
-    if (!held) throw new VaultError("not-found", `there is no secret ${handle}`);
-    const next = this.withRecord(handle, (record) => {
-      const edited = edit(record);
-      return { ...edited, handle: record.handle, kind: record.kind, createdAt: record.createdAt, updatedAt: this.now(), version: record.version + 1 };
-    })!;
-    const entries = doc.entries.map((e) => (e.id === held.entry ? this.sealEntry(doc.vault, doc.dek, dek, e.id, next) : e));
-    this.write({ ...doc, entries }, dek, this.opener!);
-    return this.held.get(handle)!.meta;
+    return this.locked(() => {
+      const { doc, dek } = this.ready();
+      const held = this.held.get(handle);
+      if (!held) throw new VaultError("not-found", `there is no secret ${handle}`);
+      const next = this.withRecord(handle, (record) => {
+        const edited = edit(record);
+        return { ...edited, handle: record.handle, kind: record.kind, createdAt: record.createdAt, updatedAt: this.now(), version: record.version + 1 };
+      })!;
+      const entries = doc.entries.map((e) => (e.id === held.entry ? this.sealEntry(doc.vault, doc.dek, dek, e.id, next) : e));
+      this.write({ ...doc, entries }, dek, this.opener!);
+      return this.held.get(handle)!.meta;
+    });
   }
 
   /** The entry gone, then a new data key for the rest, in one write: a copy of the old file no longer opens with what is in memory. */
   remove(handle: string): void {
-    this.ready();
-    const held = this.held.get(handle);
-    if (!held) throw new VaultError("not-found", `there is no secret ${handle}`);
-    this.rotateDataKey(held.entry);
+    this.locked(() => {
+      this.ready();
+      const held = this.held.get(handle);
+      if (!held) throw new VaultError("not-found", `there is no secret ${handle}`);
+      this.reseal({ dropping: held.entry });
+    });
   }
 
   /** Every entry sealed again under a new data key, and every slot wrapped again, in one atomic write. */
-  rotateDataKey(dropping?: string): void {
+  rotateDataKey(): void {
+    this.locked(() => this.reseal({}));
+  }
+
+  /**
+   * A new data key: every entry sealed again under it, an entry dropped if
+   * asked, and the slots wrapped again (the same ones, or those `slots`
+   * makes), in one write that erases `.prev`.
+   */
+  private reseal(change: { dropping?: string; slots?: (dek: Buffer, vault: string, dekId: string) => { slots: Slot[]; opener: Opener } }): void {
     const { doc, dek } = this.ready();
     const fresh = randomBytes(32);
     const dekId = `k${Number(doc.dek.slice(1)) + 1}`;
     const entries = doc.entries
-      .filter((e) => e.id !== dropping)
+      .filter((e) => e.id !== change.dropping)
       .map((e) => {
         const plain = this.openEntry(doc, dek, e);
         try {
@@ -621,8 +605,8 @@ export class Vault {
           plain.fill(0);
         }
       });
-    const slots = doc.slots.map((s) => this.rewrap(doc, s, dek, fresh, dekId));
-    this.write({ ...doc, dek: dekId, slots, entries }, fresh, this.opener!);
+    const made = change.slots?.(fresh, doc.vault, dekId) ?? { slots: doc.slots.map((sl) => this.rewrap(doc, sl, dek, fresh, dekId)), opener: this.opener! };
+    this.write({ ...doc, dek: dekId, slots: made.slots, entries }, fresh, made.opener, true);
   }
 
   /** A slot wrapped again under the same key-encryption key: the one that opened it, or the key file's. */
@@ -651,23 +635,28 @@ export class Vault {
   }
 
   /**
-   * A passphrase added, or the one there changed: the passphrase slot
-   * becomes the only slot, and the key file is crypto-erased, so from the
-   * next start the vault waits for the passphrase. The vault must be open.
+   * A passphrase added, or the one there changed: a new data key, wrapped
+   * under the passphrase alone, `.prev` erased and the key file erased, so
+   * nothing on disk opens the vault and from the next start it waits for
+   * the passphrase. The vault must be open.
    */
   async setPassphrase(passphrase: string): Promise<void> {
-    const { doc, dek } = this.ready();
-    const made = await this.passphraseSlot(passphrase, dek, doc.vault, "s1", doc.dek);
-    this.write({ ...doc, slots: [made.slot] }, dek, { kind: "passphrase", kek: made.kek });
-    this.dropKeyFile();
+    this.ready();
+    const pass = await this.passphraseKey(passphrase);
+    this.locked(() => {
+      this.reseal({ slots: (dek, vault, dekId) => ({ slots: [passphraseSlotOf(pass, dek, vault, "s1", dekId)], opener: { kind: "passphrase", kek: pass.kek } }) });
+      this.dropKeyFile();
+    });
   }
 
-  /** The passphrase taken off: a key-file slot is the only slot, and the vault opens by itself again. The vault must be open. */
+  /** The passphrase taken off: a new data key under a key file alone, and the vault opens by itself again. The vault must be open. */
   removePassphrase(): void {
-    const { doc, dek } = this.ready();
-    if (!doc.slots.some((s) => s.kind === "passphrase")) throw new VaultError("invalid", "this vault has no passphrase");
-    const key = this.keyBytes() ?? this.makeKey();
-    this.write({ ...doc, slots: [{ id: "s1", kind: "keyfile", wrap: wrapDek(key, dek, doc.vault, "s1", doc.dek) }] }, dek, { kind: "keyfile", kek: key });
+    this.locked(() => {
+      const { doc } = this.ready();
+      if (!doc.slots.some((sl) => sl.kind === "passphrase")) throw new VaultError("invalid", "this vault has no passphrase");
+      const key = this.keyBytes() ?? this.makeKey();
+      this.reseal({ slots: (dek, vault, dekId) => ({ slots: [{ id: "s1", kind: "keyfile", wrap: wrapDek(key, dek, vault, "s1", dekId) }], opener: { kind: "keyfile", kek: key } }) });
+    });
   }
 
   /** A key file no slot needs any more, overwritten and unlinked: a copy of it opens nothing, but nothing should be left to try. */
@@ -675,31 +664,36 @@ export class Vault {
     for (const path of [this.keyPath, `${this.keyPath}.next`, `${this.keyPath}.tmp`]) shred(path);
   }
 
-  /** A new key file, and the key-file slot wrapped under it. Refused while KOS_VAULT_KEY supplies the key. */
+  /** A new key file, and the key-file slot wrapped under it; `.prev`, wrapped under the old key, is erased. Refused while KOS_VAULT_KEY supplies the key. */
   rotateKeyfile(): void {
-    const { doc, dek } = this.ready();
-    if (this.options.envKey) throw new VaultError("invalid", "KOS_VAULT_KEY supplies the key: change it there and run rotate with the new one");
-    const slot = doc.slots.find((s) => s.kind === "keyfile");
-    if (!slot) throw new VaultError("invalid", "this vault has no key-file slot");
-    const key = randomBytes(32);
-    const next = `${this.keyPath}.next`;
-    // The new key is on disk before the vault needs it, and replaces the old one after.
-    writeAtomic(next, `${b64(key)}\n`);
-    const slots = doc.slots.map((s) => (s.kind === "keyfile" ? { ...s, wrap: wrapDek(key, dek, doc.vault, s.id, doc.dek) } : s));
-    const opener = this.opener?.kind === "keyfile" ? { kind: "keyfile" as const, kek: key } : this.opener!;
-    this.write({ ...doc, slots }, dek, opener);
-    renameSync(next, this.keyPath);
-    excludeFromBackup(this.keyPath);
-    if (opener.kek !== key) key.fill(0);
+    this.locked(() => {
+      const { doc, dek } = this.ready();
+      if (this.options.envKey) throw new VaultError("invalid", "KOS_VAULT_KEY supplies the key: change it there and run rotate with the new one");
+      if (!doc.slots.some((sl) => sl.kind === "keyfile")) throw new VaultError("invalid", "this vault has no key-file slot");
+      const key = randomBytes(32);
+      const next = `${this.keyPath}.next`;
+      // The new key is on disk before the vault needs it, and replaces the old one after.
+      writeAtomic(next, `${b64(key)}\n`, this.dir);
+      const slots = doc.slots.map((sl) => (sl.kind === "keyfile" ? { ...sl, wrap: wrapDek(key, dek, doc.vault, sl.id, doc.dek) } : sl));
+      const opener = this.opener?.kind === "keyfile" ? { kind: "keyfile" as const, kek: key } : this.opener!;
+      this.write({ ...doc, slots }, dek, opener, true);
+      renameSync(next, this.keyPath);
+      fsyncDir(this.dir);
+      excludeFromBackup(this.keyPath);
+      if (opener.kek !== key) key.fill(0);
+    });
   }
 
-  /** Crypto-erase: the vault, its last copy, the key and the sequence overwritten and unlinked, and the keys in memory zeroed. */
+  /** Crypto-erase: the vault, its last copy, the key and both sequence records overwritten and unlinked, and the keys in memory zeroed. */
   wipe(): void {
-    for (const path of [this.file, this.prev, `${this.file}.tmp`, this.keyPath, `${this.keyPath}.next`, `${this.keyPath}.tmp`, this.seqPath, `${this.seqPath}.tmp`]) shred(path);
-    fsyncDir(this.dir);
-    this.forget();
-    this.problem = undefined;
-    this.stamp = "";
+    this.locked(() => {
+      for (const path of [this.file, this.prev, `${this.prev}.tmp`, `${this.file}.tmp`, this.keyPath, `${this.keyPath}.next`, `${this.keyPath}.tmp`, this.seqPath, `${this.seqPath}.tmp`, this.seqCopy, `${this.seqCopy}.tmp`]) shred(path);
+      fsyncDir(this.dir);
+      this.forget();
+      this.problem = undefined;
+      this.warning = undefined;
+      this.stamp = "";
+    });
     this.emit();
   }
 
@@ -709,17 +703,15 @@ export class Vault {
    * passphrase gets one for the copy only.
    */
   async exportTo(path: string, passphrase: string): Promise<void> {
-    const { doc, dek } = this.ready();
-    let slot = doc.slots.find((s): s is PassphraseSlot => s.kind === "passphrase");
-    if (slot) {
-      (await this.passphraseOpener(doc, passphrase)).kek.fill(0);
-    } else {
-      const made = await this.passphraseSlot(passphrase, dek, doc.vault, "s2", doc.dek);
-      made.kek.fill(0);
-      slot = made.slot;
-    }
-    const copy = { ...doc, slots: [slot] };
-    writeAtomic(path, `${JSON.stringify({ ...copy, index: { seq: doc.index.seq, mac: indexMac(dek, copy, doc.index.seq) } }, null, 2)}\n`);
+    const { doc } = this.ready();
+    const mine = doc.slots.find((sl): sl is PassphraseSlot => sl.kind === "passphrase");
+    if (mine) (await this.passphraseOpener(doc, passphrase)).kek.fill(0);
+    const pass = mine ? undefined : await this.passphraseKey(passphrase);
+    const { doc: now, dek } = this.ready();
+    const slot = mine ? now.slots.find((sl) => sl.kind === "passphrase")! : passphraseSlotOf(pass!, dek, now.vault, "s1", now.dek);
+    pass?.kek.fill(0);
+    const copy = { ...now, slots: [slot] };
+    writeAtomic(path, `${JSON.stringify({ ...copy, index: { seq: now.index.seq, mac: indexMac(dek, copy, now.index.seq) } }, null, 2)}\n`, dirname(path));
   }
 
   // Inside
@@ -745,7 +737,7 @@ export class Vault {
   }
 
   private keyBytes(): Buffer | undefined {
-    const text = this.options.envKey ?? (existsSync(this.keyPath) ? readFileSync(this.keyPath, "utf8").trim() : undefined);
+    const text = this.options.envKey ?? (existsSync(this.keyPath) ? readPrivate(this.keyPath).trim() : undefined);
     if (!text) return undefined;
     const key = unb64(text);
     if (key.length !== 32) throw new VaultError("invalid", this.options.envKey ? "KOS_VAULT_KEY is not 32 bytes of base64" : `${this.keyPath} is not 32 bytes of base64`);
@@ -754,7 +746,7 @@ export class Vault {
 
   private makeKey(): Buffer {
     const key = randomBytes(32);
-    writeAtomic(this.keyPath, `${b64(key)}\n`);
+    writeAtomic(this.keyPath, `${b64(key)}\n`, this.dir);
     excludeFromBackup(this.keyPath);
     return key;
   }
@@ -777,10 +769,24 @@ export class Vault {
     }
   }
 
-  private highWater(): { vault: string; seq: number } | undefined {
-    if (!existsSync(this.seqPath)) return undefined;
-    const [vault, seq] = readFileSync(this.seqPath, "utf8").trim().split(" ");
-    return vault && seq && /^\d+$/.test(seq) ? { vault, seq: Number(seq) } : undefined;
+  /**
+   * The highest sequence written for this vault, by either record: the one
+   * in the folder and its copy outside it. Both must be put back to pass an
+   * old copy off; `missing` says one of them is gone.
+   */
+  private highWater(vault: string): { seq: number; missing: boolean } {
+    let seq = 0;
+    let missing = false;
+    for (const path of [this.seqPath, this.seqCopy]) {
+      if (!existsSync(path)) {
+        missing = true;
+        continue;
+      }
+      const [id, n] = readPrivate(path).trim().split(" ");
+      if (id === vault && n && /^\d+$/.test(n)) seq = Math.max(seq, Number(n));
+      else if (id !== vault) missing = true;
+    }
+    return { seq, missing };
   }
 
   /** Every check a file read from disk must pass before anything in it is believed. */
@@ -788,10 +794,14 @@ export class Vault {
     const mac = indexMac(dek, doc, doc.index.seq);
     const given = unb64(doc.index.mac);
     if (given.length !== 32 || !timingSafeEqual(given, unb64(mac))) throw new VaultError("tampered", "the vault's index does not match its entries: one was dropped, added or changed outside KOS");
-    const seen = this.highWater();
-    if (seen && seen.vault === doc.vault && doc.index.seq < seen.seq) {
+    const seen = this.highWater(doc.vault);
+    if (doc.index.seq < seen.seq) {
       throw new VaultError("tampered", `the vault file is older than one KOS wrote (sequence ${doc.index.seq}, last ${seen.seq}): an old copy was put back`);
     }
+    this.warning =
+      seen.missing && doc.index.seq > 0
+        ? `a record of the vault's last sequence is missing (${this.seqPath} or ${this.seqCopy}), so an older copy put back could not be told from this one; the next change writes it again`
+        : undefined;
     const held = new Map<string, Held>();
     for (const entry of doc.entries) {
       const plain = this.openEntry(doc, dek, entry);
@@ -831,7 +841,7 @@ export class Vault {
   private nextKey(): Buffer | undefined {
     const next = `${this.keyPath}.next`;
     if (this.options.envKey || !existsSync(next)) return undefined;
-    const key = unb64(readFileSync(next, "utf8").trim());
+    const key = unb64(readPrivate(next).trim());
     return key.length === 32 ? key : undefined;
   }
 
@@ -855,8 +865,10 @@ export class Vault {
       return;
     }
     this.problem = undefined;
+    this.warning = undefined;
     try {
-      const doc = parseVault(readFileSync(this.file, "utf8"));
+      checkDir(this.dir);
+      const doc = parseVault(readPrivate(this.file));
       this.doc = doc;
       this.refuseShared();
       const opened = this.openWith(doc);
@@ -868,6 +880,8 @@ export class Vault {
         this.dek = opened.dek;
         if (this.opener && this.opener !== opened.opener) this.opener.kek.fill(0);
         this.opener = opened.opener;
+        // A key file no slot uses any more (a passphrase added while KOS was away): nothing should be left to try.
+        if (!doc.slots.some((sl) => sl.kind === "keyfile") && !this.options.envKey) this.dropKeyFile();
       }
     } catch (err) {
       this.problem = err instanceof Error ? err.message : String(err);
@@ -892,18 +906,21 @@ export class Vault {
     this.held = new Map();
   }
 
-  private write(doc: VaultFile, dek: Buffer, opener: Opener): void {
-    const seq = Math.max(doc.index.seq, this.highWater()?.vault === doc.vault ? this.highWater()!.seq : 0) + 1;
+  /**
+   * Seal the vault to disk. The copy before is kept as `.prev`, synced,
+   * except after a change of keys (`dropPrev`): then `.prev` is erased, or
+   * it would still open with a key that should no longer open anything.
+   */
+  private write(doc: VaultFile, dek: Buffer, opener: Opener, dropPrev = false): void {
+    const seq = Math.max(doc.index.seq, this.highWater(doc.vault).seq) + 1;
     const next: VaultFile = { ...doc, index: { seq, mac: indexMac(dek, doc, seq) } };
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    if (existsSync(this.file)) {
-      copyFileSync(this.file, `${this.prev}.tmp`);
-      chmodSync(`${this.prev}.tmp`, 0o600);
-      renameSync(`${this.prev}.tmp`, this.prev);
-    }
-    writeAtomic(this.file, `${JSON.stringify(next, null, 2)}\n`);
-    writeAtomic(this.seqPath, `${next.vault} ${seq}\n`);
-    fsyncDir(this.dir);
+    if (dropPrev) shred(this.prev);
+    else if (existsSync(this.file)) copyAtomic(this.file, this.prev, this.dir);
+    // The vault first, then each sequence record: a crash between leaves a record lower than the vault, never higher.
+    writeAtomic(this.file, `${JSON.stringify(next, null, 2)}\n`, this.dir);
+    writeAtomic(this.seqPath, `${next.vault} ${seq}\n`, this.dir);
+    writeAtomic(this.seqCopy, `${next.vault} ${seq}\n`, dirname(this.seqCopy));
     if (this.dek && this.dek !== dek) this.dek.fill(0);
     if (this.opener && this.opener.kek !== opener.kek) this.opener.kek.fill(0);
     this.dek = dek;
@@ -912,6 +929,22 @@ export class Vault {
     this.doc = undefined;
     this.refresh();
     if (!this.dek) throw new VaultError("tampered", this.problem ?? "the vault did not read back");
+  }
+
+  /** `run` under the vault's file lock, so the host and the CLI never interleave a read and a write. */
+  private locked<T>(run: () => T): T {
+    if (this.lockDepth > 0) return run();
+    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    this.lockDepth++;
+    try {
+      return withFileLock(this.lockPath, run);
+    } catch (err) {
+      // A file that is not private, or a lock held too long: the vault is shut for this change, and the owner is told why.
+      if (err instanceof VaultFsError) throw new VaultError("refused", err.message);
+      throw err;
+    } finally {
+      this.lockDepth--;
+    }
   }
 
   private emit(): void {

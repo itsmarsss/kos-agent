@@ -67,16 +67,34 @@ Record, sealed whole (metadata included):
 ## The vault
 
 `~/.kos/secrets/` at mode 0700, or `KOS_VAULT_DIR`. Never in the workspace,
-so never in its git snapshots.
+so never in its git snapshots, and hidden from every jailed program.
+
+KOS reads the folder and its files only when they are its own and private:
+a folder or key file another user owns, or one the group or the world can
+read, is refused and the vault stays shut with the reason in its status.
+Files are opened without following links (`O_NOFOLLOW`) and checked on the
+open descriptor.
 
 - `key`: 32 random bytes as base64, mode 0600, marked to stay out of Time
   Machine (`com.apple.metadata:com_apple_backup_excludeItem`). Only a vault
   without a passphrase has one.
-- `vault.kosv`: JSON, mode 0600, written atomically (a temp file, fsync,
-  rename, the directory synced), with the copy before it kept as
-  `vault.kosv.prev`.
-- `seq`: the highest sequence number this machine wrote, so an older copy
-  put back is refused.
+- `vault.kosv`: JSON, mode 0600, written atomically: a fresh temp file
+  (`O_EXCL`, `O_NOFOLLOW`), fsynced, renamed over, the folder synced. The
+  copy before is kept as `vault.kosv.prev`, also synced, except after a
+  change of keys (a rotation, a delete, a passphrase added or taken off, a
+  new key file), which erases it: it would still open with the old key.
+- `seq`, and its copy `<folder>.seq` outside the folder (`~/.kos/secrets.seq`):
+  the highest sequence number written. Both are written after the vault, so
+  a crash leaves them lower, never higher. An older copy of the vault is
+  refused when either record is higher than its sequence, so both have to be
+  put back to pass one off. A missing record is shown in the status's
+  `problem` while the vault still opens, and written again on the next change.
+- `vault.lock`: held while the host or the CLI reads the vault and writes it
+  back, so the two never interleave a change; one left by a process that is
+  gone, or older than 30 s, is taken over.
+
+Node has no `F_FULLFSYNC`, so on macOS a power cut can still lose a write
+the disk had cached; the rename keeps the file all-old or all-new.
 
 Format, version 1:
 
@@ -129,8 +147,10 @@ A vault has one slot:
   secrets unlock`). The passphrase is a real second factor; no key file, and
   no `KOS_VAULT_KEY`, opens it.
 
-Adding a passphrase to a key-file vault wraps the DEK under it alone and
-crypto-erases the key file. Taking it off wraps the DEK under a key file
+Adding a passphrase to a key-file vault rotates the data key, wraps the new
+one under the passphrase alone, and crypto-erases the key file and `.prev`;
+a key file found later beside a vault no slot of which uses one is erased
+as soon as the vault opens. Taking it off wraps the DEK under a key file
 again. Both are audited as `secrets.passphrase`.
 
 Operations:
@@ -139,16 +159,20 @@ Operations:
   in one write. Audited as `secrets.rotate`.
 - A new passphrase or a new key file re-wraps the DEK in that slot.
 - Delete: the entry goes and the data key is rotated in the same write.
-- Wipe (crypto-erase): `vault.kosv`, `.prev`, `key` and `seq` overwritten
-  with random bytes, synced, unlinked, and the keys in memory zeroed.
+- Wipe (crypto-erase): `vault.kosv`, `.prev`, `key` and both sequence
+  records overwritten with random bytes, synced, unlinked, and the keys in
+  memory zeroed. On APFS and on an SSD the old blocks may outlive the
+  overwrite (copy-on-write, wear levelling); the erase holds because the keys
+  are gone, not because the blocks are.
 - Export: a copy with the passphrase slot alone, so the key file does not
   travel with it. A vault with no passphrase gets one for the copy.
 - An entry is decrypted into a Buffer for one use and the Buffer zeroed. The
   strings a value becomes in JavaScript cannot be wiped, nor can the
   scrubber's copies of every value; that is a known limit.
 
-If an old copy must be restored by hand, put `vault.kosv.prev` in place and
-delete `seq`.
+An older copy put back is refused by design, `.prev` included. To go back to
+an earlier state, restore an export (`kos secrets export`), which is opened
+by its passphrase.
 
 ### In the container
 

@@ -146,7 +146,8 @@ describe("Vault", () => {
     expect(fileOf().entries).toHaveLength(1);
     expect(vault.value(key!.handle, "token")).toBe("sk_live_0123456789abcdef");
     expect(vaultAt().list().map((s) => s.handle)).toEqual([key!.handle]);
-    expect(existsSync(join(dir, "vault.kosv.prev"))).toBe(true);
+    // The copy before held the deleted entry under a key that still opened it: gone too.
+    expect(existsSync(join(dir, "vault.kosv.prev"))).toBe(false);
   });
 
   it("rotates the data key and the key file, and still opens", async () => {
@@ -221,8 +222,8 @@ describe("Vault", () => {
     const exported = JSON.parse(readFileSync(join(dir, "..", "vault.export.kosv"), "utf8")) as VaultFile;
     expect(exported.slots.map((s) => s.kind)).toEqual(["passphrase"]);
     // Put where a vault lives, with no key file beside it, it waits for the passphrase.
-    mkdirSync(out, { recursive: true });
-    writeFileSync(join(out, "vault.kosv"), JSON.stringify(exported));
+    mkdirSync(out, { recursive: true, mode: 0o700 });
+    writeFileSync(join(out, "vault.kosv"), JSON.stringify(exported), { mode: 0o600 });
     const opened = new Vault({ dir: out });
     expect(opened.status().state).toBe("locked");
     await opened.unlock("export passphrase");
@@ -267,6 +268,77 @@ describe("Vault", () => {
     expect(vault.value(card, "number")).toBe("4242424242424242");
     expect(vault.value(card, "expiry")).toBe("04/29");
   });
+});
+
+describe("Vault keys and files", () => {
+  it("a passphrase added leaves no old key and no .prev that opens anything", async () => {
+    const vault = await twoSecrets();
+    const handle = vault.list()[0]!.handle;
+    vault.update(handle, { label: "GitHub again" });
+    expect(existsSync(join(dir, "vault.kosv.prev"))).toBe(true);
+    const oldKey = readFileSync(join(dir, "key"), "utf8");
+    await vault.setPassphrase("a long passphrase");
+    expect(existsSync(join(dir, "vault.kosv.prev"))).toBe(false);
+    expect(existsSync(join(dir, "key"))).toBe(false);
+    expect(fileOf().dek).toBe("k2");
+    // The old key put back opens neither the vault nor anything beside it.
+    writeFileSync(join(dir, "key"), oldKey, { mode: 0o600 });
+    expect(vaultAt().status().state).toBe("locked");
+    const fresh = vaultAt();
+    await fresh.unlock("a long passphrase");
+    // Opened, it erases a key file no slot uses.
+    expect(existsSync(join(dir, "key"))).toBe(false);
+  }, 20_000);
+
+  it("refuses a key file or a folder others can read, and a key file that is a link", async () => {
+    await twoSecrets();
+    const { chmodSync, symlinkSync, renameSync } = await import("node:fs");
+    chmodSync(join(dir, "key"), 0o644);
+    expect(vaultAt().status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/can be read by others/) });
+    chmodSync(join(dir, "key"), 0o600);
+    chmodSync(dir, 0o755);
+    expect(vaultAt().status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/can be read by others/) });
+    chmodSync(dir, 0o700);
+    renameSync(join(dir, "key"), join(dir, "..", "real-key"));
+    symlinkSync(join(dir, "..", "real-key"), join(dir, "key"));
+    expect(vaultAt().status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/is a link/) });
+  });
+
+  it("keeps a second sequence record outside the folder, and refuses when either is higher", async () => {
+    const vault = await twoSecrets();
+    const copy = `${dir}.seq`;
+    expect(readFileSync(copy, "utf8")).toBe(readFileSync(join(dir, "seq"), "utf8"));
+    const old = readFileSync(join(dir, "vault.kosv"));
+    const oldSeq = readFileSync(join(dir, "seq"));
+    vault.add({ label: "Third", kind: "note", values: { text: "another long note" } });
+    // An old copy and its in-folder record put back: the copy outside still says it is old.
+    writeFileSync(join(dir, "vault.kosv"), old);
+    writeFileSync(join(dir, "seq"), oldSeq);
+    expect(vaultAt().status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/older than one KOS wrote/) });
+  });
+
+  it("says so when a sequence record is missing", async () => {
+    await twoSecrets();
+    rmSync(join(dir, "seq"));
+    expect(vaultAt().status()).toMatchObject({ state: "ready", problem: expect.stringMatching(/sequence is missing|last sequence is missing/) });
+    rmSync(`${dir}.seq`);
+    const v = vaultAt();
+    expect(v.status().problem).toMatch(/missing/);
+    v.add({ label: "Again", kind: "note", values: { text: "a note to write" } });
+    expect(vaultAt().status()).toEqual({ state: "ready", slots: ["keyfile"] });
+  });
+
+  it("waits for another process's lock, and takes over one left by a process that is gone", async () => {
+    const vault = await twoSecrets();
+    writeFileSync(join(dir, "vault.lock"), "999999999\n");
+    vault.add({ label: "After a stale lock", kind: "note", values: { text: "written anyway" } });
+    expect(existsSync(join(dir, "vault.lock"))).toBe(false);
+    writeFileSync(join(dir, "vault.lock"), `${process.pid}\n`);
+    const start = Date.now();
+    expect(() => vault.add({ label: "Held", kind: "note", values: { text: "never written" } })).toThrow(/another KOS process/);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(4_000);
+    rmSync(join(dir, "vault.lock"));
+  }, 20_000);
 });
 
 describe("Vault tamper checks", () => {
