@@ -128,6 +128,35 @@ const defaultFetchJson = async (url: string): Promise<Record<string, unknown>> =
 const LAUNCH_MS = 15_000;
 /** How long a Chrome told to close may take to stop answering. */
 const GONE_MS = 5_000;
+/** How long a Chrome sent SIGTERM has before it is killed. */
+const STOP_GRACE_MS = 3_000;
+
+/** Whether a child has exited: its code is set, or the signal that ended it. */
+const ended = (child: ChildProcess): boolean => child.exitCode !== null || child.signalCode !== null;
+
+/** Until a child has exited, or failed to start. */
+const exitOf = (child: ChildProcess): Promise<void> =>
+  ended(child)
+    ? Promise.resolve()
+    : new Promise((resolve) => {
+        child.once("exit", () => resolve());
+        // One that could not be started never exits.
+        child.once("error", () => resolve());
+      });
+
+/**
+ * A signal to a child's whole process group: it was spawned detached, so the
+ * group is its own and its pid names it. A child without a pid (one that
+ * never started) is signalled alone.
+ */
+function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  try {
+    if (child.pid) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch {
+    /* already gone */
+  }
+}
 
 export class ChromeHost {
   private child: ChildProcess | null = null;
@@ -179,17 +208,32 @@ export class ChromeHost {
     this.wsUrl = null;
   }
 
-  stop(): void {
+  /**
+   * Stop the Chrome KOS started, and every process it started. The browser
+   * alone is asked first: it closes its helpers itself, and a SIGTERM to its
+   * network service would cut off the cookies it is still writing. If it has
+   * not gone within the grace period, its whole process group (renderers, GPU
+   * process and all) is killed. Resolves once the browser has exited, so its
+   * profile can be deleted without Chrome still writing to it. An adopted
+   * Chrome is left be.
+   */
+  stop(graceMs = STOP_GRACE_MS): Promise<void> {
     const child = this.child;
     this.child = null;
     this.wsUrl = null;
-    if (child) {
-      try {
-        child.kill();
-      } catch {
-        /* already gone */
-      }
+    if (!child) return Promise.resolve();
+    const exited = exitOf(child);
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      /* already gone */
     }
+    const kill = setTimeout(() => signalGroup(child, "SIGKILL"), graceMs);
+    return exited.then(() => {
+      clearTimeout(kill);
+      // A helper that outlived the browser goes with it.
+      signalGroup(child, "SIGKILL");
+    });
   }
 
   /**
@@ -199,7 +243,7 @@ export class ChromeHost {
    */
   async waitExit(ms = GONE_MS): Promise<void> {
     const child = this.child;
-    if (!child || child.exitCode !== null) return this.waitGone();
+    if (!child || ended(child)) return this.waitGone();
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, ms);
       child.once("exit", () => {
@@ -238,7 +282,12 @@ export class ChromeHost {
     if (!binary) throw new Error("no Chrome found; name its path under Settings > Browser");
     mkdirSync(this.options.profileDir, { recursive: true });
     const spawn = this.options.spawn ?? nodeSpawn;
-    const child = spawn(binary, chromeArgs({ port: this.options.port, profileDir: this.options.profileDir, ...launch }), { stdio: "ignore", env: this.options.env ?? process.env });
+    const child = spawn(binary, chromeArgs({ port: this.options.port, profileDir: this.options.profileDir, ...launch }), {
+      stdio: "ignore",
+      env: this.options.env ?? process.env,
+      // Its own process group, so stop() reaches the helpers Chrome starts as well as Chrome.
+      detached: true,
+    });
     this.child = child;
     child.on("exit", () => {
       if (this.child !== child) return;
@@ -253,10 +302,10 @@ export class ChromeHost {
         this.wsUrl = answer["webSocketDebuggerUrl"];
         return this.wsUrl;
       }
-      if (child.exitCode !== null) throw new Error(`Chrome exited with ${child.exitCode} before it answered`);
+      if (ended(child)) throw new Error(`Chrome exited with ${child.exitCode ?? child.signalCode} before it answered`);
       await new Promise((r) => setTimeout(r, 150));
     }
-    this.stop();
+    await this.stop();
     throw new Error("Chrome did not answer on its port in time");
   }
 }

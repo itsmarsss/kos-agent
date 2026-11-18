@@ -44,7 +44,13 @@ describe("modules in a workspace", () => {
     const { modules, invalid } = readWorkspaceModules(ws);
     expect(modules.map((m) => [m.manifest.name, m.dir])).toEqual([["good", "modules/good"]]);
     expect(invalid).toEqual([{ name: "bare", reason: "no module.json" }]);
-    expect(readWorkspaceModules(Workspace.open(mkdtempSync(join(tmpdir(), "kos-empty-"))))).toEqual({ modules: [], invalid: [] });
+    // Another workspace, inside this one's folder so it goes with it.
+    const empty = Workspace.open(mkdtempSync(join(root, "empty-")));
+    try {
+      expect(readWorkspaceModules(empty)).toEqual({ modules: [], invalid: [] });
+    } finally {
+      empty.close();
+    }
   });
 
   it("runs a module from its own folder, jailed, with the floors it declared", () => {

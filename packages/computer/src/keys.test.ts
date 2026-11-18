@@ -1,10 +1,21 @@
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { hereProof, loadHostKey, loadLocalKey, publicKeyFromRaw, rawPublicKey, signText, verifyHere, verifyText } from "./keys.js";
+
+/** The folders the tests made, removed after each. */
+const made: string[] = [];
+afterEach(() => {
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+const tempDir = (prefix: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+};
 
 describe("keys", () => {
   it("verify only the exact text, by the exact key", () => {
@@ -27,7 +38,7 @@ describe("keys", () => {
   });
 
   it("keep KOS's key in a file only the owner reads, and the same one next time", () => {
-    const path = join(mkdtempSync(join(tmpdir(), "kos-keys-")), "nested", "device-host.key");
+    const path = join(tempDir("kos-keys-"), "nested", "device-host.key");
     const first = loadHostKey({ path });
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(loadHostKey({ path }).publicKey).toBe(first.publicKey);
@@ -53,7 +64,7 @@ describe("the proof a device is on this computer", () => {
 
 describe("the secret of this computer", () => {
   it("is made once, readable by the owner alone, and the same when read again", () => {
-    const path = join(mkdtempSync(join(tmpdir(), "local-key-")), "kos", "device-local.key");
+    const path = join(tempDir("local-key-"), "kos", "device-local.key");
     const key = loadLocalKey(path);
     expect(key).toHaveLength(32);
     expect(statSync(path).mode & 0o777).toBe(0o600);
@@ -61,7 +72,7 @@ describe("the secret of this computer", () => {
   });
 
   it("is made readable by the owner alone when found otherwise, and is never overwritten", () => {
-    const path = join(mkdtempSync(join(tmpdir(), "local-key-")), "device-local.key");
+    const path = join(tempDir("local-key-"), "device-local.key");
     writeFileSync(path, `${Buffer.alloc(32, 9).toString("base64")}\n`, { mode: 0o644 });
     expect(loadLocalKey(path).equals(Buffer.alloc(32, 9))).toBe(true);
     expect(statSync(path).mode & 0o777).toBe(0o600);

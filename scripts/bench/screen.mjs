@@ -9,13 +9,14 @@
 // ("Bench Mac") and a headless Chrome with it, starts chats and approves what
 // they ask. See scripts/bench/README.md.
 
-import { spawn } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { launchHeadless } from "../lib/headless.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const { nonce, rawPublicKey, signText } = await import(join(ROOT, "packages/computer/dist/keys.js"));
@@ -74,14 +75,8 @@ const SITE = `http://127.0.0.1:${site.address().port}`;
 
 // ---------------------------------------------------------------- Chrome over CDP
 
-const dbg = 9600 + Math.floor(Math.random() * 300);
-const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${dbg}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "kos-bench-"))}`, "--enable-unsafe-extension-debugging", "--no-first-run", "--hide-scrollbars", `--window-size=${W},${H}`, "about:blank"], { stdio: "ignore" });
-let ver;
-for (let i = 0; i < 300 && !ver; i++) {
-  ver = await fetch(`http://127.0.0.1:${dbg}/json/version`).then((r) => r.json()).catch(() => undefined);
-  if (!ver) await sleep(100);
-}
-const cdp = new WebSocket(ver.webSocketDebuggerUrl);
+const chrome = await launchHeadless({ binary: CHROME, args: ["--enable-unsafe-extension-debugging", "--hide-scrollbars", `--window-size=${W},${H}`], prefix: "kos-bench-" });
+const cdp = new WebSocket(chrome.wsUrl);
 await new Promise((r) => (cdp.onopen = r));
 let seq = 0;
 const waiting = new Map();
@@ -407,7 +402,7 @@ if (TASKS.includes("heavy")) {
 writeFileSync(join(OUT, `${LABEL}.md`), table({ label: LABEL, results }));
 log("wrote", join(OUT, `${LABEL}.json`), "and", `${LABEL}.md`);
 cdp.close();
-chrome.kill();
+await chrome.close();
 site.close();
 process.exit(0);
 

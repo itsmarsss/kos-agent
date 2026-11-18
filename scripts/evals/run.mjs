@@ -140,7 +140,7 @@ for (const task of TASKS) {
       log(task.name, n, "ERROR", String(err?.message ?? err));
     } finally {
       await mac?.close().catch(() => undefined);
-      chrome?.close();
+      await chrome?.close().catch(() => undefined);
       await host.stop();
       if (!args.keep) rmSync(join(dir, "ws"), { recursive: true, force: true });
     }

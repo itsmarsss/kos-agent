@@ -1,24 +1,14 @@
 // A headless Chrome of the run's own, driven over CDP: the fake Mac's screen and KOS for Chrome both live in it.
 
-import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const CHROME = process.env.KOS_EVAL_CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+import { launchHeadless } from "../../lib/headless.mjs";
 
 export async function launchChrome() {
-  const port = 9300 + Math.floor(Math.random() * 400);
-  const profile = mkdtempSync(join(tmpdir(), "kos-eval-chrome-"));
-  const proc = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--enable-unsafe-extension-debugging", "--no-first-run", "--hide-scrollbars", "--window-size=1280,800", "about:blank"], { stdio: "ignore" });
-  let ver;
-  for (let i = 0; i < 300 && !ver; i++) {
-    ver = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json()).catch(() => undefined);
-    if (!ver) await sleep(100);
-  }
-  if (!ver) throw new Error("headless Chrome did not start");
-  const ws = new WebSocket(ver.webSocketDebuggerUrl);
+  const chrome = await launchHeadless({
+    ...(process.env.KOS_EVAL_CHROME ? { binary: process.env.KOS_EVAL_CHROME } : {}),
+    args: ["--enable-unsafe-extension-debugging", "--hide-scrollbars", "--window-size=1280,800"],
+    prefix: "kos-eval-chrome-",
+  });
+  const ws = new WebSocket(chrome.wsUrl);
   await new Promise((r) => (ws.onopen = r));
   let seq = 0;
   const waiting = new Map();
@@ -50,14 +40,14 @@ export async function launchChrome() {
     return { targetId, session: sessionId };
   };
   const evaluate = async (session, expression) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, session)).result?.value;
-  const close = () => {
+  /** Chrome stopped and waited for, then its profile deleted. */
+  const close = async () => {
     try {
       ws.close();
     } catch {
       /* closed */
     }
-    proc.kill();
-    setTimeout(() => rmSync(profile, { recursive: true, force: true }), 1500).unref();
+    await chrome.close();
   };
   return { send, open, evaluate, close };
 }

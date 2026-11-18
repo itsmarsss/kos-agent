@@ -404,6 +404,8 @@ describe("the owner's tabs, and an agent's second one", () => {
     await live.restart();
     expect(chrome.calls("Storage.setCookies")[0]?.params["cookies"]).toEqual([expect.objectContaining({ name: "sid", value: "v", domain: ".shop.example", expires: expect.any(Number) })]);
     expect(chrome.calls("Browser.close")).toHaveLength(1);
+    // Waited for as it closes, as at shutdown, before any signal.
+    expect(host.exited).toBe(1);
     expect(host.stops).toBe(1);
     expect(host.starts).toBe(2);
     expect(live.status()).toMatchObject({ attached: true, chrome: "running" });

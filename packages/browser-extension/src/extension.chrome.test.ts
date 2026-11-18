@@ -189,7 +189,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
 
     profile = mkdtempSync(join(tmpdir(), "kos-extension-"));
     const port = 9800 + Math.floor(Math.random() * 100);
-    chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--enable-unsafe-extension-debugging", "--no-first-run", "about:blank"], { stdio: "ignore" });
+    chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--enable-unsafe-extension-debugging", "--no-first-run", "about:blank"], { stdio: "ignore", detached: true });
     let version: { webSocketDebuggerUrl: string } | undefined;
     // A CI machine can take a while to bring Chrome up; ten seconds once was not enough.
     for (let i = 0; i < 300 && !version; i++) {
@@ -216,17 +216,20 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
 
   afterAll(async () => {
     devtools?.close();
-    chrome?.kill();
-    await new Promise((r) => chrome?.once("exit", r));
+    if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
+      const exited = new Promise((r) => chrome.once("exit", r));
+      // Its own process group, helpers and all, so nothing is still writing the profile when it is deleted.
+      try {
+        process.kill(-chrome.pid!, "SIGKILL");
+      } catch {
+        /* gone */
+      }
+      await exited;
+    }
     sockets?.close();
     server?.closeAllConnections();
     server?.close();
-    // Chrome's helpers can still be writing the profile as it goes; a temp folder left behind is no failure.
-    try {
-      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
-    } catch {
-      /* left for the system to clear */
-    }
+    if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
   it("pairs, proves both keys, and keeps the connection with pings", () => {

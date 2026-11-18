@@ -682,6 +682,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     },
   });
 
+  // What the last host's throwaway Chromes left in the temp folder, cleared without holding up the start.
+  kernel.sweepStaleProfiles();
   // A turn the last process was running when it stopped is said to be cut
   // short in its chat, before any surface can start a turn of its own.
   kernel.markInterrupted();

@@ -571,8 +571,12 @@ export class BrowserLive {
    */
   async restart(): Promise<void> {
     await this.keepLogins().catch(() => 0);
-    if (this.cdp.open) await this.cdp.send("Browser.close").catch(() => undefined);
-    this.options.chrome.stop();
+    if (this.cdp.open) {
+      await this.cdp.send("Browser.close").catch(() => undefined);
+      // Closed properly, as at shutdown, so what it writes as it closes is written before any signal.
+      await this.options.chrome.waitExit(SHUTDOWN_MS);
+    }
+    await this.options.chrome.stop();
     this.onChromeGone();
     await this.options.chrome.waitGone();
     await this.ensure();
