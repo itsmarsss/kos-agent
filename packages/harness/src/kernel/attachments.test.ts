@@ -1,9 +1,27 @@
 import { describe, expect, it } from "vitest";
 
 import { toPdf } from "../tools/pdf.js";
-import { attachmentBlocks, isReadable, parseAttachments, readAttachments } from "./attachments.js";
+import { DOCUMENT_MAX_BYTES, attachmentBlocks, isReadable, parseAttachments, readAttachments } from "./attachments.js";
 
 const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
+const MB = 1024 * 1024;
+
+/**
+ * A real PDF grown to about `bytes` by an incremental update that adds one
+ * unreferenced stream, as a scan's images make a short document large.
+ */
+function pdfOf(bytes: number): string {
+  const pdf = toPdf([{ item: "kettle", price: "42" }], "Shopping");
+  const head = pdf.toString("latin1");
+  const prev = Number(/startxref\n(\d+)/.exec(head)![1]);
+  const size = Number(/\/Size (\d+)/.exec(head)![1]);
+  const fill = Math.max(0, bytes - pdf.byteLength - 300);
+  const object = `${size} 0 obj\n<< /Length ${fill} >>\nstream\n`;
+  const tail = (xref: number): string =>
+    `\nendstream\nendobj\nxref\n0 1\n0000000000 65535 f \n${size} 1\n${String(pdf.byteLength).padStart(10, "0")} 00000 n \ntrailer\n<< /Size ${size + 1} /Root 1 0 R /Prev ${prev} >>\nstartxref\n${xref}\n%%EOF\n`;
+  const xref = pdf.byteLength + object.length + fill + "\nendstream\nendobj\n".length;
+  return Buffer.concat([pdf, Buffer.from(object, "latin1"), Buffer.alloc(fill, 0x20), Buffer.from(tail(xref), "latin1")]).toString("base64");
+}
 
 describe("readAttachments", () => {
   it("turns a PDF into the text file it reads as, and leaves the rest alone", async () => {
@@ -21,6 +39,24 @@ describe("readAttachments", () => {
     expect(attachmentBlocks(out)[0]).toMatchObject({ type: "file", name: "bill.pdf" });
     expect(isReadable("application/pdf", "x.pdf")).toBe(true);
     expect(isReadable("application/zip", "x.zip")).toBe(false);
+  });
+
+  it("reads a PDF of 6 MB and one of 31 MB, under the providers' 32 MB", async () => {
+    // Reported: a 6 MB PDF was refused against a blanket 5 MB.
+    for (const size of [6 * MB, 31 * MB]) {
+      const out = await readAttachments([{ name: "docs.pdf", mediaType: "application/pdf", data: pdfOf(size) }]);
+      const text = Buffer.from(out[0]!.data, "base64").toString("utf8");
+      expect(text).toContain("kettle 42");
+      expect(attachmentBlocks(out)[0]).toMatchObject({ type: "file", name: "docs.pdf" });
+    }
+  });
+
+  it("refuses a PDF past 32 MB, saying the limit and why", async () => {
+    const data = pdfOf(40 * MB);
+    await expect(readAttachments([{ name: "docs.pdf", mediaType: "application/pdf", data }])).rejects.toThrow(
+      /docs\.pdf is 40\.0 MB; a document can be up to 32 MB, the most the model providers take of a PDF in one request/,
+    );
+    expect(DOCUMENT_MAX_BYTES).toBe(32 * MB);
   });
 });
 
@@ -75,11 +111,11 @@ describe("attachmentBlocks", () => {
     ).toThrow(/a\.zip .* cannot be read/);
   });
 
-  it("refuses an attachment past the size limit", () => {
+  it("refuses an image past what a provider takes of one picture", () => {
     const huge = "A".repeat(8 * 1024 * 1024);
     expect(() =>
       attachmentBlocks([{ name: "big.png", mediaType: "image/png", data: huge }]),
-    ).toThrow(/limit is 5MB/);
+    ).toThrow(/big\.png is 6\.0 MB; an image can be up to 5 MB, the most the model providers take of one picture/);
   });
 });
 
