@@ -9,6 +9,7 @@ import { EventLog } from "../memory/events.js";
 import { FactsStore } from "../memory/facts.js";
 import { ObservationStore } from "../memory/observations.js";
 import { ReviewQueue } from "../memory/review.js";
+import type { ModelMessage } from "../models/types.js";
 import { SessionStore } from "../kernel/session.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
@@ -189,6 +190,22 @@ describe("memory tools: reading the log and citing it", () => {
     const again = (await call("memory.observe", { id: "chat:long", note: "Then five more." })).json!;
     expect(again).toMatchObject({ seq: 2 });
     expect((sessions.get("chat:long")[0]!.content[0] as { text: string }).text).toMatch(/all answered[\s\S]*Then five more/);
+  });
+
+  it("shows the owner's words heard with a long result whole in the part a note would cover", async () => {
+    const say = (n: number): ModelMessage[] => [
+      { role: "user", content: [{ type: "text", text: `question ${n}` }] },
+      { role: "assistant", content: [{ type: "text", text: `answer ${n}` }] },
+    ];
+    sessions.set("chat:long", [
+      { role: "user", content: [{ type: "text", text: "build a cart" }] },
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.look", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content: "p".repeat(5000), heard: { mark: "ab12cd34", words: [{ text: "skip the ebooks" }] } }] },
+      { role: "assistant", content: [{ type: "text", text: "Building it." }] },
+      ...[1, 2, 3, 4].flatMap(say),
+    ]);
+    const older = (await call("memory.thread", { id: "chat:long" })).json!;
+    expect((older["turns"] as { text: string }[]).map((t) => t.text).join("\n")).toContain("Owner, while you worked: skip the ebooks");
   });
 
   it("counts recall with history as having shown those events", async () => {

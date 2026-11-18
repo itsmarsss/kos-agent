@@ -1,4 +1,5 @@
 import type { Inference } from "../agent/loop.js";
+import { heardWith, ownerLines } from "../models/heard.js";
 import type { ModelMessage } from "../models/types.js";
 
 /**
@@ -47,9 +48,9 @@ function render(message: ModelMessage): string {
     else if (block.type === "tool_use") {
       parts.push(`[called ${block.name} ${JSON.stringify(block.input).slice(0, 400)}]`);
     } else if (block.type === "tool_result") {
-      const body =
-        typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-      parts.push(`[result${block.isError ? " (error)" : ""}: ${body.slice(0, 600)}]`);
+      // The owner's words heard with it are theirs, kept whole after the cut: a correction is what a summary must keep.
+      const { content } = heardWith(block);
+      parts.push(`[result${block.isError ? " (error)" : ""}: ${content.slice(0, 600)}]`, ...ownerLines(block));
     } else if (block.type === "file") {
       parts.push(`[file ${block.name}]`);
     }

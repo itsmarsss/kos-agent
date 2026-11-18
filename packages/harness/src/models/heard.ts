@@ -46,24 +46,34 @@ export function defang(content: string): string {
   return content.replaceAll(`\n\n${OWNER_LINE}`, `\n\n[quoted] ${OWNER_LINE}`);
 }
 
+/** The owner's line as a turn's mark made it: eight hex digits, as randomBytes(4) writes them. */
+const OLD_OWNER_LINE = /\n\n\[the owner, while you work · ([0-9a-f]{8})\]\n/;
+
 /**
  * A result kept before the words had a field of their own, and the owner's
- * words appended to it then.
+ * words appended to it then: only under a mark a turn could have made, and
+ * split only at lines with that same mark.
  */
 export function splitOwnerWords(content: string): { content: string; said: OwnerWords[] } {
-  const at = content.indexOf(`\n\n${OWNER_LINE}`);
-  if (at === -1) return { content, said: [] };
+  const first = OLD_OWNER_LINE.exec(content);
+  if (!first) return { content, said: [] };
+  const mark = first[1]!;
   const said = content
-    .slice(at)
-    .split(/\n\n\[the owner, while you work · [0-9a-z]+\]\n/)
+    .slice(first.index)
+    .split(`\n\n${OWNER_LINE}${mark}]\n`)
     .flatMap((w) => {
-      const text = (w.split(/\n\n\[where the owner said that · [0-9a-z]+\]\n/)[0] ?? "").trim();
+      const text = (w.split(`\n\n${WHERE_LINE}${mark}]\n`)[0] ?? "").trim();
       return text ? [{ text }] : [];
     });
-  return { content: content.slice(0, at), said };
+  return { content: content.slice(0, first.index), said };
 }
 
 /** A result and the owner's words with it, whether kept beside it or, in an older chat, inside it. */
 export function heardWith(block: { content: string; heard?: HeardWords }): { content: string; said: OwnerWords[] } {
   return block.heard ? { content: block.content, said: block.heard.words } : splitOwnerWords(block.content);
+}
+
+/** The owner's words heard with a result, as lines in their own voice for a model rereading the chat. */
+export function ownerLines(block: { content: string; heard?: HeardWords }): string[] {
+  return heardWith(block).said.map((w) => `Owner, while you worked: ${w.text}`);
 }

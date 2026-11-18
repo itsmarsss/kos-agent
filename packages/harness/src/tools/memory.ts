@@ -7,6 +7,7 @@ import { importPage, listPages, readPage, writePage, type PageLog } from "../mem
 import { applyResolution, parseLean } from "../memory/resolve.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { ObservationStore } from "../memory/observations.js";
+import { heardWith, ownerLines } from "../models/heard.js";
 import type { ModelMessage } from "../models/types.js";
 import { COMPACTED_PREFIX } from "../kernel/compact.js";
 import { toExchanges } from "../kernel/session.js";
@@ -591,7 +592,18 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
   const KEEP_EXCHANGES = 4;
   const turnText = (m: ModelMessage): string =>
     m.content
-      .map((b) => (b.type === "text" ? (b.guestContext || b.quote ? "" : b.text) : b.type === "tool_use" ? `[called ${b.name} ${JSON.stringify(b.input).slice(0, 200)}]` : b.type === "tool_result" ? `[result${b.isError ? " (error)" : ""}: ${(typeof b.content === "string" ? b.content : JSON.stringify(b.content)).slice(0, 300)}]` : ""))
+      .map((b) =>
+        b.type === "text"
+          ? b.guestContext || b.quote
+            ? ""
+            : b.text
+          : b.type === "tool_use"
+            ? `[called ${b.name} ${JSON.stringify(b.input).slice(0, 200)}]`
+            : b.type === "tool_result"
+              ? // The owner's words heard with a result are theirs, whole after the cut: what they corrected is worth observing.
+                [`[result${b.isError ? " (error)" : ""}: ${heardWith(b).content.slice(0, 300)}]`, ...ownerLines(b)].join("\n")
+              : "",
+      )
       .filter(Boolean)
       .join("\n");
 

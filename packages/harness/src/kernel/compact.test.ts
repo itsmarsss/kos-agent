@@ -110,5 +110,15 @@ describe("compacting a conversation", () => {
       ] as ModelMessage[]);
       expect(inference.seen.join("\n")).toContain("(error)");
     });
+
+    it("keeps the owner's words heard with a long result, whole, after the cut", async () => {
+      const inference = fakeInference(reply("summary"));
+      await compactHistory(inference, [
+        ...history(4),
+        { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.look", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content: "p".repeat(5000), heard: { mark: "ab12cd34", words: [{ text: "skip the ebooks" }] } }] },
+      ] as ModelMessage[]);
+      expect(inference.seen.join("\n")).toContain("Owner, while you worked: skip the ebooks");
+    });
   });
 });

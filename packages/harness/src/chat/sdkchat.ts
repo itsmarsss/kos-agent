@@ -12,7 +12,7 @@ import {
 import type { ToolBox } from "../agent/loop.js";
 import { SCREEN_HANDOFF, SCREEN_PROMPT, forScreenAgent, isScreenTool } from "../agent/screen.js";
 import { fenced, isShelved } from "../context/shelf.js";
-import { heardWith, resultText, splitOwnerWords, type HeardWords } from "../models/heard.js";
+import { heardWith, ownerLines, resultText, splitOwnerWords, type HeardWords } from "../models/heard.js";
 import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
 import { STOPPED_RESULT } from "../kernel/guarded.js";
@@ -213,7 +213,7 @@ export function priorForSdk(
       const heard = blocks.flatMap((b) => {
         const result = b as { type?: string; content?: unknown; heard?: HeardWords };
         if (result.type !== "tool_result" || typeof result.content !== "string") return [];
-        return heardWith({ content: result.content, ...(result.heard ? { heard: result.heard } : {}) }).said.map((w) => `Owner, while you worked: ${w.text}`);
+        return ownerLines({ content: result.content, ...(result.heard ? { heard: result.heard } : {}) });
       });
       /*
        * Text, plus a note where something was not text.

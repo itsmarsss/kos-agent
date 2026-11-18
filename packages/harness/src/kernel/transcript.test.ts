@@ -203,7 +203,7 @@ describe("words the owner said while a turn ran", () => {
   });
 
   it("are still read from inside a result kept before they had a field", () => {
-    const content = `Opened the cart.${ownerWords("ab12", [{ text: "skip the ebooks" }])}`;
+    const content = `Opened the cart.${ownerWords("ab12cd34", [{ text: "skip the ebooks" }])}`;
     const events = conversationEvents([
       { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.visit", input: {} }] },
       { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content }] },
