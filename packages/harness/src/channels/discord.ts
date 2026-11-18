@@ -782,6 +782,9 @@ export function bindingOf(
  * identity mapping) before it touches anything, so it enforces the gate without
  * knowing who the owner is.
  */
+/** How long one attachment's download may take. */
+const DOWNLOAD_MS = 60_000;
+
 /**
  * A file's bytes, read as they arrive and given up on past FILE_MAX_BYTES:
  * the size Discord reports is not the size that arrives, so the cap is kept
@@ -789,7 +792,8 @@ export function bindingOf(
  * the cap; undefined when it could not be fetched.
  */
 async function download(url: string): Promise<Buffer | number | undefined> {
-  const res = await fetch(url);
+  // The whole download, body and all, has a minute: 100 MB from Discord's CDN takes seconds.
+  const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_MS) });
   if (!res.ok || !res.body) return undefined;
   const chunks: Uint8Array[] = [];
   let total = 0;
