@@ -800,7 +800,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   // the thread that stood for it on Discord goes with it.
   const kernel = kernelRef;
   kernel.conversations.onCreated((id) => kernel.bus.emit({ kind: "chat:created", conversationId: id }));
-  kernel.conversations.onRenamed((id, title) => kernel.bus.emit({ kind: "chat:renamed", conversationId: id, title }));
+  // A new title is news on every surface at once: the dashboard and the device panels hear it with the turn's own events.
+  kernel.conversations.onRenamed((id, title) => {
+    kernel.bus.emit({ kind: "chat:renamed", conversationId: id, title });
+    kernel.progress.emit({ kind: "renamed", conversationId: id, title });
+  });
   kernel.conversations.onRemoved((id) => {
     // A chat's kept results go with it.
     shelf.forget(id);

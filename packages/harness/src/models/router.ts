@@ -200,6 +200,12 @@ export class ModelRouter {
     return out;
   }
 
+  /** Whether a task's route can be asked at all: its provider is there and so is its key. */
+  ready(task: Task): boolean {
+    const provider = this.providers.get(this.routeFor(task).provider);
+    return provider !== undefined && (provider.optionalKey === true || this.secrets.has(provider.keyName));
+  }
+
   async generate(task: Task, req: GenerateRequest): Promise<ModelResponse> {
     const route = this.routeFor(task);
     const provider = this.providers.get(route.provider);
