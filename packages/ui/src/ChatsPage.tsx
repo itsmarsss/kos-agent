@@ -1272,6 +1272,9 @@ export function ChatsPage({
       });
   };
 
+  // What a typed block in KOS's words may do here: name a tool this KOS has, and say so to KOS in this chat.
+  const blockActions: BlockActions = { tools: toolNames, ask: (text) => void send(text) };
+
   const renderEvent = (e: ChatEvent, i: number, turn: number): ReactElement => {
     if (e.kind === "tool") {
       return (
@@ -1312,7 +1315,14 @@ export function ChatsPage({
         {e.text && (
           <div className={`bubble bubble--${e.role}`}>
             {e.quote && <QuoteLine text={e.quote.text} from={e.quote.from} />}
-            <Markdown text={e.text} />
+            {/* Only KOS's own words offer a block's Send: never the owner's, a guest's or a note's. */}
+            {e.role === "kos" ? (
+              <BlockActions.Provider value={blockActions}>
+                <Markdown text={e.text} />
+              </BlockActions.Provider>
+            ) : (
+              <Markdown text={e.text} />
+            )}
           </div>
         )}
         {e.origin && <OriginLine origin={e.origin} linkFor={roomLink} />}
@@ -2339,7 +2349,6 @@ export function ChatsPage({
               {/* The thread knows the chats and agents by name, so a chip can
                   read "Lane A" rather than the id it is addressed by. */}
               <MentionNames resolve={nameFor} hrefOf={channelHref}>
-              <BlockActions.Provider value={{ tools: toolNames, ask: (text) => void send(text) }}>
               <div className="chats-thread" ref={threadScroll}>
                 {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
                 {(() => {
@@ -2365,10 +2374,12 @@ export function ChatsPage({
                   </div>
                 )}
                 {live ? (
-                  <LiveTurn
-                    live={live}
-                    waiting={activeId !== undefined && (waitingOn.has(activeId) || active?.activity === "needs-you")}
-                  />
+                  <BlockActions.Provider value={blockActions}>
+                    <LiveTurn
+                      live={live}
+                      waiting={activeId !== undefined && (waitingOn.has(activeId) || active?.activity === "needs-you")}
+                    />
+                  </BlockActions.Provider>
                 ) : (
                   sendingIn === activeId && (
                     // The same markup a running turn uses, not a lookalike:
@@ -2594,7 +2605,6 @@ export function ChatsPage({
                   ))}
                 </AnimatePresence>
               </div>
-              </BlockActions.Provider>
               </MentionNames>
 
               <div
