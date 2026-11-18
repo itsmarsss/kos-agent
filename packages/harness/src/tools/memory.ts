@@ -10,7 +10,7 @@ import type { ObservationStore } from "../memory/observations.js";
 import { heardWith, ownerLines } from "../models/heard.js";
 import type { ModelMessage } from "../models/types.js";
 import { COMPACTED_PREFIX } from "../kernel/compact.js";
-import { toExchanges } from "../kernel/session.js";
+import { historySize, toExchanges } from "../kernel/session.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -626,7 +626,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       for (const c of t.conversations.list(ownerId)) {
         if (busy.has(c.id)) continue;
         const history = t.sessions.get(c.id);
-        const chars = JSON.stringify(history).length;
+        const chars = historySize(history);
         if (chars < minChars || toExchanges(history).length <= KEEP_EXCHANGES) continue;
         out.push({ id: c.id, title: c.title, ...(c.projectSlug ? { project: c.projectSlug } : {}), messages: history.length, chars, observations: t.observations.count(c.id) });
       }
