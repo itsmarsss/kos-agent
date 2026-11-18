@@ -6,6 +6,7 @@ import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, typ
 import { KnowledgePage } from "./KnowledgePage.js";
 import { useEdgeFade } from "./edgefade.js";
 import { PageHead } from "./PageHead.js";
+import { hrefFor } from "./routes.js";
 
 /**
  * Memory, in one place.
@@ -47,6 +48,11 @@ export function MemoryPage({
     const m = /[?&]tab=([a-z]+)/.exec(window.location.hash);
     return (TABS.find((t) => t.id === m?.[1])?.id ?? "claims");
   });
+  /** Another tab leaves a turn's claims behind: back on Claims, every claim shows. */
+  const choose = (next: Tab): void => {
+    if (/[?&]ids=/.test(window.location.hash)) history.replaceState(null, "", `${hrefFor({ name: "memory" })}?tab=${next}`);
+    setTab(next);
+  };
   const tabsRef = useEdgeFade<HTMLDivElement>();
   /** The new-claim form, opened from the page head. */
   const [adding, setAdding] = useState(false);
@@ -76,7 +82,7 @@ export function MemoryPage({
         if (to === null) return;
         e.preventDefault();
         const next = TABS[(to + TABS.length) % TABS.length]!;
-        setTab(next.id);
+        choose(next.id);
         e.currentTarget.querySelector<HTMLElement>(`#mem-tab-${next.id}`)?.focus();
       }}>
         {TABS.map((t) => (
@@ -89,7 +95,7 @@ export function MemoryPage({
             aria-selected={t.id === tab}
             aria-controls="mem-panel"
             tabIndex={t.id === tab ? 0 : -1}
-            onClick={() => setTab(t.id)}
+            onClick={() => choose(t.id)}
           >
             {t.label}
             {t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}
