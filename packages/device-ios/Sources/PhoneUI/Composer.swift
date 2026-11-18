@@ -243,34 +243,37 @@ private struct Listening: View {
   }
 }
 
-/// The mode chip's sheet: the shared menu under a head, as tall as it needs.
+/// The mode chip's sheet: the shared menu under a head, as tall as it needs, as RowSheet stops at its content.
 struct ModeSheet: View {
   @ObservedObject var chat: ChatModel
   @Environment(\.dismiss) private var dismiss
+  @State private var fit: CGFloat = 0
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack {
-        Text("This chat's mode").font(.kos(.title, .semibold)).foregroundStyle(Theme.text)
-        Spacer()
-        Button("Done") { dismiss() }.buttonStyle(.plain).font(.kos(.body, .semibold)).foregroundStyle(Theme.accent)
-      }
-      .padding(.horizontal, Theme.gutter)
-      .padding(.top, 20)
-      .padding(.bottom, 12)
-      ScrollView {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        HStack {
+          Text("This chat's mode").font(.kos(.title, .semibold)).foregroundStyle(Theme.text)
+          Spacer()
+          Button("Done") { dismiss() }.buttonStyle(.plain).font(.kos(.body, .semibold)).foregroundStyle(Theme.accent)
+        }
+        .padding(.top, 20)
+        .padding(.bottom, 12)
         ModeMenu(mode: chat.mode) { mode in
           // A mode or a span picked is done with; the sessions switch is not.
           let onlySessions = mode.mode == chat.mode.mode && mode.until == chat.mode.until
           chat.choose(mode)
           if !onlySessions { dismiss() }
         }
-        .padding(.horizontal, Theme.gutter)
         .padding(.bottom, 20)
       }
+      .padding(.horizontal, Theme.gutter)
+      .background(GeometryReader { box in Color.clear.preference(key: FitHeight.self, value: box.size.height) })
     }
+    .scrollBounceBehavior(.basedOnSize)
     .background(Theme.bg)
-    .presentationDetents([.medium, .large])
+    .onPreferenceChange(FitHeight.self) { fit = $0 }
+    .presentationDetents(fit > 0 ? [.height(fit), .large] : [.medium, .large])
     .presentationDragIndicator(.visible)
   }
 }
