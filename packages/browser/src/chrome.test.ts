@@ -1,4 +1,8 @@
+import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChromeHost, chromeArgs, findChrome } from "./chrome.js";
@@ -10,6 +14,7 @@ import { ChromeHost, chromeArgs, findChrome } from "./chrome.js";
 
 class FakeChild extends EventEmitter {
   exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
   killed = false;
   kill(): boolean {
     this.killed = true;
@@ -186,5 +191,53 @@ describe("finding and starting Chrome", () => {
   it("says plainly when there is no Chrome to run", async () => {
     const host = new ChromeHost({ port: 9225, profileDir: "/tmp/x", exists: () => false, fetchJson: async () => { throw new Error("refused"); } });
     await expect(host.ensure()).rejects.toThrow(/no Chrome found/);
+  });
+});
+
+describe("stopping Chrome", () => {
+  const running = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it("kills the whole process group, a helper that ignores SIGTERM included, and resolves once it has exited", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "chrome-stop-"));
+    try {
+      const helperPid = join(dir, "helper.pid");
+      let spawned = false;
+      // Stands in for Chrome: a browser and a helper of its own, both deaf to SIGTERM.
+      const script = `trap '' TERM; sleep 60 & echo $! > '${helperPid}'; wait`;
+      const host = new ChromeHost({
+        port: 9225,
+        profileDir: join(dir, "profile"),
+        exists: () => true,
+        spawn: ((_binary: string, _args: string[], options: object) => {
+          spawned = true;
+          return nodeSpawn("/bin/sh", ["-c", script], options);
+        }) as never,
+        fetchJson: async () => {
+          if (!spawned) throw new Error("refused");
+          return { webSocketDebuggerUrl: "ws://new" };
+        },
+      });
+      await host.ensure();
+      await vi.waitFor(() => expect(readFileSync(helperPid, "utf8").trim()).not.toBe(""));
+      const helper = Number(readFileSync(helperPid, "utf8"));
+      const started = Date.now();
+      await host.stop(200);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(200);
+      await vi.waitFor(() => expect(running(helper)).toBe(false));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves at once when there is nothing of its own to stop", async () => {
+    const host = new ChromeHost({ port: 9225, profileDir: "/tmp/x" });
+    await expect(host.stop()).resolves.toBeUndefined();
   });
 });
