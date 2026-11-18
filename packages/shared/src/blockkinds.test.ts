@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { parseBlock, type KosBlock } from "./blocks.js";
@@ -154,5 +156,21 @@ describe("the prompt note", () => {
     for (const kind of BLOCK_KINDS) expect(BLOCKS_GUIDANCE).toContain(`kos:${kind.name}`);
     expect(BLOCKS_GUIDANCE).toContain("---");
     expect(BLOCKS_GUIDANCE).not.toMatch(/[—–]/);
+  });
+});
+
+describe("the Swift table", () => {
+  const swift = readFileSync(new URL("../../device-shared/Sources/DeviceCore/KOSBlock.swift", import.meta.url), "utf8");
+  /** A kind as KOSBlock.swift writes it, one line each. */
+  const line = (k: (typeof BLOCK_KINDS)[number]): string => {
+    const fields = k.fields.map((f) => `.init("${f.key}", "${f.label}"${f.list ? ", list: true" : ""})`).join(", ");
+    const title = k.title ? `"${k.title}"` : "nil";
+    const actions = k.actions.map((a) => `.${a}`).join(", ");
+    return `BlockKind(name: "${k.name}", label: "${k.label}", plain: "${k.plain}", fields: [${fields}], title: ${title}, body: .${k.body}, copies: .${k.copies}, actions: [${actions}]),`;
+  };
+
+  it("is this table, kind for kind, so KOS for Mac and the phone draw what the dashboard does", () => {
+    const written = swift.split("\n").filter((l) => l.trim().startsWith("BlockKind(name:")).map((l) => l.trim());
+    expect(written).toEqual(BLOCK_KINDS.map(line));
   });
 });

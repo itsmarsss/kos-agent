@@ -1,10 +1,12 @@
+import DeviceCore
 import SwiftUI
 
 /// KOS's words in the window: the markdown a chat uses, as the side panel
 /// reads it (packages/browser-extension ui/markdown.tsx). Paragraphs,
 /// headings, lists that nest, quotes, fenced code, tables, the small "-#"
 /// line; inline, bold, italics, code and links, and KOS's references
-/// (@page:[Budget]) as the names they stand for, on the panel's violet chip. LaTeX is shown as written.
+/// (@page:[Budget]) as the names they stand for, on the panel's violet chip. LaTeX is shown as written. A typed block
+/// (```kos:email, docs/blocks.md) is drawn as its kind by `KOSBlockView`.
 /// Nothing in it is markup: it is drawn, never run.
 public enum ChatBlock: Equatable {
   case paragraph(String)
@@ -14,6 +16,7 @@ public enum ChatBlock: Equatable {
   case code(String)
   case list(ordered: Bool, start: Int, items: [[ChatBlock]])
   case table(head: [String], align: [HorizontalAlignment], rows: [[String]])
+  case block(KOSBlock)
 
   public static func == (a: ChatBlock, b: ChatBlock) -> Bool {
     switch (a, b) {
@@ -25,6 +28,8 @@ public enum ChatBlock: Equatable {
       return o == p && s == t && i == j
     case (.table(let h, let a, let r), .table(let k, let b, let s)):
       return h == k && a.map(Self.word) == b.map(Self.word) && r == s
+    case (.block(let x), .block(let y)):
+      return x == y
     default:
       return false
     }
@@ -47,12 +52,23 @@ public enum ChatBlock: Equatable {
     while i < lines.count {
       let line = lines[i]
       let trimmed = line.trimmingCharacters(in: .whitespaces)
-      if trimmed.hasPrefix("```") || trimmed == "$$" {
+      // A fence runs to its close, or to the end of a reply still arriving; a typed block is drawn as its kind, a
+      // malformed one as the code it would otherwise be.
+      if let fence = KOSBlock.fence(lines, at: i) {
         flush()
-        let fence = trimmed.hasPrefix("```") ? "```" : "$$"
+        if let block = KOSBlock.parse(info: fence.info, lines: fence.body) {
+          out.append(.block(block))
+        } else {
+          out.append(.code(dedent(fence.body).joined(separator: "\n")))
+        }
+        i = fence.next
+        continue
+      }
+      if trimmed == "$$" {
+        flush()
         var code: [String] = []
         i += 1
-        while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix(fence) {
+        while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("$$") {
           code.append(lines[i])
           i += 1
         }
@@ -491,6 +507,8 @@ private struct BlockView: View {
         // Sideways, as the kit's code block: no bar, a mouse's legacy one either; the trackpad and Shift with the wheel scroll it.
         .scrollIndicators(.never)
       }
+    case .block(let block):
+      KOSBlockView(block: block)
     case .list(let ordered, let start, let items):
       VStack(alignment: .leading, spacing: 3) {
         ForEach(Array(items.enumerated()), id: \.offset) { i, item in
