@@ -166,6 +166,37 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(maintenance.classify("shell.run", { command: "sqlite3 -readonly kos.sqlite .tables" }).tier).toBe("risky");
   });
 
+  it("keeps the database unreadable however it is spelled, to everyone but Maintenance", async () => {
+    const spellings = ["cat KOS.SQLITE", "cat kos.\u017fqlite", "strings Kos.Sqlite", "cat kos.sql*"];
+    // The courtesy refusal folds case and the long s; a glob slips past it.
+    expect(spellings.map((command) => registry.refusal("shell.run", { command }))).toEqual([DATABASE_REFUSED, DATABASE_REFUSED, DATABASE_REFUSED, undefined]);
+    expect(registry.refusal("shell.run", { command: "cat mcp.j\u017fon" })).toBe(CONFIG_REFUSED);
+    // The sandbox is what holds, for every spelling.
+    const hidden = ["kos.sqlite", "kos.sqlite-wal", "kos.sqlite-shm"].map((name) => join(ws.root, name));
+    for (const command of spellings) {
+      const read = await runShell(command, { workspaceRoot: ws.root, cwd: ws.root, timeoutMs: 5000, maxOutput: 2000, hidden });
+      expect(read.stdout, command).not.toContain("SQLite format 3");
+    }
+    const glob = await run({ command: "cat kos.sql*" });
+    expect(glob.stdout).not.toContain("SQLite format 3");
+    // Maintenance repairs KOS, and reads it.
+    const maintenance = new ToolRegistry();
+    const ctx = toolRegistryContext(maintenance, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => "maintenance" });
+    await createShellModule({ timeoutSeconds: 5 }).activate(ctx);
+    // A line judged read-only reads none of KOS's files, Maintenance's included; an approved one does.
+    const read = JSON.parse((await maintenance.execute("shell.run", { command: "head -c 15 kos.sql*" })).content) as ShellResult;
+    expect(read.stdout).not.toContain("SQLite format 3");
+    const own = JSON.parse((await maintenance.execute("shell.run", { command: "sh -c 'head -c 15 kos.sql*'" })).content) as ShellResult;
+    expect(own.stdout).toContain("SQLite format 3");
+  });
+
+  it("gives a home's read-only run a fresh temp inside the home's own, gone afterwards", async () => {
+    const dirs = { tmp: join(root, ".kos", "tmp", "homes", "p"), cache: join(root, ".kos", "cache", "homes", "p") };
+    const r = await runShell('echo "$TMPDIR"', { workspaceRoot: root, cwd: root, timeoutMs: 5000, maxOutput: 2000, readOnlyRun: true, dirs });
+    expect(r.stdout.trim().startsWith(join(dirs.tmp, "read-"))).toBe(true);
+    expect(readdirSync(dirs.tmp)).toEqual([]);
+  });
+
   it("runs none of a repository's own programs on a git read", async () => {
     // Written as the agent could have: a fsmonitor hook and a textconv driver, each leaving a mark.
     const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8" });

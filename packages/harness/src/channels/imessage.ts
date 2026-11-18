@@ -167,7 +167,7 @@ function whole(v: unknown): string {
 export function approvalLines(req: ApprovalRequest): string[] {
   const who = req.asker?.name ?? "KOS";
   const args = req.args ?? {};
-  const view = req.tool !== undefined ? askView({ tool: req.tool, args, reason: req.reason ?? null, ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS }) : undefined;
+  const view = req.tool !== undefined ? askView({ tool: req.tool, args, reason: req.reason ?? null, ...(req.names ? { names: req.names } : {}), ...(req.where ? { where: req.where } : {}), platform: HOST_KEYS }) : undefined;
   const fields = typeof args === "string" ? ((): Record<string, unknown> => {
     try {
       return JSON.parse(args) as Record<string, unknown>;

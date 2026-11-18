@@ -79,6 +79,10 @@ describe("ApprovalQueue", () => {
     const here = queue.enqueue({ tool: "browser.handoff", args: {}, riskTier: "risky" });
     expect(queue.get(there.id)?.yours).toBe(true);
     expect(queue.get(here.id)?.yours).toBe(false);
+    // Whether it reached past its turn's folder is kept too, so a yes to it is never remembered later.
+    const reached = queue.enqueue({ tool: "files.write", args: {}, riskTier: "risky", reached: true });
+    expect(queue.get(reached.id)?.reached).toBe(true);
+    expect(queue.get(here.id)?.reached).toBe(false);
   });
 
   it("lapses a held turn's ask with the approval window and an ask nothing waits on with the inbox's hours", () => {

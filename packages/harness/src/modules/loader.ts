@@ -1,4 +1,4 @@
-import { capabilityKey, type ModuleManifest, type ScreenMemory } from "@kos/shared";
+import { capabilityKey, type FileHome, type ModuleManifest, type ScreenMemory } from "@kos/shared";
 
 import type { ToolDef } from "../models/types.js";
 import type { ToolRisk } from "../risk/tiers.js";
@@ -46,6 +46,8 @@ export interface ModuleServices {
   callerProject?: () => string | undefined;
   /** The blob whose own thread is asking, by name and id; undefined anywhere else. */
   callerBlob?: () => { name: string; id: string } | undefined;
+  /** The folder the calling turn's relative paths start from (kernel/home.ts); the root when absent. */
+  callerHome?: () => FileHome;
   /** The calling conversation's id, read at call time. */
   callerConversation?: () => string | undefined;
   /** The project a conversation belongs to, by its id; undefined for one at the root or none at all. */

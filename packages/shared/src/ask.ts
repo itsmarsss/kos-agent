@@ -5,7 +5,8 @@
  * KOS for Chrome, KOS for Mac and KOS for iPhone, which cannot.
  */
 
-import { actionSteps, summarizeAction, type ActionNames, type StepLine } from "./format-action.js";
+import { actionSteps, summarizeAction, type ActionHome, type ActionNames, type StepLine } from "./format-action.js";
+import { placePath } from "./filehome.js";
 import { showInvisible } from "./invisible.js";
 import { hasSecretRef } from "./secretref.js";
 import type { KeyPlatform } from "./keys.js";
@@ -58,6 +59,8 @@ export interface AskInput {
   /** It always asks (it places a secret): no remembered yes, whatever its rule. Read from the arguments when not said. */
   asksAlways?: boolean;
   names?: ActionNames;
+  /** Where the asking turn's paths start, so a file tool's title names the path it really reaches. */
+  where?: ActionHome;
   /** Whose keyboard a browser's keys are said for. */
   platform?: KeyPlatform;
 }
@@ -101,7 +104,7 @@ function folderOf(path: unknown): string {
  * folder, a host on the web, a connected server. Nothing for a tool that
  * acts in KOS itself.
  */
-export function askPlace(input: Pick<AskInput, "tool" | "args" | "rule" | "yours">): AskPlace | undefined {
+export function askPlace(input: Pick<AskInput, "tool" | "args" | "rule" | "yours" | "where">): AskPlace | undefined {
   const { tool, rule, yours } = input;
   const a = argsOf(input.args);
   if (tool.startsWith("browser.")) {
@@ -117,7 +120,11 @@ export function askPlace(input: Pick<AskInput, "tool" | "args" | "rule" | "yours
     return { words: cwd ? `In ${cwd}` : "In the workspace" };
   }
   if (tool.startsWith("files.")) {
-    const folder = folderOf(a.path ?? a.from);
+    // From the turn's home, as the file tools place it: "a.txt" in a project chat is in that project's folder.
+    const raw = a.path ?? a.from;
+    const where = input.where;
+    const placed = where && where.home.folder !== "" && typeof raw === "string" ? placePath(where.home, raw, where.root).path : raw;
+    const folder = folderOf(placed);
     return { words: folder ? `In ${folder}` : "In the workspace" };
   }
   if (tool === "http.fetch") {
@@ -223,7 +230,7 @@ export function alwaysTip(rule: AskRule, names?: ActionNames): string {
 
 /** An ask, as every card lays it out. */
 export function askView(input: AskInput): AskView {
-  const { tool, args, reason, rule, names, platform } = input;
+  const { tool, args, reason, rule, names, where, platform } = input;
   const a = argsOf(args);
   const place = askPlace(input);
   const risk = askRisk(reason);
@@ -237,7 +244,7 @@ export function askView(input: AskInput): AskView {
   const steps = lines;
   // A shell command's folder is its place line, so its title is the command alone.
   const titled = { ...a, intent: undefined, ...(tool === "shell.run" ? { cwd: undefined } : {}) };
-  const title = steps ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, platform);
+  const title = steps ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, where, platform);
   const always = !(input.asksAlways ?? hasSecretRef(a));
   return {
     title,

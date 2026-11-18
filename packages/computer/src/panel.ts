@@ -929,7 +929,7 @@ function approvalOf(req: ApprovalRequest): Record<string, unknown> {
     id: req.id,
     tool: req.tool ?? "",
     // In words, with its ids named: a phone lists the ask by its summary, and a card leads with its title.
-    ...(req.tool && req.args !== undefined ? { summary: summarizeAction(req.tool, req.args, req.names, HOST_KEYS) } : {}),
+    ...(req.tool && req.args !== undefined ? { summary: summarizeAction(req.tool, req.args, req.names, undefined, HOST_KEYS) } : {}),
     ...rest,
     ...(whole
       ? { tooLong: true, title: middle(view?.title ?? req.tool ?? "An ask", 200), ...(view?.said ? { said: middle(view.said, 400) } : {}) }

@@ -138,6 +138,17 @@ describe("an approval as plain lines", () => {
     expect(textDecision({ id: "13", approved: true }, textAsk(huge))).toBe("too long");
     expect(textDecision({ id: "13", approved: false }, textAsk(huge))).toEqual({ id: "13", approved: false });
   });
+
+  it("names where a project chat's path really lands", () => {
+    const where = { home: { folder: "projects/school" }, root: "/ws" };
+    expect(approvalLines({ id: "9", text: "Approve files.write?", tool: "files.write", args: { path: "projects/resume/cv.md" }, where })).toEqual([
+      "Approve files.write?",
+      "Write file projects/resume/cv.md (outside this project, in the resume project)",
+      "In projects/resume",
+      "path: projects/resume/cv.md",
+    ]);
+    expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" }, where })).toEqual(["Approve files.rm?", "Delete projects/school/a.txt", "In projects/school", "path: a.txt"]);
+  });
 });
 
 describe("saying why iMessage could not start", () => {

@@ -154,6 +154,12 @@ describe("where an ask acts", () => {
     expect(askPlace({ tool: "mcp.gmail.send_email", args: {} })).toEqual({ words: "Through gmail" });
     expect(askPlace({ tool: "notify", args: {} })).toBeUndefined();
   });
+
+  it("places a file path from the turn's home, as the file tools do", () => {
+    const where = { home: { folder: "projects/school" }, root: "/ws" };
+    expect(askPlace({ tool: "files.rm", args: { path: "a.txt" }, where })).toEqual({ words: "In projects/school" });
+    expect(askPlace({ tool: "files.write", args: { path: "projects/resume/cv.md" }, where })).toEqual({ words: "In projects/resume" });
+  });
 });
 
 describe("why an ask asks", () => {

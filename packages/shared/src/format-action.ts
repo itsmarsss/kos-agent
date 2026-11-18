@@ -3,6 +3,7 @@
  * Keeps raw JSON out of the user's face.
  */
 
+import { placePath, reachWords, type FileHome } from "./filehome.js";
 import { showInvisible } from "./invisible.js";
 import { keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
 
@@ -411,14 +412,32 @@ export function stepMechanics(tool: string, args: string | Record<string, unknow
   return lines ? sentence(lines) : undefined;
 }
 
+/**
+ * Where the calling turn's paths start: its home folder, and the workspace
+ * root on disk when the caller knows it. Given, a step names the path a
+ * file tool really reaches and says when it reaches outside the home.
+ */
+export interface ActionHome {
+  home: FileHome;
+  root?: string;
+}
+
 /** One-line summary for a tool + args, with names for the ids the caller can name. */
 export function summarizeAction(
   tool: string,
   args: string | Record<string, unknown>,
   names?: ActionNames,
+  where?: ActionHome,
   platform: KeyPlatform = "mac",
 ): string {
   const a = parseArgs(args);
+  // The path a file tool reaches from the turn's home, and where it is when that is outside it; as written at the root.
+  const at = (raw: unknown, as: "read" | "change"): string => {
+    if (!where || where.home.folder === "" || (raw !== undefined && typeof raw !== "string")) return fmtVal(raw);
+    const placed = placePath(where.home, raw ?? "", where.root);
+    const note = reachWords(where.home, placed, as);
+    return `${fmtVal(placed.path)}${note ? ` (${note})` : ""}`;
+  };
   // A name where one is known, the value as written otherwise: an id alone
   // is no basis for a yes, and the id stays in the detail lines.
   const named = (kind: string, raw: unknown, fallback = fmtVal(raw)): string => {
@@ -457,21 +476,21 @@ export function summarizeAction(
     case "systems.project_create":
       return `Create project “${fmtVal(a.name)}” (${fmtVal(a.type)})`;
     case "files.write":
-      return `Write file ${fmtVal(a.path)}`;
+      return `Write file ${at(a.path, "change")}`;
     case "files.rm":
-      return `Delete ${fmtVal(a.path)}`;
+      return `Delete ${at(a.path, "change")}`;
     case "files.mkdir":
-      return `Create folder ${fmtVal(a.path)}`;
+      return `Create folder ${at(a.path, "change")}`;
     case "files.ls":
-      return `List ${fmtVal(a.path)}`;
+      return `List ${at(a.path, "read")}`;
     case "files.read":
-      return `Read ${fmtVal(a.path)}`;
+      return `Read ${at(a.path, "read")}`;
     case "files.edit":
-      return `Edit ${fmtVal(a.path)}`;
+      return `Edit ${at(a.path, "change")}`;
     case "files.cp":
-      return `Copy ${fmtVal(a.from)} to ${fmtVal(a.to)}`;
+      return `Copy ${at(a.from, "read")} to ${at(a.to, "change")}`;
     case "files.mv":
-      return `Move ${fmtVal(a.from)} → ${fmtVal(a.to)}`;
+      return `Move ${at(a.from, "change")} → ${at(a.to, "change")}`;
     case "sql":
       return `SQL: ${fmtVal(a.sql)}`;
     case "http.fetch":
@@ -487,11 +506,11 @@ export function summarizeAction(
     case "artifacts.guide":
       return `Read the ${a.kind ? `${fmtVal(a.kind)} ` : ""}artifact guide`;
     case "search.grep":
-      return `Search for “${fmtVal(a.pattern)}”`;
+      return `Search for “${fmtVal(a.pattern)}”${where && where.home.folder !== "" ? ` in ${at(a.path, "read")}` : ""}`;
     case "search.semantic":
       return `Recall about “${fmtVal(a.query)}”`;
     case "export.query":
-      return `Export ${fmtVal(a.format)} to ${fmtVal(a.path)}`;
+      return `Export ${fmtVal(a.format)} to ${at(a.path, "change")}`;
     case "notify": {
       const to = typeof a.to === "string" && a.to.trim() && a.to !== "owner" ? a.to.trim() : "";
       return to ? `Post to ${named("target", to)}: ${fmtVal(a.text)}` : `Tell you: ${fmtVal(a.text)}`;
@@ -553,7 +572,7 @@ export function summarizeAction(
     // The risky ones most often waiting on an approval. Each says the
     // thing it would do, so "risky tool" is never the whole card.
     case "shell.run":
-      return `Run: ${fmtVal(a.command)}${a.cwd ? ` (in ${fmtVal(a.cwd)})` : ""}`;
+      return `Run: ${fmtVal(a.command)}${a.cwd || (where && where.home.folder !== "") ? ` (in ${at(a.cwd, "change")})` : ""}${a.writes === "workspace" ? ", writing anywhere in the workspace" : ""}`;
     case "cron.run":
       return `Run the job ${named("schedule", a.id, `#${fmtVal(a.id)}`)} now`;
     case "builds.run":
@@ -593,7 +612,7 @@ export function summarizeAction(
   if (tool === "chrome.end") return "Give your Chrome back";
   if (tool === "chrome.page") return "Read the page beside the panel";
   if (tool === "python.run") return `Run Python: ${fmtVal(typeof a.code === "string" ? (a.code.split("\n").find((l) => l.trim()) ?? "").trim() : a.code)}`;
-  if (tool === "tex.pdf") return `Typeset ${fmtVal(a.path)} as a PDF`;
+  if (tool === "tex.pdf") return `Typeset ${at(a.path, "change")} as a PDF`;
   // KOS's own browser tools: a visit, a run of steps, or the owner's hands.
   if (tool === "browser.visit") {
     // One visit may take several pages; the card names them all.
@@ -664,11 +683,12 @@ export function detailLines(
   tool: string,
   args: string | Record<string, unknown>,
   names?: ActionNames,
+  where?: ActionHome,
 ): string[] {
   const a = parseArgs(args);
   const lines: string[] = [];
   // Prefer a short summary line first.
-  lines.push(summarizeAction(tool, a, names));
+  lines.push(summarizeAction(tool, a, names, where));
   // A step said by its purpose keeps how it does it in view: an approval
   // is given for the clicks, not for the model's account of them.
   const mechanics = stepMechanics(tool, a);

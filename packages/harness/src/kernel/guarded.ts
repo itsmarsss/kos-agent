@@ -407,10 +407,11 @@ export class GuardedTools implements ToolBox {
      * A call that sends a secret asks the owner every time, until the
      * secrets tools bring their own tier: no remembered yes and no Auto
      * covers it, and the ask names the secret and the host it goes to.
+     * Judged inside the turn's stores: a call's reach depends on whose turn it is.
      */
     const using = secretsNamed(input);
     const sends = using.length > 0 ? `sends secret ${using.join(", ")} to ${registry.secretSlots(name)?.host?.(input) ?? "an unknown host"}` : undefined;
-    const assessment: RiskAssessment = sends ? { tier: "risky", escalated: true, reason: sends, asksAlways: true } : registry.classify(name, input);
+    const assessment: RiskAssessment = sends ? { tier: "risky", escalated: true, reason: sends, asksAlways: true } : await within(async () => registry.classify(name, input));
 
     /*
      * Readied before it is judged on where it runs: a browser call from the
@@ -445,7 +446,9 @@ export class GuardedTools implements ToolBox {
        * asked again: the call runs as an approved one would, and the audit
        * shows it ran as risky.
        */
-      const context = this.deps.permissionContext?.(name);
+      // A call past the turn's own folder is judged as one: no rule made inside it covers the call.
+      const given = this.deps.permissionContext?.(name);
+      const context = assessment.reached ? { ...given, reached: true } : given;
       const auto = assessment.asksAlways ? false : (this.deps.autoApproves?.(name, context) ?? false);
       const ruled = !assessment.asksAlways && auto !== true && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true;
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
@@ -462,6 +465,7 @@ export class GuardedTools implements ToolBox {
           isError: allowedResult.isError,
           riskTier: "risky",
           ...(userId ? { userId } : {}),
+          ...(conversationId ? { conversationId } : {}),
         });
         this.deps.onExecuted?.(name, allowedResult);
         return allowedResult;
@@ -484,6 +488,7 @@ export class GuardedTools implements ToolBox {
         ...(userId ? { userId } : {}),
         ...(conversationId ? { conversationId } : {}),
         ...(rule ? { rule } : {}),
+        ...(assessment.reached ? { reached: true } : {}),
         ...(picture ? { picture } : {}),
         ...(why ? { why } : {}),
         owner,
@@ -553,6 +558,7 @@ export class GuardedTools implements ToolBox {
         isError: approvedRun.isError,
         riskTier: "risky",
         ...(userId ? { userId } : {}),
+        ...(conversationId ? { conversationId } : {}),
       });
       this.deps.onExecuted?.(name, approvedRun);
       return approvedResult(approvedRun);
@@ -567,6 +573,7 @@ export class GuardedTools implements ToolBox {
       isError: result.isError,
       riskTier: "safe",
       ...(userId ? { userId } : {}),
+      ...(conversationId ? { conversationId } : {}),
     });
     this.deps.onExecuted?.(name, result);
     return result;

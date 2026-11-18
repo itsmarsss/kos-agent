@@ -258,8 +258,8 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
     return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
   }
   const args = req.args ?? {};
-  const view = askView({ tool: req.tool, args, ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS });
-  const summary = summarizeAction(req.tool, args, req.names, HOST_KEYS);
+  const view = askView({ tool: req.tool, args, ...(req.names ? { names: req.names } : {}), ...(req.where ? { where: req.where } : {}), platform: HOST_KEYS });
+  const summary = summarizeAction(req.tool, args, req.names, req.where, HOST_KEYS);
   // A run of actions is headed by where it acts, and its actions are the
   // code, each on its own line, every one of them: the yes is for those.
   // What the model said the step is for is its words, quoted with the rest
@@ -270,7 +270,7 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
   // The command itself, or failing that the arguments, in a code block: a
   // `--include=*.ts` that turned italic was a command you could not read
   // back, and an approval you cannot read is not one you can give.
-  const details = body ? [body] : detailLines(req.tool, args, req.names).slice(1);
+  const details = body ? [body] : detailLines(req.tool, args, req.names, req.where).slice(1);
   const code = actions ?? (body ? [cut(body, CODE_MAX)] : details.filter((l) => !l.startsWith("…")).slice(0, 3).map((l) => cut(l, DETAIL_MAX)));
   // Anything the card leaves out goes with it whole, in a file: no part of a call is approved unseen.
   const partial = !actions && (code.length !== details.length || [summary, ...code].some((l, i) => l.includes("…") || (i > 0 && l !== details[i - 1])));
@@ -3214,7 +3214,7 @@ export class DiscordAdapter implements ChannelAdapter {
         .setStyle(ButtonStyle.Danger),
     );
 
-    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names) : req.text;
+    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names, req.where) : req.text;
     // No secret leaves in a card, its words or the call it carries.
     const scrub = this.scrub;
     const unscrubbed = approvalCard(req);

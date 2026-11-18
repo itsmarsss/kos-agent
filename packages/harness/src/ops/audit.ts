@@ -1,6 +1,7 @@
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
 import type { RiskTier } from "../risk/tiers.js";
+import { caller } from "../kernel/caller.js";
 
 export interface AuditEntry {
   tool: string;
@@ -9,6 +10,8 @@ export interface AuditEntry {
   isError: boolean;
   riskTier?: RiskTier;
   userId?: string;
+  /** The conversation whose turn made the call; the calling turn's when not said. */
+  conversationId?: string;
 }
 
 export interface AuditRecord {
@@ -19,6 +22,7 @@ export interface AuditRecord {
   isError: boolean;
   riskTier: RiskTier | null;
   userId: string | null;
+  conversationId: string | null;
   createdAt: number;
 }
 
@@ -51,6 +55,7 @@ interface Row {
   is_error: number;
   risk_tier: string | null;
   user_id: string | null;
+  conversation_id: string | null;
   created_at: number;
 }
 
@@ -63,8 +68,21 @@ function toRecord(row: Row): AuditRecord {
     isError: row.is_error === 1,
     riskTier: row.risk_tier as RiskTier | null,
     userId: row.user_id,
+    conversationId: row.conversation_id ?? null,
     createdAt: row.created_at,
   };
+}
+
+/**
+ * The audit table as this code reads and writes it: made when missing, and
+ * an older one given the columns added since, in place, so its history keeps
+ * its rows. Called by anything that reads the table without the log itself.
+ */
+export function ensureAuditSchema(db: Db): void {
+  db.exec(SCHEMA);
+  const columns = db.prepare(`PRAGMA table_info(audit_log)`).all() as { name: string }[];
+  // Whose turn wrote a file is then known, not inferred.
+  if (!columns.some((c) => c.name === "conversation_id")) db.exec(`ALTER TABLE audit_log ADD COLUMN conversation_id TEXT`);
 }
 
 /**
@@ -77,7 +95,7 @@ export class AuditLog {
     private readonly secrets?: SecretsRegistry,
     private readonly now: () => number = Date.now,
   ) {
-    this.db.exec(SCHEMA);
+    ensureAuditSchema(this.db);
   }
 
   private redact(text: string): string {
@@ -89,8 +107,8 @@ export class AuditLog {
     const result = this.redact(entry.result);
     const info = this.db
       .prepare(
-        `INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, conversation_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         entry.tool,
@@ -99,6 +117,7 @@ export class AuditLog {
         entry.isError ? 1 : 0,
         entry.riskTier ?? null,
         entry.userId ?? null,
+        entry.conversationId ?? caller.getStore() ?? null,
         this.now(),
       );
     return Number(info.lastInsertRowid);

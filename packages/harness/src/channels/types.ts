@@ -1,3 +1,5 @@
+import type { ActionHome } from "@kos/shared";
+
 import type { Attachment } from "../kernel/attachments.js";
 import type { MessageRoom, Quote } from "../models/types.js";
 
@@ -386,6 +388,8 @@ export interface ApprovalRequest {
   why?: string;
   /** What to call the ids in the arguments: a channel's name, a chat's title, a job's name. */
   names?: (kind: string, id: string) => string | undefined;
+  /** Where the asking chat's file paths land, so the card names the place a path really is. */
+  where?: ActionHome;
   /**
    * Who is asking: the chat the action belongs to, by the name the owner
    * knows it by (a blob's title, a project's name, KOS itself). A prompt

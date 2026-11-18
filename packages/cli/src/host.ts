@@ -427,6 +427,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       expiresAt: approvalExpiry(action, kernel.behaviour()),
       // The card names what the ids are: #leetcode, not 1561643942586351626.
       names: (kind: string, id: string) => kernel.labelFor(kind, id),
+      where: kernel.actionHome(action.conversationId),
       ...(picture ? { picture } : {}),
       ...(action.why ? { why: action.why } : {}),
       ...(asker ? { asker } : {}),

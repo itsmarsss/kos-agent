@@ -9,6 +9,7 @@ import { requireServices } from "../modules/loader.js";
 import { runCaptured, stopOf } from "../sandbox/capture.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
 import { isContained, jailedProgram } from "../sandbox/jail.js";
+import { placeFor, reachOutside } from "./home.js";
 
 /**
  * tex.pdf: a LaTeX document in the workspace, typeset.
@@ -83,7 +84,7 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
           inputSchema: {
             type: "object",
             properties: {
-              path: { type: "string", description: "workspace-relative path of the .tex file" },
+              path: { type: "string", description: "the .tex file: a relative path is inside your own folder (your project's, or the workspace at the root); workspace:<path> is from the workspace root" },
               timeout: { type: "number", description: `seconds before it is stopped (default ${timeoutSeconds})` },
             },
             required: ["path"],
@@ -92,7 +93,7 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
         async (input) => {
           const rel = typeof input["path"] === "string" ? input["path"].trim() : "";
           if (extname(rel).toLowerCase() !== ".tex") throw new Error("path must name a .tex file");
-          const source = ws.resolve(rel);
+          const source = placeFor(ws, ctx, rel).abs;
           if (!existsSync(source)) throw new Error(`no such file: ${rel}`);
           const seconds =
             typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], MAX_TIMEOUT_SECONDS) : timeoutSeconds;
@@ -136,7 +137,11 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
             rmSync(tmp, { recursive: true, force: true });
           }
         },
-        confined ? { floor: "safe" } : { floor: "risky", why: "TeX with nothing narrower than the host to hold it" },
+        // The PDF lands beside its source, so a source outside the turn's own folder is a write there.
+        {
+          ...(confined ? { floor: "safe" as const } : { floor: "risky" as const, why: "TeX with nothing narrower than the host to hold it" }),
+          reach: reachOutside(ws, ctx, (input) => [input["path"]]),
+        },
       );
     },
   };

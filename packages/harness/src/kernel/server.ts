@@ -298,16 +298,17 @@ function parsedArgs(args: string): unknown {
 
 function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   const names = (kind: string, id: string): string | undefined => kernel.labelFor(kind, id);
+  const where = kernel.actionHome(a.conversationId);
   const mechanics = stepMechanics(a.tool, a.args, HOST_KEYS);
   // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
   const asksAlways = hasSecretRef(parsedArgs(a.args));
-  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, names, platform: HOST_KEYS });
+  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, names, where, platform: HOST_KEYS });
   return {
     ...a,
     // It places a secret: asked about every time, never remembered.
     ...(asksAlways ? { asksAlways: true } : {}),
     asker: kernel.askerOf(a.conversationId)?.name,
-    summary: summarizeAction(a.tool, a.args, names, HOST_KEYS),
+    summary: summarizeAction(a.tool, a.args, names, where, HOST_KEYS),
     ...(mechanics ? { mechanics } : {}),
     ...view,
   };
@@ -320,7 +321,7 @@ function decidedView(kernel: Kernel, a: PendingAction): Omit<PendingAction, "arg
   return {
     ...rest,
     asker: kernel.askerOf(a.conversationId)?.name,
-    summary: summarizeAction(a.tool, args, (kind, id) => kernel.labelFor(kind, id)),
+    summary: summarizeAction(a.tool, args, (kind, id) => kernel.labelFor(kind, id), kernel.actionHome(a.conversationId)),
   };
 }
 
@@ -2923,7 +2924,7 @@ export async function handleApiRequest(
     return ok({
       id,
       messages: transcriptOf(kernel, id),
-      events: withFrames(withKeptPaths(kernel, id, historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id))), kernel.frames.listFor(id)),
+      events: withFrames(withKeptPaths(kernel, id, historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id), kernel.actionHome(id))), kernel.frames.listFor(id)),
       // Sent but not yet run. Shown after the transcript because that is where
       // they will land, and separately because they have not happened yet.
       pending: kernel.pending.forConversation(id).map((m) => ({
@@ -3225,7 +3226,7 @@ export function mentionsOf(kernel: Kernel, q: string, limit: number, kind?: stri
       // The browser's tabs, each named for whose it is in words.
       tabs: kernel.browser.tabs().map(({ owner, ...t }) => ({ ...t, ...(owner ? { owner: kernel.conversations.get(owner)?.title ?? owner } : {}) })),
       channels: knownChannels(kernel),
-      approvals: kernel.approvals.pending().map((a) => ({ id: a.id, summary: summarizeAction(a.tool, a.args, (k, id) => kernel.labelFor(k, id)) })),
+      approvals: kernel.approvals.pending().map((a) => ({ id: a.id, summary: summarizeAction(a.tool, a.args, (k, id) => kernel.labelFor(k, id), kernel.actionHome(a.conversationId)) })),
     },
     q,
     limit,
