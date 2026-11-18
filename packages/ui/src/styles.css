@@ -7787,6 +7787,8 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 @media (max-width: 600px) {
   .lightbox-dim { background: #000; }
   .lightbox-stage { padding: 0; }
-  .lightbox-img { max-height: calc(100vh - 8rem); border-radius: 0; box-shadow: none; }
-  .lightbox-prev, .lightbox-next { top: auto; bottom: 3.4rem; transform: none; }
+  .lightbox-img { max-height: calc(100vh - 9rem); border-radius: 0; box-shadow: none; }
+  /* The arrows sit either side of the words at the foot, clear of the picture. */
+  .lightbox-prev, .lightbox-next { top: auto; bottom: max(0.6rem, env(safe-area-inset-bottom)); transform: none; }
+  .lightbox-caption { min-height: 3.2rem; align-items: center; padding-inline: 3.75rem; }
 }
