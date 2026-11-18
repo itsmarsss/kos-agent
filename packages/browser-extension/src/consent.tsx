@@ -70,7 +70,7 @@ function Consent(): ReactElement {
               <button type="button" id="deny" className="btn" onClick={() => void decide(false)}>
                 Deny
               </button>
-              <button type="button" id="allow" className="btn btn--primary" autoFocus onClick={() => void decide(true)}>
+              <button type="button" id="allow" className="btn btn--primary" onClick={() => void decide(true)}>
                 Allow
               </button>
             </>
@@ -92,7 +92,7 @@ const SOON_S = 10;
 /**
  * A thin bar running down under the buttons, and the seconds until the ask
  * says no by itself, counted to when the worker will say it, however late
- * the window opened. With less motion asked for, the bar steps each second.
+ * the window opened. With less motion asked for, the bar steps as it ticks.
  * Read out once, as the last seconds begin.
  */
 function Countdown({ waitMs, expiresAt }: { waitMs: number; expiresAt: number }): ReactElement {
@@ -100,7 +100,7 @@ function Countdown({ waitMs, expiresAt }: { waitMs: number; expiresAt: number })
   const [now, setNow] = useState(Date.now);
   const [opened] = useState(Date.now);
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    const timer = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(timer);
   }, []);
   const share = (at: number): number => (waitMs > 0 ? Math.min(1, Math.max(0, (expiresAt - at) / waitMs)) : 0);
