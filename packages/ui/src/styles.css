@@ -1526,6 +1526,12 @@ select {
   .list-head-tools > .list-search { flex: 1 1 10rem; min-width: 0; }
 }
 
+/* The bar under a head (a list's filters, Artifacts' kinds and menus,
+   Memory's search and tags): every control in it one small height, where
+   chips, menus and buttons had sat at 26, 30 and 32px in one row. */
+:is(.list-filters, .artifacts-bar, .know-bar) :is(.chips button, .sel-button, .btn, .know-search) { height: var(--control-h-sm); box-sizing: border-box; }
+:is(.list-filters, .artifacts-bar, .know-bar) .btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+
 /* A page's tabs (PageTabs): a line under the head, the open one underlined
    in the accent. Chips are for filtering a list; these change the page.
    Memory's tablist and Runs' links are the one row. */
@@ -1657,6 +1663,8 @@ select {
   --page-top: 1.25rem;
   --page-reading: 62rem;
   --control-h: 2.25rem;
+  /* A control in the bar under a head (filters, menus, a small button). */
+  --control-h-sm: 1.875rem;
 }
 
 /* The frame a page sits in, one of three by what the page is (frameOf in
