@@ -10,9 +10,10 @@ import type { CongregationMember, Live, LiveStep } from "./progress.js";
 /**
  * A turn while it is still happening.
  *
- * Each thought and each tool call appears as it occurs, in the same shapes the
- * finished transcript uses, so the turn does not rearrange itself when it
- * lands. The reply streams in underneath.
+ * Each thought, each tool call and each thing the owner says meanwhile
+ * appears as it occurs, in the same shapes the finished transcript uses, so
+ * the turn does not rearrange itself when it lands. The reply streams in
+ * underneath.
  */
 
 /** The one-line account of a roster: who is done, who is still at it. */
@@ -87,6 +88,22 @@ export function LiveTurn({
               layout="position"
             >
               <Thinking text={step.text} />
+            </m.div>
+          ) : step.kind === "said" ? (
+            // The owner's words, where the turn took them in: the place the
+            // transcript keeps them, so nothing moves when the turn lands.
+            <m.div
+              key={`s${i}`}
+              className="turn turn--you"
+              variants={listItem}
+              initial="hidden"
+              animate="show"
+              layout="position"
+            >
+              <div className="bubble bubble--you">
+                <Markdown text={step.text} />
+              </div>
+              {step.from && step.from !== "dashboard" && <span className="turn-via">via {step.from}</span>}
             </m.div>
           ) : (
             <m.div

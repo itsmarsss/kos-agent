@@ -34,6 +34,7 @@ export type ProgressEvent =
   | { kind: "note"; conversationId: string; text: string }
   | { kind: "congregation"; conversationId: string; members: CongregationMember[] }
   | { kind: "frame"; conversationId: string; tool: string; frameId: number; toolUseId?: string; site?: string }
+  | { kind: "heard"; conversationId: string; said: string; from?: string }
   | { kind: "turn-end"; conversationId: string };
 
 /** One conversation a turn is waiting on, when it asked several at once. */
@@ -57,7 +58,12 @@ export type LiveStep =
       result?: string;
       /** What the step saw, at /api/frames/:id, once it is kept. */
       frameId?: number;
-    };
+    }
+  /**
+   * What the owner said while the turn ran, where the turn took it in: after
+   * the step whose result carried it, as the stored transcript keeps it.
+   */
+  | { kind: "said"; text: string; from?: string };
 
 export interface Live {
   /** Everything so far this turn, oldest first. */
@@ -148,6 +154,10 @@ function reduce(live: Live, event: ProgressEvent): Live {
       }
       return { ...live, steps };
     }
+
+    case "heard":
+      steps.push({ kind: "said", text: event.said, ...(event.from ? { from: event.from } : {}) });
+      return { ...live, steps };
 
     case "congregation":
       return { ...live, congregation: { members: event.members } };

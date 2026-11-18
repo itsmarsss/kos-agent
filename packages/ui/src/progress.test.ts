@@ -70,6 +70,18 @@ describe("progress handover", () => {
     expect(steps.map((s) => (s.kind === "tool" ? s.frameId : null))).toEqual([undefined, 7, undefined]);
   });
 
+  it("puts words said mid-turn after the step that took them in, as the transcript keeps them", () => {
+    const { result } = renderHook(() => useProgress());
+    deliver({ kind: "turn-start", conversationId: "c1", said: "build a cart" });
+    deliver({ kind: "tool-start", conversationId: "c1", tool: "chrome.start", summary: "Start in Chrome" });
+    deliver({ kind: "tool-end", conversationId: "c1", tool: "chrome.start", isError: false });
+    deliver({ kind: "heard", conversationId: "c1", said: "skip the ebooks", from: "dashboard" });
+    deliver({ kind: "tool-start", conversationId: "c1", tool: "chrome.act", summary: "Search" });
+    const steps = result.current.c1?.steps ?? [];
+    expect(steps.map((s) => (s.kind === "said" ? `you: ${s.text}` : s.kind === "tool" ? s.tool : s.kind))).toEqual(["chrome.start", "you: skip the ebooks", "chrome.act"]);
+    expect(steps[1]).toEqual({ kind: "said", text: "skip the ebooks", from: "dashboard" });
+  });
+
   it("keeps a finished turn's steps until the transcript takes over", () => {
     const { result } = renderHook(() => useProgress());
     deliver({ kind: "turn-start", conversationId: "c1" });

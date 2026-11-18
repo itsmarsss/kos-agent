@@ -38,6 +38,19 @@ describe("LiveTurn states", () => {
     expect(screen.queryByText("Thinking")).toBeNull();
   });
 
+  it("shows the owner's mid-turn words between the steps, where the turn took them in", () => {
+    const tool = (tool: string, summary: string) => ({ kind: "tool" as const, tool, summary, done: true, isError: false });
+    const { container } = render(
+      <LiveTurn live={{ ...base, steps: [tool("chrome.start", "Start in Chrome"), { kind: "said", text: "skip the ebooks", from: "discord" }, tool("chrome.act", "Search")] }} />,
+    );
+    const said = container.querySelector(".turn--you");
+    expect(said?.textContent).toContain("skip the ebooks");
+    expect(said?.textContent).toContain("via discord");
+    const text = container.textContent ?? "";
+    expect(text.indexOf("Start in Chrome")).toBeLessThan(text.indexOf("skip the ebooks"));
+    expect(text.indexOf("skip the ebooks")).toBeLessThan(text.indexOf("Search"));
+  });
+
   it("stops saying thinking once the reply is arriving", () => {
     // Streaming prose under a "thinking" label says something untrue about
     // what the model is doing.
