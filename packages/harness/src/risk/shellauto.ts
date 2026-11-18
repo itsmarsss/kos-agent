@@ -154,6 +154,9 @@ const GIT_OK = new Set(["status", "log", "diff", "show", "add", "commit", "switc
 /** Git that reaches out: under Auto a line runs with no network, so these ask, saying why. */
 const GIT_NETWORK = new Set(["fetch", "pull", "clone", "push", "ls-remote", "submodule"]);
 
+/** Node's options that run code from the line, a module or stdin rather than a script. */
+const NODE_CODE = ["--eval", "--print", "--require", "--import", "--loader", "--experimental-loader", "--interactive"];
+
 /** Why one call is beyond Auto, or false. */
 function callBeyond(call: Call): string | false {
   // An assignment before the program changes its environment, and some (GIT_CONFIG_*, PATH, LD_PRELOAD) change what runs: only a few harmless ones are covered.
@@ -186,10 +189,12 @@ function callBeyond(call: Call): string | false {
       return sub && GIT_OK.has(sub) ? false : `git ${sub ?? ""}, which a chat's Auto does not run unasked`.replace("  ", " ");
     }
     case "node":
-      return args.some((a) => /^(-e|-p|--eval|--print|-r|--require|--import|--loader)$/.test(a) || a.startsWith("--eval=")) ? "node with code on the line" : !args.length ? "node with no script" : false;
+      // -pe and -re fuse their letters; each long form also takes its value after =.
+      return args.some((a) => a === "-" || /^-[a-zA-Z]*[epri]/.test(a) || NODE_CODE.some((o) => a === o || a.startsWith(`${o}=`))) ? "node with code on the line" : !args.length ? "node with no script" : false;
     case "python":
     case "python3":
-      if (args.some((a) => a === "-c" || /^-[a-zA-Z]*c$/.test(a))) return "python with code on the line";
+      // -c takes its code fused too: -cimport os, -Ic'...'.
+      if (args.some((a) => a === "-" || /^-[a-zA-Z]*c/.test(a))) return "python with code on the line";
       return args[0] === "-m" && !["pytest", "unittest"].includes(args[1] ?? "") ? "python running a module" : !args.length ? "python with no script" : false;
     case "npm":
     case "pnpm":
