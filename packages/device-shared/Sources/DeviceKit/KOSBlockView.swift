@@ -13,10 +13,13 @@ import UIKit
 public struct KOSBlockView: View {
   private let block: KOSBlock
   private let layout: BlockLayout
+  private let closed: Bool
   @Environment(\.chatOpensArtifacts) private var opens
 
-  public init(block: KOSBlock) {
+  /// `closed` false: the fence has not closed yet (a reply still arriving, or cut short), so only Copy is offered.
+  public init(block: KOSBlock, closed: Bool = true) {
     self.block = block
+    self.closed = closed
     layout = block.layout
   }
 
@@ -48,7 +51,7 @@ public struct KOSBlockView: View {
         SectionLabel(layout.kind.label)
       }
       Spacer(minLength: 0)
-      BlockActions(block: block, layout: layout)
+      BlockActions(block: block, layout: layout, closed: closed)
     }
     .frame(minHeight: 26)
   }
@@ -61,6 +64,8 @@ public struct KOSBlockView: View {
           Text(row.label).font(.kos(.body)).foregroundStyle(Theme.muted)
           value(row.values)
             .font(.kos(.body))
+            // A value that opens on a chip (a time) starts its words where the plain values do.
+            .padding(.leading, row.values.first?.hasPrefix("<t:") == true ? -chipPadWidth(size: KOSType.body.scaled) : 0)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .timesHelp(row.values.joined(separator: ", "))
@@ -81,21 +86,25 @@ extension KOSBlockView {
 }
 
 /// The actions a block offers here: links it asks for, a map, Open in Mail, and Copy last, each the kit's round button.
+/// Until the fence closes only Copy is offered: the draft is not the draft yet.
 private struct BlockActions: View {
   let block: KOSBlock
   let layout: BlockLayout
+  let closed: Bool
   @Environment(\.openURL) private var openURL
   @State private var copied = false
 
   var body: some View {
+    let actions = closed ? layout.kind.actions : []
     HStack(spacing: 2) {
-      ForEach(layout.links, id: \.url) { link in
-        IconButton(symbol: "arrow.up.right.square", label: link.label) { openURL(link.url) }
+      ForEach(closed ? layout.links : [], id: \.url) { link in
+        // KOS's words for it, then the host it really goes to.
+        IconButton(symbol: "arrow.up.right.square", label: "\(link.label) (\(link.host))") { openURL(link.url) }
       }
-      if layout.kind.actions.contains(.map), let map = block.map {
+      if actions.contains(.map), let map = block.map {
         IconButton(symbol: "mappin.and.ellipse", label: "Open in Maps") { openURL(map) }
       }
-      if layout.kind.actions.contains(.mail), let mail = block.mailto {
+      if actions.contains(.mail), let mail = block.mailto {
         IconButton(symbol: "envelope", label: "Open in Mail") { openURL(mail) }
       }
       IconButton(symbol: copied ? "checkmark" : "doc.on.doc", label: copied ? "Copied" : "Copy") {

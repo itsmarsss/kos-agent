@@ -16,7 +16,8 @@ public enum ChatBlock: Equatable {
   case code(String)
   case list(ordered: Bool, start: Int, items: [[ChatBlock]])
   case table(head: [String], align: [HorizontalAlignment], rows: [[String]])
-  case block(KOSBlock)
+  /// A typed block; `closed` false while its fence has not closed (a reply still arriving).
+  case block(KOSBlock, closed: Bool)
 
   public static func == (a: ChatBlock, b: ChatBlock) -> Bool {
     switch (a, b) {
@@ -28,8 +29,8 @@ public enum ChatBlock: Equatable {
       return o == p && s == t && i == j
     case (.table(let h, let a, let r), .table(let k, let b, let s)):
       return h == k && a.map(Self.word) == b.map(Self.word) && r == s
-    case (.block(let x), .block(let y)):
-      return x == y
+    case (.block(let x, let c), .block(let y, let d)):
+      return x == y && c == d
     default:
       return false
     }
@@ -57,7 +58,7 @@ public enum ChatBlock: Equatable {
       if let fence = KOSBlock.fence(lines, at: i) {
         flush()
         if let block = KOSBlock.parse(info: fence.info, lines: fence.body) {
-          out.append(.block(block))
+          out.append(.block(block, closed: fence.closed))
         } else {
           out.append(.code(dedent(fence.body).joined(separator: "\n")))
         }
@@ -432,6 +433,19 @@ extension View {
   }
 }
 
+/// How wide a chip's end is at a size: a line that starts with a chip is drawn that much to the left, so its words
+/// line up with the plain ones above and below it.
+func chipPadWidth(size: CGFloat) -> CGFloat {
+  let font = PlatformFont.systemFont(ofSize: (size * 0.9).rounded())
+  return ("\u{2009}" as NSString).size(withAttributes: [.font: font]).width
+}
+
+#if os(macOS)
+private typealias PlatformFont = NSFont
+#else
+private typealias PlatformFont = UIFont
+#endif
+
 /// A sliver of the tint a span sits on, for its ends: a Text run cannot be padded, so a thin space stands in for the panel's padding.
 private func pad(_ tint: Color, size: CGFloat) -> AttributedString {
   var space = AttributedString("\u{2009}")
@@ -507,8 +521,8 @@ private struct BlockView: View {
         // Sideways, as the kit's code block: no bar, a mouse's legacy one either; the trackpad and Shift with the wheel scroll it.
         .scrollIndicators(.never)
       }
-    case .block(let block):
-      KOSBlockView(block: block)
+    case .block(let block, let closed):
+      KOSBlockView(block: block, closed: closed)
     case .list(let ordered, let start, let items):
       VStack(alignment: .leading, spacing: 3) {
         ForEach(Array(items.enumerated()), id: \.offset) { i, item in

@@ -29,7 +29,10 @@ public struct KOSBlock: Equatable, Sendable {
   /// A fence: how many backticks opened it, its info string, the lines inside, and the line after it.
   public struct Fence: Equatable, Sendable {
     public let ticks: Int
+    /// Everything after the backticks, trimmed: `ts title="x"`.
     public let info: String
+    /// Its first word: the language, or `kos:<kind>`.
+    public var lang: String { info.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? "" }
     public let body: [String]
     public let next: Int
     /// False when the text ended first: a reply still arriving.
@@ -37,13 +40,14 @@ public struct KOSBlock: Equatable, Sendable {
   }
 
   /// The fence opening at `lines[at]`, read to a line of at least as many backticks and nothing else, so a block
-  /// opened with four holds a three-backtick fence in its body; nil when the line opens none.
+  /// opened with four holds a three-backtick fence in its body; nil when the line opens none. Its info string is
+  /// anything without a backtick, as CommonMark has it: ```ts title="x" and ```js {1,3} are fences.
   public static func fence(_ lines: [String], at start: Int) -> Fence? {
     guard start < lines.count else { return nil }
     let line = lines[start].trimmingCharacters(in: .whitespaces)
     let ticks = line.prefix { $0 == "`" }.count
     let info = line.dropFirst(ticks).trimmingCharacters(in: .whitespaces)
-    guard ticks >= 3, !info.contains("`"), !info.contains(where: \.isWhitespace) else { return nil }
+    guard ticks >= 3, !info.contains("`") else { return nil }
     var body: [String] = []
     var i = start + 1
     while i < lines.count, !closes(lines[i], ticks: ticks) {
@@ -59,9 +63,9 @@ public struct KOSBlock: Equatable, Sendable {
     return t.count >= ticks && t.allSatisfy { $0 == "`" }
   }
 
-  /// The kind an info string names, `kos:email` as "email"; nil for any other fence.
+  /// The kind an info string's first word names, `kos:email` as "email"; nil for any other fence.
   public static func kind(ofInfo info: String) -> String? {
-    let t = info.trimmingCharacters(in: .whitespaces)
+    let t = info.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
     guard t.lowercased().hasPrefix("kos:") else { return nil }
     let kind = String(t.dropFirst(4)).lowercased()
     guard let first = kind.first, first.isASCII, first.isLetter,
@@ -163,6 +167,9 @@ public struct BlockKind: Equatable, Sendable {
     BlockKind(name: "card", label: "", plain: "", fields: [], title: "title", body: .markdown, copies: .all, actions: [.copy]),
   ]
 
+  /// A channel's own name, for a `channel:` field written as its key, as CHANNEL_NAMES in blockkinds.ts.
+  public static let channelNames = ["imessage": "iMessage", "sms": "SMS", "discord": "Discord"]
+
   /// A kind by name; one not in the table is a card under its own name, so nothing is drawn as a broken block.
   public static func named(_ name: String) -> BlockKind {
     if let known = all.first(where: { $0.name == name }) { return known }
@@ -188,6 +195,8 @@ public struct BlockLayout: Equatable, Sendable {
   public struct Link: Equatable, Sendable {
     public let label: String
     public let url: URL
+    /// The host as it is reached, punycode and all, shown beside KOS's words so they cannot pass for another.
+    public let host: String
   }
 
   public let kind: BlockKind
@@ -207,16 +216,28 @@ extension KOSBlock {
       guard key != kind.title, key != "action" else { return nil }
       let found = values(key)
       guard !found.isEmpty else { return nil }
-      return .init(key: key, label: kind.fields.first { $0.key == key }?.label ?? BlockKind.words(key), values: found)
+      let shown = key == "channel" ? found.map { BlockKind.channelNames[$0.lowercased()] ?? $0 } : found
+      return .init(key: key, label: kind.fields.first { $0.key == key }?.label ?? BlockKind.words(key), values: shown)
     }
-    let links = values("action").compactMap { action -> BlockLayout.Link? in
-      let parts = action.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true).map(String.init)
-      guard parts.count >= 2, parts[0].lowercased() == "open", let url = URL(string: parts[1]),
-            ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
-      return .init(label: parts.count > 2 ? parts[2] : "Open", url: url)
-    }
+    let links = values("action").compactMap(Self.link)
     return BlockLayout(kind: kind, title: kind.title.flatMap(value), rows: rows, body: body, links: links)
   }
+
+  /// `open <url> [words]` as a link, only to an https address with no user in it; anything else is no link.
+  static func link(_ action: String) -> BlockLayout.Link? {
+    let parts = action.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true).map(String.init)
+    guard parts.count >= 2, parts[0].lowercased() == "open", let parsed = URLComponents(string: parts[1]),
+          parsed.scheme?.lowercased() == "https", parsed.user == nil, parsed.password == nil,
+          let url = parsed.url, let host = url.host, !host.isEmpty else { return nil }
+    let words = (parts.count > 2 ? parts[2] : "").unicodeScalars.filter { !bidiMarks.contains($0) }
+    let label = String(String.UnicodeScalarView(words)).trimmingCharacters(in: .whitespaces)
+    return .init(label: label.isEmpty ? "Open" : label, url: url, host: host)
+  }
+
+  /// Marks that turn text around without showing: a label carrying one could read as something else.
+  private static let bidiMarks = CharacterSet(charactersIn: "\u{061C}\u{200E}\u{200F}")
+    .union(CharacterSet(charactersIn: "\u{202A}"..."\u{202E}"))
+    .union(CharacterSet(charactersIn: "\u{2066}"..."\u{2069}"))
 
   /// The block in plain words: its heading, a line per field, then the body after a blank line.
   public var plain: String {
@@ -281,5 +302,24 @@ public enum DiffLine: String, Sendable {
     else if line.hasPrefix("+"), !line.hasPrefix("+++") { self = .add }
     else if line.hasPrefix("-"), !line.hasPrefix("---") { self = .del }
     else { self = .same }
+  }
+}
+
+extension KOSBlock {
+  /// What the block is, said aloud: "a draft email to Sam", "an event, Dinner at Nopa", "a checklist".
+  public var spoken: String {
+    let layout = layout
+    let to = values("to").first.map { " to \($0)" } ?? ""
+    switch kind {
+    case "email": return "a draft email\(to)"
+    case "message": return "a draft message\(to)"
+    default:
+      let what = layout.kind.label.isEmpty ? "a note" : article(layout.kind.label.lowercased())
+      return layout.title.map { "\(what), \($0)" } ?? what
+    }
+  }
+
+  private func article(_ word: String) -> String {
+    ("aeiou".contains(word.first ?? "x") ? "an " : "a ") + word
   }
 }

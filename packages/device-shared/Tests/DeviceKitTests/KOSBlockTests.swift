@@ -41,7 +41,44 @@ struct KOSBlockTests {
     #expect(fence?.ticks == 4 && fence?.next == 7 && fence?.closed == true)
     #expect(fence?.body == ["title: Snippet", "---", "```ts", "x", "```"])
     #expect(KOSBlock.fence(lines("```kos:email\nto: a"), at: 0)?.closed == false)
-    #expect(KOSBlock.fence(["```js title"], at: 0) == nil)
+    #expect(KOSBlock.fence(["say ```this```"], at: 0) == nil)
+  }
+
+  @Test func takesAnyInfoStringAsCommonMarkDoesTheFirstWordItsLanguage() throws {
+    let titled = try #require(KOSBlock.fence(lines("```ts title=\"x.ts\"\nconst a = 1;\n```\nafter"), at: 0))
+    #expect(titled.info == "ts title=\"x.ts\"" && titled.lang == "ts" && titled.next == 3 && titled.closed)
+    #expect(KOSBlock.fence(lines("```js {1,3}\nx\n```"), at: 0)?.next == 3)
+    #expect(KOSBlock.parse(info: "kos:email draft", lines: ["to: a@x.com"])?.kind == "email")
+    // The closing fence closes it; it never opens another that eats the reply.
+    #expect(ChatBlock.blocks("```ts title=\"a.ts\"\nconst a = 1;\n```\n\nafter") == [.code("const a = 1;"), .paragraph("after")])
+    #expect(ChatBlock.blocks("```js {1,3}\nx\n```\nafter") == [.code("x"), .paragraph("after")])
+  }
+
+  @Test func opensOnlyHttpsWithNoUserAndNamesTheRealHost() throws {
+    let links = { (actions: [String]) in try self.block("card", actions.map { "action: \($0)" }.joined(separator: "\n")).layout.links }
+    #expect(try links(["open http://example.com", "open https://bank.com@evil.com Bank", "open javascript:alert(1)", "open https://user:pw@x.com"]).isEmpty)
+    let link = try #require(try links(["open https://xn--pple-43d.com/login Apple"]).first)
+    #expect(link.label == "Apple" && link.host == "xn--pple-43d.com" && link.url.absoluteString == "https://xn--pple-43d.com/login")
+    #expect(try links(["open https://x.com \u{202E}moc.knab\u{202C}"]).first?.label == "moc.knab")
+    // A host in another script is shown as it is reached, or is no link at all; never as the look-alike.
+    #expect(try links(["open https://\u{0430}pple.com"]).allSatisfy { $0.host == "xn--pple-43d.com" })
+  }
+
+  @Test func namesAChannelAsItselfAndSaysWhatABlockIs() throws {
+    #expect(try block("message", "to: Amy\nchannel: imessage").layout.rows.map(\.values) == [["Amy"], ["iMessage"]])
+    #expect(try block("message", "channel: SMS").plain == "Draft message\nVia: SMS")
+    #expect(try block("email", "to: Sam\n---\nhi").spoken == "a draft email to Sam")
+    #expect(try block("event", "title: Dinner").spoken == "an event, Dinner")
+    #expect(try block("checklist", "---\n- [ ] x").spoken == "a checklist")
+    #expect(try block("card", "title: Plan").spoken == "a note, Plan")
+  }
+
+  @Test func drawsABlockInAListItemWithTheIndentOffAndOneInAQuoteAsWords() {
+    let text = "1. Send this:\n\n   ```kos:email\n   to: a@x.com\n   ---\n   Hi,\n     indented\n   ```\n2. Done\n\n> ```kos:email\n> to: a@x.com\n> ```"
+    let blocks = ChatBlock.blocks(text)
+    guard case .list(_, _, let items) = blocks.first else { Issue.record("no list"); return }
+    #expect(items.first?.last == .block(KOSBlock(kind: "email", fields: [.init("to", "a@x.com")], body: "Hi,\n  indented"), closed: true))
+    #expect(blocks.last == .quote("```kos:email\nto: a@x.com\n```"))
   }
 
   @Test func laysOutRowsInTheKindsOrderWithOnlySafeLinks() throws {
@@ -78,12 +115,13 @@ struct KOSBlockTests {
   }
 
   @Test func theMarkdownDrawsABlockAsItsKindAndAMalformedOneAsCode() {
-    let text = "Drafted:\n\n```kos:message\nto: Amy\nchannel: imessage\n---\nRunning late\n```\n```kos:email\nHi Sam\n```\n```js title"
+    let text = "Drafted:\n\n```kos:message\nto: Amy\nchannel: imessage\n---\nRunning late\n```\n```kos:email\nHi Sam\n```\n```kos:message\nto: Sam\n---\nOn my"
     #expect(ChatBlock.blocks(text) == [
       .paragraph("Drafted:"),
-      .block(KOSBlock(kind: "message", fields: [.init("to", "Amy"), .init("channel", "imessage")], body: "Running late")),
+      .block(KOSBlock(kind: "message", fields: [.init("to", "Amy"), .init("channel", "imessage")], body: "Running late"), closed: true),
       .code("Hi Sam"),
-      .paragraph("```js title"),
+      // A block still arriving is drawn, marked open, so it offers Copy alone.
+      .block(KOSBlock(kind: "message", fields: [.init("to", "Sam")], body: "On my"), closed: false),
     ])
   }
 
