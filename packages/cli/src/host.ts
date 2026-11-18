@@ -596,7 +596,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       return panelModels();
     },
   });
-  let booted: Kernel | undefined;
+  const boot: { kernel?: Kernel } = {};
   const earlyKeys: [string, string][] = [];
   const computer = createComputerUse({
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
@@ -605,7 +605,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     localKeyPath: process.env.KOS_DEVICE_LOCAL_KEY_FILE?.trim() || join(homedir(), ".kos", "device-local.key"),
     // The device keys are KOS's own: never offered to the agent, and scrubbed should one ever come back in a result.
     // The module activates inside Kernel.boot, before `kernel` is set: keys read then wait for it.
-    watchKey: (name, value) => (booted ? booted.secrets.watch(name, value) : earlyKeys.push([name, value])),
+    watchKey: (name, value) => (boot.kernel ? boot.kernel.secrets.watch(name, value) : earlyKeys.push([name, value])),
     caller: () => kernel.callerConversationId,
     // An ask to use a computer or a Chrome says who asks by the name it goes by everywhere.
     titleOf: (id) => kernel.nameOf(id),
@@ -739,7 +739,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       void computer.phone.requestApproval("owner", request);
     },
   });
-  booted = kernel;
+  boot.kernel = kernel;
   for (const [name, value] of earlyKeys.splice(0)) kernel.secrets.watch(name, value);
 
   // What the last host's throwaway Chromes left in the temp folder, cleared without holding up the start.
