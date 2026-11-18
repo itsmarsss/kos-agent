@@ -287,7 +287,7 @@ beside it when the chat asks.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, steps? [{ summary, failed?, frame? }] }]`, `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
+| `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, at?, steps? [{ summary, failed?, frame? }] }]`, `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
 | `chat.status` | `chat` and `conversation` (the chat the turn runs in, learned when it starts, never the one the panel moved to), `since?` (with `taken`: when the turn began, epoch ms, so a panel opened mid-turn keeps its clock), `waiting?` (`consent`: a device asks the owner for this chat's session; `approval`: an approval waits), `held` (the owner has control of its session), `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn told from its start: its steps so far, `› ` before each, ` (done)` after one that finished and ` (failed)` after one that failed, and what KOS says between them; empty before it has said or done anything; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, with `said`, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
 | `chat.ask` | `chat`, `approval { id, tool, summary?, args?, mechanics?, why?, reason?, always?, expiresAt? }` (`summary`: the action in words with its ids named, as the Inbox titles it; `expiresAt`: when it lapses unanswered, epoch ms) | `{}` |
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
@@ -300,7 +300,9 @@ The KOS for Mac chat window takes the same calls and sends the same
 events, but reads no page ([computer.md](computer.md), the chat window).
 
 A message's `role` is `you`, `kos`, `note`, or `steps` with `steps [{
-summary, failed? }]`. Every status carries the chat's `waiting` and `held`
+summary, failed? }]`. `at` is when a `you`, `kos` or `note` line was
+written to the chat, epoch milliseconds; a line kept before lines kept their
+time has none, and a device shows no time for it rather than a guessed one. Every status carries the chat's `waiting` and `held`
 as they stand, and a status without them clears them; one with none of
 `said`, `taken`, `story`, `error` or `frame` says the state alone, and is
 sent whenever it changes. A device draws no status or ask whose `chat` is

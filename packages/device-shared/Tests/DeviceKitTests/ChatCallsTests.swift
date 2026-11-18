@@ -21,6 +21,24 @@ struct ChatCallsTests {
     return try ChatCalls.draw(c, as: m, into: model)
   }
 
+  @Test func eachLineKeepsWhenItWasSaidAndTheThreadMarksTheDaysAndPauses() throws {
+    let model = ChatModel()
+    let t = 1_795_000_000_000.0
+    let params = """
+      {"chat":"c","title":"T","messages":[{"role":"you","text":"then"},{"role":"kos","text":"ok"},\
+      {"role":"you","text":"now","at":\(t)},{"role":"steps","steps":[{"summary":"Look"}]},{"role":"kos","text":"done","at":\(t + 60_000)},\
+      {"role":"note","text":"Approved #4","at":\(t + 20 * 60_000)}]}
+      """
+    try draw(model, "chat.show", params)
+    let at = { (ms: Double) in Date(timeIntervalSince1970: ms / 1000) }
+    #expect(model.times == [nil, nil, at(t), nil, at(t + 60_000), at(t + 20 * 60_000)])
+    // The old lines carry no time and no line over them; the first with a time is under its day, the note after a pause.
+    #expect(model.items.map(\.id) == ["l0", "l1", "m2", "l2", "l3", "l4", "m5", "l5"])
+    #expect(model.items.contains(.line(2, .you("now", files: []), at(t))))
+    model.reset()
+    #expect(model.times.isEmpty)
+  }
+
   @Test func theChatShownIsDrawnAndSaysSo() throws {
     let model = ChatModel()
     model.silent = true

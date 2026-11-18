@@ -89,7 +89,7 @@ import {
 import { DEFAULT_SEARCH } from "@kos/browser";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
-import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
+import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize } from "./session.js";
 
 /** Where the owner's home arrangement lives. */
 export const HOME_LAYOUT_KEY = "home.layout";
@@ -2563,7 +2563,7 @@ export async function handleApiRequest(
     // context window is anywhere near full. A percentage of the model window
     // alone said 2% while the conversation was about to start losing its
     // oldest turns.
-    const historyChars = JSON.stringify(retained).length;
+    const historyChars = historySize(retained);
     const exchanges = retained.filter((m) => m.role === "user").length;
     return ok({
       conversationId: id,

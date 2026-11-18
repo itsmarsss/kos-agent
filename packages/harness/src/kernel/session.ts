@@ -139,6 +139,20 @@ function capMessage(
   };
 }
 
+/**
+ * How much of the retention budget messages take: their JSON, without when
+ * each was said, which is the reader's and never sent to the model, so a
+ * time does not cost a turn its place.
+ */
+export function historySize(messages: ModelMessage[]): number {
+  return JSON.stringify(messages.map(({ at: _at, ...message }) => message)).length;
+}
+
+/** A stored message from before messages kept their time: 0, so it is never taken for a new one. */
+function untimed(message: ModelMessage): ModelMessage {
+  return message.at === undefined ? { ...message, at: 0 } : message;
+}
+
 /** What the owner may change about retention, all optional. */
 export const RETENTION_KEY = "session.retention";
 
@@ -238,10 +252,20 @@ export class SessionStore {
     if (!row) return [];
     try {
       const parsed = JSON.parse(row.messages_json) as ModelMessage[];
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? parsed.map(untimed) : [];
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Each message new to the chat stamped with now. One kept before messages
+   * kept their time comes out of get() as 0, so it is never stamped with a
+   * later turn's time; one a turn made has no time until it is written here.
+   */
+  private stamped(messages: ModelMessage[]): ModelMessage[] {
+    const now = this.now();
+    return messages.map((m) => (m.at === undefined ? { ...m, at: now } : m));
   }
 
   /**
@@ -270,7 +294,7 @@ export class SessionStore {
     let total = 0;
     for (let i = exchanges.length - 1; i >= 0; i--) {
       const exchange = exchanges[i]!;
-      const size = JSON.stringify(exchange).length;
+      const size = historySize(exchange);
       const wouldExceed = this.maxChars > 0 && total + size > this.maxChars;
       const tooMany = this.maxExchanges > 0 && kept.length >= this.maxExchanges;
       if (kept.length > 0 && (wouldExceed || tooMany)) break;
@@ -306,7 +330,7 @@ export class SessionStore {
 
   /** Replace the full history, trimmed to the retention budget. */
   set(sessionId: string, messages: ModelMessage[]): void {
-    this.write(sessionId, this.trim(withoutPictures(messages)));
+    this.write(sessionId, this.trim(withoutPictures(this.stamped(messages))));
   }
 
   /**
@@ -321,7 +345,7 @@ export class SessionStore {
      * result, and then did the identical work over the result. The second
      * pass could only ever agree with the first.
      */
-    const trimmed = this.trim(withoutPictures(messages));
+    const trimmed = this.trim(withoutPictures(this.stamped(messages)));
     this.write(sessionId, trimmed);
     return trimmed;
   }
@@ -333,7 +357,7 @@ export class SessionStore {
    * it was trimmed once a step; the turn's own record at its end trims once.
    */
   append(sessionId: string, messages: ModelMessage[]): void {
-    const added = withoutPictures(messages);
+    const added = withoutPictures(this.stamped(messages));
     const capped = this.autoTrim && this.maxToolResultChars ? added.map((m) => capMessage(m, this.maxToolResultChars)) : added;
     this.write(sessionId, [...this.get(sessionId), ...capped]);
   }
@@ -357,7 +381,7 @@ export class SessionStore {
   /** Set the chat aside and put these messages in its place: a compaction's summary. */
   replace(sessionId: string, messages: ModelMessage[], why: EarlierWhy): void {
     this.setAside(sessionId, why);
-    this.write(sessionId, this.trim(withoutPictures(messages)));
+    this.write(sessionId, this.trim(withoutPictures(this.stamped(messages))));
   }
 
   /** What was set aside, oldest first. */

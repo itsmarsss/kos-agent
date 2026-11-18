@@ -25,9 +25,9 @@ import {
   startsList,
   styleOf,
   TIME_TOKEN,
-  timeCard,
 } from "@kos/shared";
 
+import { TimeCard } from "./ChatTime.js";
 import { Face } from "./Face.js";
 import { KosBlockView, type BlockText } from "./KosBlock.js";
 import { Tex } from "./Tex.js";
@@ -266,17 +266,6 @@ function Stamp({ value, letter, raw }: { value: string; letter: string | undefin
         {formatTime(seconds, style, undefined, now)}
       </time>
     </Tooltip>
-  );
-}
-
-/** The date in full over the time on the reader's clock, one line each. */
-function TimeCard({ seconds }: { seconds: number }): ReactElement {
-  const [date, time] = timeCard(seconds);
-  return (
-    <span className="md-time-card">
-      <span>{date}</span>
-      <span>{time}</span>
-    </span>
   );
 }
 

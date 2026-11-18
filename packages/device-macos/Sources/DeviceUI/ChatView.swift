@@ -422,8 +422,10 @@ private struct ItemView: View, Equatable {
 
   var body: some View {
     switch item {
-    case .line(_, let line):
-      LineView(line: line, pictures: pictures)
+    case .line(_, let line, let time):
+      ChatLine(line, time: time, pictures: pictures)
+    case .mark(_, let mark):
+      TimeMarkLine(mark)
     case .notice(_, let notice):
       VStack(alignment: .leading, spacing: 2) {
         // Who answered, when it was not KOS itself, in the violet a passed-on sender is named in.
@@ -437,24 +439,6 @@ private struct ItemView: View, Equatable {
       let told = ChatModel.read(story.text)
       if !told.steps.isEmpty { Steps(steps: told.steps, live: true, pictures: pictures) }
       if !told.words.isEmpty { ChatMarkdown(told.words).foregroundStyle(Theme.muted) }
-    }
-  }
-}
-
-private struct LineView: View {
-  let line: ChatModel.Line
-  let pictures: [ChatModel.Picture]
-
-  var body: some View {
-    switch line {
-    case .you(let text, let files, let quote):
-      Bubble(text: text, files: files, quote: quote)
-    case .kos(let text):
-      ChatMarkdown(text).frame(maxWidth: .infinity, alignment: .leading)
-    case .note(let text):
-      Text(text).font(.kos(.tiny)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).frame(maxWidth: .infinity)
-    case .steps(let steps):
-      Steps(steps: steps, pictures: pictures)
     }
   }
 }

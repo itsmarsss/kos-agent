@@ -137,6 +137,31 @@ struct RenderTests {
     try render("chat") { Tabbed { ChatScreen(phone: phone) } }
   }
 
+  /// The chat with when each line was said: the day over yesterday's and today's, the time after a pause; then every
+  /// line's time, as a swipe to the left shows them.
+  @Test func aConversationWithTimes() throws {
+    let phone = Phone.preview()
+    online(phone)
+    let calendar = Calendar.autoupdatingCurrent
+    let today = calendar.startOfDay(for: Date())
+    let at = { (days: Int, hour: Int, minute: Int) in calendar.date(byAdding: DateComponents(day: days, hour: hour, minute: minute), to: today) }
+    phone.chat.show(
+      conversation: "phone:owner", title: "Saturday plans",
+      lines: [
+        .you("What's on this weekend?", files: []),
+        .steps([.init(summary: "Read the calendar")]),
+        .kos("Saturday is clear until **4 pm**, then dinner with Sam at Lucia's."),
+        .you("Push the bike service to Sunday morning", files: []),
+        .note("Approved #7 · browser.click ran"),
+        .kos("Done: **Sunday 9:00**."),
+        .you("Thanks", files: []),
+        .kos("Any time."),
+      ],
+      times: [at(-1, 21, 10), nil, at(-1, 21, 11), at(0, 8, 2), at(0, 8, 3), at(0, 8, 4), at(0, 9, 30), at(0, 9, 30)])
+    try render("chat-times") { Tabbed { ChatScreen(phone: phone) } }
+    try render("chat-times-shown") { Tabbed { ChatScreen(phone: phone).environment(\.chatTimesShown, true) } }
+  }
+
   @Test func aTurnStreamingWithStop() throws {
     let phone = Phone.preview()
     conversation(phone)
