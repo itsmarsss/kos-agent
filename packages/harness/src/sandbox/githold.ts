@@ -11,8 +11,9 @@ import { spawnSync } from "node:child_process";
  * them pinned from the environment, at command scope, which beats any
  * repository's config; attributes are read from the empty tree, so no
  * .gitattributes picks a driver. diff.external cannot be unset from the
- * environment, so a repository's config and hooks are not the agent's to
- * write at all: see GIT_CONTROL and gitControlRefusal.
+ * environment, so a repository's config and hooks are not written by a
+ * run nobody approved, nor by the file tools: see gitControlPatterns and
+ * gitControlRefusal.
  */
 
 /** Settings that each name a program, pinned to one that runs nothing of the agent's. */
@@ -77,7 +78,7 @@ export function gitHoldEnv(env: Record<string, string>, attrSource = attrSourceH
 }
 
 /**
- * Sandbox regexes for what of git's control the shell may not write: any
+ * Sandbox regexes for what of git's control an unapproved shell run may not write: any
  * repository's config, hooks and info/attributes, and the global config
  * under the child's home, which is the workspace.
  */

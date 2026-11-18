@@ -9,7 +9,7 @@ import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { programOf } from "../risk/rules.js";
-import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, type ShellResult } from "./shell.js";
+import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
 
@@ -197,9 +197,11 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(existsSync(join(root, "TEXTCONV"))).toBe(false);
   });
 
-  it("cannot write a repository's config or hooks, or git's global config", async () => {
+  it("lets a run nobody approved write none of a repository's config or hooks, nor git's global config", async () => {
     execFileSync("git", ["init", "-q", "projects/x"], { cwd: root });
     const config = readFileSync(join(root, "projects/x/.git/config"), "utf8");
+    const unapproved = (command: string): Promise<ShellResult> =>
+      runShell(command, { workspaceRoot: root, cwd: root, timeoutMs: 5000, maxOutput: 10_000, holdGitConfig: true });
     for (const command of [
       "printf '[core]\\n\\tfsmonitor = ./x\\n' >> projects/x/.git/config",
       "cd projects/x && git config core.fsmonitor ./x",
@@ -210,15 +212,30 @@ describe.runIf(onMac)("shell.run on macOS", () => {
       "git config --global core.pager ./x",
       "mkdir -p .config/git && echo x > .config/git/config",
     ]) {
-      await run({ command });
+      await unapproved(command);
     }
     expect(readFileSync(join(root, "projects/x/.git/config"), "utf8")).toBe(config);
     for (const path of ["projects/x/.git/hooks/pre-commit", "projects/x/.git/hooks/sub", "projects/x/.git/info/attributes", ".gitconfig", ".config/git/config"]) {
       expect(existsSync(join(root, path)), path).toBe(false);
     }
     // The rest of a repository is git's to write: a commit still lands.
-    const commit = await run({ command: "cd projects/x && echo a > a && git add a && git -c user.email=a@b -c user.name=a commit -qm a && git log --oneline" });
+    const commit = await unapproved("cd projects/x && echo a > a && git add a && git -c user.email=a@b -c user.name=a commit -qm a && git log --oneline");
     expect(commit.stdout.trim()).toMatch(/^[0-9a-f]+ a$/);
+  });
+
+  it("lets an approved run init, clone and configure a repository", async () => {
+    const line = "git init -q projects/a && cd projects/a && git config user.email a@b && git config user.name a && echo a > a && git add a && git commit -qm a && cd .. && git clone -q a b && git -C b log --oneline";
+    expect(registry.classify("shell.run", { command: line }).tier).toBe("risky");
+    const r = await run({ command: line });
+    expect(r.exitCode, r.stderr).toBe(0);
+    expect(r.stdout.trim()).toMatch(/^[0-9a-f]+ a$/);
+    expect(readFileSync(join(root, "projects/a/.git/config"), "utf8")).toContain("email = a@b");
+    expect(existsSync(join(root, "projects/b/.git/config"))).toBe(true);
+    // Still held to git's own code: no hook runs, though the owner said yes.
+    const hook = join(root, "projects/a/.git/hooks/post-commit");
+    await run({ command: `printf '#!/bin/sh\\ntouch HOOKED\\n' > ${hook} && chmod +x ${hook} && cd projects/a && git commit -q --allow-empty -m b` });
+    expect(existsSync(hook)).toBe(true);
+    expect(existsSync(join(root, "projects/a/HOOKED"))).toBe(false);
   });
 
   it("is risky by floor, and safe for a line that only reads", () => {

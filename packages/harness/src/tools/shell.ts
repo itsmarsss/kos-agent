@@ -65,14 +65,26 @@ export type ShellResult = CapturedRun;
 
 export function runShell(
   command: string,
-  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal },
+  opts: {
+    workspaceRoot: string;
+    cwd: string;
+    timeoutMs: number;
+    maxOutput: number;
+    signal?: AbortSignal;
+    /**
+     * True for a run nobody approved (a line judged read-only, or one Auto
+     * lets through): git's config and hooks are then not to be written. An
+     * approved run may write them, so git init, clone and config work.
+     */
+    holdGitConfig?: boolean;
+  },
 ): Promise<ShellResult> {
   const tmp = join(opts.workspaceRoot, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
   const jail = {
     workspaceRoot: opts.workspaceRoot,
     readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
-    readOnlyPatterns: gitControlPatterns(opts.workspaceRoot),
+    ...(opts.holdGitConfig ? { readOnlyPatterns: gitControlPatterns(opts.workspaceRoot) } : {}),
   };
   return runCaptured(jailedCommand(command, jail), {
     cwd: opts.cwd,
@@ -119,7 +131,9 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           const cwdRel = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
           const cwd = ws.resolve(cwdRel);
           const seconds = typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], 3600) : timeoutSeconds;
-          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()) });
+          // A line that only reads ran as safe, unasked: it gets no say over git's config.
+          const holdGitConfig = isReadOnlyCommand(command);
+          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput, holdGitConfig, ...stopOf(turnStop.getStore()) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads
