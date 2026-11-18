@@ -271,8 +271,12 @@ export function isReservedName(name: string): boolean {
  * gets past. The one test for RESERVED; #557 and #561 use it too.
  */
 export function isReserved(root: string, rel: string): boolean {
-  const first = (p: string): string => p.replace(/\\/g, "/").split("/").find((s) => s !== "" && s !== ".") ?? "";
-  return isReservedName(first(rel)) || isReservedName(first(foldedPath(root, rel)));
+  return isReservedName(firstSegment(rel)) || isReservedName(firstSegment(foldedPath(root, rel)));
+}
+
+/** A workspace-relative path's first name, past any "." or empty segment, either slash. */
+export function firstSegment(path: string): string {
+  return path.replace(/\\/g, "/").split("/").find((s) => s !== "" && s !== ".") ?? "";
 }
 
 /** A path the manager may touch: inside the jail, not the root, not the workspace's own files. */

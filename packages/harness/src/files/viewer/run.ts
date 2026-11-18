@@ -107,7 +107,7 @@ export function childJobs(script: string, { timeoutMs = CHILD_TIMEOUT_MS, rssMb 
       }, WATCH_MS);
       child.on("message", (reply: { ok: true; value: unknown } | { ok: false; error: string }) => finish(() => (reply.ok ? resolve(reply.value) : reject(new Error(reply.error)))));
       child.on("error", (err) => finish(() => reject(new Error(`it could not be read: ${err.message}`))));
-      child.on("exit", (_code, sig) => finish(() => reject(new Error(sig === "SIGXCPU" || sig === "SIGKILL" ? "it used more than its share of the processor, so it was stopped" : "its reader stopped before it finished"))));
+      child.on("exit", (_code, sig) => finish(() => reject(new Error(sig === "SIGXCPU" ? "it used more than its share of the processor, so it was stopped" : sig === "SIGKILL" ? "its reader was stopped" : "its reader stopped before it finished"))));
       child.send(req);
     }),
   );

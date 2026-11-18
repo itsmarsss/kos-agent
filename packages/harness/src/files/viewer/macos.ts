@@ -48,12 +48,11 @@ export function hasTextutil(): boolean {
   return process.platform === "darwin" && existsSync(TEXTUTIL) && existsSync(SANDBOX);
 }
 
-
-function run(file: string, args: string[], maxBuffer: number, timeout = TOOL_TIMEOUT_MS): Promise<string> {
+function run(file: string, args: string[], maxBuffer: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { timeout, maxBuffer, killSignal: "SIGKILL" }, (err, stdout, stderr) => {
+    execFile(file, args, { timeout: TOOL_TIMEOUT_MS, maxBuffer, killSignal: "SIGKILL" }, (err, stdout, stderr) => {
       if (!err) resolve(stdout);
-      else if ((err as { killed?: boolean }).killed) reject(new Error(`it took more than ${timeout / 1000} s to read, so it was stopped`));
+      else if ((err as { killed?: boolean }).killed) reject(new Error(`it took more than ${TOOL_TIMEOUT_MS / 1000} s to read, so it was stopped`));
       else reject(new Error(stderr.trim().split("\n")[0] || err.message));
     });
   });

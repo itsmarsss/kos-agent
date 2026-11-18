@@ -209,6 +209,16 @@ describe("the bounded run", () => {
     await expect(pending).rejects.toThrow(/superseded/);
   });
 
+  it("lets the next job run when the one ahead of it is aborted", async () => {
+    const run = childJobs(script("process.once('message', (req) => { if (req.html === 'slow') { setInterval(() => {}, 1000); return; } process.send({ ok: true, value: 'second' }, () => process.exit(0)); });"), { slots: 1, timeoutMs: 15_000 });
+    const ask = new AbortController();
+    const first = run({ op: "sanitize", html: "slow", format: "doc" }, ask.signal);
+    const second = run({ op: "sanitize", html: "fast", format: "doc" });
+    setTimeout(() => ask.abort(), 100);
+    await expect(first).rejects.toThrow(/superseded/);
+    await expect(second).resolves.toBe("second");
+  });
+
   it("runs two at a time", async () => {
     const run = childJobs(script("process.once('message', () => setTimeout(() => process.send({ ok: true, value: { at: Date.now() } }, () => process.exit(0)), 300));"));
     const started = Date.now();
