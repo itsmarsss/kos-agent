@@ -103,6 +103,14 @@ describe("sweeping left-behind profiles", () => {
     profile("kos-check-dead", { lock: DEAD });
     const first = sweepProfiles({ dir, processes: none });
     expect(sweepProfiles({ dir, processes: none })).toBe(first);
+    // Another folder gets a sweep of its own.
+    const other = mkdtempSync(join(tmpdir(), "sweep-other-"));
+    try {
+      expect(sweepProfiles({ dir: other, processes: none })).not.toBe(first);
+    } finally {
+      await sweepProfiles({ dir: other, processes: none });
+      rmSync(other, { recursive: true, force: true });
+    }
     await first;
     expect(sweepProfiles({ dir, processes: none })).not.toBe(first);
   });
@@ -136,14 +144,15 @@ describe("a command line naming a profile", () => {
  */
 describe("orphaned Chromes", () => {
   let dir: string;
-  const groups: number[] = [];
+  /** What each test started, to be killed after it: a negative number is a group. */
+  const started: number[] = [];
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "sweep-orphan-"));
   });
   afterEach(() => {
-    for (const pgid of groups.splice(0)) {
+    for (const target of started.splice(0)) {
       try {
-        process.kill(-pgid, "SIGKILL");
+        process.kill(target, "SIGKILL");
       } catch {
         /* gone */
       }
@@ -166,24 +175,35 @@ describe("orphaned Chromes", () => {
 
   /**
    * Start a stand-in on a profile and lock the profile to it. Orphaned: started
-   * by a go-between that exits, so its parent becomes launchd. Else its
-   * parent is this test.
+   * by a go-between that exits, so its parent becomes launchd. It leads its own
+   * group, as KOS starts Chrome, unless told not to: then it is in the
+   * go-between's group, beside a bystander that names no profile. Else its
+   * parent is this test. Its pid, its helper's, and the bystander's if any.
    */
-  async function chrome(profilePath: string, options: { orphan: boolean; names?: string }): Promise<[number, number]> {
+  async function chrome(profilePath: string, options: { orphan: boolean; names?: string; leads?: boolean }): Promise<[number, number, number?]> {
     mkdirSync(profilePath);
     writeFileSync(join(profilePath, "Local State"), "{}");
-    const pids = join(dir, `${groups.length}.pids`);
+    const pids = join(dir, `${started.length}.pids`);
+    const bystander = `${pids}.bystander`;
     const args = ["-e", standIn(pids), "--", `--user-data-dir=${options.names ?? profilePath}`];
-    if (options.orphan) {
+    if (!options.orphan) {
+      spawn(process.execPath, args, { detached: true, stdio: "ignore" }).unref();
+    } else if (options.leads === false) {
+      const between = `const { spawn } = require("child_process"); spawn(process.execPath, ${JSON.stringify(args)}, { stdio: "ignore" }).unref(); const b = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }); b.unref(); require("fs").writeFileSync(${JSON.stringify(bystander)}, String(b.pid));`;
+      await new Promise((resolve) => spawn(process.execPath, ["-e", between], { detached: true, stdio: "ignore" }).once("exit", resolve));
+    } else {
       const between = `require("child_process").spawn(process.execPath, ${JSON.stringify(args)}, { detached: true, stdio: "ignore" }).unref();`;
       await new Promise((resolve) => spawn(process.execPath, ["-e", between], { stdio: "ignore" }).once("exit", resolve));
-    } else {
-      spawn(process.execPath, args, { detached: true, stdio: "ignore" }).unref();
     }
     await vi.waitFor(() => expect(existsSync(pids) && readFileSync(pids, "utf8")).toBeTruthy(), WAIT);
     const [pid, helper] = readFileSync(pids, "utf8").split(" ").map(Number) as [number, number];
-    groups.push(pid);
     symlinkSync(`host-${pid}`, join(profilePath, "SingletonLock"));
+    if (options.leads === false) {
+      const other = Number(readFileSync(bystander, "utf8"));
+      started.push(pid, helper, other);
+      return [pid, helper, other];
+    }
+    started.push(-pid);
     return [pid, helper];
   }
 
@@ -206,5 +226,27 @@ describe("orphaned Chromes", () => {
     expect(result).toMatchObject({ removed: [], stopped: [] });
     expect([parented, elsewhere].every((p) => existsSync(p))).toBe(true);
     expect(running(mine) && running(other)).toBe(true);
+  }, 20_000);
+
+  it("signals an orphan that leads no group alone, and leaves the group it is in", async () => {
+    const path = join(dir, "kos-check-member");
+    const [pid, , bystander] = await chrome(path, { orphan: true, leads: false });
+    const result = await sweepProfiles({ dir });
+    expect(result.stopped).toEqual([pid]);
+    expect(existsSync(path)).toBe(false);
+    expect(running(pid)).toBe(false);
+    expect(running(bystander!)).toBe(true);
+  }, 20_000);
+
+  it("looks again before each signal, and stops nothing that is no longer that orphan", async () => {
+    const path = join(dir, "kos-check-adopted");
+    const [pid] = await chrome(path, { orphan: false });
+    // Orphaned when the folder was read, someone's child by the time it would be stopped.
+    let reads = 0;
+    const processes = async (): Promise<ProcessInfo[]> => [{ pid, ppid: reads++ === 0 ? 1 : process.pid, pgid: pid, args: `chrome --user-data-dir=${path}` }];
+    const result = await sweepProfiles({ dir, processes });
+    expect(result).toMatchObject({ removed: [], stopped: [] });
+    expect(reads).toBe(2);
+    expect(running(pid)).toBe(true);
   }, 20_000);
 });

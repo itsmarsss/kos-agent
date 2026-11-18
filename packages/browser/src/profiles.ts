@@ -28,7 +28,18 @@ import { join } from "node:path";
 
 const PREFIX = "kos-";
 /** The profiles KOS's own Chromes are started on: the checker's, the scripts', the tests'. */
-const KOS_CHROMES = ["kos-check-", "kos-headless-", "kos-bench-", "kos-eval-chrome-", "kos-extension-", "kos-sealed-", "kos-hands-", "kos-page-"];
+const KOS_CHROMES = [
+  "kos-check-",
+  "kos-headless-",
+  "kos-bench-",
+  "kos-eval-chrome-",
+  "kos-artifact-chrome-",
+  "kos-presenter-chrome-",
+  "kos-extension-",
+  "kos-sealed-",
+  "kos-hands-",
+  "kos-page-",
+];
 /** How old an unlocked folder must be before it is taken for left behind. */
 const UNLOCKED_MS = 24 * 60 * 60 * 1000;
 /** How long an orphaned Chrome sent SIGTERM has before it is killed. */
@@ -143,18 +154,37 @@ const processTable = (): Promise<ProcessInfo[] | undefined> =>
   });
 
 /**
- * Stop an orphaned Chrome: its group when it leads one (as KOS starts it),
- * else it alone, never a group someone else leads. Whether it went.
+ * The process holding a profile, if it is, right now, a Chrome orphaned on
+ * exactly that profile: still the pid its lock names, its parent launchd, and
+ * started on that folder. Never this process, nor a child of it.
  */
-async function stopOrphan(proc: ProcessInfo): Promise<boolean> {
-  const target = proc.pgid === proc.pid ? -proc.pid : proc.pid;
-  signal(target, "SIGTERM");
-  if (!(await gone(proc.pid, ORPHAN_GRACE_MS))) {
-    signal(target, "SIGKILL");
-    if (!(await gone(proc.pid, ORPHAN_GRACE_MS))) return false;
+async function orphanOn(path: string, pid: number, processes: () => Promise<ProcessInfo[] | undefined>): Promise<ProcessInfo | undefined> {
+  if (pid === process.pid || process.pid === 1 || lockPid(path) !== pid) return undefined;
+  const proc = (await processes())?.find((p) => p.pid === pid);
+  if (!proc || proc.ppid !== 1 || proc.ppid === process.pid || !namesProfile(proc.args, path)) return undefined;
+  return proc;
+}
+
+/**
+ * Stop a Chrome orphaned on a profile. Each step is taken only while the
+ * process is still that orphan: the pid could have gone and been reused
+ * since the folder was read. The browser alone is asked first, as KOS stops
+ * its own; then it is killed, with its group when it leads one (as KOS starts
+ * it) and alone when it does not, never a group someone else leads. Whether
+ * it went.
+ */
+async function stopOrphan(path: string, pid: number, processes: () => Promise<ProcessInfo[] | undefined>): Promise<boolean> {
+  const proc = await orphanOn(path, pid, processes);
+  if (!proc) return false;
+  const leads = proc.pgid === proc.pid;
+  signal(pid, "SIGTERM");
+  if (!(await gone(pid, ORPHAN_GRACE_MS))) {
+    if (!(await orphanOn(path, pid, processes))) return false;
+    signal(leads ? -pid : pid, "SIGKILL");
+    if (!(await gone(pid, ORPHAN_GRACE_MS))) return false;
   }
-  // A helper that outlived it goes with it.
-  if (target < 0) signal(target, "SIGKILL");
+  // Its helpers, while any of its group still names the profile.
+  if (leads && (await processes())?.some((p) => p.pgid === pid && namesProfile(p.args, path))) signal(-pid, "SIGKILL");
   return true;
 }
 
@@ -192,12 +222,13 @@ async function sweep(options: SweepOptions): Promise<SweepResult> {
   const stopped: number[] = [];
   if (locked.length || unlocked.length) {
     // What is running decides the rest; unknown is kept.
-    const running = await (options.processes ?? processTable)();
+    const processes = options.processes ?? processTable;
+    const running = await processes();
     if (running) {
       for (const { path, pid } of locked) {
         const proc = running.find((p) => p.pid === pid);
         if (!proc || proc.ppid !== 1 || !namesProfile(proc.args, path)) continue;
-        if (!(await stopOrphan(proc))) continue;
+        if (!(await stopOrphan(path, pid, processes))) continue;
         stopped.push(pid);
         stale.push(path);
       }
@@ -223,12 +254,16 @@ async function sweep(options: SweepOptions): Promise<SweepResult> {
   return result;
 }
 
-let inFlight: Promise<SweepResult> | undefined;
+/** The sweep running in each folder. */
+const inFlight = new Map<string, Promise<SweepResult>>();
 
-/** Sweep the left-behind profiles. One sweep at a time: a call while one runs gets that one. */
+/** Sweep the left-behind profiles. One sweep of a folder at a time: a call while one runs there gets that one. */
 export function sweepProfiles(options: SweepOptions = {}): Promise<SweepResult> {
-  inFlight ??= sweep(options).finally(() => {
-    inFlight = undefined;
-  });
-  return inFlight;
+  const dir = options.dir ?? tmpdir();
+  let running = inFlight.get(dir);
+  if (!running) {
+    running = sweep({ ...options, dir }).finally(() => inFlight.delete(dir));
+    inFlight.set(dir, running);
+  }
+  return running;
 }
