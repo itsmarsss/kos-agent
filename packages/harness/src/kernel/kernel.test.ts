@@ -98,6 +98,21 @@ describe("Kernel", () => {
     expect(offered[2]).toEqual(offered[0]);
   });
 
+  it("tells a project's chat on the API loop where its files live", async () => {
+    const systems: string[] = [];
+    kernel = await boot({
+      async generate(_t, req: GenerateRequest): Promise<ModelResponse> {
+        systems.push(req.system ?? "");
+        return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const school = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mokable", projectSlug: "school" }).id;
+    await kernel.handleMessage("save the doc", { sessionId: school });
+    await kernel.handleMessage("hello");
+    expect(systems[0]).toContain("Your files live in projects/school/");
+    expect(systems[1]).not.toContain("## Your files");
+  });
+
   it("boots with first-party tool modules loaded", async () => {
     kernel = await boot(stubInference([]));
     expect(kernel.loadReport.failed).toEqual([]);

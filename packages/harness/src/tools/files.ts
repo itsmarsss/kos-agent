@@ -11,23 +11,28 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, relative } from "node:path";
+import { dirname } from "node:path";
+
+import { placePath } from "@kos/shared";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
 import { PDF_TEXT_MAX, isPdf, pdfText } from "../files/pdftext.js";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { SAFE, type ToolRisk } from "../risk/tiers.js";
+import { SAFE, type Escalation } from "../risk/tiers.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
+import { callerHome, placeFor, reachOutside, type HomePath } from "./home.js";
 import { reachOf } from "./sql.js";
 import { artifactFileRefusal, artifactFolderRefusal } from "./systems.js";
 
 /**
  * The `files` tool module: primitive, path-gated filesystem operations the agent
- * composes. Every path resolves through the workspace jail, so nothing escapes.
- * Read and write-within-workspace are safe; rm/mv escalate to risky outside the
- * scratch area so destructive moves go through approval.
+ * composes. A relative path starts from the calling turn's home folder (its
+ * project's, its blob's, or the root; see tools/home.ts), and every path then
+ * resolves through the workspace jail, so nothing escapes. Read and write in
+ * the home are safe; a change outside it asks; rm/mv escalate to risky outside
+ * the scratch area so destructive moves go through approval.
  */
 
 const SCRATCH_PREFIX = "scratch";
@@ -118,28 +123,33 @@ export function outsideScratch(path: string): boolean {
   return norm !== SCRATCH_PREFIX && !norm.startsWith(`${SCRATCH_PREFIX}/`);
 }
 
-const rmRisk: ToolRisk = {
-  floor: "safe",
-  escalate: (input) => (outsideScratch(optStr(input, "path") ?? "") ? "outside the scratch folder" : false),
-};
-
 /** A path under KOS's own state, .kos/, in any case: `.KOS` is the same folder on a case-insensitive disk. */
 export function isKosState(ws: Workspace, path: string): boolean {
   return foldedPath(ws.root, path).split("/")[0] === ".kos";
 }
 
+/** The paths relative paths start from and what reaching outside them means, said once for every tool. */
+const HOME_PATHS =
+  "A relative path is inside your own folder (your project's folder in a project's chats); workspace:<path> is from the workspace root, as is a path starting with projects/, blobs/, skills/ or scratch/. Changing anything outside your own folder asks the owner.";
+
 /**
- * A path the file tools may use: anything in the jail but KOS's own state
- * under .kos/, which holds results set aside from other chats and other
- * projects, and is read only through context.recall, which checks whose they are.
+ * A path the file tools may use, placed from the calling turn's home:
+ * anything in the jail but KOS's own state under .kos/, which holds results
+ * set aside from other chats and other projects, and is read only through
+ * context.recall, which checks whose they are.
  */
-function usable(ws: Workspace, path: string): string {
-  const abs = ws.resolve(path);
-  if (isKosState(ws, relative(ws.root, abs))) throw new Error(".kos is KOS's own state and is not read or changed with files.*; a result set aside in this chat comes back with context.recall");
-  return abs;
+function usable(ws: Workspace, ctx: ModuleContext, path: string): HomePath {
+  const placed = placeFor(ws, ctx, path);
+  if (isKosState(ws, placed.rel)) throw new Error(".kos is KOS's own state and is not read or changed with files.*; a result set aside in this chat comes back with context.recall");
+  return placed;
 }
 
 function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
+  /** The paths a call changes, for the reach rule: asks when one is outside the turn's home. */
+  const changing = (...keys: string[]): Escalation => reachOutside(ws, ctx, (input) => keys.map((k) => input[k]));
+  /** Asks for a removal outside the scratch area, judged where the path lands. */
+  const scratchOnly = (key: string): Escalation => (input) =>
+    outsideScratch(placePath(callerHome(ctx), optStr(input, key) ?? "", ws.root).path) ? "outside the scratch folder" : false;
   /**
    * An artifact's file, version or capture is reached as the artifacts tools
    * reach it: by its owner's chats, and then only to read. Its document,
@@ -149,18 +159,18 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
    * or a move from it or a folder holding it), which is the owner's to do
    * from the trash.
    */
-  const fenced = (path: string, what: "read" | "replace" | "remove", folder = false): string => {
-    const abs = usable(ws, path);
+  const fenced = (path: string, what: "read" | "replace" | "remove", folder = false): HomePath => {
+    const placed = usable(ws, ctx, path);
     const pages = ctx.services?.pages;
-    if (!pages) return abs;
-    const rel = relative(ws.root, abs);
+    if (!pages) return placed;
+    const { rel } = placed;
     const reach = reachOf(ctx);
     const as = what === "read" ? "read" : "change";
     // A folder taken whole (rm, mv, cp) takes every artifact under it, so each one's owner must be this chat's to reach.
     const whole = what === "remove" || folder;
     const why = artifactFileRefusal(pages, rel, reach, as) ?? (whole ? artifactFolderRefusal(pages, rel, reach, as) : undefined);
     if (why) throw new Error(why);
-    if (what === "read") return abs;
+    if (what === "read") return placed;
     const record = pages.recordAt(rel);
     if (record && what === "replace") {
       throw new Error(`${rel} is part of the artifact ${record.id}, which files.* does not change: change part of it with artifacts.patch, or all of it with artifacts.write, so it is checked and kept as a version`);
@@ -169,12 +179,12 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     if (held) {
       throw new Error(`${rel} ${record ? "is part of" : "holds"} the artifact ${held.id}, which files.* does not take away: KOS never deletes an artifact; the owner puts one in the trash from the Artifacts page. To give it another owner, use artifacts.move`);
     }
-    return abs;
+    return placed;
   };
   ctx.registerTool(
     {
       name: "files.read",
-      description: `Read a file from the workspace: UTF-8 text as it is, or part of it (offset and limit, in bytes; at most ${TEXT_READ_MAX} bytes a read, so a long file is read a part at a time); a PDF as its text page by page (from and to read some of its pages, as a long one is read); a Word, Excel or PowerPoint file (.docx, .xlsx, .pptx) as its paragraphs, rows or slides.`,
+      description: `Read a file from the workspace: UTF-8 text as it is, or part of it (offset and limit, in bytes; at most ${TEXT_READ_MAX} bytes a read, so a long file is read a part at a time); a PDF as its text page by page (from and to read some of its pages, as a long one is read); a Word, Excel or PowerPoint file (.docx, .xlsx, .pptx) as its paragraphs, rows or slides. ${HOME_PATHS} Reading anywhere is fine.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -188,7 +198,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     async (input) => {
-      const abs = fenced(str(input, "path"), "read");
+      const { abs } = fenced(str(input, "path"), "read");
       // Its head says what it is; a text file is then read only as far as asked, however long it is.
       const head = readRange(abs, 0, 8);
       if (isPdf(head) || isOffice(head, abs)) {
@@ -205,7 +215,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "files.write",
-      description: "Write (overwrite) a UTF-8 file in the workspace.",
+      description: `Write (overwrite) a UTF-8 file. ${HOME_PATHS} The result names the file by its workspace path.`,
       inputSchema: {
         type: "object",
         properties: { path: { type: "string" }, content: { type: "string" } },
@@ -213,18 +223,18 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const abs = fenced(str(input, "path"), "replace");
+      const { abs, rel } = fenced(str(input, "path"), "replace");
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, str(input, "content"));
-      return "ok";
+      return `wrote ${rel}`;
     },
-    SAFE,
+    { floor: "safe", reach: changing("path") },
   );
 
   ctx.registerTool(
     {
       name: "files.edit",
-      description: "Replace the first occurrence of a string in a workspace file.",
+      description: `Replace the first occurrence of a string in a file. ${HOME_PATHS}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -236,30 +246,30 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const abs = fenced(str(input, "path"), "replace");
+      const { abs, rel } = fenced(str(input, "path"), "replace");
       const before = readFileSync(abs, "utf8");
       const find = str(input, "find");
       if (!before.includes(find)) throw new Error("find string not present");
       writeFileSync(abs, before.replace(find, str(input, "replace")));
-      return "ok";
+      return `edited ${rel}`;
     },
-    SAFE,
+    { floor: "safe", reach: changing("path") },
   );
 
   ctx.registerTool(
     {
       name: "files.ls",
-      description: "List entries in a workspace directory.",
+      description: `List entries in a directory; with no path, your own folder. ${HOME_PATHS}`,
       inputSchema: {
         type: "object",
         properties: { path: { type: "string" } },
       },
     },
     (input) => {
-      const abs = usable(ws, optStr(input, "path") ?? ".");
+      const { abs, rel } = usable(ws, ctx, optStr(input, "path") ?? ".");
       return readdirSync(abs)
         .map((name) => {
-          const s = statSync(ws.resolve(`${optStr(input, "path") ?? "."}/${name}`));
+          const s = statSync(ws.resolve(rel ? `${rel}/${name}` : name));
           return s.isDirectory() ? `${name}/` : name;
         })
         .join("\n");
@@ -270,7 +280,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "files.mkdir",
-      description: "Create a directory (and parents) in the workspace.",
+      description: `Create a directory (and parents). ${HOME_PATHS}`,
       inputSchema: {
         type: "object",
         properties: { path: { type: "string" } },
@@ -278,16 +288,17 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      mkdirSync(ws.resolve(str(input, "path")), { recursive: true });
-      return "ok";
+      const { abs, rel } = usable(ws, ctx, str(input, "path"));
+      mkdirSync(abs, { recursive: true });
+      return `made ${rel}/`;
     },
-    SAFE,
+    { floor: "safe", reach: changing("path") },
   );
 
   ctx.registerTool(
     {
       name: "files.cp",
-      description: "Copy a file within the workspace.",
+      description: `Copy a file. ${HOME_PATHS}`,
       inputSchema: {
         type: "object",
         properties: { from: { type: "string" }, to: { type: "string" } },
@@ -296,17 +307,17 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     },
     (input) => {
       const to = fenced(str(input, "to"), "replace");
-      mkdirSync(dirname(to), { recursive: true });
-      copyFileSync(fenced(str(input, "from"), "read", true), to);
-      return "ok";
+      mkdirSync(dirname(to.abs), { recursive: true });
+      copyFileSync(fenced(str(input, "from"), "read", true).abs, to.abs);
+      return `copied to ${to.rel}`;
     },
-    SAFE,
+    { floor: "safe", reach: changing("to") },
   );
 
   ctx.registerTool(
     {
       name: "files.mv",
-      description: "Move or rename a file within the workspace.",
+      description: `Move or rename a file. ${HOME_PATHS}`,
       inputSchema: {
         type: "object",
         properties: { from: { type: "string" }, to: { type: "string" } },
@@ -315,17 +326,17 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     },
     (input) => {
       const to = fenced(str(input, "to"), "replace");
-      mkdirSync(dirname(to), { recursive: true });
-      renameSync(fenced(str(input, "from"), "remove"), to);
-      return "ok";
+      mkdirSync(dirname(to.abs), { recursive: true });
+      renameSync(fenced(str(input, "from"), "remove").abs, to.abs);
+      return `moved to ${to.rel}`;
     },
-    { floor: "safe", escalate: (input) => (outsideScratch(optStr(input, "from") ?? "") ? "outside the scratch folder" : false) },
+    { floor: "safe", escalate: scratchOnly("from"), reach: changing("from", "to") },
   );
 
   ctx.registerTool(
     {
       name: "files.rm",
-      description: "Delete a file or directory in the workspace.",
+      description: `Delete a file or directory. ${HOME_PATHS}`,
       inputSchema: {
         type: "object",
         properties: { path: { type: "string" } },
@@ -333,10 +344,11 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      rmSync(fenced(str(input, "path"), "remove"), { recursive: true, force: true });
-      return "ok";
+      const { abs, rel } = fenced(str(input, "path"), "remove");
+      rmSync(abs, { recursive: true, force: true });
+      return `removed ${rel}`;
     },
-    rmRisk,
+    { floor: "safe", escalate: scratchOnly("path"), reach: changing("path") },
   );
 }
 

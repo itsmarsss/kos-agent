@@ -12,6 +12,7 @@ import { requireServices } from "../modules/loader.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
 import { isContained, jailedProgram } from "../sandbox/jail.js";
+import { placeFor } from "./home.js";
 
 /**
  * python.run: a short Python program, run for its answer.
@@ -118,8 +119,8 @@ export function createPythonModule(options: PythonModuleOptions = {}): KosModule
             "Run a short Python 3 program and get back what it printed: arithmetic, unit, date and money math, statistics, parsing or reshaping text or a workspace file, a quick chart. " +
             "Use it rather than working a sum out in your head, and rather than writing a file to run with the shell. " +
             (confined
-              ? "It runs at once, without asking, because it cannot reach the network or change anything: the workspace is its working directory, to read by workspace-relative path, and it writes only into a fresh folder of its own, os.environ['OUT']. "
-              : "It asks the owner first. Its working directory is the workspace; write what should be kept into os.environ['OUT']. ") +
+              ? "It runs at once, without asking, because it cannot reach the network or change anything: your own folder (your project's, or the workspace at the root) is its working directory, ~ is the workspace root, it reads any workspace file, and it writes only into a fresh folder of its own, os.environ['OUT']. "
+              : "It asks the owner first. Its working directory is your own folder (your project's, or the workspace at the root) and ~ is the workspace root; write what should be kept into os.environ['OUT']. ") +
             "Files left in OUT are kept and listed in the result, with their workspace paths; pictures among them (PNG or JPEG, such as plt.savefig(os.path.join(os.environ['OUT'], 'chart.png'))) are shown to you. Point the owner to one with @file:<path>. " +
             "The standard library is there, and whatever packages the machine has installed (numpy and matplotlib when present); nothing can be installed. Print what you need: a last expression is not echoed.",
           inputSchema: {
@@ -148,7 +149,9 @@ export function createPythonModule(options: PythonModuleOptions = {}): KosModule
             if (!file) throw new Error(`${program} is not installed on this machine`);
             return probe(file, env.PATH ?? "");
           })();
-          for (const dir of [tmp, cache, out]) mkdirSync(dir, { recursive: true });
+          // The turn's own folder is where it starts, made if the project has written nothing yet.
+          const cwd = placeFor(ws, ctx, ".").abs;
+          for (const dir of [tmp, cache, out, cwd]) mkdirSync(dir, { recursive: true });
           const script = join(tmp, "snippet.py");
           writeFileSync(script, code, "utf8");
           try {
@@ -162,7 +165,7 @@ export function createPythonModule(options: PythonModuleOptions = {}): KosModule
               ...(options.platform ? { platform: options.platform } : {}),
             });
             const run = await runCaptured(command, {
-              cwd: ws.root,
+              cwd,
               env: {
                 ...env,
                 OUT: out,

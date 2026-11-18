@@ -74,6 +74,7 @@ import { CallerStore } from "../memory/callers.js";
 import { PageLog } from "../memory/pages.js";
 import { ReviewQueue } from "../memory/review.js";
 import { agentConversationId, RoleStore } from "../agents/roles.js";
+import { fileHomeOf } from "./home.js";
 import { createAgentsModule } from "../tools/agents.js";
 import { createDiscordModule } from "../tools/discord.js";
 import { BEHAVIOUR_DEFAULTS } from "./behaviour.js";
@@ -279,6 +280,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       return (id && conversations.get(id)?.projectSlug) || undefined;
     },
     callerBlob: () => callerBlobOf(kernelRef?.callerConversationId, conversations, roles),
+    callerHome: () => {
+      const id = kernelRef?.callerConversationId;
+      const conversation = id ? conversations.get(id) : undefined;
+      return fileHomeOf(conversation, conversation?.role ? roles.get(conversation.role)?.folder : undefined);
+    },
     callerConversation: () => kernelRef?.callerConversationId ?? undefined,
     projectOf: (id) => conversations.get(id)?.projectSlug ?? undefined,
     turnMade,

@@ -9,6 +9,7 @@ import { isReadOnlyCommand } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
 import { jailedCommand } from "../sandbox/jail.js";
+import { placeFor, reachOutside } from "./home.js";
 
 /**
  * shell.run: a command, in the workspace, jailed.
@@ -82,7 +83,10 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
             type: "object",
             properties: {
               command: { type: "string", description: "the command line, run by /bin/sh" },
-              cwd: { type: "string", description: "workspace-relative directory to run in; the workspace root by default" },
+              cwd: {
+                type: "string",
+                description: "directory to run in: your own folder by default (your project's, or the workspace at the root), and a relative one inside it; workspace:<path> is from the workspace root. ~ is the workspace root.",
+              },
               timeout: { type: "number", description: `seconds before it is killed (default ${timeoutSeconds})` },
             },
             required: ["command"],
@@ -91,8 +95,10 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         async (input) => {
           const command = typeof input["command"] === "string" ? input["command"].trim() : "";
           if (!command) throw new Error("command is required");
-          const cwdRel = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
-          const cwd = ws.resolve(cwdRel);
+          const asked = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : undefined;
+          const cwd = placeFor(ws, ctx, asked ?? ".").abs;
+          // The turn's own folder is made if the project has written nothing yet; a folder asked for must be there.
+          if (asked === undefined) mkdirSync(cwd, { recursive: true });
           const seconds = typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], 3600) : timeoutSeconds;
           const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()) });
           return JSON.stringify(result);
@@ -108,6 +114,8 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           floor: "risky",
           why: "a command that may write",
           relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
+          // Run somewhere outside the turn's own folder, the card says where.
+          reach: reachOutside(ws, ctx, (input) => [input["cwd"]]),
           refuse: (input) =>
             typeof input["command"] === "string" && namesDatabase(input["command"]) && (ctx.services?.callerProject?.() !== MAINTENANCE.slug || guestOrigin() !== undefined) ? DATABASE_REFUSED : false,
         },

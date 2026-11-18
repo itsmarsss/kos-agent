@@ -6,6 +6,7 @@ import type { EventLog } from "../memory/events.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import type { Workspace } from "../store/workspace.js";
+import { placeFor } from "./home.js";
 import { scan } from "./scan.js";
 
 const exec = promisify(execFile);
@@ -25,19 +26,20 @@ function str(input: Record<string, unknown>, key: string): string {
 }
 
 /**
- * Exact grep via ripgrep, jailed to the workspace. The optional `path` arg is
- * resolved through the jail, so the search can never read outside the root.
+ * Exact grep via ripgrep, jailed to the workspace. The optional `path` arg
+ * starts from the calling turn's own folder, as every file tool's does, and
+ * is resolved through the jail, so the search can never read outside the root.
  * ripgrep exits 1 with no matches, which is a normal empty result, not an error.
  * A missing binary becomes an actionable message rather than a raw spawn ENOENT.
  */
 async function grep(
   ws: Workspace,
+  ctx: ModuleContext,
   rgPath: string,
   input: Record<string, unknown>,
 ): Promise<string> {
   const pattern = str(input, "pattern");
-  const rel = typeof input.path === "string" ? input.path : ".";
-  const target = ws.resolve(rel);
+  const target = placeFor(ws, ctx, typeof input.path === "string" ? input.path : ".").abs;
   try {
     const { stdout } = await exec(
       rgPath,
@@ -82,14 +84,14 @@ export function defineSearchTools(
     {
       name: "search.grep",
       description:
-        "Exact/literal text search across the workspace via ripgrep. Optional path scopes the search.",
+        "Exact/literal text search via ripgrep, in your own folder (your project's, or the whole workspace at the root) unless path says where: a relative path is inside your folder, workspace:<path> is from the workspace root, and workspace: alone searches everything.",
       inputSchema: {
         type: "object",
         properties: { pattern: { type: "string" }, path: { type: "string" } },
         required: ["pattern"],
       },
     },
-    (input) => grep(ws, rgPath, input),
+    (input) => grep(ws, ctx, rgPath, input),
     { floor: "safe" },
   );
 

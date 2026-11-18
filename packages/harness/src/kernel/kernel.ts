@@ -49,6 +49,7 @@ import { PageWatchStore, type WatchLook } from "../ops/watches.js";
 import type { BuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
 import { bootKernel, callerBlobOf } from "./boot.js";
+import { fileHomeOf, homeNote } from "./home.js";
 import { artifactFileRefusal, whyNot } from "../tools/systems.js";
 import { isKosState } from "../tools/files.js";
 import type { Reach } from "../tools/fence.js";
@@ -139,7 +140,7 @@ import { originOf } from "./origin.js";
 import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
+import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -1293,7 +1294,9 @@ export class Kernel {
             ? `You are the blob "${conversation.role}", a standing helper, working inside the project ${conversation.projectSlug}. What you make for it goes in the project's folder, projects/${conversation.projectSlug}/, so it lands with the project. Your own folder, blobs/${conversation.role}/, is for your notes: keep them there and read them back next time.`
             : `You are the blob "${conversation.role}", a standing helper. Your folder is blobs/${conversation.role}/: keep your notes and anything you make in it, and read it back next time.`
           : null;
-        const extra = [formatting, conversation?.brief, roleNote, scopeNote, asideNote]
+        // Where its files go and how to reach elsewhere, on both engines: a project's chat wrote to the root without it.
+        const filesNote = homeNote(this.fileHome(sessionId));
+        const extra = [formatting, conversation?.brief, roleNote, filesNote, scopeNote, asideNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
         // A guest's work is shown the room's project alone, and its tables only where sql reaches them.
@@ -3859,7 +3862,7 @@ export class Kernel {
           conversationId: opts.conversationId,
           tool,
           // With the ids named, so a step reads "#leetcode", not a snowflake.
-          summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id)),
+          summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id), { home: this.fileHome(opts.conversationId), root: this.workspace.root }),
           input,
           ...(this.inOwnersChrome(tool, opts.conversationId) ? { yours: true as const } : {}),
         });
@@ -4036,18 +4039,21 @@ export class Kernel {
     }
   }
 
-  /** Where a chat's uploads go: its project's folder, its blob's, or the root's own. */
-  private uploadsDirOf(sessionId: string): string {
+  /** The folder a conversation's files belong in, and its relative paths start from (home.ts). */
+  fileHome(conversationId: string | undefined): FileHome {
     let conversation: Conversation | undefined;
     try {
-      conversation = this.conversations.get(sessionId);
+      conversation = conversationId ? this.conversations.get(conversationId) : undefined;
     } catch {
       conversation = undefined;
     }
-    if (conversation?.projectSlug) return `projects/${conversation.projectSlug}/uploads`;
-    const record = conversation?.role ? this.roles.get(conversation.role) : undefined;
-    if (record) return `${record.folder.replace(/\/+$/, "")}/uploads`;
-    return "uploads";
+    return fileHomeOf(conversation, conversation?.role ? this.roles.get(conversation.role)?.folder : undefined);
+  }
+
+  /** Where a chat's uploads go: its project's folder, its blob's, or the root's own. */
+  private uploadsDirOf(sessionId: string): string {
+    const { folder } = this.fileHome(sessionId);
+    return folder ? `${folder}/uploads` : "uploads";
   }
 
   /**
@@ -4174,13 +4180,12 @@ export class Kernel {
    * the thread as a file, so it shows up as a card and in Files.
    */
   private placeDownload(download: BrowserDownload): void {
-    const conversation = download.conversationId ? this.conversations.get(download.conversationId) : undefined;
     try {
       const settled = settleDownload({
         workspaceRoot: this.workspace.root,
         stagingPath: download.stagingPath,
         suggestedFilename: download.suggestedFilename,
-        projectSlug: conversation?.projectSlug ?? null,
+        home: this.fileHome(download.conversationId).folder,
       });
       if (download.conversationId) {
         this.progress.emit({ kind: "note", conversationId: download.conversationId, text: `Downloaded @file:${settled.path}` });
