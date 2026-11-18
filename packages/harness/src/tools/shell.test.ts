@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -235,6 +235,52 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     const tmp = await held('echo ok > "$TMPDIR/t" && cat "$TMPDIR/t" && cat notes.txt');
     expect(tmp.stdout).toBe("ok\nmine");
     expect(readdirSync(join(root, ".kos", "tmp")).filter((n) => n.startsWith("read-"))).toEqual([]);
+  });
+
+  it("keeps a read-only run from reaching past the sandbox through the system", async () => {
+    const held = (command: string): Promise<ShellResult> =>
+      runShell(command, { workspaceRoot: root, cwd: root, timeoutMs: 10_000, maxOutput: 10_000, readOnlyRun: true });
+    const sleeper = spawn("/bin/sleep", ["30"]);
+    const domain = `kos.test.sealed.${process.pid}`;
+    try {
+      for (const command of [
+        `kill -0 ${sleeper.pid} && echo REACHED`,
+        "open -g -a Finder && echo REACHED",
+        `defaults write ${domain} a b && echo REACHED`,
+        "echo kos-sealed | pbcopy && echo REACHED",
+        "pbpaste > /dev/null && echo REACHED",
+        // An Apple Event that is really sent: an application's name is answered without one.
+        "osascript -e 'tell application \"Finder\" to activate' && echo REACHED",
+      ]) {
+        const r = await held(command);
+        expect(r.stdout, command).not.toContain("REACHED");
+      }
+      expect(sleeper.exitCode).toBeNull();
+    } finally {
+      sleeper.kill();
+      spawnSync("defaults", ["delete", domain]);
+    }
+    // What a read needs still works.
+    writeFileSync(join(root, "a.txt"), "one\ntwo\n");
+    const fine = await held("ls && cat a.txt | wc -l && date +%Y && id -un && git --version && uname -s");
+    expect(fine.exitCode, fine.stderr).toBe(0);
+    expect(fine.stdout).toContain("a.txt");
+    expect(fine.stdout).toMatch(/git version/);
+  });
+
+  it("runs no diff.external on a read-only git diff, though an approved run set one", async () => {
+    const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+    git("init", "-q");
+    writeFileSync(join(root, "a.txt"), "one\n");
+    git("add", "a.txt");
+    git("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "a");
+    writeFileSync(join(root, "a.txt"), "two\n");
+    await run({ command: `git config diff.external "sh -c 'echo EXTERNAL'"` });
+    expect(git("config", "diff.external")).toContain("EXTERNAL");
+    expect(registry.classify("shell.run", { command: "git diff" }).tier).toBe("safe");
+    const diff = await run({ command: "git diff" });
+    expect(diff.stdout).not.toContain("EXTERNAL");
+    expect(diff.stdout).toContain("+two");
   });
 
   it("lets an approved run init, clone and configure a repository", async () => {

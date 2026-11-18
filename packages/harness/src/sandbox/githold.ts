@@ -17,9 +17,9 @@ import { findProgram } from "./env.js";
  * approved with the commit.
  *
  * Not pinned: diff.external. Set empty, git tries to run "" and every
- * `git diff` fails; it cannot be unset. A read-only run is held by its
- * sandbox instead (no writes, no network), so a program it names can only
- * read; the file tools never write a repository's config (gitControlRefusal).
+ * `git diff` fails; it cannot be unset. A read-only line's `git diff` is
+ * run with --no-ext-diff instead (risk/readonly.ts readOnlyLine), and the
+ * file tools never write a repository's config (gitControlRefusal).
  */
 
 /** Settings that each name a program, pinned to one that runs nothing of the agent's. */

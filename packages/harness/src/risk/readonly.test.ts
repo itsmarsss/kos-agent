@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isReadOnlyCommand } from "./readonly.js";
+import { isReadOnlyCommand, readOnlyLine } from "./readonly.js";
 
 /**
  * The line between looking and doing, drawn as an allow-list: a command the
@@ -76,6 +76,10 @@ describe("read-only command lines", () => {
     "echo 'a $b {c}'",
     "jq -f filters/x.jq a.json",
     "git show HEAD:src/a.ts",
+    "node -v",
+    "node --version",
+    // A newline joins commands as ; does: each line is judged on its own.
+    "ls\ncat a.txt",
   ];
   for (const c of reads) {
     it(`reads: ${c}`, () => expect(isReadOnlyCommand(c, held)).toBe(true));
@@ -223,6 +227,14 @@ describe("read-only command lines", () => {
     "echo \"`id`\"",
     "ls {a,b}",
     "ls\nrm -rf x",
+    "cat a.txt\nnode x.js",
+    "ps aux",
+    "node x.js",
+    "node -v x.js",
+    "node -e 1",
+    "cat .KOS/state.json",
+    "cat MCP.json",
+    "cat Kos.Sqlite",
     "ls < *",
     // Reads a read must ask for, however named.
     "cat < .env",
@@ -248,6 +260,18 @@ describe("read-only command lines", () => {
   for (const c of acts) {
     it(`asks: ${c || "(empty)"}`, () => expect(isReadOnlyCommand(c, held)).toBe(false));
   }
+
+  it("runs git diff and git stash show with --no-ext-diff, and every other line as given", () => {
+    expect(readOnlyLine("git diff HEAD~1 -- src/", held)).toBe("git diff --no-ext-diff HEAD~1 -- src/");
+    expect(readOnlyLine("git diff", held)).toBe("git diff --no-ext-diff");
+    expect(readOnlyLine("git -C projects/x diff|head && git --no-pager diff --stat", held)).toBe(
+      "git -C projects/x diff --no-ext-diff|head && git --no-pager diff --no-ext-diff --stat",
+    );
+    expect(readOnlyLine("git stash show -p", held)).toBe("git stash show --no-ext-diff -p");
+    expect(readOnlyLine("git log -p -3", held)).toBe("git log -p -3");
+    expect(readOnlyLine("cat diff", held)).toBe("cat diff");
+    expect(readOnlyLine("git diff --ext-diff", held)).toBeUndefined();
+  });
 
   it("asks for every git line where git cannot be held", () => {
     for (const c of ["git status", "git log -3", "ls && git diff"]) expect(isReadOnlyCommand(c), c).toBe(false);

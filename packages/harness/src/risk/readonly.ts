@@ -25,7 +25,7 @@ const PLAIN = new Set([
   "whoami", "id", "uname", "hostname", "which", "type", "stat", "du", "df", "nl",
   "column", "cut", "tr", "paste", "fold", "fmt", "basename", "dirname", "realpath",
   "readlink", "md5", "md5sum", "shasum", "sha1sum", "sha256sum", "cksum", "jq",
-  "printenv", "ps", "uptime", "sw_vers", "arch", "grep", "egrep", "fgrep", "diff",
+  "printenv", "uptime", "sw_vers", "arch", "grep", "egrep", "fgrep", "diff",
   "cmp", "comm", "strings", "od", "hexdump", "tac", "rev", "expand",
   "unexpand", "seq", "expr", "test", "[", "cd", "tput", "locale", "nproc", "getconf",
 ]);
@@ -167,7 +167,7 @@ const PACKAGE_READS = new Set(["ls", "list", "-v", "--version", "why", "root", "
  * and anything hidden, where a server keeps its tokens. Reading them is
  * exactly what the approval is for, so a line that names one asks.
  */
-const PROTECTED = /(^|\/)(\.[^/]+|kos\.sqlite(-shm|-wal)?|profile\.json|mcp\.json|daemon\.json|locks)(\/|$)/;
+const PROTECTED = /(^|\/)(\.[^/]+|kos\.sqlite(-shm|-wal)?|profile\.json|mcp\.json|daemon\.json|locks)(\/|$)/i;
 
 function namesProtected(arg: string): boolean {
   return PROTECTED.test(arg.replace(/^\.\//, ""));
@@ -194,6 +194,8 @@ interface Word {
   text: string;
   /** Holds an unquoted < or >: a redirection, not an argument. */
   redirect: boolean;
+  /** Where the word ends in the line, so an option can be put after it. */
+  end: number;
 }
 
 type Token = { kind: "word"; word: Word } | { kind: "join" };
@@ -205,7 +207,8 @@ type Token = { kind: "word"; word: Word } | { kind: "join" };
  * substitution, braces, a glob that could expand to an option (one at the
  * head of a word, or in a word that is an option), a subshell, a
  * background job, an open quote. `src/*` stays, since what it finds starts
- * with `src/`; `*` and `*.ts` do not.
+ * with `src/`; `*` and `*.ts` do not. A newline joins commands as `;`
+ * does, as sh reads it.
  */
 function tokens(command: string): Token[] | undefined {
   const out: Token[] = [];
@@ -216,10 +219,10 @@ function tokens(command: string): Token[] | undefined {
   let globHead = false;
   let quote: string | null = null;
   let bad = false;
-  const flush = (): void => {
+  const flush = (end: number): void => {
     if (globHead && text !== "[") bad = true;
     if (glob && text.startsWith("-")) bad = true;
-    if (have) out.push({ kind: "word", word: { text, redirect } });
+    if (have) out.push({ kind: "word", word: { text, redirect, end } });
     text = "";
     redirect = false;
     have = false;
@@ -255,19 +258,19 @@ function tokens(command: string): Token[] | undefined {
       continue;
     }
     if (ch === "|" || ch === ";" || ch === "\n") {
-      flush();
+      flush(i);
       out.push({ kind: "join" });
       if (ch === "|" && next === "|") i++;
       continue;
     }
     if (/\s/.test(ch)) {
-      flush();
+      flush(i);
       continue;
     }
     if (ch === "`" || ch === "(" || ch === ")" || ch === "$" || ch === "{" || ch === "}") return undefined;
     if (ch === "&") {
       if (next === "&") {
-        flush();
+        flush(i);
         out.push({ kind: "join" });
         i++;
         continue;
@@ -289,17 +292,17 @@ function tokens(command: string): Token[] | undefined {
     have = true;
   }
   if (quote) return undefined;
-  flush();
+  flush(command.length);
   return bad ? undefined : out;
 }
 
 /** The arguments of one command, with its redirections checked and set aside; nothing when one writes. */
-function arguments_(words: Word[]): string[] | undefined {
-  const args: string[] = [];
+function arguments_(words: Word[]): Word[] | undefined {
+  const args: Word[] = [];
   for (let i = 0; i < words.length; i++) {
     const w = words[i]!;
     if (!w.redirect) {
-      args.push(w.text);
+      args.push(w);
       continue;
     }
     // Reading from a file is fine, unless it is one a read must ask for; the file is the next word when not attached.
@@ -326,6 +329,13 @@ function arguments_(words: Word[]): string[] | undefined {
   return args;
 }
 
+/** Where git's subcommand is among its arguments: after the leading options that pick where to look. */
+function gitSubcommand(args: string[]): number {
+  let i = 0;
+  while (i < args.length && (args[i] === "--no-pager" || args[i] === "-C" || args[i] === "-P")) i += args[i] === "-C" ? 2 : 1;
+  return i;
+}
+
 function readsOnly(program: string, args: string[]): boolean {
   if (PLAIN.has(program)) return true;
   const guarded = GUARDED[program];
@@ -342,9 +352,7 @@ function readsOnly(program: string, args: string[]): boolean {
     case "find":
       return !args.some((a) => FIND_ACTS.has(a));
     case "git": {
-      // Leading options that pick where to look, then the subcommand.
-      let i = 0;
-      while (i < args.length && (args[i] === "--no-pager" || args[i] === "-C" || args[i] === "-P")) i += args[i] === "-C" ? 2 : 1;
+      const i = gitSubcommand(args);
       const sub = args[i];
       if (!sub) return false;
       const rule = GIT_READS[sub];
@@ -352,6 +360,9 @@ function readsOnly(program: string, args: string[]): boolean {
     }
     case "npm":
       return args.length > 0 && PACKAGE_READS.has(args[0]!);
+    // Its version and nothing else: any other word is a script it runs.
+    case "node":
+      return args.length === 1 && (args[0] === "-v" || args[0] === "--version");
     case "sed":
       return sedReadsOnly(args);
     default:
@@ -397,26 +408,48 @@ export interface ReadOnlyOptions {
   gitHeld?: boolean;
 }
 
-/** True when every command on the line is a known read-only program used read-only. */
-export function isReadOnlyCommand(command: string, options: ReadOnlyOptions = {}): boolean {
+/**
+ * The line to run for a command line that only reads, or nothing when it
+ * may do more. Every command on it must be a known read-only program used
+ * read-only; a newline joins commands as `;` does, so each line is judged
+ * on its own. The line run is the line judged, but for `git diff` and
+ * `git stash show`, which run diff.external (a program the repository's
+ * config names) unless told not to: they are told, with --no-ext-diff.
+ */
+export function readOnlyLine(command: string, options: ReadOnlyOptions = {}): string | undefined {
   const toks = tokens(command);
-  if (!toks) return false;
+  if (!toks) return undefined;
   const commands: Word[][] = [[]];
   for (const t of toks) {
     if (t.kind === "join") commands.push([]);
     else commands[commands.length - 1]!.push(t.word);
   }
-  if (commands.some((c) => c.length === 0)) return false;
+  if (commands.some((c) => c.length === 0)) return undefined;
+  const inserts: number[] = [];
   for (const words of commands) {
-    const args = arguments_(words);
-    if (!args || args.length === 0) return false;
+    const argWords = arguments_(words);
+    if (!argWords || argWords.length === 0) return undefined;
+    const args = argWords.map((w) => w.text);
     const first = args[0]!;
-    if (first.includes("=") || words[0]!.redirect) return false;
+    if (first.includes("=") || words[0]!.redirect) return undefined;
     // A program named by a path is whatever was put there, not the reader of that name.
-    if (first.includes("/")) return false;
-    if (first === "git" && !options.gitHeld) return false;
-    if (pathArgs(first, args.slice(1)).some(namesProtected)) return false;
-    if (!readsOnly(first, args.slice(1))) return false;
+    if (first.includes("/")) return undefined;
+    if (first === "git" && !options.gitHeld) return undefined;
+    if (pathArgs(first, args.slice(1)).some(namesProtected)) return undefined;
+    if (!readsOnly(first, args.slice(1))) return undefined;
+    if (first === "git") {
+      const at = gitSubcommand(args.slice(1)) + 1;
+      const sub = args[at];
+      const diffs = sub === "diff" ? at : sub === "stash" && args[at + 1] === "show" ? at + 1 : -1;
+      if (diffs >= 0) inserts.push(argWords[diffs]!.end);
+    }
   }
-  return true;
+  let line = command;
+  for (const at of inserts.reverse()) line = `${line.slice(0, at)} --no-ext-diff${line.slice(at)}`;
+  return line;
+}
+
+/** True when every command on the line is a known read-only program used read-only. */
+export function isReadOnlyCommand(command: string, options: ReadOnlyOptions = {}): boolean {
+  return readOnlyLine(command, options) !== undefined;
 }
