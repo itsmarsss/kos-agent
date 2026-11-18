@@ -25,6 +25,13 @@ export interface SecretSlots {
   admit: (name: string, input: Record<string, unknown>, secrets: SecretsRegistry) => string | undefined;
 }
 
+/** Who a call is for, as a vault secret's policy judges it. Absent is no turn at all (a server's start): unattended. */
+export interface SecretCaller {
+  conversationId?: string | null;
+  attended: boolean;
+  guest: boolean;
+}
+
 /** The arguments with every reference expanded, or why the call is refused. */
 export type Placed = { input: Record<string, unknown> } | { refused: string };
 
@@ -65,7 +72,7 @@ function inQuery(url: string): boolean {
  * goes; otherwise why the call is refused. Run at the moment of the call,
  * after the model has finished reasoning, so it only ever saw the reference.
  */
-export function placeSecrets(tool: string, input: Record<string, unknown>, slots: SecretSlots | undefined, secrets: SecretsRegistry): Placed {
+export function placeSecrets(tool: string, input: Record<string, unknown>, slots: SecretSlots | undefined, secrets: SecretsRegistry, who?: SecretCaller): Placed {
   if (!hasSecretRef(input)) return { input };
   let refused: string | undefined;
   const refuse = (why: string): string => {
@@ -89,7 +96,7 @@ export function placeSecrets(tool: string, input: Record<string, unknown>, slots
       if (secret === undefined) return refuse(`There is no secret named ${name}.`);
       // Too short to be found again if it came back: the scrubber would let it through.
       if (secret.length < MIN_SCANNED) return refuse(`Secret ${name} is shorter than ${MIN_SCANNED} characters, too short to keep out of what comes back, so it is not used.`);
-      const barred = slots.admit(name, input, secrets);
+      const barred = secrets.policyRefusal(name, who) ?? slots.admit(name, input, secrets);
       if (barred) return refuse(barred);
       return url ? encodeURIComponent(secret) : secret;
     });

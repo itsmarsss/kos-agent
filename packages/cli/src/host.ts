@@ -35,6 +35,7 @@ import {
   createDashboardSocket,
   handleApiRequest,
   isContained,
+  secretAskElsewhere,
   SecretsRegistry,
   secretsRoutes,
   Vault,
@@ -761,8 +762,15 @@ export async function runHost(options: HostOptions): Promise<void> {
     // Every surface the owner is on, and a device panel when its chat is the one asking.
     onApprovalRequested: (action) => {
       const request = approvalRequest(action);
-      if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
-      if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
+      // A secret's use is decided on the dashboard or a paired device: the chat surfaces are told, not asked.
+      if (hasSecretRef(JSON.parse(action.args))) {
+        const notice = { text: secretAskElsewhere(action.id) };
+        if (adapter && creds) void adapter.send(creds.ownerId, notice).catch(() => undefined);
+        if (smsAdapter && sms) void smsAdapter.send(sms.owner, notice).catch(() => undefined);
+      } else {
+        if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
+        if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
+      }
       void computer.panel.requestApproval("owner", request);
       void computer.mac.requestApproval("owner", request);
       void computer.phone.requestApproval("owner", request);

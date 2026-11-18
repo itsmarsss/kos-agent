@@ -1,8 +1,15 @@
+import { hasSecretRef } from "@kos/shared";
+
 import { agentConversationId } from "../agents/roles.js";
 import { ChannelRuntime } from "../channels/runtime.js";
 import type { ChannelAdapter } from "../channels/types.js";
 import type { UserMapping } from "../channels/identity.js";
 import type { Kernel } from "./kernel.js";
+
+/** Said on Discord, SMS or iMessage for an ask that places a secret, in place of its buttons. */
+export function secretAskElsewhere(id: number | string): string {
+  return `KOS asks to use a secret (#${id}). Decide on the dashboard or a paired device; a secret's use is never decided here.`;
+}
 
 /** What leads an answer a chat in Auto gave on Discord, SMS or iMessage, where no mode chip shows. */
 export const AUTO_MARK = "(Auto)";
@@ -137,6 +144,11 @@ export function connectChannel(
       const action = kernel.approvals.get(id);
       // Settled already: said as it went, and where, not decided again.
       if (action && action.status !== "pending") return { outcome: action.status, already: true, ...(decidedHere.has(id) ? { here: true } : {}) };
+      // A call that places a secret is decided where the owner is proved, never on a chat surface anyone could be typing into.
+      if (action && hasSecretRef(JSON.parse(action.args))) {
+        await adapter.send(options.ownerRecipientId, { text: secretAskElsewhere(id) });
+        return;
+      }
       const chat = action?.conversationId;
       const mirrored = chat ? options.answeredElsewhere?.(chat) === true : false;
       // Recorded before the first await inside: read back at once, below.

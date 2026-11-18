@@ -2,6 +2,7 @@ import { SECRET_FIELDS, type SecretFieldName } from "@kos/shared";
 
 import { MIN_SCANNED, Scrubber, type Watched } from "./scrub.js";
 import { SHAPE_REACH, scrubShapes } from "./shapes.js";
+import type { SecretCaller } from "./inject.js";
 import type { Vault } from "./vault.js";
 
 /**
@@ -124,6 +125,21 @@ export class SecretsRegistry {
 
   get(name: string): string | undefined {
     return this.map.get(name) ?? this.fromVault(name);
+  }
+
+  /**
+   * Why a vault secret may not be used for this caller, if it may not:
+   * never by a guest, in an unattended turn only when its policy says so,
+   * and only in the chats its policy names. Env secrets have no policy.
+   */
+  policyRefusal(name: string, who: SecretCaller | undefined): string | undefined {
+    const ref = this.map.has(name) ? undefined : this.vaultRef(name);
+    const policy = ref ? this.vault!.get(ref.handle)?.policy : undefined;
+    if (!policy) return undefined;
+    if (who?.guest) return `Secret ${name} is the owner's; a guest's turn never uses one.`;
+    if (!who?.attended && !policy.unattended) return `Secret ${name} needs the owner present: its policy keeps it from unattended turns.`;
+    if (policy.chats && !(who?.conversationId && policy.chats.includes(who.conversationId))) return `Secret ${name} is not allowed in this chat.`;
+    return undefined;
   }
 
   /** Whether `name` is a vault entry's handle (or one of its fields) rather than an env name. */

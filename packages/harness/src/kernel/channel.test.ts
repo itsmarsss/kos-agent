@@ -9,7 +9,7 @@ import { InMemoryAdapter } from "../channels/memory.js";
 import type { ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import type { ChannelRuntime } from "../channels/runtime.js";
-import { AUTO_MARK, connectChannel } from "./channel.js";
+import { AUTO_MARK, connectChannel, secretAskElsewhere } from "./channel.js";
 import { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 
@@ -171,6 +171,16 @@ describe("connectChannel", () => {
     // owner approves -> action resolves
     await adapter.decide({ id: pendingId, approved: true, deciderId: "owner" });
     expect(kernel.approvals.pending()).toHaveLength(0);
+  });
+
+  it("never decides an ask that places a secret, and says where to decide it", async () => {
+    await boot(stub([]));
+    const action = kernel.approvals.enqueue({ tool: "http.fetch", args: { url: "https://api.stripe.com/v1", headers: { authorization: "Bearer {{secret:stripe-ab12}}" } }, riskTier: "risky" });
+    const before = adapter.sent.length;
+    await adapter.decide({ id: String(action.id), approved: true, deciderId: "owner" });
+    expect(kernel.approvals.get(action.id)?.status).toBe("pending");
+    expect(adapter.sent.slice(before).map((m) => m.msg.text)).toEqual([secretAskElsewhere(action.id)]);
+    expect(secretAskElsewhere(action.id)).toMatch(/dashboard or a paired device/);
   });
 
   it("does not restate a decision the surface already showed", async () => {

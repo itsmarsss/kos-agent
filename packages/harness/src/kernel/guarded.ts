@@ -416,11 +416,13 @@ export class GuardedTools implements ToolBox {
     // scheduled run started (a dispatch, a handoff) must not inherit its job.
     const job = this.deps.scheduled;
     const guest = this.deps.guest;
+    // Who a vault secret's policy judges this call for.
+    const who = { conversationId: conversationId ?? null, attended, guest: guest !== undefined };
     const within = <T>(work: () => Promise<T>): Promise<T> =>
       scheduled.run(job, () => guested.run(guest, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))))));
     const run = async (n: string, i: Record<string, unknown>, site?: string): Promise<ToolExecution> => {
       // Placed at the last moment, so a key changed while the owner was asked is the one sent.
-      const placed = placeSecrets(n, i, registry.secretSlots(n), secrets);
+      const placed = placeSecrets(n, i, registry.secretSlots(n), secrets, who);
       if ("refused" in placed) return { content: placed.refused, isError: true };
       started.ran = true;
       const ended = this.deps.running?.(n);
@@ -457,7 +459,7 @@ export class GuardedTools implements ToolBox {
     const input = registry.stamp(name, called);
 
     // A secret where its tool declared no slot for one, or bound for another host: refused before anyone is asked.
-    const misplaced = placeSecrets(name, input, registry.secretSlots(name), secrets);
+    const misplaced = placeSecrets(name, input, registry.secretSlots(name), secrets, who);
     if ("refused" in misplaced) return { content: misplaced.refused, isError: true };
 
     /*

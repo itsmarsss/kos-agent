@@ -149,7 +149,7 @@ export class Decisions {
 
     const result = await d.queue.enqueue(async () => {
       // Secrets only in the slots the tool declared, as GuardedTools places them.
-      const placed = placeSecrets(action.tool, stored, d.registry.secretSlots(action.tool), d.secrets);
+      const placed = placeSecrets(action.tool, stored, d.registry.secretSlots(action.tool), d.secrets, { conversationId: action.conversationId, attended: action.attended, guest: action.guest !== null && action.guest !== undefined });
       // Run as the turn that asked would have: the owner's reach only if it was the owner's own turn, a guest's room's if a guest's.
       const ran = "refused" in placed
         ? { content: placed.refused, isError: true }

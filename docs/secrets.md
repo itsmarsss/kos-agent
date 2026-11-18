@@ -60,7 +60,13 @@ Record, sealed whole (metadata included):
   approval and taken back only by the owner. A grant on an origin no longer in
   `use.web.origins` is dropped.
 - `policy.unattended` (default false) and `policy.chats` (null is any of the
-  owner's chats) are kept for the fill tools; guests never get a secret.
+  owner's chats) are enforced wherever a vault secret is placed: a guest's
+  turn never gets one, an unattended turn (a schedule, a dispatch, a timer)
+  only with `unattended`, and only in the chats `chats` names. Env secrets
+  have no policy.
+- An ask that places a secret is never decided on Discord, SMS or iMessage:
+  those surfaces are told "decide on the dashboard or a paired device", and a
+  press there decides nothing.
 - The hint never holds enough of a value to matter: a card's last four, a
   key's last four when it is longer than twelve, eight dots for a login.
 
@@ -261,8 +267,9 @@ refused or not, is audited as `secrets.unlock`.
 
 A reveal asks again who it is: the passphrase when the vault has one, else
 the secret's label typed exactly. The typed label only guards against a
-misclick: anyone who can call the API can read the label from the list, so a
-vault whose secrets need more than that should have a passphrase. Five reveals in ten minutes at most,
+misclick: anyone who can call the API can read the label from the list, so
+a vault whose secrets need more than that should have a passphrase. Five
+reveals in ten minutes at most,
 refused ones counted; each is audited as `secrets.reveal` with the handle and
 field, never the value. Adds and edits are audited as `secrets.write` (field
 names only), deletes as `secrets.delete`, and `secrets.init`,
