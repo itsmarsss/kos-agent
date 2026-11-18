@@ -23,6 +23,8 @@ export function ListPage<T>(props: {
   onRowClick: (row: T) => void;
   empty?: string;
   filters?: React.ReactNode;
+  /** The page's tabs, under its head (`PageTabs`). */
+  tabs?: React.ReactNode;
   toolbar?: React.ReactNode;
   /**
    * Break the rows into labelled runs, in the order they already appear.
@@ -97,6 +99,7 @@ export function ListPage<T>(props: {
           />
         }
         {...(props.toolbar ? { actions: props.toolbar } : {})}
+        {...(props.tabs ? { tabs: props.tabs } : {})}
       />
       {props.filters && <div className="list-filters">{props.filters}</div>}
       <div className="list-meta ops-muted">

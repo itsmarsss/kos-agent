@@ -131,6 +131,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       // Made on first activation, when the store exists; kept across a switch
       // off and on so the devices' connections are the only thing that resets.
       store ??= new DeviceStore(requireServices(ctx).db);
+      const { secrets } = requireServices(ctx);
       // A secret that will not read stops only KOS rebuilding the Mac on its own, never computer use.
       if (options.localKeyPath && !localKey && !localProblem) {
         try {
@@ -151,6 +152,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           face: options.face,
           theme: options.theme,
           ...(localKey ? { localKey } : {}),
+          scrub: (text) => secrets.scrub(text),
         });
       }
       const devices = hub;

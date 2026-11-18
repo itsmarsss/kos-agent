@@ -22,7 +22,7 @@ import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
 import { AnimatePresence, m } from "motion/react";
 
-import { chatShown, hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
+import { chatShown, frameOf, hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
 import { CronEditor } from "./CronEditor.js";
 import { describeCron } from "./schedule.js";
@@ -667,8 +667,6 @@ export function App(): React.ReactElement {
     await refresh();
   };
   /** The thread the quick question is asked beside, if one is open. */
-  /** An agent's own page is a chat page too: it owns the window like the others. */
-  const agentPage = route.name === "blobs" && route.blob !== undefined && route.blob !== "new";
   const askContext = chatShown(route);
 
   const shell = (body: React.ReactNode): React.ReactElement => (
@@ -778,7 +776,7 @@ export function App(): React.ReactElement {
         <AnimatePresence mode="wait" initial={false}>
           <m.div
             key={pageKeyOf(route)}
-            className={`ops-page ${route.name === "chats" || route.name === "project" || route.name === "files" || agentPage ? `ops-page--full${route.name === "files" ? " ops-page--files" : ""}` : route.name === "settings" ? "ops-page--split" : ""}`}
+            className={`ops-page ops-page--${frameOf(route)}${route.name === "files" ? " ops-page--files" : route.name === "settings" ? " ops-page--split" : ""}`}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
@@ -1052,13 +1050,11 @@ export function App(): React.ReactElement {
 
   if (route.name === "builds") {
     return shell(
-      <RunsTabs current="builds">
-        <BuildsPage
-          deciding={deciding}
-          onDecide={(id, approved, remember) => void decide(id, approved, remember)}
-          {...(route.id !== undefined ? { openId: route.id } : {})}
-        />
-      </RunsTabs>,
+      <BuildsPage
+        deciding={deciding}
+        onDecide={(id, approved, remember) => void decide(id, approved, remember)}
+        {...(route.id !== undefined ? { openId: route.id } : {})}
+      />,
     );
   }
 
@@ -1141,16 +1137,14 @@ export function App(): React.ReactElement {
 
   if (route.name === "history") {
     return shell(
-      <RunsTabs current="history">
-        <HistoryPage
-          tools={activity}
-          runs={runs}
-          crons={crons}
-          onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
-          onOpenRun={(r) => setInspect({ kind: "run", data: r })}
-          onFix={(row) => void startFix(row)}
-        />
-      </RunsTabs>,
+      <HistoryPage
+        tools={activity}
+        runs={runs}
+        crons={crons}
+        onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
+        onOpenRun={(r) => setInspect({ kind: "run", data: r })}
+        onFix={(row) => void startFix(row)}
+      />,
     );
   }
 
@@ -1179,9 +1173,9 @@ export function App(): React.ReactElement {
       })
       .sort((a, b) => rank(a).localeCompare(rank(b)));
     return shell(
-      <RunsTabs current="crons">
       <ListPage
         title="Schedule"
+        tabs={<RunsTabs current="crons" />}
         subtitle="Jobs KOS runs on its own. Click a row to edit it."
         rows={rows}
         rowKey={(c) => c.id}
@@ -1208,7 +1202,7 @@ export function App(): React.ReactElement {
           </button>
         }
         filters={
-          <Chips options={(["all", "on", "off"] as const).map((f) => [f, f] as const)} selected={cronFilter} onChoose={setCronFilter} />
+          <Chips options={([["all", "All"], ["on", "On"], ["off", "Off"]] as const)} selected={cronFilter} onChoose={setCronFilter} />
         }
         columns={[
           {
@@ -1318,8 +1312,7 @@ export function App(): React.ReactElement {
             ),
           },
         ]}
-      />
-      </RunsTabs>,
+      />,
     );
   }
 

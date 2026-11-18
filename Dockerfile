@@ -30,8 +30,8 @@ RUN corepack enable \
   && apt-get install -y --no-install-recommends ripgrep tini \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --system --create-home --uid 10001 kos \
-  && mkdir -p /workspace \
-  && chown -R kos:kos /workspace
+  && mkdir -p /workspace /home/kos/.kos \
+  && chown -R kos:kos /workspace /home/kos/.kos
 
 COPY --from=build /src /app
 # Drop build tooling weight is left for simplicity; image is still self-contained.

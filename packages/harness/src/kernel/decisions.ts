@@ -72,6 +72,26 @@ export interface DecisionsDeps {
   handleMessage: (text: string, opts: { sessionId: string; userId: string; origin: "system" }) => Promise<{ reply: string }>;
 }
 
+/**
+ * The surfaces a secret's use may be approved from: the dashboard and the
+ * paired devices' own windows, and the CLI on the owner's machine. A typed
+ * /approve on Discord, SMS or iMessage is refused, as is any surface not
+ * listed.
+ */
+export const DECIDING_SURFACES: ReadonlySet<string> = new Set(["dashboard", "chrome", "mac", "phone", "cli"]);
+
+/**
+ * Where a decision is taken. Required on every approval, so a caller that
+ * forgets to say is a type error, not a pass; any surface outside
+ * DECIDING_SURFACES (a chat channel, one added later) is refused a secret's ask.
+ */
+export type DecisionSurface = "dashboard" | "chrome" | "mac" | "phone" | "cli" | "discord" | "sms" | "imessage" | (string & Record<never, never>);
+
+/** Said on a chat surface for an ask that places a secret, in place of its buttons or a typed decision. */
+export function secretAskElsewhere(id: number | string): string {
+  return `KOS asks to use a secret (#${id}). Decide on the dashboard or a paired device; a secret's use is never decided here.`;
+}
+
 export class Decisions {
   constructor(private readonly deps: DecisionsDeps) {}
 
@@ -118,10 +138,14 @@ export class Decisions {
     return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
   }
 
-  async approve(id: number, decidedBy?: string, options: { remember?: boolean } = {}): Promise<DecisionResult> {
+  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface }): Promise<DecisionResult> {
     const d = this.deps;
     const action = d.approvals.get(id);
     if (!action || action.status !== "pending") return { ok: false, message: `no pending action #${id}` };
+    // A call that places a secret is approved only where the owner is proved: the dashboard or a paired device, never a chat surface.
+    if (!DECIDING_SURFACES.has(options.surface) && hasSecretRef(JSON.parse(action.args))) {
+      return { ok: false, message: secretAskElsewhere(id) };
+    }
     const awaited = d.approvals.isAwaited(id);
     d.approvals.approve(id, decidedBy ?? d.ownerId);
 
@@ -149,7 +173,7 @@ export class Decisions {
 
     const result = await d.queue.enqueue(async () => {
       // Secrets only in the slots the tool declared, as GuardedTools places them.
-      const placed = placeSecrets(action.tool, stored, d.registry.secretSlots(action.tool), d.secrets);
+      const placed = placeSecrets(action.tool, stored, d.registry.secretSlots(action.tool), d.secrets, { conversationId: action.conversationId, attended: action.attended, guest: action.guest !== null && action.guest !== undefined });
       // Run as the turn that asked would have: the owner's reach only if it was the owner's own turn, a guest's room's if a guest's.
       const ran = "refused" in placed
         ? { content: placed.refused, isError: true }

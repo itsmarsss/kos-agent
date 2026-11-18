@@ -1812,7 +1812,8 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/approve") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
-    return ok(await kernel.approve(id, undefined, { remember: body.remember === true }));
+    // Asked of the dashboard's handler: the dashboard, the CLI through the API, or the phone's relay, which decides its own asks through chat.decide.
+    return ok(await kernel.approve(id, undefined, { remember: body.remember === true, surface: "dashboard" }));
   }
 
   if (method === "POST" && path === "/api/deny") {

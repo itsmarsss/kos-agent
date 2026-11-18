@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { HomeLayout, HomePanel, PanelKind } from "@kos/shared";
 
 import { AnimatePresence, m } from "motion/react";
-import { ease } from "@kos/kit";
+import { ease, Empty } from "@kos/kit";
 
 import { api, type FailingJob, type HomeData } from "./api.js";
 import { HomeGrid } from "./HomeGrid.js";
 import { Panel } from "./HomePanels.js";
+import { PageHead } from "./PageHead.js";
 
 /**
  * The first thing you see, arranged by you.
@@ -159,19 +160,19 @@ export function HomePage({
 
   return (
     <div className="home">
-      <header className="home-bar">
-        <h1>Overview</h1>
-        <span className="home-bar-hint">
-          {editing ? "Drag a panel to move it, its edge to resize it." : "Drag a panel by its title to move it."}
-        </span>
-        <button
-          type="button"
-          className={`btn ${editing ? "btn--primary" : ""}`}
-          onClick={() => setEditing((v) => !v)}
-        >
-          {editing ? "Done" : "Arrange"}
-        </button>
-      </header>
+      <PageHead
+        title="Overview"
+        subtitle={editing ? "Drag a panel to move it, its edge to resize it." : "Drag a panel by its title to move it."}
+        actions={
+          <button
+            type="button"
+            className={`btn ${editing ? "btn--primary" : ""}`}
+            onClick={() => setEditing((v) => !v)}
+          >
+            {editing ? "Done" : "Arrange"}
+          </button>
+        }
+      />
 
       {error && (
         <p className="ops-alert ops-alert--err" role="alert">
@@ -180,9 +181,9 @@ export function HomePage({
       )}
 
       {layout.panels.length === 0 && (
-        <p className="hint">
-          Nothing on your home page. Press Arrange to put something on it.
-        </p>
+        <Empty title="Nothing here">
+          Press Arrange to put something on your home page.
+        </Empty>
       )}
 
       <HomeGrid

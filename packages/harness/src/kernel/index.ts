@@ -15,7 +15,7 @@ export {
   type HandleResult,
   type KernelOptions,
 } from "./kernel.js";
-export { connectChannel, type ConnectChannelOptions } from "./channel.js";
+export { connectChannel, secretAskElsewhere, type ConnectChannelOptions } from "./channel.js";
 export { conversationEvents, type ChatEvent } from "./transcript.js";
 export { SOCKET_PATH, createDashboardSocket, type DashboardSocket, type DashboardSocketOptions } from "./socket.js";
 export { readWriteKey, saveWriteKey, writeKeyPath } from "./writekey.js";

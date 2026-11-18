@@ -62,6 +62,9 @@ const ROUTES: readonly Route[] = [
   read("/api/memory/trace", ["key"]),
   read("/api/runs", ["limit", "failed"]),
   read("/api/crons"),
+  // What the owner keeps, never a value: a reveal or a change is the dashboard's, behind its step-up.
+  read("/api/secrets"),
+  read("/api/secrets/<secret>/uses", ["limit"]),
   action("/api/approve", { id: "integer", remember: "boolean?" }, "approve"),
   action("/api/deny", { id: "integer" }, "deny"),
   // A run can take minutes, longer than a phone waits: it is answered once it fires, or why it did not.
@@ -87,6 +90,8 @@ const SEGMENTS: Record<string, (s: string) => boolean> = {
   "<slug>": isValidIdentifier,
   "<artifact>": (s) => ARTIFACT_ID_RE.test(s),
   "<conversation>": (s) => /^[A-Za-z0-9][A-Za-z0-9_.:@+-]*$/.test(s),
+  // A vault handle (label slug, dash, four characters) or a KOS_SECRET_* name, lowercased.
+  "<secret>": (s) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(s),
 };
 
 const REFUSED = {

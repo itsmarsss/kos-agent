@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
+import { realOf, vaultDir } from "../secrets/vault.js";
+
 /**
  * How a shell command is kept inside the workspace.
  *
@@ -76,9 +78,15 @@ export function kosPorts(env: NodeJS.ProcessEnv = process.env): number[] {
   return [...new Set([api, api + 1, portIn(env.KOS_DEVICE_LAN_PORT, api + 2), portIn(env.KOS_BROWSER_PORT, 9225)])];
 }
 
-/** Files no jailed program may read wherever they are: this boot's write key, and KOS's keys under ~/.kos. */
+/**
+ * Files no jailed program may read wherever they are: this boot's write key,
+ * KOS's keys under ~/.kos, and the secrets vault's folder (with its key and
+ * scrub index) and sequence record wherever KOS_VAULT_DIR puts them.
+ */
 export function kosSecretFiles(env: NodeJS.ProcessEnv = process.env): string[] {
-  return [env.KOS_WRITE_KEY_FILE?.trim(), resolve(homedir(), ".kos")].filter((p): p is string => !!p);
+  // Real, so a vault folder reached through a link is denied where it really is.
+  const vault = realOf(vaultDir(env));
+  return [...new Set([env.KOS_WRITE_KEY_FILE?.trim(), resolve(homedir(), ".kos"), vault, `${vault}.seq`].filter((p): p is string => !!p))];
 }
 
 export interface JailedCommand {

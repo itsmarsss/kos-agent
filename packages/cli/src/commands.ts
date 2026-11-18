@@ -44,6 +44,7 @@ const HELP = `kos commands:
   approvals | approve | deny | halt | resume
   crons | snapshot | clear | memory | pages
   doctor               preflight checks
+  secrets <init|status|unlock|list|add|rm|rotate|export|wipe>  the encrypted vault (kos secrets help)
   eval memory [--agent] | dream | observe  score a memory job on its golden set; --agent runs kos.memory itself
   memory-mcp --token <caller token>  KOS memory as an MCP server for another agent, within that caller's grant
   serve                alias: host in foreground (API; Discord optional)
@@ -114,7 +115,7 @@ export async function runCommand(
     case "approve": {
       const id = Number(rest[0]);
       if (!Number.isInteger(id)) return "usage: approve <id>";
-      const res = await kernel.approve(id);
+      const res = await kernel.approve(id, undefined, { surface: "cli" });
       return res.reply ?? res.message;
     }
 

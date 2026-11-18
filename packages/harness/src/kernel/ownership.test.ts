@@ -96,7 +96,7 @@ describe("who a turn is, by where it came from", () => {
     const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" });
     const orphan = kernel.approvals.enqueue({ tool: "files.ls", args: { path: "." }, riskTier: "risky", conversationId: chat.id, owner: true, attended: true });
     expect(kernel.approvals.isAwaited(orphan.id)).toBe(false);
-    const decided = await kernel.approve(orphan.id);
+    const decided = await kernel.approve(orphan.id, undefined, { surface: "dashboard" });
     expect(decided).toMatchObject({ ok: true, isError: false, reply: "ok" });
     expect(await settle(chat.id)).toEqual(neither);
 
@@ -231,7 +231,7 @@ describe("a blob's artifact, from a chat at the root", () => {
     first.close();
     kernels.splice(0);
     const after = await boot();
-    const res = await after.approve(asked.id);
+    const res = await after.approve(asked.id, undefined, { surface: "dashboard" });
     // Past the fence, as the owner's own: what stops it is that files.* takes no artifact away, which is the trash's to do.
     expect(res).toMatchObject({ ok: true, isError: true });
     expect(res.message).toMatch(/is part of the artifact notes, which files.\* does not take away/);
@@ -246,7 +246,7 @@ describe("a blob's artifact, from a chat at the root", () => {
     await vi.waitFor(() => expect(kernel.busyConversations()).not.toContain(guest.conversationId));
     // As the guarded toolbox queues it for a guest's turn: neither the owner's nor attended.
     const asked = kernel.approvals.enqueue({ tool: "files.rm", args: { path: NOTE }, riskTier: "risky", conversationId: guest.conversationId, owner: false, attended: false });
-    const res = await kernel.approve(asked.id);
+    const res = await kernel.approve(asked.id, undefined, { surface: "dashboard" });
     expect(res).toMatchObject({ ok: true, isError: true });
     expect(res.message).toMatch(/blob noter's artifacts are not this chat's to change/);
     expect(existsSync(join(root, NOTE))).toBe(true);

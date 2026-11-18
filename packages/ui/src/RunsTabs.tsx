@@ -1,14 +1,16 @@
-import type { ReactElement, ReactNode } from "react";
+import type { ReactElement } from "react";
 
+import { PageTabs } from "./PageHead.js";
 import { hrefFor, type Route } from "./routes.js";
 
 /**
- * Agents, Schedule and History under one heading.
+ * History, Schedule and Builds under one heading.
  *
  * All three are what KOS does on its own: sub-agents it ran, jobs it will
  * run, and the record of what happened. None is a daily visit, and each
  * took a slot in a nav that had run out of them. They keep their own routes
- * and pages; this is the strip that says they are siblings.
+ * and pages; these are the tabs, in each page's head, that say they are
+ * siblings.
  */
 const TABS: { route: Route; label: string }[] = [
   { route: { name: "history" }, label: "History" },
@@ -16,22 +18,6 @@ const TABS: { route: Route; label: string }[] = [
   { route: { name: "builds" }, label: "Builds" },
 ];
 
-export function RunsTabs({ current, children }: { current: Route["name"]; children: ReactNode }): ReactElement {
-  return (
-    <div className="runs">
-      <nav className="runs-tabs" aria-label="Runs">
-        {TABS.map((t) => (
-          <a
-            key={t.label}
-            href={hrefFor(t.route)}
-            className={`runs-tab${t.route.name === current ? " is-active" : ""}`}
-            aria-current={t.route.name === current ? "page" : undefined}
-          >
-            {t.label}
-          </a>
-        ))}
-      </nav>
-      {children}
-    </div>
-  );
+export function RunsTabs({ current }: { current: Route["name"] }): ReactElement {
+  return <PageTabs label="Runs" current={current} tabs={TABS.map((t) => ({ id: t.route.name, label: t.label, href: hrefFor(t.route) }))} />;
 }

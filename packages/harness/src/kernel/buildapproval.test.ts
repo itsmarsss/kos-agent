@@ -38,7 +38,7 @@ describe("deciding a build's permission request", () => {
 
   it("approves without pretending to run a tool", async () => {
     const id = queue("build.Bash");
-    const res = await kernel.approve(id);
+    const res = await kernel.approve(id, undefined, { surface: "dashboard" });
 
     expect(res.ok).toBe(true);
     expect(res.isError).toBeFalsy();
@@ -56,7 +56,7 @@ describe("deciding a build's permission request", () => {
    * something it never asked for has happened.
    */
   it("does not resume a conversation on either decision", async () => {
-    const approved = await kernel.approve(queue("build.Bash"));
+    const approved = await kernel.approve(queue("build.Bash"), undefined, { surface: "dashboard" });
     expect(approved.reply).toBeUndefined();
 
     const denied = await kernel.deny(queue("build.Read"));
@@ -72,7 +72,7 @@ describe("deciding a build's permission request", () => {
       args: { path: "note.txt", content: "hello" },
       riskTier: "risky",
     }).id;
-    const res = await kernel.approve(id);
+    const res = await kernel.approve(id, undefined, { surface: "dashboard" });
     expect(res.ok).toBe(true);
     expect(res.message).not.toContain("unknown tool");
   });

@@ -189,3 +189,30 @@ export function navActive(item: Route, route: Route): boolean {
   }
   return item.name === route.name;
 }
+
+/**
+ * How a page sits in the window, by what kind of page it is: one rule, so
+ * no page picks its own margins.
+ *
+ * full: a workspace with its own panes (a chat, a project, a blob's page,
+ * the files), edge to edge with no page head. list: a list or a manager
+ * (the Overview, the Inbox, the indexes, Memory, Runs) and an artifact or
+ * page open full size (a deck or a sheet wants the width), the whole width
+ * inside the page gutter. reading: a page of settings, a centred column.
+ */
+export type PageFrame = "full" | "list" | "reading";
+
+export function frameOf(route: Route): PageFrame {
+  switch (route.name) {
+    case "chats":
+    case "project":
+    case "files":
+      return "full";
+    case "blobs":
+      return route.blob !== undefined && route.blob !== "new" ? "full" : "list";
+    case "settings":
+      return "reading";
+    default:
+      return "list";
+  }
+}

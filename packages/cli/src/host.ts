@@ -35,6 +35,10 @@ import {
   createDashboardSocket,
   handleApiRequest,
   isContained,
+  secretAskElsewhere,
+  SecretsRegistry,
+  secretsRoutes,
+  Vault,
   saveWriteKey,
   writeKeyPath,
   createPressHandler,
@@ -371,6 +375,21 @@ export function keptStoriesIn(settings: { get<T>(key: string): T | undefined; se
   };
 }
 
+/**
+ * Every write to stdout and stderr scrubbed first: the host's log is a file
+ * the owner shares when something breaks. A value split across two writes
+ * is not caught; console lines are written whole.
+ */
+export function scrubOutput(scrub: (text: string) => string, streams: NodeJS.WriteStream[] = [process.stdout, process.stderr]): void {
+  for (const stream of streams) {
+    const write = stream.write.bind(stream) as (chunk: unknown, ...rest: unknown[]) => boolean;
+    stream.write = ((chunk: unknown, ...rest: unknown[]) => {
+      const text = typeof chunk === "string" ? chunk : chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf8") : undefined;
+      return write(text === undefined ? chunk : scrub(text), ...rest);
+    }) as NodeJS.WriteStream["write"];
+  }
+}
+
 export async function runHost(options: HostOptions): Promise<void> {
   keepRunning();
   // The port this host answers on, for the jail to keep every program it runs away from (sandbox/jail.ts kosPorts).
@@ -596,13 +615,16 @@ export async function runHost(options: HostOptions): Promise<void> {
       return panelModels();
     },
   });
+  const boot: { kernel?: Kernel } = {};
+  const earlyKeys: [string, string][] = [];
   const computer = createComputerUse({
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
     ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
     // Read by KOS for Mac on this computer to prove it is here, so KOS may rebuild it (docs/computer.md, Builds and updates).
     localKeyPath: process.env.KOS_DEVICE_LOCAL_KEY_FILE?.trim() || join(homedir(), ".kos", "device-local.key"),
     // The device keys are KOS's own: never offered to the agent, and scrubbed should one ever come back in a result.
-    watchKey: (name, value) => kernel.secrets.watch(name, value),
+    // The module activates inside Kernel.boot, before `kernel` is set: keys read then wait for it.
+    watchKey: (name, value) => (boot.kernel ? boot.kernel.secrets.watch(name, value) : earlyKeys.push([name, value])),
     caller: () => kernel.callerConversationId,
     // An ask to use a computer or a Chrome says who asks by the name it goes by everywhere.
     titleOf: (id) => kernel.nameOf(id),
@@ -639,8 +661,26 @@ export async function runHost(options: HostOptions): Promise<void> {
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.
   const browserPort = Number(process.env.KOS_BROWSER_PORT ?? "");
 
+  /*
+   * The owner's vault (docs/secrets.md), outside the workspace, read through
+   * the same registry as the env file's keys: `{{secret:<handle>}}` resolves,
+   * and every value it holds is scrubbed from what KOS keeps and shows.
+   */
+  const vault = Vault.fromEnv(process.env, isContained(), options.rootDir);
+  const secrets = SecretsRegistry.fromEnv();
+  secrets.attachVault(vault);
+  // The vault holds the key now: out of the environment, so no program KOS starts, and no reload, sees it; still scrubbed.
+  const vaultKey = process.env.KOS_VAULT_KEY;
+  delete process.env.KOS_VAULT_KEY;
+  if (vaultKey) secrets.watch("kos_vault_key", vaultKey.trim());
+  const vaultState = vault.status();
+  if (vaultState.problem) console.error(`secrets: ${vaultState.problem}`);
+  // Whatever the host prints, to a terminal or daemon.log, carries no value either.
+  scrubOutput((text) => secrets.scrub(text));
+
   const kernel = await Kernel.boot({
     rootDir: options.rootDir,
+    secrets,
     allowedHosts: options.allowedHosts,
     // KOS's own address, however it is reached: the agent's fetches never come back to its API.
     ownHosts: () => [`${options.host}:${options.port}`, ...publicHostsOf(process.env.KOS_PUBLIC_URL)],
@@ -722,20 +762,30 @@ export async function runHost(options: HostOptions): Promise<void> {
       const child = spawn(
         process.execPath,
         [fileURLToPath(new URL("./main.js", import.meta.url)), "restart", "--workspace", options.rootDir, "--host", options.host, "--port", String(options.port)],
-        { detached: true, stdio: "ignore", env: process.env },
+        // The vault's key was taken out of this process's env once read; the next host needs it back.
+        { detached: true, stdio: "ignore", env: { ...process.env, ...(vaultKey ? { KOS_VAULT_KEY: vaultKey } : {}) } },
       );
       child.unref();
     },
     // Every surface the owner is on, and a device panel when its chat is the one asking.
     onApprovalRequested: (action) => {
       const request = approvalRequest(action);
-      if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
-      if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
+      // A secret's use is decided on the dashboard or a paired device: the chat surfaces are told, not asked.
+      if (hasSecretRef(JSON.parse(action.args))) {
+        const notice = { text: secretAskElsewhere(action.id) };
+        if (adapter && creds) void adapter.send(creds.ownerId, notice).catch(() => undefined);
+        if (smsAdapter && sms) void smsAdapter.send(sms.owner, notice).catch(() => undefined);
+      } else {
+        if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
+        if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
+      }
       void computer.panel.requestApproval("owner", request);
       void computer.mac.requestApproval("owner", request);
       void computer.phone.requestApproval("owner", request);
     },
   });
+  boot.kernel = kernel;
+  for (const [name, value] of earlyKeys.splice(0)) kernel.secrets.watch(name, value);
 
   // What the last host's throwaway Chromes left in the temp folder, cleared without holding up the start.
   kernel.sweepStaleProfiles();
@@ -772,7 +822,15 @@ export async function runHost(options: HostOptions): Promise<void> {
     ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
     host: options.host,
     meta,
-    extensions: [computer.routes],
+    extensions: [
+      computer.routes,
+      secretsRoutes({
+        vault,
+        secrets: kernel.secrets,
+        uses: kernel.secretUses,
+        audit: (entry) => void kernel.audit.record({ ...entry, userId: kernel.profile.ownerId }),
+      }),
+    ],
     ...(sms
       ? {
           smsInbound: async ({ url, params, signature }) => {

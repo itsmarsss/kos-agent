@@ -8,11 +8,21 @@ the list of parts, the rules for using them, and the audit that produced it.
 Where each one lives, in the dashboard, KOS for Chrome and KOS for Mac, is
 [components.md](components.md); most are in `@kos/kit` (`packages/kit`).
 
+- **Page frame** (`frameOf` in `routes.ts`): a workspace (a chat, a
+  project, a blob's page, the files) is full, edge to edge with its own
+  panes, keeping the gutter on a phone (Files alone goes to the edge); a
+  list or a manager (the Overview, the Inbox, the indexes, Memory, Runs)
+  and an artifact or page open full size take the whole width inside the
+  page gutter; Settings is a centred column. No page sets its own margins.
 - **Page head** (`PageHead`): the page's name, one line on what it is for,
   a search box where there is something to search, and the actions with
-  the primary one last. Every list page opens this way.
-- **Tabs**: tabs over a list (Memory, Runs, the ways to add a skill or a
-  server) are the kit's `Chips`, the current one pressed.
+  the primary one last, all one height. Every list and reading page opens
+  this way, a Settings section too. On a phone the tools take a row of
+  their own, the search growing and the primary at the right.
+- **Tabs**: a page's tabs (Memory, Runs) are `PageTabs`, a line under the
+  head with the open one underlined. Choices over a list (filters, kinds,
+  the ways to add a skill or a server) are the kit's `Chips`, the current
+  one pressed.
 - **Card**: a boxed section with a small uppercase title, an optional count,
   a Pill or an action at its right, then its body. Columns are stacks of
   cards: the blob page, the project page. A page-level panel on the

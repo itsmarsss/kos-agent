@@ -6,6 +6,7 @@ import { Chips, Empty, listItem, Pill, type Tone } from "@kos/kit";
 import { AgentTerminal } from "./AgentTerminal.js";
 import { Drawer } from "./Drawer.js";
 import { PageHead } from "./PageHead.js";
+import { RunsTabs } from "./RunsTabs.js";
 import { api, type BuildRecord } from "./api.js";
 
 /**
@@ -230,6 +231,7 @@ export function BuildsPage({
     <div className="builds">
       <PageHead
         title="Builds"
+        tabs={<RunsTabs current="builds" />}
         subtitle="Coding work running inside the workspace. Each is confined to its own folder, and every shell command comes back to you."
         actions={
           /* Starting one was only possible by asking KOS to, which is a long
@@ -341,10 +343,10 @@ export function BuildsPage({
       )}
 
       {builds && builds.length === 0 && (
-        <p className="hint">
-          Nothing running. KOS starts one when a job is bigger than editing a
-          file, and it appears here while it works.
-        </p>
+        <Empty title="Nothing running">
+          KOS starts one when a job is bigger than editing a file, and it
+          appears here while it works.
+        </Empty>
       )}
 
       {active && active.length === 0 && builds && builds.length > 0 && (

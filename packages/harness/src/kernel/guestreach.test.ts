@@ -181,7 +181,7 @@ describe("what a guest's words reach, wherever they are handed", () => {
   it("runs a guest's orphaned approval no further than their room", async () => {
     const asked = kernel.approvals.enqueue({ tool: "sql", args: { sql: "SELECT id FROM chat_sessions" }, riskTier: "risky", conversationId: maintenance, owner: false, attended: false, guest: { project: MAINTENANCE.slug, chat: maintenance } });
     expect(kernel.approvals.get(asked.id)?.guest).toEqual({ project: MAINTENANCE.slug, chat: maintenance });
-    const res = await kernel.approve(asked.id);
+    const res = await kernel.approve(asked.id, undefined, { surface: "dashboard" });
     expect(res).toMatchObject({ ok: true, isError: true });
     expect(res.message).toMatch(/a guest's words started this work/);
   });

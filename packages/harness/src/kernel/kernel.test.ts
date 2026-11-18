@@ -1240,7 +1240,7 @@ describe("Kernel", () => {
     expect(first.reply).toMatch(/needs approval/);
 
     const pending = kernel.approvals.pending()[0]!;
-    const res = await kernel.approve(pending.id);
+    const res = await kernel.approve(pending.id, undefined, { surface: "dashboard" });
     expect(res.ok).toBe(true);
 
     // The same turn carries on and lands in the same transcript, rather than

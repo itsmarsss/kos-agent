@@ -66,6 +66,8 @@ export interface HubDeps {
   face?: () => FaceDrawing;
   /** The secret a KOS for Mac on this computer proves it is here with (keys.ts, loadLocalKey). */
   localKey?: Buffer;
+  /** Secret values out of every frame KOS sends a device. */
+  scrub?: (text: string) => string;
   /** The dashboard's theme and the palette it was last drawn in, for every device that follows the dashboard to draw. */
   theme?: () => DashboardTheme;
   now?: () => number;
@@ -206,6 +208,7 @@ export class DeviceHub {
       ...(admit ? { admit } : {}),
       ...(local ? { local } : {}),
       ...(this.deps.localKey ? { localKey: this.deps.localKey } : {}),
+      ...(this.deps.scrub ? { scrub: this.deps.scrub } : {}),
       onReady: (link) => this.ready(link),
       onState: () => this.changed(),
       onEvent: (link, event) => this.event(link, event),
