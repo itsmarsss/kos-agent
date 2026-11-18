@@ -182,6 +182,26 @@ export function surfaceUp(surfaces: Map<string, () => ChannelAdapter | undefined
 }
 
 /** The dashboard as Discord links to it: KOS_PUBLIC_URL when set, this host otherwise. */
+/**
+ * Listen, then do what only the host holding the port may (keep its write
+ * key): a port already in use refuses with what to do, and `then` never runs.
+ */
+export function listenThen(server: Server, port: number, host: string, then: () => void): Promise<void> {
+  return new Promise<void>((resolveListen, reject) => {
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      reject(err.code === "EADDRINUSE" ? new Error(`port ${port} is already in use. Stop the other host (kos stop) or pick --port`) : err);
+    });
+    server.listen(port, host, () => {
+      try {
+        then();
+        resolveListen();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
+}
+
 /** The host a public url reaches KOS on, for the agent's fetches to keep away from. */
 function publicHostsOf(url: string | undefined): string[] {
   try {
@@ -759,12 +779,6 @@ export async function runHost(options: HostOptions): Promise<void> {
    */
   const contained = isContained();
   const writeKey = contained ? undefined : randomBytes(32).toString("base64url");
-  if (writeKey) {
-    const keyFile = writeKeyPath(options.port);
-    saveWriteKey(keyFile, writeKey);
-    // The path alone, so the jail can deny reading it (sandbox/jail.ts).
-    process.env.KOS_WRITE_KEY_FILE = keyFile;
-  }
   // The names KOS answers to; an address is always taken (a rebinding needs a name).
   const hostNames = [options.host, process.env.KOS_DEVICE_LAN_HOST, ...publicHostsOf(process.env.KOS_PUBLIC_URL).map((h) => h.replace(/:\d+$/, ""))].filter((h): h is string => !!h?.trim());
   const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : { tokenForWrites: true }), hostNames });
@@ -778,19 +792,13 @@ export async function runHost(options: HostOptions): Promise<void> {
     if (!live.upgrade(req, socket, head) && !computer.upgrade(req, socket, head)) socket.destroy();
   });
 
-  await new Promise<void>((resolveListen, reject) => {
-    server.once("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        reject(
-          new Error(
-            `port ${options.port} is already in use. Stop the other host (kos stop) or pick --port`,
-          ),
-        );
-      } else {
-        reject(err);
-      }
-    });
-    server.listen(options.port, options.host, () => resolveListen());
+  // Kept only once this host holds the port: a second start that fails to listen leaves the running host's key alone.
+  await listenThen(server, options.port, options.host, () => {
+    if (!writeKey) return;
+    const keyFile = writeKeyPath(options.port);
+    saveWriteKey(keyFile, writeKey);
+    // The path alone, so the jail can deny reading it (sandbox/jail.ts).
+    process.env.KOS_WRITE_KEY_FILE = keyFile;
   });
 
   writeDaemonState({
