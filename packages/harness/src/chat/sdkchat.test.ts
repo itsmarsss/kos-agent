@@ -78,6 +78,26 @@ describe("carrying the conversation", () => {
   });
 });
 
+describe("words the owner said mid-turn, on later turns", () => {
+  it("are carried as the owner's, whether kept beside a result or inside an older one", () => {
+    const result = (content: string, heard?: { mark: string; words: { text: string }[] }) => ({
+      role: "user",
+      content: [{ type: "tool_result", toolUseId: "t1", content, ...(heard ? { heard } : {}) }],
+    });
+    const out = priorForSdk(
+      [
+        { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.look" }] },
+        result("Opened the cart.", { mark: "ab12cd34", words: [{ text: "skip the ebooks" }] }),
+        result(`Clicked.${ownerWords("ab12cd34", [{ text: "and the red one" }])}`),
+      ],
+      "how much was it?",
+    );
+    expect(out).toContain("Owner, while you worked: skip the ebooks");
+    expect(out).toContain("Owner, while you worked: and the red one");
+    expect(out.indexOf("skip the ebooks")).toBeLessThan(out.indexOf("and the red one"));
+  });
+});
+
 describe("joining what was said across steps", () => {
   it("puts a space between a sentence end and the next start, and nowhere one already is", () => {
     expect(joinSaid("Flagging that first.", "Plan file exists.")).toBe("Flagging that first. Plan file exists.");

@@ -12,7 +12,7 @@ import {
 import type { ToolBox } from "../agent/loop.js";
 import { SCREEN_HANDOFF, SCREEN_PROMPT, forScreenAgent, isScreenTool } from "../agent/screen.js";
 import { fenced, isShelved } from "../context/shelf.js";
-import { heardWith, resultText, type HeardWords } from "../models/heard.js";
+import { heardWith, resultText, splitOwnerWords, type HeardWords } from "../models/heard.js";
 import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
 import { STOPPED_RESULT } from "../kernel/guarded.js";
@@ -207,8 +207,14 @@ export function priorForSdk(
   opts: { kept?: boolean } = {},
 ): string {
   const spoken = history
-    .map((m) => {
+    .flatMap((m) => {
       const blocks = Array.isArray(m.content) ? m.content : [];
+      // What the owner said while a turn ran, heard with a result: their words, carried as theirs.
+      const heard = blocks.flatMap((b) => {
+        const result = b as { type?: string; content?: unknown; heard?: HeardWords };
+        if (result.type !== "tool_result" || typeof result.content !== "string") return [];
+        return heardWith({ content: result.content, ...(result.heard ? { heard: result.heard } : {}) }).said.map((w) => `Owner, while you worked: ${w.text}`);
+      });
       /*
        * Text, plus a note where something was not text.
        *
@@ -230,17 +236,17 @@ export function priorForSdk(
           }
           // A big result is carried in words, whole while it is recent and as its stub after, so a follow-up need not read it again.
           const result = b as { type?: string; content?: unknown };
-          if (opts.kept && result.type === "tool_result" && typeof result.content === "string" && isShelved(result.content)) {
-            return fenced("result", result.content);
+          if (opts.kept && result.type === "tool_result" && typeof result.content === "string") {
+            const { content } = splitOwnerWords(result.content);
+            if (isShelved(content)) return fenced("result", content);
           }
           return "";
         })
         .filter(Boolean)
         .join("\n")
         .trim();
-      if (!said) return "";
       const fromTool = blocks.length > 0 && blocks.every((b) => (b as { type?: string }).type === "tool_result");
-      return `${fromTool ? "A tool you called" : m.role === "user" ? "Owner" : "You"}: ${said}`;
+      return [...(said ? [`${fromTool ? "A tool you called" : m.role === "user" ? "Owner" : "You"}: ${said}`] : []), ...heard];
     })
     .filter(Boolean);
 
