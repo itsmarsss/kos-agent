@@ -50,7 +50,7 @@ import { adoptFixes } from "./caretaker.js";
 import { createModulesModule } from "../tools/modules.js";
 import { createSecretsModule } from "../tools/secrets.js";
 import { EventBus } from "../modules/events.js";
-import { MODULES_KEY, enabledServers, parseModuleSettings } from "../modules/workspace.js";
+import { MODULES_KEY, enabledServers, parseModuleSettings, runnableModules } from "../modules/workspace.js";
 import { BUILTIN_FEATURES } from "../modules/builtins.js";
 import { isContained } from "../sandbox/jail.js";
 import { PermissionStore } from "../ops/permissions.js";
@@ -223,9 +223,10 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     secrets,
     config: () => {
       const servers = { ...readMcpConfig(workspace.root).servers };
-      const enabled = parseModuleSettings(settings.get(MODULES_KEY)).enabled;
       const instancesOf = (module: string): string[] => manifest.listByModule(module).map((p) => p.slug);
-      for (const [name, server] of Object.entries(enabledServers(workspace, enabled, !isContained(), instancesOf))) {
+      // A module changed since the owner switched it on waits for them to switch it on again.
+      const changed = (name: string): void => console.warn(`modules: ${name} changed since it was switched on; it stays off until the owner switches it on again`);
+      for (const [name, server] of Object.entries(enabledServers(workspace, parseModuleSettings(settings.get(MODULES_KEY)), !isContained(), instancesOf, changed))) {
         if (!(name in servers)) servers[name] = server;
       }
       return { servers };
@@ -422,7 +423,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       },
     ),
     createModulesModule({
-      enabled: () => parseModuleSettings(settings.get(MODULES_KEY)).enabled,
+      enabled: () => runnableModules(workspace, parseModuleSettings(settings.get(MODULES_KEY))),
       status: () => mcp.status(),
     }),
     // Tools from the owner's MCP servers, as any other module's tools.
