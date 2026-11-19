@@ -48,17 +48,18 @@ public enum Landing: Equatable, Sendable {
 /// Key combinations that reach KOS for Mac's own menu or windows from any app, refused whatever is in front: moving
 /// the keyboard into the menu bar or its status menus, and the chat window's own ⌥⌘K.
 public enum OwnKeys {
-  /// Control-F2 and Control-F8, macOS's keys into the menu bar and its status menus; Option-Command-K.
+  /// Control-F2 and Control-F8, macOS's keys into the menu bar and its status menus.
   static let menuBar: UInt16 = 120
   static let statusMenus: UInt16 = 100
-  static let chat: UInt16 = 40
+  /// The chat window's own key, ⌥⌘K, which KOS for Mac registers as its hot key.
+  public static let chat = KeyCombo(code: 40, modifiers: [.option, .command])
 
   public static func refusal(_ combo: KeyCombo) -> DeviceError? {
     let mods = combo.modifiers.subtracting([.function, .numericPad])
     if mods.contains(.control), combo.code == menuBar || combo.code == statusMenus {
       return DeviceError(.target, "That moves the keyboard into the menu bar, where KOS for Mac's own menu is; KOS never presses it.")
     }
-    if mods == [.option, .command], combo.code == chat {
+    if mods == chat.modifiers, combo.code == chat.code {
       return DeviceError(.target, "That opens KOS for Mac's own window; KOS never presses it.")
     }
     return nil

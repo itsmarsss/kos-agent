@@ -171,7 +171,7 @@ struct SecretTypingTests {
   @Test func aOneWindowSessionTypesOnlyIntoItsWindow() async {
     let desk = SecretDesk(Self.page())
     #expect(await Self.refusal(desk, Self.params(), scene: { Self.scene(window: Self.windowFrame) }) == nil)
-    let another = Rect(x: 40, y: 40, width: 1200, height: 800)
+    let another = Rect(x: 1300, y: 0, width: 800, height: 600)
     #expect(await Self.refusal(desk, Self.params(), scene: { Self.scene(window: another) })?.code == .field)
   }
 
@@ -190,7 +190,7 @@ struct SecretTypingTests {
       let fake = Self.page()
       fake.attributes[8]?["AXURL"] = address
       let desk = SecretDesk(fake)
-      #expect(desk.describe(pid: Self.pid)?.place == .unknown, "\(address ?? "none")")
+      #expect(desk.describe(pid: Self.pid, bundle: Self.safari.bundle)?.place == .unknown, "\(address ?? "none")")
       #expect(await Self.refusal(desk, Self.params(origin: nil))?.code == .origin, "\(address ?? "none")")
       #expect(await Self.refusal(desk, Self.params())?.code == .origin, "\(address ?? "none")")
     }
@@ -200,7 +200,7 @@ struct SecretTypingTests {
     let fake = Self.page()
     fake.attributes[8]?["AXURL"] = nil
     fake.attributes[8]?["AXDocument"] = "https://github.com/session"
-    #expect(SecretDesk(fake).describe(pid: Self.pid)?.place == .page(origin: "https://github.com", frames: []))
+    #expect(SecretDesk(fake).describe(pid: Self.pid, bundle: Self.safari.bundle)?.place == .page(origin: "https://github.com", frames: []))
   }
 
   /// Every frame is read up to the top page: its origin is the page's, the others are named for the approval.
@@ -211,12 +211,12 @@ struct SecretTypingTests {
     fake.attributes[21] = ["AXRole": "AXGroup", "AXParent": 22]
     fake.attributes[22] = ["AXRole": "AXWebArea", "AXURL": "https://github.com/inner", "AXParent": 8]
     let desk = SecretDesk(fake)
-    #expect(desk.describe(pid: Self.pid)?.place == .page(origin: "https://github.com", frames: ["https://js.stripe.com"]))
+    #expect(desk.describe(pid: Self.pid, bundle: Self.safari.bundle)?.place == .page(origin: "https://github.com", frames: ["https://js.stripe.com"]))
     #expect(await Self.refusal(desk, Self.params())?.code == .origin)
     #expect(await Self.refusal(desk, Self.params(frames: ["https://js.stripe.com"])) == nil)
     // A frame on a page that is not http or https makes the whole place unknown.
     fake.attributes[20]?["AXURL"] = "blob:https://evil.example/1"
-    #expect(desk.describe(pid: Self.pid)?.place == .unknown)
+    #expect(desk.describe(pid: Self.pid, bundle: Self.safari.bundle)?.place == .unknown)
   }
 
   /// A field whose window is not found within the walk is on a page KOS cannot vouch for.
@@ -225,7 +225,7 @@ struct SecretTypingTests {
     for n in 100..<200 { fake.attributes[n] = ["AXRole": "AXGroup", "AXParent": n + 1] }
     fake.attributes[1]?["AXParent"] = 100
     let desk = SecretDesk(fake)
-    #expect(desk.describe(pid: Self.pid)?.place == .unknown)
+    #expect(desk.describe(pid: Self.pid, bundle: Self.safari.bundle)?.place == .unknown)
     #expect(await Self.refusal(desk, Self.params(origin: nil))?.code == .origin)
   }
 
@@ -273,7 +273,7 @@ struct SecretTypingTests {
     #expect(error.map { !$0.message.contains("91zq") } == true)
     #expect(keys.chunks.count == 3 && buffer.isWiped)
     // Both fields are kept: blacked out and guarded.
-    #expect(try desk.masks(pid: Self.pid) == [Rect(x: 100, y: 200, width: 300, height: 30), Rect(x: 100, y: 150, width: 300, height: 30)])
+    #expect(try desk.masks(pid: Self.pid).rects == [Rect(x: 100, y: 200, width: 300, height: 30), Rect(x: 100, y: 150, width: 300, height: 30)])
     #expect(desk.typedHasFocus(pid: Self.pid))
     // Another app coming to the front, or KOS for Mac's own menu opening, stops it too, after the same count.
     var front = Self.safari
@@ -367,13 +367,13 @@ struct SecretTypingTests {
     let fake = Self.page()
     let desk = SecretDesk(fake)
     // Nothing typed yet: the password field in focus is blacked out all the same.
-    #expect(try desk.masks(pid: Self.pid) == [Rect(x: 100, y: 200, width: 300, height: 30)])
+    #expect(try desk.masks(pid: Self.pid).rects == [Rect(x: 100, y: 200, width: 300, height: 30)])
     fake.focus = [Self.pid: 2]
-    #expect(try desk.masks(pid: Self.pid).isEmpty)
+    #expect(try desk.masks(pid: Self.pid).rects.isEmpty)
     try await Self.type(desk, Self.params(field: "username", secure: false))
     fake.focus = [Self.pid: 1]
     try await Self.type(desk, Self.params())
-    #expect(try desk.masks(pid: Self.pid) == [Rect(x: 100, y: 150, width: 300, height: 30), Rect(x: 100, y: 200, width: 300, height: 30)])
+    #expect(try desk.masks(pid: Self.pid).rects == [Rect(x: 100, y: 150, width: 300, height: 30), Rect(x: 100, y: 200, width: 300, height: 30)])
     // One in focus that cannot be found refuses the picture.
     fake.frames[2] = nil
     fake.focus = [Self.pid: 2]
@@ -394,13 +394,13 @@ struct SecretTypingTests {
     fake.frames[1] = nil
     fake.focus = [Self.pid: 2]
     let page = Rect(x: 0, y: 80, width: 1200, height: 720)
-    #expect(try desk.masks(pid: Self.pid) == [page])
-    #expect(try desk.masks(pid: 7).isEmpty)
+    #expect(try desk.masks(pid: Self.pid) == SecretMasks(rects: [page], pageMasked: true))
+    #expect(try desk.masks(pid: 7).rects.isEmpty)
     fake.attributes[8]?["AXURL"] = "https://github.com/"
-    #expect(try desk.masks(pid: Self.pid).isEmpty)
+    #expect(try desk.masks(pid: Self.pid).rects.isEmpty)
     fake.attributes[8]?["AXURL"] = "https://github.com/login?return_to=x"
     fake.frames[8] = nil
-    #expect(try desk.masks(pid: Self.pid).isEmpty)
+    #expect(try desk.masks(pid: Self.pid).rects.isEmpty)
   }
 
   @Test func placesTheBlackOutsInThePicturesPixels() {
@@ -503,9 +503,9 @@ struct SecretTypingTests {
   @Test func describesTheFieldInFocusWithoutItsValue() {
     let fake = Self.page()
     let desk = SecretDesk(fake)
-    #expect(desk.describe(pid: Self.pid) == FieldIdentity(role: "AXTextField", secure: true, window: "Sign in to GitHub", label: "Password", place: .page(origin: "https://github.com", frames: [])))
+    #expect(desk.describe(pid: Self.pid, bundle: Self.safari.bundle) == FieldIdentity(role: "AXTextField", secure: true, window: "Sign in to GitHub", label: "Password", place: .page(origin: "https://github.com", frames: [])))
     fake.focus = [Self.pid: 3]
-    #expect(desk.describe(pid: Self.pid) == nil)
+    #expect(desk.describe(pid: Self.pid, bundle: Self.safari.bundle) == nil)
     #expect(!fake.asked.contains("AXValue"))
     #expect(SecretDesk<Fake>.originOf("https://GitHub.com:8443/x") == "https://github.com:8443")
     #expect(SecretDesk<Fake>.originOf("file:///etc/passwd") == nil)
@@ -527,15 +527,15 @@ struct SecretTypingTests {
     let fake = Self.page()
     fake.under = [(Rect(x: 0, y: 0, width: 1200, height: 800), 2)]
     let desk = SecretDesk(fake)
-    let dashboards = ["http://127.0.0.1:4317", "https://kos.tail1234.ts.net"]
-    for address in ["http://localhost:4317/inbox", "http://127.0.0.1:4317/", "https://kos.tail1234.ts.net/chat/1", "chrome-extension://abcdef/panel.html"] {
+    let hosts = ["127.0.0.1:4317", "kos.tail1234.ts.net"]
+    for address in ["http://localhost:4317/inbox", "http://127.0.0.1:4317/", "https://kos.tail1234.ts.net/chat/1", "https://kos.tail1234.ts.net:8443/", "chrome-extension://abcdef/panel.html"] {
       fake.attributes[8]?["AXURL"] = address
-      #expect(throws: DeviceError.self, "\(address)") { try desk.refuseOwnPage(at: Point(x: 10, y: 10), dashboards: dashboards) }
-      #expect(throws: DeviceError.self, "\(address)") { try desk.refuseOwnPage(focusedIn: Self.pid, dashboards: dashboards) }
+      #expect(throws: DeviceError.self, "\(address)") { try desk.refuseOwnPage(at: Point(x: 10, y: 10), hosts: hosts, browser: true) }
+      #expect(throws: DeviceError.self, "\(address)") { try desk.refuseOwnPage(focusedIn: Self.pid, hosts: hosts, browser: true) }
     }
-    for address in ["http://localhost:3000/", "https://github.com/", "https://kos.tail1234.ts.net:8443/"] {
+    for address in ["http://localhost:3000/", "https://github.com/", "https://other.tail1234.ts.net/"] {
       fake.attributes[8]?["AXURL"] = address
-      #expect(throws: Never.self, "\(address)") { try desk.refuseOwnPage(at: Point(x: 10, y: 10), dashboards: dashboards) }
+      #expect(throws: Never.self, "\(address)") { try desk.refuseOwnPage(at: Point(x: 10, y: 10), hosts: hosts, browser: true) }
     }
   }
 
@@ -559,5 +559,105 @@ struct SecretTypingTests {
     for keys in ["f2", "cmd+k", "return", "ctrl+f3"] {
       #expect(OwnKeys.refusal(try KeyCombo.parse(keys)) == nil, "\(keys)")
     }
+  }
+
+  // MARK: Where a field is, by app
+
+  /// In an app that is not a browser, a web area at its own scheme is the app's window; one at http or https is a page.
+  @Test func anAppsOwnWebAreaIsTheApp() {
+    let fake = Self.page()
+    fake.attributes[8]?["AXURL"] = "file:///Applications/Slack.app/index.html"
+    let desk = SecretDesk(fake)
+    #expect(desk.describe(pid: Self.pid, bundle: "com.tinyspeck.slackmacgap")?.place == .app)
+    #expect(desk.describe(pid: Self.pid, bundle: Self.safari.bundle)?.place == .unknown)
+    fake.attributes[8]?["AXURL"] = "https://app.slack.com/client"
+    #expect(desk.describe(pid: Self.pid, bundle: "com.tinyspeck.slackmacgap")?.place == .page(origin: "https://app.slack.com", frames: []))
+    // An address that cannot be read is unknown in any app.
+    fake.attributes[8]?["AXURL"] = nil
+    #expect(desk.describe(pid: Self.pid, bundle: "com.tinyspeck.slackmacgap")?.place == .unknown)
+  }
+
+  /// A web area seen on the way up, with the window never reached, is unknown; a native field with no window is the app's.
+  @Test func aWebAreaShortOfItsWindowIsUnknown() {
+    let fake = Self.page()
+    fake.attributes[8]?["AXParent"] = nil
+    let desk = SecretDesk(fake)
+    #expect(desk.describe(pid: Self.pid, bundle: Self.safari.bundle)?.place == .unknown)
+    fake.attributes[1]?["AXParent"] = nil
+    #expect(desk.describe(pid: Self.pid, bundle: "com.example.native")?.place == .app)
+  }
+
+  /// In a browser, a page that cannot be walked up to its window may be the dashboard: refused there, not elsewhere.
+  @Test func aBrowsersPageThatCannotBeToldIsRefused() throws {
+    let fake = Self.page()
+    fake.under = [(Rect(x: 0, y: 0, width: 1200, height: 800), 2)]
+    fake.attributes[8]?["AXParent"] = nil
+    let desk = SecretDesk(fake)
+    #expect(throws: DeviceError.self) { try desk.refuseOwnPage(at: Point(x: 10, y: 10), hosts: [], browser: true) }
+    try desk.refuseOwnPage(at: Point(x: 10, y: 10), hosts: [], browser: false)
+  }
+
+  @Test func knowsKOSsOwnHostsByNameAndPort() {
+    let hosts = ["0.0.0.0:4317", "kos.example.ts.net", "localhost"]
+    #expect(PagePlace.ownPage("http://127.0.0.1:4317/inbox", hosts: hosts) != nil)
+    #expect(PagePlace.ownPage("https://kos.example.ts.net:8443/", hosts: hosts) != nil)
+    #expect(PagePlace.ownPage("http://localhost:3000/", hosts: hosts) == nil)
+    #expect(PagePlace.ownPage("https://github.com/", hosts: hosts) == nil)
+    #expect(PagePlace.hostEntry(of: "http://127.0.0.1:4317/") == "127.0.0.1:4317")
+    #expect(PagePlace.hostEntry(of: "https://kos.example.ts.net/") == "kos.example.ts.net:443")
+  }
+
+  // MARK: Between characters
+
+  /// The page moving on while a secret is typed stops it at the next character.
+  @Test func stopsWhenThePageMovesOnMidway() async {
+    let fake = Self.page()
+    let keys = Keys()
+    keys.onPost = { if keys.chunks.count == 2 { fake.attributes[8]?["AXURL"] = "https://github.com/elsewhere" } }
+    let error = await Self.refusal(SecretDesk(fake), Self.params(), keys: keys)
+    #expect(error?.code == .partial && error?.message.contains("The page moved on.") == true)
+    #expect(keys.chunks.count == 2)
+  }
+
+  /// Between characters only what is cheap is asked: the walk up to the window is made before the first and after the last.
+  @Test func walksUpOnlyBeforeTheFirstAndAfterTheLast() async throws {
+    let fake = Self.page()
+    let keys = Keys()
+    var walks: [Int] = []
+    keys.onPost = { walks.append(fake.asked.filter { $0 == "AXParent" }.count) }
+    try await Self.type(SecretDesk(fake), Self.params(), keys: keys)
+    #expect(Set(walks.dropFirst()).count == 1)
+  }
+
+  // MARK: One window
+
+  /// A field in a sheet on the session's window, or lying inside it, is in it.
+  @Test func aSheetOnTheSessionsWindowIsInIt() async {
+    let fake = Self.page()
+    fake.attributes[1]?["AXWindow"] = 30
+    fake.attributes[30] = ["AXRole": "AXWindow", "AXSubrole": "AXSheet", "AXParent": 9, "AXTitle": "Sign in to GitHub"]
+    fake.frames[30] = Rect(x: 300, y: 100, width: 400, height: 300)
+    let desk = SecretDesk(fake)
+    #expect(await Self.refusal(desk, Self.params(), scene: { Self.scene(window: Self.windowFrame) }) == nil)
+    fake.attributes[30]?["AXParent"] = nil
+    #expect(await Self.refusal(desk, Self.params(), scene: { Self.scene(window: Self.windowFrame) }) == nil)
+    fake.frames[1] = Rect(x: 1300, y: 200, width: 300, height: 30)
+    #expect(await Self.refusal(desk, Self.params(), scene: { Self.scene(window: Self.windowFrame) })?.code == .field)
+  }
+
+  // MARK: A page that hid a field
+
+  @Test func aPageThatHidAFieldIsBlackedOutForTenMinutesAtMost() async throws {
+    var clock = Date(timeIntervalSince1970: 1_000_000)
+    let fake = Self.page()
+    let desk = SecretDesk(fake) { clock }
+    try await Self.type(desk, Self.params())
+    fake.frames[1] = nil
+    fake.focus = [Self.pid: 2]
+    #expect(try desk.masks(pid: Self.pid).pageMasked)
+    clock += 599
+    #expect(try desk.masks(pid: Self.pid).pageMasked)
+    clock += 1
+    #expect(try desk.masks(pid: Self.pid) == SecretMasks(rects: []))
   }
 }

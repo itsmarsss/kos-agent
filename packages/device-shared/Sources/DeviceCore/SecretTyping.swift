@@ -226,8 +226,23 @@ public protocol SecretKeyboard: AnyObject {
 struct TypedField<Element> {
   let element: Element
   let pid: Int32
-  let page: Element?
+  /// The page it was on, while it may still black that page out; nil once the page has moved on.
+  var page: Element?
   let address: String?
+  /// When it was first found gone with its page still there.
+  var goneAt: Date?
+}
+
+/// What a picture blacks out: the rects, in global points, and whether a whole page is among them for a field the
+/// page hid, which the picture's answer says.
+public struct SecretMasks: Equatable, Sendable {
+  public let rects: [Rect]
+  public let pageMasked: Bool
+
+  public init(rects: [Rect], pageMasked: Bool = false) {
+    self.rects = rects
+    self.pageMasked = pageMasked
+  }
 }
 
 /// The rules keys.secret is held to, the field it goes into read through Accessibility, and the fields typed into.
@@ -241,13 +256,16 @@ struct TypedField<Element> {
 /// password field; a card's number or code only where the field's label or
 /// hint says so), and on the page and frames approved, every one on http or
 /// https. Then it is typed as unicode a character at a time, posted to that
-/// app alone, from a buffer zeroed after, every check made again just before
-/// each character: a field typed part of the way is said (`partial`), never
-/// passed off as typed. The field is kept: a picture blacks it out, and
+/// app alone, from a buffer zeroed after. Before each character what can
+/// change cheaply is checked again (the same element in focus, the same app
+/// in front, KOS for Mac not, the page at the same address), and every check
+/// once more after the last: a field typed part of the way is said
+/// (`partial`), never passed off as typed. The field is kept: a picture blacks it out, and
 /// copying out of it or typing into it again is refused for the session.
 @MainActor
 public final class SecretDesk<Access: FieldAccess> {
   private let access: Access
+  private let now: () -> Date
   /// The fields typed into, for the session they were typed in.
   private var typed: [TypedField<Access.Element>] = []
   private var session: String?
@@ -266,8 +284,12 @@ public final class SecretDesk<Access: FieldAccess> {
   /// new tab, new window, reload, open location, back and forward. None copies, pastes, selects, shares or looks up.
   static var menuAllowed: Set<String> { ["w", "t", "n", "r", "l", "[", "]"] }
 
-  public init(_ access: Access) {
+  /// How long a page that hid a field typed into is blacked out at most, at the same address.
+  static var pageMaskLimit: TimeInterval { 600 }
+
+  public init(_ access: Access, now: @escaping () -> Date = Date.init) {
     self.access = access
+    self.now = now
   }
 
   /// The fields typed into this session, for whoever else reads from the screen (the chat's selection reader).
@@ -275,12 +297,13 @@ public final class SecretDesk<Access: FieldAccess> {
 
   // MARK: The field
 
-  /// The field in focus in the app with this pid, as keys.focus answers it; nil when none is a text field.
-  public func describe(pid: Int32) -> FieldIdentity? {
-    access.focused(pid: pid).flatMap(identity)
+  /// The field in focus in the app with this pid and bundle id, as keys.focus answers it; nil when none is a text
+  /// field.
+  public func describe(pid: Int32, bundle: String?) -> FieldIdentity? {
+    access.focused(pid: pid).flatMap { identity(of: $0, browser: Browsers.contains(bundle)) }
   }
 
-  func identity(of element: Access.Element) -> FieldIdentity? {
+  func identity(of element: Access.Element, browser: Bool) -> FieldIdentity? {
     let role = access.string("AXRole", of: element) ?? ""
     let subrole = access.string("AXSubrole", of: element)
     let secure = role == Self.secureRole || subrole == Self.secureRole
@@ -291,7 +314,7 @@ public final class SecretDesk<Access: FieldAccess> {
     let placeholder = access.string("AXPlaceholderValue", of: element)?.trimmingCharacters(in: .whitespacesAndNewlines)
     return FieldIdentity(
       role: secure ? "AXTextField" : role, secure: secure, window: window, label: label,
-      placeholder: placeholder?.isEmpty == false ? placeholder : nil, place: PagePlace.walk(element, access).place)
+      placeholder: placeholder?.isEmpty == false ? placeholder : nil, place: PagePlace.walk(element, access, browser: browser).place)
   }
 
   static func originOf(_ address: String) -> String? {
@@ -312,32 +335,53 @@ public final class SecretDesk<Access: FieldAccess> {
     guard keys.canPost else {
       throw DeviceError(.permission, "KOS for Mac may not post keystrokes on this Mac: allow it under Accessibility in System Settings.")
     }
-    let (field, pid) = try check(params, buffer: buffer, live: live, scene: scene())
+    let (field, pid, page) = try check(params, buffer: buffer, live: live, scene: scene())
+    let browser = Browsers.contains(params.app.bundle)
     let total = buffer.count
     let before = access.number("AXNumberOfCharacters", of: field)
     let replaced = access.selectedLength(of: field)
     var sent = 0
     defer {
-      if sent > 0 { note(field, pid: pid, session: live) }
+      if sent > 0 { note(field, pid: pid, browser: browser, session: live) }
     }
-    /// The checks again, and the field the very one: else, once any went in, how much did.
-    func still() throws {
+    /// Once any went in, a failure says how much did.
+    func partly(_ work: () throws -> Void) throws {
       do {
+        try work()
+      } catch let error as DeviceError {
+        throw partial(error, sent: sent, of: total, into: field, pid: pid, browser: browser, session: live)
+      }
+    }
+    /// Every check again, and the field the very one.
+    func still() throws {
+      try partly {
         guard try check(params, buffer: buffer, live: live, scene: scene()).element == field else {
           throw DeviceError(.field, "Focus moved to another field.")
         }
-      } catch let error as DeviceError {
-        throw partial(error, sent: sent, of: total, into: field, pid: pid, session: live)
       }
     }
-    for range in buffer.chunks(of: Self.chunk) {
-      try still()
+    /// What can change between two characters, cheaply: the element in focus, the app in front, KOS for Mac in front
+    /// or the app hidden, the page's address. The walk up and the rest are read before the first and after the last.
+    func steady() throws {
+      try partly {
+        let now = scene()
+        guard !now.own, !now.hidden, now.pid == pid, now.front?.bundle == params.app.bundle else {
+          throw DeviceError(.target, "Another app, or KOS for Mac, came to the front.")
+        }
+        guard access.focused(pid: pid) == field else { throw DeviceError(.field, "Focus moved to another field.") }
+        if let page, PagePlace.address(of: page.element, access) != page.address {
+          throw DeviceError(.origin, "The page moved on.")
+        }
+      }
+    }
+    for (n, range) in buffer.chunks(of: Self.chunk).enumerated() {
+      if n > 0 { try steady() }
       do {
         try buffer.with(range) { try keys.post($0, to: pid) }
         sent += range.count
         try await keys.between()
       } catch let error as DeviceError {
-        throw partial(error, sent: sent, of: total, into: field, pid: pid, session: live)
+        throw partial(error, sent: sent, of: total, into: field, pid: pid, browser: browser, session: live)
       }
     }
     try still()
@@ -348,10 +392,12 @@ public final class SecretDesk<Access: FieldAccess> {
 
   /// A typing stopped after `sent` of `total` units went in: whatever has focus in the app now is kept with the
   /// field, since some of it may have gone there, and the refusal says how far it got.
-  private func partial(_ error: DeviceError, sent: Int, of total: Int, into field: Access.Element, pid: Int32, session: String) -> DeviceError {
+  private func partial(
+    _ error: DeviceError, sent: Int, of total: Int, into field: Access.Element, pid: Int32, browser: Bool, session: String
+  ) -> DeviceError {
     guard sent > 0 else { return error }
-    note(field, pid: pid, session: session)
-    if let now = access.focused(pid: pid) { note(now, pid: pid, session: session) }
+    note(field, pid: pid, browser: browser, session: session)
+    if let now = access.focused(pid: pid) { note(now, pid: pid, browser: browser, session: session) }
     return DeviceError(
       .partial,
       "Typed \(sent) of \(total) characters, then stopped: \(error.message) The field holds part of the secret; the owner should clear it.")
@@ -359,7 +405,7 @@ public final class SecretDesk<Access: FieldAccess> {
 
   private func check(
     _ p: SecretTypeParams, buffer: SecretBuffer, live: String, scene: SecretScene
-  ) throws -> (element: Access.Element, pid: Int32) {
+  ) throws -> (element: Access.Element, pid: Int32, page: (element: Access.Element, address: String?)?) {
     guard p.approved == live, p.session == live else {
       throw DeviceError(.noSession, "This is not the session the owner approved the secret in.")
     }
@@ -373,7 +419,8 @@ public final class SecretDesk<Access: FieldAccess> {
       throw DeviceError(.target, "\(front.name) is in front, not the app the owner approved.")
     }
     guard p.apps.contains(front.bundle) else { throw DeviceError(.target, "The secret is not allowed in \(front.name).") }
-    guard let element = access.focused(pid: pid), let field = identity(of: element) else {
+    let browser = Browsers.contains(front.bundle)
+    guard let element = access.focused(pid: pid), let field = identity(of: element, browser: browser) else {
       throw DeviceError(.field, "No text field has focus in \(front.name).")
     }
     guard field.role == p.expect.role, field.secure == p.expect.secure, field.window == p.expect.window else {
@@ -392,15 +439,25 @@ public final class SecretDesk<Access: FieldAccess> {
     default:
       break
     }
-    return (element, pid)
+    let walk = PagePlace.walk(element, access, browser: browser)
+    return (element, pid, walk.top.map { ($0, walk.address) })
   }
 
-  /// Whether the element's window is the session's one window, by where it is: titles change and repeat.
+  /// Whether the element is in the session's one window, by where things are, never by titles, which change and
+  /// repeat: its window is that window, or a sheet on it, or the field lies inside that window's frame.
   private func inWindow(_ element: Access.Element, _ window: Rect) -> Bool {
-    guard let frame = access.element("AXWindow", of: element).flatMap(access.frame) else { return false }
     let slack = Self.windowSlack
-    return abs(frame.x - window.x) <= slack && abs(frame.y - window.y) <= slack
-      && abs(frame.width - window.width) <= slack && abs(frame.height - window.height) <= slack
+    func same(_ frame: Rect?) -> Bool {
+      guard let frame else { return false }
+      return abs(frame.x - window.x) <= slack && abs(frame.y - window.y) <= slack
+        && abs(frame.width - window.width) <= slack && abs(frame.height - window.height) <= slack
+    }
+    let own = access.element("AXWindow", of: element)
+    if same(own.flatMap(access.frame)) { return true }
+    if same(own.flatMap { access.element("AXParent", of: $0) }.flatMap(access.frame)) { return true }
+    guard let field = access.frame(of: element) else { return false }
+    return field.x >= window.x - slack && field.y >= window.y - slack
+      && field.maxX <= window.maxX + slack && field.maxY <= window.maxY + slack
   }
 
   /// Why a secret's field may not go into this one, if it may not: a password only into a password field, a card's
@@ -423,14 +480,14 @@ public final class SecretDesk<Access: FieldAccess> {
 
   // MARK: The fields typed into
 
-  private func note(_ element: Access.Element, pid: Int32, session: String) {
+  private func note(_ element: Access.Element, pid: Int32, browser: Bool, session: String) {
     if self.session != session {
       typed = []
       self.session = session
     }
     guard !typed.contains(where: { $0.element == element }) else { return }
-    let walk = PagePlace.walk(element, access)
-    typed.append(TypedField(element: element, pid: pid, page: walk.top, address: walk.address))
+    let walk = PagePlace.walk(element, access, browser: browser)
+    typed.append(TypedField(element: element, pid: pid, page: walk.top, address: walk.address, goneAt: nil))
   }
 
   /// The session ended: what it typed into is no longer kept.
@@ -451,28 +508,42 @@ public final class SecretDesk<Access: FieldAccess> {
 
   /// What a picture blacks out, in global points: every field typed into that can be found, and a password field in
   /// focus. A field typed into that is gone while the page it was on is still in front at the same address (hidden by
-  /// the page, not left behind) blacks out that whole page until it moves on. Refused (secret_field) while a typed
-  /// field or a password field is in focus and cannot be found.
-  public func masks(pid: Int32?) throws -> [Rect] {
+  /// the page, not left behind) blacks out that whole page, said in the answer, until the page moves on or for ten
+  /// minutes at most; once it has moved on, never again. Refused (secret_field) while a typed field or a password
+  /// field is in focus and cannot be found.
+  public func masks(pid: Int32?) throws -> SecretMasks {
     let focused = pid.flatMap { access.focused(pid: $0) }
     var rects: [Rect] = []
-    for field in typed {
+    var pageMasked = false
+    for i in typed.indices {
+      let field = typed[i]
       if let frame = access.frame(of: field.element) {
         rects.append(frame)
+        typed[i].goneAt = nil
       } else if field.element == focused {
         throw DeviceError(.secretField, "A field KOS typed a secret into has focus and cannot be found, so no picture is taken.")
-      } else if field.pid == pid, let page = field.page, let frame = access.frame(of: page),
-                PagePlace.address(of: page, access) == field.address {
-        rects.append(frame)
+      } else if let page = field.page {
+        guard let frame = access.frame(of: page), PagePlace.address(of: page, access) == field.address else {
+          typed[i].page = nil
+          continue
+        }
+        let gone = field.goneAt ?? now()
+        typed[i].goneAt = gone
+        if now().timeIntervalSince(gone) >= Self.pageMaskLimit {
+          typed[i].page = nil
+        } else if field.pid == pid {
+          rects.append(frame)
+          pageMasked = true
+        }
       }
     }
-    if let focused, !typed.contains(where: { $0.element == focused }), identity(of: focused)?.secure == true {
+    if let focused, !typed.contains(where: { $0.element == focused }), identity(of: focused, browser: false)?.secure == true {
       guard let frame = access.frame(of: focused) else {
         throw DeviceError(.secretField, "A password field has focus and cannot be found, so no picture is taken.")
       }
       rects.append(frame)
     }
-    return rects
+    return SecretMasks(rects: rects, pageMasked: pageMasked)
   }
 
   // MARK: Keys and the pointer, while a field typed into has focus
@@ -539,17 +610,19 @@ public final class SecretDesk<Access: FieldAccess> {
 
   // MARK: KOS's own pages
 
-  /// Why an action may not land where it would, if it may not: on KOS's own dashboard or a browser extension's
-  /// page, KOS for Chrome's panel among them, where an approval can be decided. The pointer's target is what is under
-  /// it; the keys', what has focus in the app in front.
-  public func refuseOwnPage(at point: Point, dashboards: [String]) throws {
-    guard let element = access.element(at: point), let refusal = PagePlace.ownPage(of: element, access, dashboards: dashboards) else { return }
+  /// Why an action may not land where it would, if it may not: on KOS's own dashboard (`hosts`, KOS's own) or a browser
+  /// extension's page, KOS for Chrome's panel among them, where an approval can be decided; in a browser (`browser`),
+  /// anywhere whose page cannot be told. The pointer's target is what is under it; the keys', what has focus in the
+  /// app in front.
+  public func refuseOwnPage(at point: Point, hosts: [String], browser: Bool) throws {
+    guard let element = access.element(at: point),
+          let refusal = PagePlace.ownPage(of: element, access, hosts: hosts, browser: browser) else { return }
     throw DeviceError(.target, refusal)
   }
 
-  public func refuseOwnPage(focusedIn pid: Int32?, dashboards: [String]) throws {
+  public func refuseOwnPage(focusedIn pid: Int32?, hosts: [String], browser: Bool) throws {
     guard let pid, let element = access.focused(pid: pid),
-          let refusal = PagePlace.ownPage(of: element, access, dashboards: dashboards) else { return }
+          let refusal = PagePlace.ownPage(of: element, access, hosts: hosts, browser: browser) else { return }
     throw DeviceError(.target, refusal)
   }
 }
