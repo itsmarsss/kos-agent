@@ -26,7 +26,7 @@ import { randomBytes } from "node:crypto";
 
 import { blocksToText, CHANNEL_TOKEN, sendRequestOf, withUnixTimes, type KosBlock } from "@kos/shared";
 
-import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
+import { FILE_MAX_BYTES, isAudio, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, roomConversationId, roomPlaceOf, type Guest } from "./types.js";
@@ -92,6 +92,10 @@ const MODAL_WAIT_MS = 5 * 60 * 1000;
 const THINKING = "-# thinking…";
 /** Discord's limits on uploads: files per message, bytes per file. */
 const DISCORD_FILES = 10;
+/** A workspace file named in words: `@file:path` or `@file:[a path with spaces]`. */
+const FILE_REF = /@file:(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/g;
+/** What Discord shows a preview of: pictures and PDFs. */
+const UPLOADS = /\.(png|jpe?g|gif|webp|pdf)$/i;
 /** How many typed blocks' buttons are kept answerable. */
 const BLOCKS_KEPT = 500;
 /** How many asks /inbox shows as cards; the rest are counted. */
@@ -277,6 +281,10 @@ export interface DiscordAdapterOptions {
   listenOf?: (key: string) => Listen;
   /** The tools this KOS has, so a typed block offers Send only where one can send it. */
   toolNames?: () => readonly string[];
+  /** KOS's speech path, when one is configured: a recording's words. None, and a voice note is kept as audio and said to be. */
+  transcribe?: (audio: Attachment) => Promise<string | undefined>;
+  /** A workspace file a reply names, for Discord to upload: a picture or a PDF, read through the workspace's own jail. */
+  fileOf?: (path: string) => { name: string; data: string } | undefined;
   /**
    * Which thread stands for which chat, all of them, so an ask from a chat
    * can be put where the chat is read rather than in the approvals channel.
@@ -678,9 +686,11 @@ const tooLarge = (name: string, bytes: number): string => `${name} (${megabytes(
  */
 export async function collectAttachments(
   message: Message,
-): Promise<{ attachments: Attachment[]; skipped: string[] }> {
+): Promise<{ attachments: Attachment[]; skipped: string[]; recordings: Attachment[] }> {
   const attachments: Attachment[] = [];
   const skipped: string[] = [];
+  /** Voice notes and other recordings: kept as they came, and heard where a speech path can. */
+  const recordings: Attachment[] = [];
 
   // A message with nothing attached is the common case, and a message shape
   // without the collection at all must not take the whole inbound path down
@@ -693,7 +703,8 @@ export async function collectAttachments(
       skipped.push(tooLarge(name, file.size));
       continue;
     }
-    if (!isReadable(mediaType, name)) {
+    const recording = isAudio(mediaType, name);
+    if (!recording && !isReadable(mediaType, name)) {
       skipped.push(`${name} (${mediaType || "unknown type"})`);
       continue;
     }
@@ -707,17 +718,15 @@ export async function collectAttachments(
         skipped.push(tooLarge(name, bytes));
         continue;
       }
-      attachments.push({
-        name,
-        mediaType: mediaType || "application/octet-stream",
-        data: bytes.toString("base64"),
-      });
+      const kept = { name, mediaType: mediaType || (recording ? "audio/ogg" : "application/octet-stream"), data: bytes.toString("base64") };
+      attachments.push(kept);
+      if (recording) recordings.push(kept);
     } catch {
       skipped.push(`${name} (could not fetch)`);
     }
   }
 
-  return { attachments, skipped };
+  return { attachments, skipped, recordings };
 }
 
 const STYLES: Record<string, ButtonStyle> = {
@@ -889,6 +898,8 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly onRunCron?: (id: number) => Promise<RunNowOutcome | undefined>;
   private readonly listenOf?: (key: string) => Listen;
   private readonly toolNames?: () => readonly string[];
+  private readonly transcribe?: (audio: Attachment) => Promise<string | undefined>;
+  private readonly fileOf?: (path: string) => { name: string; data: string } | undefined;
   /** The typed blocks on messages KOS sent, by the key their buttons carry, newest last. */
   private readonly blocks = new Map<string, KosBlock>();
   /** The last message each mention-gated channel's chat heard, so the next one carries only what came after. */
@@ -947,6 +958,8 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.onRunCron) this.onRunCron = options.onRunCron;
     if (options.listenOf) this.listenOf = options.listenOf;
     if (options.toolNames) this.toolNames = options.toolNames;
+    if (options.transcribe) this.transcribe = options.transcribe;
+    if (options.fileOf) this.fileOf = options.fileOf;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -1317,12 +1330,11 @@ export class DiscordAdapter implements ChannelAdapter {
     const { binding, guest } = admitted;
     /** What was said in a mention-gated room since its chat last heard, when this message is one it hears. */
     const unheard = admitted.gated ? await this.unheardIn(message) : "";
-    const { attachments, skipped } = guest ? { attachments: guestAttachments(message), skipped: [] } : await collectAttachments(message);
+    const { attachments, skipped, recordings } = guest ? { attachments: guestAttachments(message), skipped: [], recordings: [] } : await collectAttachments(message);
     // A file KOS cannot read is said out loud rather than dropped, so the
     // owner is not left asking about a picture it was never shown.
-    const note = skipped.length
-      ? `\n\n(not read: ${skipped.join(", ")})`
-      : "";
+    const heard = await this.heardIn(recordings);
+    const note = `${skipped.length ? `\n\n(not read: ${skipped.join(", ")})` : ""}${heard}`;
 
     // Where it was said, for the dashboard to say so under the words.
     const room = this.roomOf(message);
@@ -1359,6 +1371,20 @@ export class DiscordAdapter implements ChannelAdapter {
       if (message.id && message.channel?.id) this.cursors?.advance(message.channel.id, message.id);
     } else this.handled(message);
     await handling;
+  }
+
+  /**
+   * What the owner's recordings said, through KOS's speech path, as their
+   * words; with none configured, said so, the recordings kept as files.
+   */
+  private async heardIn(recordings: Attachment[]): Promise<string> {
+    if (recordings.length === 0) return "";
+    const said: string[] = [];
+    for (const file of recordings) {
+      const words = this.transcribe ? await this.transcribe(file).catch(() => undefined) : undefined;
+      said.push(words?.trim() ? `\n\n[${file.name}, transcribed] ${words.trim()}` : `\n\n(${file.name} is kept as audio: ${this.transcribe ? "it could not be transcribed" : "no speech-to-text is configured, so it was not transcribed"})`);
+    }
+    return said.join("");
   }
 
   private markSeen(id: string): void {
@@ -1971,7 +1997,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!channel?.isSendable?.()) throw new Error(`channel ${channelId} is not somewhere this bot can post`);
     if (msg.from && (await this.sendAs(channel as unknown as Parameters<DiscordAdapter["sendAs"]>[0], msg, progress))) return;
     try {
-      await this.deliver((payload) => (channel as unknown as { send: (p: unknown) => Promise<unknown> }).send(payload), msg, { progress });
+      await this.deliver((payload) => (channel as unknown as { send: (p: unknown) => Promise<unknown> }).send(payload), msg, { progress, shares: this.ownerOnly(channel) });
     } catch (err) {
       if (isUnknownChannel(err)) this.forgetPlace(channelId);
       throw err;
@@ -2045,7 +2071,7 @@ export class DiscordAdapter implements ChannelAdapter {
     // a blob's is on its own webhook.
     const look = msg.from.avatarUrl ? { avatarURL: msg.from.avatarUrl } : {};
     try {
-      await this.deliver((payload) => hook.send({ ...payload, username, ...look, ...(threadId ? { threadId } : {}) }), msg, { tagged: false, progress });
+      await this.deliver((payload) => hook.send({ ...payload, username, ...look, ...(threadId ? { threadId } : {}) }), msg, { tagged: false, progress, shares: this.ownerOnly(channel) });
       return true;
     } catch (err) {
       // The network's failure is the send's, held or dropped; posting it the other way could post it twice.
@@ -2747,7 +2773,7 @@ export class DiscordAdapter implements ChannelAdapter {
     const user = await this.client.users.fetch(recipientId).catch((err: unknown) => {
       throw sendFailure(err) === "refused" ? err : unsent(err);
     });
-    await this.deliver((payload) => user.send(payload), msg, { progress });
+    await this.deliver((payload) => user.send(payload), msg, { progress, shares: true });
   }
 
   /**
@@ -2924,7 +2950,7 @@ export class DiscordAdapter implements ChannelAdapter {
       flags?: MessageFlags.SuppressNotifications;
     }) => Promise<unknown>,
     msg: OutboundMessage,
-    { tagged = true, progress }: { tagged?: boolean; progress?: SendProgress } = {},
+    { tagged = true, progress, shares = false }: { tagged?: boolean; progress?: SendProgress; shares?: boolean } = {},
   ): Promise<string | undefined> {
     // References become links first, so the split sees the longer text. A
     // message already posted under the speaker's own name carries no tag.
@@ -2941,7 +2967,9 @@ export class DiscordAdapter implements ChannelAdapter {
     // message. Discord takes ten per message and so many bytes each; what
     // does not fit is named instead, with where it is kept, rather than the
     // whole message being refused for one file too many.
-    const all = (msg.files ?? []).map((f) => ({ attachment: Buffer.from(f.data, "base64"), name: f.name, path: f.path }));
+    // The pictures and PDFs KOS's words name, uploaded where the owner alone reads, so they show here and not only as links.
+    const named = shares && said && !this.isOwner(msg.from) ? this.filesNamed(said, msg.files ?? []) : [];
+    const all = [...(msg.files ?? []), ...named].map((f) => ({ attachment: Buffer.from(f.data, "base64"), name: f.name, path: f.path }));
     const files = all.filter((f) => f.attachment.byteLength <= DISCORD_FILE_BYTES).slice(0, DISCORD_FILES);
     const left = all.filter((f) => !files.includes(f));
     if (left.length) {
@@ -2970,6 +2998,24 @@ export class DiscordAdapter implements ChannelAdapter {
     }
     const id = (posted as { id?: unknown } | undefined)?.id;
     return typeof id === "string" ? id : undefined;
+  }
+
+  /** The workspace pictures and PDFs words name by `@file:`, read through the workspace, none already attached. */
+  private filesNamed(text: string, attached: { path?: string }[]): { name: string; data: string; path: string }[] {
+    if (!this.fileOf) return [];
+    const have = new Set(attached.flatMap((f) => (f.path ? [f.path] : [])));
+    const paths = new Set<string>();
+    outsideCode(text, (part) => {
+      for (const m of part.matchAll(FILE_REF)) {
+        const path = (m[1] ?? m[2] ?? "").trim();
+        if (UPLOADS.test(path) && !have.has(path)) paths.add(path);
+      }
+      return part;
+    });
+    return [...paths].slice(0, DISCORD_FILES).flatMap((path) => {
+      const file = this.fileOf?.(path);
+      return file ? [{ ...file, path }] : [];
+    });
   }
 
   /** Whether a speaker is the owner, whose words are never drawn as KOS's blocks. */
@@ -3132,7 +3178,7 @@ export class DiscordAdapter implements ChannelAdapter {
         // webhook, under its own name, with no tag line needed.
         if (reply.from && message.guild && (await this.sendAs(message.channel as Parameters<DiscordAdapter["sendAs"]>[0], reply))) return;
         try {
-          await this.deliver(post, reply);
+          await this.deliver(post, reply, { shares: this.ownerOnly(message.channel) });
         } catch (err) {
           console.warn(`[discord] the answer could not be posted in the DM, sending it directly:`, err instanceof Error ? err.message : String(err));
           await this.send(msg.senderId, reply);
