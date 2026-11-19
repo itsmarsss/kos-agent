@@ -80,6 +80,8 @@ describe("a tab a secret was filled into", () => {
       expect(heldRefusal("Input.dispatchKeyEvent", { type: "keyDown", ...key })).toMatch(/copying/);
     }
     expect(heldRefusal("Input.dispatchDragEvent", { type: "drop" })).toMatch(/dragging/);
+    expect(heldRefusal("Input.setInterceptDrags", { enabled: true })).toMatch(/dragging/);
+    expect(heldRefusal("Input.setInterceptDrags", { enabled: false })).toBeUndefined();
     // The hands' own reads and acts in their world, a plain key, a shifted letter, a click.
     expect(heldRefusal("Runtime.evaluate", { expression: "1", contextId: 3 })).toBeUndefined();
     expect(heldRefusal("Runtime.callFunctionOn", { objectId: "1.3.1", functionDeclaration: "function () {}" })).toBeUndefined();

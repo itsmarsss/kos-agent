@@ -223,7 +223,7 @@ function copies(params: Record<string, unknown>): boolean {
 export function heldRefusal(method: string, params: Record<string, unknown>): string | undefined {
   if (method === "Runtime.evaluate" && (params["replMode"] === true || params["uniqueContextId"] !== undefined)) return "running a script in the page";
   if (method === "Input.dispatchKeyEvent" && copies(params)) return "copying, cutting or selecting all";
-  if (method === "Input.dispatchDragEvent" || method === "Input.setInterceptDrags") return "dragging";
+  if (method === "Input.dispatchDragEvent" || (method === "Input.setInterceptDrags" && params["enabled"] === true)) return "dragging";
   return undefined;
 }
 
