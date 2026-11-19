@@ -17,7 +17,7 @@ export interface KosClientOptions {
   writeKey?: string;
   /** How long a request waits for an answer, in ms (default 30 s). A wedged host fails the call instead of hanging it. */
   timeoutMs?: number;
-  /** How long a turn (message, ask) waits, in ms (default 20 min): a turn runs tools and can wait on an approval. */
+  /** How long a turn (message, ask) or an approval waits, in ms (default 20 min): a turn runs tools and can wait on an approval. */
   turnTimeoutMs?: number;
 }
 
@@ -185,8 +185,9 @@ export class KosClient {
     return this.get("/api/approvals");
   }
 
+  /** Waits as a turn does: an approval can answer only once the action it lets go has run. */
   approve(id: number, opts: { remember?: boolean } = {}): Promise<{ ok: boolean; message: string }> {
-    return this.post("/api/approve", { id, ...opts });
+    return this.post("/api/approve", { id, ...opts }, this.turnTimeoutMs);
   }
 
   deny(id: number): Promise<{ ok: boolean; message: string }> {
