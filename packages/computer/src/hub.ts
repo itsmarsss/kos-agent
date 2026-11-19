@@ -60,6 +60,8 @@ export interface DeviceStatus {
 export interface HubDeps {
   store: DeviceStore;
   hostKey: HostKey;
+  /** KOS's own addresses (host, or host:port), told to a computer as a session begins: it never acts on that dashboard. */
+  ownHosts?: () => readonly string[];
   /** True while KOS's kill switch is thrown: nothing starts. */
   halted: () => boolean;
   /** KOS's face as the owner set it, for every device to draw KOS by. */
@@ -498,6 +500,7 @@ export class DeviceHub {
         session: id, task: input.task, requester: input.requester, conversation: input.conversation, minutes,
         ...(input.app ? { target: { app: input.app } } : {}),
         ...(input.maxEdge ? { maxEdge: input.maxEdge } : {}),
+        ...(!browser && this.deps.ownHosts ? { kosHosts: [...this.deps.ownHosts()] } : {}),
       },
       this.deps.beginTimeoutMs ?? BEGIN_TIMEOUT_MS,
     );

@@ -159,6 +159,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           face: options.face,
           theme: options.theme,
           ...(localKey ? { localKey } : {}),
+          ...(options.ownHosts ? { ownHosts: options.ownHosts } : {}),
           scrub: (text) => secrets.scrub(text),
         });
       }
