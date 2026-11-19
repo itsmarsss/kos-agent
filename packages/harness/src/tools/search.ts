@@ -58,6 +58,7 @@ function grepProgram(ws: Workspace, rgPath: string, args: string[], hidden: stri
  * is resolved through the jail, so the search can never read outside the root.
  * The pattern goes after -e and the folder after --, so neither is ever read
  * as one of ripgrep's flags (--pre names a program it runs on every file).
+ * A pattern may start with - for that reason.
  * KOS's own state and database are left out, as files.read leaves them.
  * ripgrep exits 1 with no matches, which is a normal empty result, not an error.
  * With no ripgrep on the child's PATH the search runs in Node instead.
@@ -70,18 +71,16 @@ async function grep(
 ): Promise<string> {
   const pattern = str(input, "pattern");
   const asked = typeof input.path === "string" ? input.path : ".";
-  if (pattern.startsWith("-") || asked.startsWith("-")) {
-    throw new Error("a pattern or path starting with - is read as a flag: search for the text after it, or start the path with ./");
-  }
+  if (asked.startsWith("-")) throw new Error("a path starting with - reads as a flag: start it with ./");
   const placed = placeFor(ws, ctx, asked);
   const reach = reachOf(ctx);
   if (isKosState(ws, placed.rel)) throw new Error(".kos is KOS's own state and is not searched; a result set aside in this chat comes back with context.recall");
   const refused = reservedReadRefusal(ws, placed.rel, reach);
   if (refused) throw new Error(refused);
-  // What a search walks past, by name at any depth: .kos always, the rest of KOS's own unless Maintenance asks.
+  // What a search walks past at the workspace root: .kos always, the rest of KOS's own unless Maintenance asks. Run from the root on a relative path, a leading / anchors each there, so a project's own locks/ or profile.json is still searched.
   const left = [...RESERVED].filter((name) => name === ".kos" || !maintains(reach));
-  const globs = left.flatMap((name) => ["--iglob", `!${name}`]);
-  const args = ["--line-number", "--no-heading", "--color", "never", ...globs, "-e", pattern, "--", placed.abs];
+  const globs = left.flatMap((name) => ["--iglob", `!/${name}`]);
+  const args = ["--line-number", "--no-heading", "--color", "never", ...globs, "-e", pattern, "--", placed.rel || "."];
   const env = childEnv({ home: ws.root });
   const binary = rgPath.includes("/") ? (existsSync(rgPath) ? rgPath : undefined) : findProgram(rgPath, env.PATH ?? "");
   if (!binary) {
@@ -111,7 +110,10 @@ async function grep(
     });
     return stdout.trim() || "(no matches)";
   } catch (err) {
-    if ((err as { code?: number | string }).code === 1) return "(no matches)"; // ripgrep: no matches found
+    const e = err as { code?: number | string; stdout?: string };
+    if (e.code === 1) return "(no matches)"; // ripgrep: no matches found
+    // 2 is an error somewhere in the walk (a file the jail refuses); what it found besides still stands.
+    if (e.code === 2 && e.stdout?.trim()) return e.stdout.trim();
     throw err;
   }
 }

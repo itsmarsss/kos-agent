@@ -109,16 +109,19 @@ describe("search module", () => {
     chmodSync(join(ws.root, "scratch", "x.sh"), 0o755);
     writeFileSync(join(ws.root, "notes.txt"), "a line --pre=/bin/sh in the text\n");
     const registry = await load(createSearchModule({ rgPath }));
+    // Patterns that are flags are searched for as text.
     for (const input of [
       { pattern: "--pre=/bin/sh", path: "scratch/x.sh" },
       { pattern: "--pre=scratch/x.sh" },
       { pattern: "-uuu", path: "." },
-      { pattern: "needle", path: "--pre=/bin/sh" },
     ]) {
       const res = await registry.execute("search.grep", input);
-      expect(res.isError, JSON.stringify(input)).toBe(true);
-      expect(res.content).toContain("read as a flag");
+      expect(res.isError, JSON.stringify(input)).toBe(false);
     }
+    expect((await registry.execute("search.grep", { pattern: "--pre=/bin/sh" })).content).toContain("notes.txt:1:");
+    const flagPath = await registry.execute("search.grep", { pattern: "needle", path: "--pre=/bin/sh" });
+    expect(flagPath.isError).toBe(true);
+    expect(flagPath.content).toContain("reads as a flag");
     // Text that only looks like a flag later in the pattern is searched for, not obeyed.
     const literal = await registry.execute("search.grep", { pattern: "line --pre=/bin/sh" });
     expect(literal.content).toContain("notes.txt:1:");
@@ -152,6 +155,13 @@ describe("search module", () => {
     expect(all.content).toContain("notes.txt");
     expect(all.content).not.toContain("another chat");
     expect(all.content).not.toContain("kos.sqlite");
+    // Only the root's own are KOS's: a project's locks/ or profile.json is the project's.
+    mkdirSync(join(ws.root, "projects", "p", "locks"), { recursive: true });
+    writeFileSync(join(ws.root, "projects", "p", "locks", "a.txt"), "needle in a project");
+    writeFileSync(join(ws.root, "projects", "p", "profile.json"), '{"needle": 1}');
+    const nested = await registry.execute("search.grep", { pattern: "needle", path: "workspace:" });
+    expect(nested.content).toContain("projects/p/locks/a.txt");
+    expect(nested.content).toContain("projects/p/profile.json");
     for (const path of ["workspace:.kos/results", "kos.sqlite", "KOS.sqlite-wal"]) {
       const res = await registry.execute("search.grep", { pattern: "needle", path });
       expect(res.isError, path).toBe(true);
