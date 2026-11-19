@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
 import { decidedLine } from "./decisions.js";
+import { approvedResult, undoneResult } from "./guarded.js";
 import { ownerWords } from "../models/heard.js";
 import { conversationEvents, historyEvents, spokenTurns } from "./transcript.js";
 
@@ -118,6 +119,41 @@ describe("conversationEvents", () => {
     // It did not fail, but it did not happen: without this it renders as "ok".
     expect(events[0]).toMatchObject({ pendingId: "7" });
     expect((events[0] as { isError?: boolean }).isError).toBeUndefined();
+  });
+
+  it("tells a call that waited in the turn how it ended, from its result", () => {
+    const call = (id: string, content: string): ModelMessage[] => [
+      { role: "assistant", content: [{ type: "tool_use", id, name: "http.fetch", input: { url: "x" } }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: id, content }] },
+    ];
+    const events = conversationEvents([
+      ...call("t1", undoneResult("denied", "Fetch x")),
+      ...call("t2", undoneResult("expired", "Fetch x")),
+      ...call("t3", approvedResult({ content: "200", isError: false }).content),
+      ...call("t4", "200"),
+    ]);
+    expect(events.map((e) => (e as { outcome?: string }).outcome)).toEqual(["denied", "lapsed", "approved", undefined]);
+  });
+
+  it("tells a queued call its outcome when the decision on it comes", () => {
+    const queue = (id: string, n: number): ModelMessage[] => [
+      { role: "assistant", content: [{ type: "tool_use", id, name: "files.rm", input: { path: "a" } }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: id, content: `queued for approval (pending #${n}); not executed.` }] },
+    ];
+    const resume = [
+      "System: the owner decided on the pending actions:",
+      `- ${decidedLine(5, "files.rm", JSON.stringify({ path: "a" }), { approved: true, isError: false, result: "removed" })}`,
+      `- ${decidedLine(6, "files.rm", JSON.stringify({ path: "a" }), { approved: false })}`,
+    ].join("\n");
+    const events = conversationEvents([
+      ...queue("t5", 5),
+      ...queue("t6", 6),
+      ...queue("t7", 7),
+      ...queue("t8", 8),
+      { role: "user", content: [{ type: "text", text: resume }] },
+      { role: "assistant", content: [{ type: "text", text: "@approval:7 (Delete a) lapsed: nobody decided within 24 hours, so nothing was done." }] },
+    ]);
+    expect(events.slice(0, 4).map((e) => (e as { outcome?: string }).outcome)).toEqual(["approved", "denied", "lapsed", undefined]);
   });
 
   it("shows a resume as a note of what was decided, not as the owner's words", () => {

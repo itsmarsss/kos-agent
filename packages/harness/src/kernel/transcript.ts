@@ -1,4 +1,4 @@
-import { summarizeAction, type ActionHome } from "@kos/shared";
+import { outcomeOf, summarizeAction, type ActionHome, type CallOutcome } from "@kos/shared";
 
 import { heardWith } from "../models/heard.js";
 import { saidText, type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
@@ -64,6 +64,13 @@ export type ChatEvent =
        * this a queued call reads as a successful one that did nothing.
        */
       pendingId?: string;
+      /**
+       * How a held call ended: denied, lapsed or approved, read from its own
+       * result for a call that waited in the turn, and from the decision
+       * that followed for a queued one; absent while a queued call is
+       * undecided and for a call that ran unasked.
+       */
+      outcome?: CallOutcome;
       /** The model's id for the call, so a picture taken after it can find its card. */
       toolUseId?: string;
       /** A picture of the browser after this step, at /api/frames/:id. */
@@ -118,6 +125,20 @@ function approvalNote(text: string): string | null {
   return denied ? `Denied #${denied[1]}` : null;
 }
 
+/**
+ * The decisions a line reports, by approval id: a resume after the owner
+ * decided queued calls, in each of its shapes, and the note a lapse leaves.
+ */
+function decisionsIn(text: string): Array<[string, CallOutcome]> {
+  const found: Array<[string, CallOutcome]> = [];
+  for (const m of text.matchAll(/^- @approval:(\d+) .+?: the owner (approved|denied)/gm)) found.push([m[1]!, m[2] === "denied" ? "denied" : "approved"]);
+  for (const m of text.matchAll(/^- #(\d+) \S+: (approved and run|denied by the owner)/gm)) found.push([m[1]!, m[2] === "approved and run" ? "approved" : "denied"]);
+  for (const m of text.matchAll(/^System: the owner (approved|denied) pending action #(\d+)\./gm)) found.push([m[2]!, m[1] === "denied" ? "denied" : "approved"]);
+  const lapse = /^@approval:(\d+) \(.*\) lapsed: /s.exec(text);
+  if (lapse) found.push([lapse[1]!, "lapsed"]);
+  return found;
+}
+
 function textOf(content: ModelMessage["content"]): string {
   return saidText(content).trim();
 }
@@ -141,6 +162,8 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
   const events: ChatEvent[] = [];
   // tool_use id -> the event waiting for its result.
   const pending = new Map<string, Extract<ChatEvent, { kind: "tool" }>>();
+  // approval id -> the queued call it holds, told its outcome when a decision on it comes later.
+  const held = new Map<string, Extract<ChatEvent, { kind: "tool" }>>();
 
   for (const message of messages) {
     const at = message.at ? { at: message.at } : {};
@@ -190,6 +213,13 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
         const text = block.text.trim();
         if (text) {
           const note = message.role === "user" ? approvalNote(text) : null;
+          // Only the harness's own lines decide: a resume, or the note a lapse leaves.
+          if (note || (message.role === "assistant" && text.startsWith("@approval:"))) {
+            for (const [id, outcome] of decisionsIn(text)) {
+              const call = held.get(id);
+              if (call) call.outcome = outcome;
+            }
+          }
           events.push(
             note
               ? { kind: "message", role: "system", text: note, ...at }
@@ -229,7 +259,12 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
           if (block.ms !== undefined) target.ms = block.ms;
           if (block.waitedMs !== undefined) target.waitedMs = block.waitedMs;
           const queued = parseQueuedApproval(content);
-          if (queued) target.pendingId = queued;
+          if (queued) {
+            target.pendingId = queued;
+            held.set(queued, target);
+          }
+          const outcome = outcomeOf(content);
+          if (outcome) target.outcome = outcome;
           pending.delete(block.toolUseId);
         }
         // What the owner said while the turn ran, where the turn heard it, and when: the step that took it in.
