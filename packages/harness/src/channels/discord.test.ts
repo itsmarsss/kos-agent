@@ -1686,6 +1686,28 @@ describe("DiscordAdapter authorization", () => {
     expect(posts["ny"]).toHaveLength(4);
   });
 
+  it("counts the server's administrators as readers of a place shut to everyone", async () => {
+    const admin = PermissionFlagsBits.Administrator;
+    const role = (id: string, members: string[], perms = admin) => [id, { id, permissions: { has: (b: bigint) => b === perms }, members: new Map(members.map((m) => [m, {}])) }] as const;
+    const asked = async (guild: unknown): Promise<"ny" | "dm"> => {
+      const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+      let where: "ny" | "dm" = "dm";
+      const inner = adapter as unknown as { client: unknown; approvalsChannelId: string };
+      inner.client = {
+        user: { id: "bot-id" },
+        channels: { fetch: async () => ({ id: "ny", guildId: "g1", guild, permissionOverwrites: overwrites(["g1"], ["owner-id"]), isSendable: () => true, send: async () => ((where = "ny"), { id: "n1" }) }) },
+        users: { fetch: async () => ({ send: async () => ({ id: "d1" }) }) },
+      };
+      inner.approvalsChannelId = "ny";
+      await adapter.requestApproval("owner-id", { id: "6", text: "x", tool: "shell.run", args: { command: "ls" } });
+      return where;
+    };
+    expect(await asked({ ownerId: "owner-id", roles: { cache: new Map([role("r-bot", ["bot-id"]), role("r-mods", ["ana"], PermissionFlagsBits.ManageMessages)]) } })).toBe("ny");
+    expect(await asked({ ownerId: "owner-id", roles: { cache: new Map([role("r-admin", ["owner-id", "ana"])]) } })).toBe("dm");
+    expect(await asked({ ownerId: "owner-id", roles: { cache: new Map([role("r-admin", [])]) } })).toBe("dm");
+    expect(await asked({ ownerId: "someone-else", roles: { cache: new Map() } })).toBe("dm");
+  });
+
   it("asks in the DM when #needs-you has been opened to others", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
     const dm: Record<string, unknown>[] = [];

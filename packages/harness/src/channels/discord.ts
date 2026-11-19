@@ -2353,7 +2353,25 @@ export class DiscordAdapter implements ChannelAdapter {
     for (const [id, overwrite] of cache) {
       if (id !== guildId && !ours.has(id) && overwrite.allow?.has(PermissionFlagsBits.ViewChannel)) return false;
     }
-    return true;
+    return !this.adminsRead(at.guild, guildId, ours);
+  }
+
+  /**
+   * Whether anyone else reads every channel whatever its overwrites say: the
+   * server's owner, when that is not the owner of KOS, or a member with
+   * Administrator. A role with it counts unless every member known to be in
+   * it is the owner or the bot, since members are known only as they appear.
+   */
+  private adminsRead(guild: unknown, guildId: string, ours: Set<string>): boolean {
+    const g = guild as { ownerId?: string; roles?: { cache?: Map<string, { id: string; permissions: { has: (bit: bigint) => boolean }; members?: Map<string, unknown> }> } } | null | undefined;
+    if (!g) return false;
+    if (g.ownerId && !ours.has(g.ownerId)) return true;
+    for (const role of g.roles?.cache?.values() ?? []) {
+      if (!role.permissions.has(PermissionFlagsBits.Administrator)) continue;
+      const members = [...(role.members?.keys() ?? [])];
+      if (role.id === guildId || members.length === 0 || members.some((id) => !ours.has(id))) return true;
+    }
+    return false;
   }
 
   /** The approvals channel, when the server has one and only the owner reads it; prompts go there rather than to a DM. */
