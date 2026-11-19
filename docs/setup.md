@@ -259,7 +259,11 @@ In the container, keys go in `.env` on the host followed by
 `docker compose up -d`, not in Settings, Providers (the container's own
 copy of the file does not last). The `kos` command runs inside it as
 `docker compose exec kos node packages/cli/dist/main.js <args>`. The
-container has no Chrome, so KOS's own browser is off there. The vault
+container has no Chrome, so KOS's own browser is off there. Discord is
+off too: the image runs `serve`, which implies `--no-discord`, and the log
+says "Discord: off". To run the bot in the container, uncomment the
+`command:` line in docker-compose.yml (`serve --discord`, which refuses to
+start without the Discord keys in `.env`). The vault
 in the container needs `KOS_VAULT_KEY` and `KOS_VAULT_ALLOW_SHARED_UID=1`
 in `.env` (see [secrets.md](secrets.md), In the container).
 

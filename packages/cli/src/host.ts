@@ -1243,6 +1243,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     console.log(
       "Discord: skipped (set DISCORD_TOKEN + KOS_OWNER_DISCORD to enable)",
     );
+  } else if (!wantDiscord) {
+    console.log("Discord: off (--no-discord; serve implies it, serve --discord turns it on)");
   }
 
   let smsRuntime: ReturnType<typeof connectChannel> | undefined;

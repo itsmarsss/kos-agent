@@ -34,7 +34,6 @@ RUN corepack enable \
   && chown -R kos:kos /workspace /home/kos/.kos
 
 COPY --from=build /src /app
-# Drop build tooling weight is left for simplicity; image is still self-contained.
 
 USER kos
 WORKDIR /app
@@ -42,5 +41,5 @@ VOLUME ["/workspace"]
 EXPOSE 4317
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-# Default: dashboard (API + static UI). Override for chat/discord.
+# Default: dashboard (API + static UI), Discord off (logged as such). `serve --discord` turns it on.
 CMD ["node", "packages/cli/dist/main.js", "serve", "--host", "0.0.0.0", "--port", "4317"]
