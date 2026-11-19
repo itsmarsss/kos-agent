@@ -249,10 +249,13 @@ When a message is masked while the vault is locked, the turn also tells the
 owner the vault is locked and exact masking is off until it is unlocked.
 
 A one-time code the owner gave on a card (below) is looked for as well, for
-as long as it is held and five minutes after: as it is only where no letter
-or digit stands beside it, so a six-digit code is not found inside a
-timestamp or an id, and in its encodings. A card number is looked for in its
-encodings too (base64, base64url, hex of its digits).
+as long as it is held and five minutes after: in its encodings, and as it is
+only where no letter or digit stands beside it (a percent escape may), so a
+six-digit code is not found inside a timestamp or an id; in either case,
+with a space or a dash or neither between any two of its letters and
+digits, its digits percent-encoded or not. A card number is looked for in
+its encodings too: base64, base64url and hex of its digits, as they are or
+written in fours with spaces or dashes.
 
 It runs on: every tool result, every progress event, every string a
 statement binds into the workspace database, the owner's messages at the
@@ -459,7 +462,9 @@ box is emptied:
 - the dashboard: `POST /api/approve {id, code}`;
 - a device's panel (KOS for Chrome's side panel, KOS for Mac): `chat.decide
   {approval, approved: true, code}`; KOS for Chrome sends it only while its
-  line to KOS is up, never kept in storage to wait for it;
+  line to KOS is up, never kept in storage to wait for it: with the line
+  down the panel gets its card back, the box empty, and says it was not
+  sent;
 - the phone, through the dashboard relay: `/api/approve {id, code}`, which
   the relay's audit writes down as `code: "(typed on the card)"`.
 
@@ -477,10 +482,21 @@ https or `http://localhost`. The result names the handle, never the code.
 It is used once and for five minutes from the yes, both enforced in the
 host: a second use is refused (`used`), a late one too (`expired`), and a
 handle used in another chat, page, browser or app is refused (`policy`,
-`origin`). A refusal before anything went in (a field that will not take
-it, a page that changed, the Mac turning it away) leaves the handle for one
-more try in that place, without a second ask, since the owner's yes was for
-that page; anything that may have put part of it in spends it.
+`origin`).
+
+A refusal known to come before the value went anywhere leaves the handle
+for one retry, and one only, into the same field of the same document (in
+a browser the approved document and the target's ref; on the Mac the same
+field by what the Mac says of it), without a second ask, since the owner's
+yes was for that field: in a browser one of `Page.fillSecret`'s checks made
+before the value is set (`SecretRefused` with `placed` false: the page
+changed, a script ran, the origin, a worker, an unreachable frame, a field
+that does not take it); on the Mac its refusals before the first key
+(`target`, `origin`, `field`, `secret_field`, `paused`, `no_session`,
+`permission`). Everything else spends it: a refusal once the value was set
+or typed (`placed`), anything KOS for Chrome answers once it was handed the
+value, a line that timed out or went away, a Mac that stopped part of the
+way, any error not on those lists, and a retry refused again.
 
 ## Routes
 
