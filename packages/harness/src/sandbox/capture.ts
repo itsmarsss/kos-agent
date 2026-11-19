@@ -11,6 +11,8 @@ export interface CapturedRun {
   truncated: boolean;
   /** Ended because the turn running it was stopped. */
   stopped?: true;
+  /** Git control the run planted, moved to .kos/quarantine: see gitwatch.ts. */
+  quarantined?: string[];
 }
 
 export interface CaptureOptions {
@@ -38,7 +40,14 @@ export function stopOf(signal: AbortSignal | undefined): { signal?: AbortSignal 
  */
 export function runCaptured(command: JailedCommand, opts: CaptureOptions): Promise<CapturedRun> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command.file, command.args, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    let child;
+    try {
+      child = spawn(command.file, command.args, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    } catch (err) {
+      command.release?.();
+      reject(err);
+      return;
+    }
     const end = (): void => {
       try {
         if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
@@ -75,9 +84,10 @@ export function runCaptured(command: JailedCommand, opts: CaptureOptions): Promi
     };
     if (opts.signal?.aborted) onStop();
     else opts.signal?.addEventListener("abort", onStop, { once: true });
+    let quarantined: string[] = [];
     const settle = (): void => {
       clearTimeout(timer);
-      command.release?.();
+      quarantined = command.release?.() ?? [];
       opts.signal?.removeEventListener("abort", onStop);
     };
     child.on("error", (err) => {
@@ -86,7 +96,7 @@ export function runCaptured(command: JailedCommand, opts: CaptureOptions): Promi
     });
     child.on("close", (code) => {
       settle();
-      resolve({ exitCode: code, stdout, stderr, timedOut, truncated, ...(stopped ? { stopped: true as const } : {}) });
+      resolve({ exitCode: code, stdout, stderr, timedOut, truncated, ...(stopped ? { stopped: true as const } : {}), ...(quarantined.length ? { quarantined } : {}) });
     });
   });
 }

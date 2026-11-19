@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 import { realOf, vaultDir } from "../secrets/vault.js";
 import { bubblewrap, bwrapCommand } from "./bwrap.js";
+import type { JailNat } from "./jailrun.js";
 
 /**
  * How a shell command is kept inside the workspace.
@@ -28,11 +29,13 @@ export interface JailOptions {
   contained?: boolean;
   /** The bwrap that jails on Linux, or false for none: found and tried once when not given. */
   bubblewrap?: string | false;
+  /** The NAT that gives a networked bwrap run its own network, or false for none: found when not given. */
+  nat?: JailNat | false;
   /** Where it may write, and read back; the whole workspace by default. */
   writes?: string[];
   /** Under the workspace yet not to be read: KOS's own state, for a program that runs without asking. */
   hidden?: string[];
-  /** Under the workspace yet not to be written: KOS's own settings and database, whatever path, glob or link names them. */
+  /** Under the workspace yet not to be written: KOS's own settings and database, whatever path, glob or link names them; a folder ends in a slash. */
   readOnly?: string[];
   /** Inside a read-only folder yet writable again: KOS's temp and caches under its own state. */
   writableWithin?: string[];
@@ -97,8 +100,12 @@ export function kosSecretFiles(env: NodeJS.ProcessEnv = process.env): string[] {
 export interface JailedCommand {
   file: string;
   args: string[];
-  /** Undoes what jailing it put in place, once the program has ended: see placeholder.ts. */
-  release?: () => void;
+  /**
+   * Undoes what jailing it put in place, once the program has ended (see
+   * placeholder.ts), and says what it moved out of the workspace after a
+   * run nobody approved (see gitwatch.ts).
+   */
+  release?: () => string[];
 }
 
 /** Quote for a sandbox profile string: backslashes and double quotes. */
