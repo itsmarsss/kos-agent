@@ -1,5 +1,5 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -325,6 +325,25 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(read.stdout).not.toContain("SQLite format 3");
     const own = JSON.parse((await maintenance.execute("shell.run", { command: "sh -c 'head -c 15 kos.sql*'" })).content) as ShellResult;
     expect(own.stdout).toContain("SQLite format 3");
+  });
+
+  it("keeps the database's snapshot and the backup repo unreadable to everyone but Maintenance", async () => {
+    copyFileSync(join(ws.root, "kos.sqlite"), join(ws.root, "kos.snapshot.sqlite"));
+    mkdirSync(join(ws.root, ".kos", "backup.git", "objects"), { recursive: true });
+    writeFileSync(join(ws.root, ".kos", "backup.git", "objects", "pack"), "old copies of the database");
+    expect(namesDatabase("sqlite3 kos.snapshot.sqlite .tables")).toBe(true);
+    expect(await registry.refusal("shell.run", { command: "sqlite3 kos.snapshot.sqlite .tables" })).toBe(DATABASE_REFUSED);
+    // Approved, not judged read-only: the sandbox holds, whatever the line names.
+    for (const command of ["sh -c 'head -c 15 kos.snap*'", "sh -c 'cat .kos/backup.git/objects/*'", "sh -c 'cat kos.snapshot.sqlite.part 2>/dev/null; ls .kos/backup.git'"]) {
+      const read = await run({ command });
+      expect(read.stdout, command).not.toMatch(/SQLite format 3|old copies|objects/);
+    }
+    const maintenance = new ToolRegistry();
+    const ctx = toolRegistryContext(maintenance, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => "maintenance" });
+    await createShellModule({ timeoutSeconds: 5 }).activate(ctx);
+    const own = JSON.parse((await maintenance.execute("shell.run", { command: "sh -c 'head -c 15 kos.snap*; cat .kos/backup.git/objects/pack'" })).content) as ShellResult;
+    expect(own.stdout).toContain("SQLite format 3");
+    expect(own.stdout).toContain("old copies");
   });
 
   it("gives a home's read-only run a fresh temp inside the home's own, gone afterwards", async () => {

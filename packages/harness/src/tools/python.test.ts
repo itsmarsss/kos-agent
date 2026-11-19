@@ -104,16 +104,20 @@ describe.runIf(onMac)("python.run on macOS", () => {
 
   it("sees neither the owner's home, KOS's own files, nor the network", async () => {
     writeFileSync(join(root, "mcp.json"), "{}", "utf8");
+    // The snapshot's copy of the database, and the backup repo whose objects hold the older ones.
+    writeFileSync(join(root, "kos.snapshot.sqlite"), "SQLite format 3", "utf8");
+    mkdirSync(join(root, ".kos", "backup.git"), { recursive: true });
+    writeFileSync(join(root, ".kos", "backup.git", "HEAD"), "ref: refs/heads/main", "utf8");
     const r = await run(
       [
         "import socket",
-        `for p in [${JSON.stringify(outsideHome)}, 'kos.sqlite', 'mcp.json']:`,
+        `for p in [${JSON.stringify(outsideHome)}, 'kos.sqlite', 'mcp.json', 'kos.snapshot.sqlite', '.kos/backup.git/HEAD']:`,
         "    try:\n        open(p).read(); print('read', p)\n    except OSError:\n        print('hidden', p)",
         "try:\n    socket.create_connection(('1.1.1.1', 80), timeout=3); print('online')\nexcept OSError:\n    print('offline')",
       ].join("\n"),
     );
     expect(r.stdout).not.toContain("read ");
-    expect(r.stdout.match(/hidden/g)).toHaveLength(3);
+    expect(r.stdout.match(/hidden/g)).toHaveLength(5);
     expect(r.stdout).toContain("offline");
   });
 

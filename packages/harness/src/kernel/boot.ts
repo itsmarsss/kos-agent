@@ -246,6 +246,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const killSwitch = new PersistentKillSwitch(workspace.db);
   const queue = new WorkQueue();
   const backup = new WorkspaceBackup(workspace.root, undefined, workspace.db);
+  // Before any program runs: an older KOS kept the backup repo at the root, where a chat's shell could read it.
+  try {
+    backup.moveLegacyRepo();
+  } catch (err) {
+    console.warn(`[backup] could not move the backup repo into .kos: ${err instanceof Error ? err.message : String(err)}`);
+  }
   const promoter = new SkillPromoter({
     workspaceRoot: workspace.root,
     backup,

@@ -12,7 +12,10 @@ folders.
 ## Backups
 
 Each workspace snapshot (the `kos.backup` job, or `snapshot` by hand) is a
-git commit of the workspace. The live `kos.sqlite` and its `-wal` and `-shm`
+git commit of the workspace, in a repo kept at `.kos/backup.git` (its
+`core.worktree` is the workspace). An older KOS kept it at the root as
+`.git`; it is moved at boot. No program a chat runs, but Maintenance's, can
+read the repo, the database or its snapshot. The live `kos.sqlite` and its `-wal` and `-shm`
 are never committed: the snapshot first copies the database through
 SQLite's backup API into `kos.snapshot.sqlite`, and that copy is what
 history keeps. The workspace's `.kos` folder (logs, caches, scratch, the host's state) is never

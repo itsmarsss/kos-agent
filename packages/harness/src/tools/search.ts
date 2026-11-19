@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { firstSegment, isReserved } from "../kernel/files.js";
 import type { EmbeddingProvider } from "../memory/embeddings.js";
 import type { EventLog } from "../memory/events.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
@@ -10,6 +11,9 @@ import { placeFor } from "./home.js";
 import { scan } from "./scan.js";
 
 const exec = promisify(execFile);
+
+/** What a search over a folder holding the workspace's root skips: the database, its journals and copies, and KOS's state. */
+const UNSEARCHED = ["kos.sqlite*", "kos.snapshot.sqlite*", ".kos"];
 
 export interface SearchModuleOptions {
   /** Wire these to enable the semantic search tool; grep needs neither. */
@@ -39,11 +43,14 @@ async function grep(
   input: Record<string, unknown>,
 ): Promise<string> {
   const pattern = str(input, "pattern");
-  const target = placeFor(ws, ctx, typeof input.path === "string" ? input.path : ".").abs;
+  const placed = placeFor(ws, ctx, typeof input.path === "string" ? input.path : ".");
+  const target = placed.abs;
+  // KOS's own files are read through the tools for them: the database and its copies are not text to grep.
+  if (isReserved(ws.root, placed.rel)) throw new Error(`${firstSegment(placed.rel)} is KOS's own, which search does not read`);
   try {
     const { stdout } = await exec(
       rgPath,
-      ["--line-number", "--no-heading", "--color", "never", pattern, target],
+      ["--line-number", "--no-heading", "--color", "never", ...UNSEARCHED.flatMap((glob) => ["--glob", `!${glob}`]), pattern, target],
       { cwd: ws.root, maxBuffer: 4_000_000 },
     );
     return stdout.trim() || "(no matches)";

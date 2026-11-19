@@ -1,6 +1,6 @@
-import { execFile } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { execFile, execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 
 import Database from "better-sqlite3";
@@ -52,6 +52,9 @@ const UNKEPT = ["**/.claude/projects/", "**/.claude/todos/", "**/.claude/statsig
 /** A tracked path under one of those. */
 const UNKEPT_PATH = /(^|\/)(\.claude\/(projects|todos|statsig)\/|\.claude\.json$)|^kos\.sqlite(-wal|-shm|-journal)?$|^kos\.snapshot\.sqlite(\.part|-wal|-shm|-journal)$|^\.kos\//;
 
+/** The backup repo's git dir, from the workspace's root: inside .kos, hidden from every jailed program. */
+export const BACKUP_GIT_DIR = ".kos/backup.git";
+
 /** The database as a snapshot keeps it: a consistent copy, at the workspace's root. */
 export const DB_SNAPSHOT = "kos.snapshot.sqlite";
 
@@ -79,14 +82,39 @@ export class WorkspaceBackup {
     renameSync(part, join(this.root, DB_SNAPSHOT));
   }
 
-  private git(args: string[]): Promise<{ stdout: string; stderr: string }> {
-    return exec("git", args, { cwd: this.root });
+  /** Where the backup repo's own files are: under .kos, which no jailed program reads. */
+  private get gitDir(): string {
+    return join(this.root, BACKUP_GIT_DIR);
   }
 
-  /** Initialize the workspace git repo if it does not exist yet. */
+  private git(args: string[]): Promise<{ stdout: string; stderr: string }> {
+    return exec("git", [`--git-dir=${this.gitDir}`, `--work-tree=${this.root}`, ...args], { cwd: this.root });
+  }
+
+  /**
+   * Move a backup repo an older KOS kept at the workspace's root, .git, to
+   * BACKUP_GIT_DIR. At the root, its objects (every old copy of the
+   * database) were readable by any program a chat ran, and every folder in
+   * the workspace sat inside it, so a chat's `git commit` in a project wrote
+   * into the backup's history. core.worktree keeps it pointed at the root.
+   */
+  moveLegacyRepo(): void {
+    const legacy = join(this.root, ".git");
+    if (!existsSync(legacy) || existsSync(this.gitDir) || !statSync(legacy).isDirectory()) return;
+    mkdirSync(dirname(this.gitDir), { recursive: true });
+    renameSync(legacy, this.gitDir);
+    execFileSync("git", [`--git-dir=${this.gitDir}`, "config", "core.worktree", this.root]);
+  }
+
+  /** Initialize the workspace's backup repo if it does not exist yet, moving an older one into place first. */
   async ensureRepo(): Promise<void> {
-    if (!existsSync(join(this.root, ".git"))) {
-      await this.git(["init", "-q"]);
+    this.moveLegacyRepo();
+    if (!existsSync(this.gitDir)) {
+      mkdirSync(dirname(this.gitDir), { recursive: true });
+      await exec("git", ["init", "-q", `--separate-git-dir=${this.gitDir}`, this.root]);
+      // init leaves a .git file at the root naming the repo; the repo is found by its path alone.
+      rmSync(join(this.root, ".git"), { force: true });
+      await this.git(["config", "core.worktree", this.root]);
     }
   }
 
@@ -111,7 +139,7 @@ export class WorkspaceBackup {
       }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        if (entry.name === "node_modules") continue;
+        if (entry.name === "node_modules" || (dir === this.root && entry.name === ".kos")) continue;
         const full = join(dir, entry.name);
         if (entry.name === ".git") continue;
         if (existsSync(join(full, ".git"))) {
@@ -136,7 +164,7 @@ export class WorkspaceBackup {
    */
   private syncExcludes(): string[] {
     const nested = this.nestedRepos();
-    const path = join(this.root, ".git", "info", "exclude");
+    const path = join(this.gitDir, "info", "exclude");
     const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
     const kept = existing
       .split("\n")

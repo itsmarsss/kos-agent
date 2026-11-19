@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -7,13 +8,16 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import Database from "better-sqlite3";
 
 import { Workspace } from "../store/workspace.js";
-import { DB_SNAPSHOT, WorkspaceBackup } from "./backup.js";
+import { BACKUP_GIT_DIR, DB_SNAPSHOT, WorkspaceBackup } from "./backup.js";
+
+/** git on the workspace's backup repo, as a test reaches it by hand. */
+const backupGit = (root: string, args: string[]): string => execFileSync("git", [`--git-dir=${join(root, BACKUP_GIT_DIR)}`, `--work-tree=${root}`, ...args], { cwd: root }).toString();
 
 describe("WorkspaceBackup", () => {
   let root: string;
@@ -56,7 +60,7 @@ describe("WorkspaceBackup", () => {
     put("sites/app/.claude/settings.json");
     // Committed before the exclude existed: taken out of the index, left on disk.
     put("sites/old/.claude/projects/t.jsonl");
-    execFileSync("git", ["add", "-f", "sites/old/.claude/projects/t.jsonl"], { cwd: root });
+    backupGit(root, ["add", "-f", "sites/old/.claude/projects/t.jsonl"]);
     for (const path of [".claude/projects/t.jsonl", "sites/app/.claude/projects/t.jsonl", "sites/app/.claude/todos/t.json", "sites/app/.claude/statsig/s", "sites/app/.claude.json"]) put(path);
     await backup.snapshot("with a build");
     expect(await backup.tracked()).toEqual(["sites/app/.claude/settings.json", "sites/app/index.html"]);
@@ -70,7 +74,7 @@ describe("WorkspaceBackup", () => {
       await withDb.ensureRepo();
       ws.db.exec("CREATE TABLE notes (body TEXT)");
       // Committed by an older snapshot: taken out of the index, left on disk.
-      execFileSync("git", ["add", "-f", "kos.sqlite"], { cwd: root });
+      backupGit(root, ["add", "-f", "kos.sqlite"]);
       // In the WAL, not yet checkpointed into kos.sqlite: a copy of the file alone would lose it.
       ws.db.pragma("wal_autocheckpoint = 0");
       ws.db.prepare("INSERT INTO notes (body) VALUES (?)").run("only in the wal");
@@ -88,6 +92,32 @@ describe("WorkspaceBackup", () => {
     } finally {
       ws.close();
     }
+  });
+
+  it("keeps its repo under .kos, and moves one an older KOS kept at the root there, history and all", async () => {
+    // An older KOS's repo, at the root.
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    writeFileSync(join(root, "notes.md"), "v1");
+    execFileSync("git", ["add", "-A"], { cwd: root });
+    execFileSync("git", ["-c", "user.name=T", "-c", "user.email=t@t", "commit", "-q", "-m", "old"], { cwd: root });
+    await backup.ensureRepo();
+    expect(existsSync(join(root, ".git"))).toBe(false);
+    expect(existsSync(join(root, BACKUP_GIT_DIR, "HEAD"))).toBe(true);
+    writeFileSync(join(root, "notes.md"), "v2");
+    expect(await backup.snapshot("after the move")).toBeTruthy();
+    expect((await backup.list()).map((s) => s.message)).toEqual(["after the move", "old"]);
+    expect(await backup.tracked()).toEqual(["notes.md"]);
+    // Outside the backup's own calls, the workspace is no repository: a chat's git in a project writes nothing into it.
+    mkdirSync(join(root, "projects", "a"), { recursive: true });
+    expect(() => execFileSync("git", ["rev-parse", "--git-dir"], { cwd: join(root, "projects", "a"), stdio: "pipe", env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(root) } })).toThrow();
+  });
+
+  it("makes a new repo under .kos, with nothing at the root", async () => {
+    await backup.ensureRepo();
+    expect(existsSync(join(root, ".git"))).toBe(false);
+    writeFileSync(join(root, "a.txt"), "a");
+    expect(await backup.snapshot("first")).toBeTruthy();
+    expect(backupGit(root, ["config", "core.worktree"]).trim()).toBe(root);
   });
 
   it("returns null when there is nothing to commit", async () => {
