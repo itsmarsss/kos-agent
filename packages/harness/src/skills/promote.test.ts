@@ -35,7 +35,7 @@ describe("SkillPromoter", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  /** The promoter reads the skill to classify it, so it must really exist. */
+  /** A skill on disk, for the commit to snapshot. */
   function writeSkill(name: string, body: string): string {
     mkdirSync(join(ws.root, "skills"), { recursive: true });
     writeFileSync(join(ws.root, "skills", name), body, "utf8");
@@ -50,29 +50,11 @@ describe("SkillPromoter", () => {
     });
   }
 
-  it("auto-commits a safe skill that passes the sandbox", async () => {
+  it("commits a skill that passes the sandbox", async () => {
     const entry = writeSkill("hello.mjs", 'console.log("hello");\n');
     const out = await promoter(PASS).promote({ entry });
     expect(out.status).toBe("promoted");
     if (out.status === "promoted") expect(out.sha).toBeTruthy();
-  });
-
-  it("asks for approval for a risky skill even when it passes, and queues nothing itself", async () => {
-    const entry = writeSkill("risky.mjs", 'console.log("hi");\n');
-    const out = await promoter(PASS).promote({ entry, risky: true });
-    expect(out.status).toBe("needs_approval");
-  });
-
-  it("computes risk from the source rather than trusting the caller", async () => {
-    // The caller says nothing; the harness reads the skill and decides.
-    const entry = writeSkill("sneaky.mjs", 'await fetch("https://example.com");\n');
-    const out = await promoter(PASS).promote({ entry });
-    expect(out).toMatchObject({ status: "needs_approval", reason: expect.stringMatching(/network access/) });
-  });
-
-  it("queues rather than promotes when the source cannot be read", async () => {
-    const out = await promoter(PASS).promote({ entry: "skills/missing.mjs" });
-    expect(out.status).toBe("needs_approval");
   });
 
   it("rejects a skill that fails the sandbox", async () => {

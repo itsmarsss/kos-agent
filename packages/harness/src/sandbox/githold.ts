@@ -106,19 +106,20 @@ export function gitHoldEnv(env: Record<string, string>, options: GitHoldOptions 
 
 /** A name in either case, as a sandbox regex: the disk opens `.GIT/Hooks` as `.git/hooks`. */
 function anyCase(name: string): string {
-  return [...name].map((c) => (/[a-z]/i.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c)).join("");
+  return [...name].map((c) => (/[a-z]/i.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c === "." ? "\\." : c)).join("");
 }
 
 /**
  * Sandbox regexes for what a run nobody approved may not write in any
- * repository: its config, hooks, info (attributes, excludes), submodules'
- * and worktrees' control, and a .git file, which can point git at a folder
- * of the agent's. Planted there, a program would run on the owner's next
+ * repository: its config (a worktree's own too), hooks, info (attributes,
+ * excludes), commondir (which points git's config and hooks elsewhere),
+ * submodules' and worktrees' control, and a .git file, which can point git
+ * at a folder of the agent's. Planted there, a program would run on the owner's next
  * approved git command. The index, objects and refs stay writable, so
  * `git add` and `git commit` work.
  */
 export const GIT_CONTROL_WRITES = [
-  `/${anyCase(".git")}/(${["config", "hooks", "info", "modules", "worktrees"].map(anyCase).join("|")})(/|$)`,
+  `/${anyCase(".git")}/(${["config", "config.worktree", "commondir", "hooks", "info", "modules", "worktrees"].map(anyCase).join("|")})(/|$)`,
   `/${anyCase(".git")}$`,
 ];
 

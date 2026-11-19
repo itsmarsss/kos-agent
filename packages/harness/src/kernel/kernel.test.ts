@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,9 @@ import { resultText } from "../models/heard.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel, orchestratorId, projectBrief } from "./kernel.js";
+import { readSkills, skillHash } from "../skills/manifest.js";
+import { legacySkillHash } from "../skills/migrate.js";
+import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import type { Conversation } from "./conversations.js";
 import { isKernelTable } from "../tools/fence.js";
 import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
@@ -856,6 +859,67 @@ describe("Kernel", () => {
     expect(readFileSync(join(root, "blobs", "recap", "uploads", "notes.txt"), "utf8")).toBe("hi");
   });
 
+  it("carries a promotion kept under the two-file hash over at boot, and names the ones it cannot", async () => {
+    kernel = await boot(stubInference([]));
+    const write = (name: string, body: string): void => {
+      mkdirSync(join(root, "skills", name), { recursive: true });
+      writeFileSync(join(root, "skills", name, "skill.json"), JSON.stringify({ name, description: "d", kind: "script", entry: "run.mjs" }));
+      writeFileSync(join(root, "skills", name, "run.mjs"), body);
+    };
+    // With a helper beside it, so the folder hash is not the two-file one.
+    write("board", "import './lib.mjs';");
+    writeFileSync(join(root, "skills", "board", "lib.mjs"), "console.log('board')");
+    write("drifted", "1");
+    const record = (name: string) => readSkills(kernel.workspace).skills.find((s) => s.manifest.name === name)!;
+    const legacy = { board: legacySkillHash(kernel.workspace, record("board")), drifted: legacySkillHash(kernel.workspace, record("drifted")) };
+    writeFileSync(join(root, "skills", "drifted", "run.mjs"), "2");
+    kernel.settings.set(SKILLS_KEY, { disabled: [], promoted: legacy });
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stubInference([]), profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    const promoted = parseSkillSettings(kernel.settings.get(SKILLS_KEY)).promoted;
+    expect(promoted).toEqual({ board: skillHash(kernel.workspace, record("board")) });
+    expect(JSON.stringify(kernel.audit.recent(500)).includes("carried board")).toBe(true);
+    expect(JSON.stringify(kernel.suggestions.pending())).toContain("drifted");
+    // Told once: a second boot finds nothing to carry and nothing to tell.
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stubInference([]), profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    expect(kernel.suggestions.pending().filter((x) => JSON.stringify(x).includes("drifted"))).toHaveLength(1);
+  });
+
+  it("lapses a deleted chat's asks, so a later yes runs nothing as nobody's", async () => {
+    kernel = await boot(stubInference([]));
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Gone soon" });
+    const ask = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "notes/x.md" }, riskTier: "risky", reason: "r", conversationId: c.id });
+    kernel.conversations.remove(c.id);
+    expect(kernel.approvals.get(ask.id)?.status).toBe("expired");
+    expect((await kernel.approve(ask.id, undefined, { surface: "dashboard" })).ok).toBe(false);
+  });
+
+  it("never keeps an attachment through a link planted in the uploads folder, or into a linked one", async () => {
+    const reply = (): ModelResponse => ({ content: [{ type: "text", text: "Kept." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    kernel = await boot({ generate: async () => reply() });
+    const outside = mkdtempSync(join(tmpdir(), "kos-planted-"));
+    try {
+      const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Uploads" });
+      mkdirSync(join(root, "uploads"), { recursive: true });
+      // A link to a file that is there, and one to a file that is not yet: both read as taken, neither is written through.
+      writeFileSync(join(outside, "agent.plist"), "owner's own");
+      symlinkSync(join(outside, "agent.plist"), join(root, "uploads", "report.txt"));
+      symlinkSync(join(outside, "new.plist"), join(root, "uploads", "report copy.txt"));
+      await kernel.handleMessage("here", { sessionId: c.id, attachments: [{ name: "report.txt", mediaType: "text/plain", data: Buffer.from("guest bytes").toString("base64") }] });
+      expect(readFileSync(join(outside, "agent.plist"), "utf8")).toBe("owner's own");
+      expect(existsSync(join(outside, "new.plist"))).toBe(false);
+      expect(readFileSync(join(root, "uploads", "report copy 2.txt"), "utf8")).toBe("guest bytes");
+      // The folder itself a link: nothing is kept there at all.
+      rmSync(join(root, "uploads"), { recursive: true, force: true });
+      symlinkSync(outside, join(root, "uploads"));
+      await kernel.handleMessage("again", { sessionId: c.id, attachments: [{ name: "x.txt", mediaType: "text/plain", data: Buffer.from("x").toString("base64") }] });
+      expect(existsSync(join(outside, "x.txt"))).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a file past 100 MB before keeping it, saying why", async () => {
     kernel = await boot(stubInference([]));
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Scans" });
@@ -1206,6 +1270,47 @@ describe("Kernel", () => {
     kernel.killSwitch.halt();
     const res = await kernel.handleMessage("anything");
     expect(res.halted).toBe(true);
+  });
+
+  it("ends a running turn at the kill switch, and runs no tool for it after", async () => {
+    let calls = 0;
+    const listed: string[] = [];
+    kernel = await boot({
+      async generate(): Promise<ModelResponse> {
+        calls += 1;
+        // A runaway: it asks for one more safe call every step; the owner throws the switch at the second.
+        if (calls === 2) kernel.killSwitch.halt();
+        return { content: [{ type: "tool_use", id: `t${calls}`, name: "cron.list", input: {} }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    kernel.bus.on("tool:end", (e) => {
+      listed.push(e.tool);
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Runaway" });
+    await kernel.handleMessage("go", { sessionId: c.id });
+    expect(calls).toBeLessThanOrEqual(2);
+    expect(listed).toEqual(["cron.list"]);
+  });
+
+  it("starts no turn the kill switch caught waiting: a dispatch, a queued message", async () => {
+    let calls = 0;
+    kernel = await boot({
+      async generate(): Promise<ModelResponse> {
+        calls += 1;
+        return { content: [{ type: "text", text: "ran" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Queued" });
+    // Held behind work in the chat's lane, then the switch is thrown before it runs.
+    let release!: () => void;
+    const held = new Promise<void>((done) => (release = done));
+    const busy = kernel.queue.enqueue(() => held, c.id);
+    const queued = kernel.dispatchTo(c.id, "do the thing", undefined, { attended: true, owner: true });
+    kernel.killSwitch.halt();
+    release();
+    await busy;
+    expect((await queued).reply).toMatch(/halted/);
+    expect(calls).toBe(0);
   });
 
   it("carries one turn through an approval rather than starting another", async () => {

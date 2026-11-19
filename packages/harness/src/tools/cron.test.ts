@@ -8,7 +8,7 @@ import { CronStore } from "../cron/store.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { caller } from "../kernel/caller.js";
+import { caller, toolScope } from "../kernel/caller.js";
 import { createCronModule, cronModule } from "./cron.js";
 
 describe("cronModule", () => {
@@ -169,5 +169,39 @@ describe("a job scheduled from a project's thread", () => {
     expect(root.projectSlug).toBeUndefined();
     expect(JSON.parse(await schedule({})).projectSlug).toBeUndefined();
     expect(new CronStore(ws.db).list().map((j) => j.projectSlug)).toEqual(["garden", "orchard", null, null]);
+  });
+
+  it("asks the owner, and never under Auto, to schedule as a project other than the chat's own", () => {
+    const judged = (from: string, input: Record<string, unknown>) => caller.run(from, () => registry.classify("cron.schedule", { name: "x", schedule: "0 7 * * *", ...input }));
+    expect(judged("c-garden", {}).tier).toBe("safe");
+    expect(judged("c-garden", { projectSlug: "garden" }).tier).toBe("safe");
+    expect(judged("c-garden", { projectSlug: "orchard" })).toMatchObject({ tier: "risky", reason: "schedules work to run as the orchard project, not this chat's own" });
+    expect(judged("c-root", { projectSlug: "maintenance" }).tier).toBe("risky");
+  });
+
+  it("refuses an action the chat's own allow-list withholds, and keeps the list on the job", async () => {
+    const scoped = (actions: unknown) => toolScope.run({ allow: ["notify"] }, () => registry.execute("cron.schedule", { name: "w", schedule: "0 7 * * *", type: "actions", actions }));
+    const refused = await scoped([{ tool: "files.rm", args: { path: "x" } }]);
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toMatch(/files.rm is not a tool this chat has/);
+    expect((await scoped([{ tool: "notify", args: { text: "hi" } }])).isError).toBe(false);
+    expect(new CronStore(ws.db).list().map((j) => j.toolAllow)).toEqual([["notify"]]);
+  });
+
+  it("refuses a query or condition the sql fence would: KOS's own tables, another project's", async () => {
+    ws.db.exec("CREATE TABLE garden_beds (name TEXT); CREATE TABLE orchard_trees (name TEXT)");
+    const asGarden = (input: Record<string, unknown>) => caller.run("c-garden", () => registry.execute("cron.schedule", { name: "q", schedule: "0 7 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "{n}" } }], ...input }));
+    expect((await asGarden({ query: "SELECT count(*) AS n FROM garden_beds" })).isError).toBe(false);
+    for (const input of [
+      { query: "SELECT group_concat(name) AS n FROM crons" },
+      { query: "SELECT count(*) AS n FROM orchard_trees" },
+      { condition: { test: "(SELECT count(*) FROM crons) > 0" } },
+      { query: "SELECT count(*) AS n FROM garden_beds", condition: { test: "n > (SELECT count(*) FROM orchard_trees)" } },
+    ]) {
+      const res = await asGarden(input);
+      expect(res.isError, JSON.stringify(input)).toBe(true);
+      expect(res.content).toMatch(/refused/);
+    }
+    expect(new CronStore(ws.db).list()).toHaveLength(1);
   });
 });

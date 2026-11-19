@@ -198,9 +198,11 @@ export function createPythonModule(options: PythonModuleOptions = {}): KosModule
             const command = jailedProgram(interpreter.file, [script], {
               workspaceRoot: ws.root,
               writes: [out, tmp, cache],
-              hidden: [...RESERVED].map((name) => join(ws.root, name)),
+              hidden: [...RESERVED, ".env"].map((name) => join(ws.root, name)),
               reads: interpreter.libraries,
               network: false,
+              // It runs unasked, so nothing it starts may act for it outside the sandbox: no app opened, no Apple Event, no daemon.
+              sealed: true,
               contained,
               ...(options.platform ? { platform: options.platform } : {}),
               ...(options.bubblewrap !== undefined ? { bubblewrap: options.bubblewrap } : {}),

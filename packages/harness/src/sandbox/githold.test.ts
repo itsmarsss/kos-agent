@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_TREE, GIT_INFO_ATTRIBUTES, gitControlRefusal, gitHoldable, gitHoldEnv } from "./githold.js";
+import { EMPTY_TREE, GIT_CONTROL_WRITES, GIT_INFO_ATTRIBUTES, gitControlRefusal, gitHoldable, gitHoldEnv } from "./githold.js";
 import { sandboxProfile } from "./jail.js";
 
 describe("gitHoldEnv", () => {
@@ -58,6 +58,12 @@ describe("git's control, kept from the agent", () => {
     for (const rel of ["projects/x/.gitignore", "projects/x/.gitattributes", "notes/git.md", ".config/other/x", "projects/x.git/readme", "projects/.github/workflows/ci.yml"]) {
       expect(gitControlRefusal(rel), rel).toBeUndefined();
     }
+  });
+
+  it("keeps a run's writes off commondir and a worktree's own config, which point git's config and hooks elsewhere", () => {
+    const held = (path: string): boolean => GIT_CONTROL_WRITES.some((r) => new RegExp(r).test(path));
+    for (const path of ["/ws/p/.git/commondir", "/ws/p/.git/config.worktree", "/ws/p/.GIT/CommonDir", "/ws/p/.git/config", "/ws/p/.git/hooks/pre-commit", "/ws/p/.git"]) expect(held(path), path).toBe(true);
+    for (const path of ["/ws/p/.git/index", "/ws/p/.git/objects/ab/cd", "/ws/p/.git/refs/heads/main", "/ws/p/.git/configXworktree", "/ws/p/xgit/config"]) expect(held(path), path).toBe(false);
   });
 
   it("puts info/attributes into the sandbox as unreadable", () => {
