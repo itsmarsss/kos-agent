@@ -34,6 +34,7 @@ import { tablesToCode } from "./tables.js";
 import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import { DownLog } from "./downlog.js";
+import { LiveStory, type StoryPayload, type StoryPost } from "./discordstory.js";
 import { approvalButtons, approvalCard, askSummary, parseApprovalCustomId, settledText, type ApprovalCard, type Decided } from "./askcard.js";
 import { noPreviews } from "./discordtext.js";
 import type {
@@ -51,6 +52,7 @@ import type {
   OutboundMessage,
   PressResponder,
   SenderAuthorizer,
+  StoryExtra,
   TurnPresence,
   ApprovalOutcome,
   Sender,
@@ -153,7 +155,7 @@ function withTimes(text: string, timezone?: string): string {
 }
 
 /** A turn's story as Discord shows it: its last steps small under a count of the rest, the agent's words plain, the files a step names linked. */
-export function storyText(status: string, dashboardUrl?: string, timezone?: string, labelOf?: LabelOf): string {
+export function storyText(status: string, dashboardUrl?: string, timezone?: string, labelOf?: LabelOf, max = 1900): string {
   // References in the story link where they link in the answer, or the
   // same name reads as a token in one place and a link in the other.
   // A step line is the model's account of a step, read as it is: its
@@ -166,7 +168,7 @@ export function storyText(status: string, dashboardUrl?: string, timezone?: stri
     .split("\n")
     .map((line) => (line.startsWith(STEP_MARK) ? `-# ${linkPaths(line, dashboardUrl)}` : line))
     .join("\n")
-    .slice(0, 1900);
+    .slice(0, max);
 }
 
 const FENCE = /^\s*```(\w*)\s*$/;
@@ -1878,38 +1880,42 @@ export class DiscordAdapter implements ChannelAdapter {
       | null;
     if (!channel?.send || (channel.isSendable && !channel.isSendable())) return undefined;
     const via = from ? await this.webhookFor(channel, from).catch(() => undefined) : undefined;
-    if (via && from) {
-      const thread = via.threadId ? { threadId: via.threadId } : {};
-      const said = await via.hook.send({ content: THINKING, flags: MessageFlags.SuppressNotifications, username: from.name, ...thread }).catch(() => undefined);
-      if (said) {
-        const close = this.keepStory({ channelId: via.threadId && channel.parent ? channel.parent.id : channel.id, messageId: said.id, webhookId: via.hook.id, ...thread });
-        return {
-          close,
-          edit: async (text: string) => {
-            const content = storyText(text, this.dashboardUrl, this.timezone, this.labelOf);
-            if (!content.trim()) return;
-            await via.hook.editMessage(said.id, { content, ...thread }).catch(() => undefined);
-          },
-          remove: async () => {
-            close();
-            await via.hook.deleteMessage(said.id, via.threadId).catch(() => undefined);
-          },
-        };
+    const post = async (content: string): Promise<(StoryPost & { ref?: PromptRef }) | undefined> => {
+      if (via && from) {
+        const thread = via.threadId ? { threadId: via.threadId } : {};
+        const said = await via.hook.send({ content, flags: MessageFlags.SuppressNotifications, username: from.name, ...thread }).catch(() => undefined);
+        if (said) {
+          return {
+            edit: (payload) => via.hook.editMessage(said.id, { ...payload, ...thread }),
+            remove: () => via.hook.deleteMessage(said.id, via.threadId),
+            ref: { channelId: via.threadId && channel.parent ? channel.parent.id : channel.id, messageId: said.id, webhookId: via.hook.id, ...thread },
+          };
+        }
       }
-    }
-    const posted = await channel.send({ content: THINKING, flags: MessageFlags.SuppressNotifications }).catch(() => undefined);
-    if (!posted) return undefined;
-    const close = this.keepStory(typeof (posted as { id?: unknown }).id === "string" ? { channelId: channel.id, messageId: (posted as { id: string }).id } : undefined);
+      const posted = await channel.send!({ content, flags: MessageFlags.SuppressNotifications }).catch(() => undefined);
+      if (!posted) return undefined;
+      return { edit: (payload) => posted.edit(payload), remove: () => posted.delete(), ...(typeof posted.id === "string" ? { ref: { channelId: channel.id, messageId: posted.id } } : {}) };
+    };
+    const first = await post(THINKING);
+    if (!first) return undefined;
+    const closes = [this.keepStory(first.ref)];
+    const close = (): void => closes.forEach((c) => c());
+    const story = new LiveStory(first, {
+      render: (raw) => storyText(raw, this.dashboardUrl, this.timezone, this.labelOf, Infinity),
+      next: async (content) => {
+        const more = await post(content);
+        if (more) closes.push(this.keepStory(more.ref));
+        return more;
+      },
+    });
     return {
       close,
       edit: async (text: string) => {
-        const content = storyText(text, this.dashboardUrl, this.timezone, this.labelOf);
-        if (!content.trim()) return;
-        await posted.edit({ content }).catch(() => undefined);
+        if (text.trim()) await story.update(text).catch(() => undefined);
       },
       remove: async () => {
         close();
-        await posted.delete().catch(() => undefined);
+        await story.remove();
       },
     };
   }
@@ -2980,9 +2986,7 @@ export class DiscordAdapter implements ChannelAdapter {
      */
     const bound = msg.conversationId ?? msg.conversationKey;
     const from = message.guild && bound ? this.senderOf?.(bound) : undefined;
-    interface Story {
-      edit(content: string): Promise<unknown>;
-      remove(): Promise<unknown>;
+    interface Story extends StoryPost {
       ref: PromptRef;
     }
     const tell = async (content: string): Promise<Story | undefined> => {
@@ -2993,31 +2997,44 @@ export class DiscordAdapter implements ChannelAdapter {
         const thread = via.threadId ? { threadId: via.threadId } : {};
         const posted = await via.hook.send({ ...silent, username: from.name, ...thread });
         return {
-          edit: (next) => via.hook.editMessage(posted.id, { content: next, ...thread }),
+          edit: (next) => via.hook.editMessage(posted.id, { ...next, ...thread }),
           remove: () => via.hook.deleteMessage(posted.id, via.threadId),
           ref: { channelId: via.threadId && where.parent ? where.parent.id : where.id, messageId: posted.id, webhookId: via.hook.id, ...thread },
         };
       }
       if (!channel?.send) return undefined;
-      const posted = (await channel.send(silent)) as { id: string; edit: (payload: { content: string }) => Promise<unknown>; delete: () => Promise<unknown> };
-      return { edit: (next) => posted.edit({ content: next }), remove: () => posted.delete(), ref: { channelId: where.id, messageId: posted.id } };
+      const posted = (await channel.send(silent)) as { id: string; edit: (payload: StoryPayload) => Promise<unknown>; delete: () => Promise<unknown> };
+      return { edit: (next) => posted.edit(next), remove: () => posted.delete(), ref: { channelId: where.id, messageId: posted.id } };
     };
     // Up before the turn starts, so it is always the first thing after the
     // question; a line that could not be posted is no reason to hold the turn.
-    const story = await tell(THINKING).catch(() => undefined);
+    const first = await tell(THINKING).catch(() => undefined);
     // Kept while the turn runs, so a restart that cuts it short can say so on it.
-    const close = this.keepStory(story?.ref);
+    const closes = [this.keepStory(first?.ref)];
+    const close = (): void => closes.forEach((c) => c());
+    const story = first
+      ? new LiveStory(first, {
+          render: (raw) => storyText(raw, this.dashboardUrl, this.timezone, this.labelOf, Infinity),
+          // Rolled onto a new message: kept too, for a restart to mark.
+          next: async (content) => {
+            const post = await tell(content).catch(() => undefined);
+            if (post) closes.push(this.keepStory(post.ref));
+            return post;
+          },
+          // A step's picture only where the owner alone reads.
+          pictures: this.ownerOnly(message.channel),
+        })
+      : undefined;
     let told = false;
     const settle = async (): Promise<void> => {
       if (story && !told) await story.remove().catch(() => undefined);
     };
 
     return {
-      update: async (status: string) => {
-        const content = storyText(status, this.dashboardUrl, this.timezone, this.labelOf);
-        if (!content.trim() || !story) return;
+      update: async (status: string, extra?: StoryExtra) => {
+        if (!status.trim() || !story) return;
         told = true;
-        await story.edit(content);
+        await story.update(status, extra);
       },
       close,
       complete: async (answer: OutboundMessage, how?: { waiting?: boolean }) => {

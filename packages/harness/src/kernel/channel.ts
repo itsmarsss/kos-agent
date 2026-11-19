@@ -79,6 +79,10 @@ export function connectChannel(
     },
     // A turn running or queued where the message is going: the surface says "queued".
     isBusy: (ctx) => kernel.laneDepth(conversationOf(ctx)) > 0,
+    // A chat in Auto says so on its story too, as its answer does.
+    isAuto: (ctx) => kernel.chatMode(conversationOf(ctx)).mode === "auto",
+    // The newest step's picture beside the story.
+    pictureOf: (frameId) => kernel.frames.pictureOf(frameId),
     scrub: (text) => kernel.secrets.scrub(text),
     handleTurn: async (ctx) => {
       // The kernel owns conversation resolution and the /new, /chats, /switch
