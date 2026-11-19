@@ -407,6 +407,79 @@ phone is paired first asks to replace that pairing (the KOS it replaces is
 told to forget the phone). Every connection then proves both keys, as any
 device's does.
 
+## Push
+
+A phone whose app is not open hears of a new ask by a notification, with
+Approve and Deny on it. It is code that waits for an APNs key: without one
+nothing is sent, and Settings, Devices says each phone's push is not
+configured.
+
+**The phone.** KOS for iPhone asks the owner's leave once, right after
+pairing, or from its Settings, never at launch. Allowed, it registers with
+APNs and sends its token as the event `push.token` (`{ "token": "<hex>",
+"env": "sandbox" | "production" }`) each time its line comes up, and at once
+when APNs gives a new one on the line. Turned off in the iPhone's Settings,
+it sends `push.token` with no token. The gateway is the build's
+`aps-environment` (packages/device-ios/README.md, Push). KOS keeps one token
+per phone (`device_push`), takes a token another pairing held from it, drops
+it on unpair, and ignores the event from any other kind of device.
+
+**A new ask.** For every ask that waits on the owner, in any chat, KOS sends
+one push to each phone with a token, over HTTP/2 to `api.push.apple.com` or
+`api.sandbox.push.apple.com` as the token's `env` says:
+
+```json
+{ "aps": { "alert": { "title": "Garden asks", "body": "Write notes/list.md" }, "sound": "default", "category": "kos.ask", "thread-id": "kos.asks" }, "kos": { "ask": "41" } }
+```
+
+`title` is who asks and `body` the card's own line (the dashboard card's
+title, `askView`), both scrubbed of every secret value and cut to 60 and 180
+characters: never the arguments, the steps or anything a page holds.
+Headers: `apns-push-type: alert`, `apns-priority: 10`, `apns-collapse-id:
+kos.ask.<id>` (the notification's id on the phone), `apns-expiration` the
+ask's lapse in seconds. An ask too long to show whole on the phone is
+`kos.ask.open`: Deny alone, as its card offers no Approve. A token APNs
+answers `410` or `BadDeviceToken` is dropped until the phone gives one
+again; any refusal is in the host's log as its status and reason, never the
+token.
+
+**Settled.** However an ask settles (decided anywhere, or lapsed), each phone
+it was pushed to gets a background push, `apns-push-type: background`,
+`apns-priority: 5`, `{ "aps": { "content-available": 1 }, "kos": {
+"settled": "41" } }`, and takes the notification down; a `chat.settled` on
+the line, and a decision in the app, take it down too.
+
+**Deciding from it.** Deny works from the lock screen as it is; Approve only
+with the phone unlocked (`.authenticationRequired`). Either wakes the app,
+which dials its line if it is down, proves itself as ever, sends
+`chat.decide` (never remembered), waits for KOS's `chat.settled`, and hangs
+up again if the app is still off screen. The decision is a phone's like any
+other, so every rule holds: the Decisions gate, a secret's ask decided by a
+press and never a typed approve, and the hands rule. Not reached within ten
+seconds, or not settled within eight, the phone leaves a notification that
+opens the ask instead. A tap on a notification opens the ask in the Inbox.
+
+**The key.** Token-based: the .p8 key, its key ID, the team ID and the app's
+bundle ID. KOS signs a JWT (ES256, `{ "alg", "kid" }` and `{ "iss", "iat" }`)
+and signs a new one after 50 minutes, when the credentials change, or when
+APNs calls it expired or invalid. Either from the host's environment, which
+wins whenever it names any of them:
+
+| Variable | What |
+| --- | --- |
+| `KOS_APNS_KEY_FILE` | the .p8 file, outside the workspace (or `KOS_APNS_KEY`, its text) |
+| `KOS_APNS_KEY_ID` | the key's 10-character id |
+| `KOS_APNS_TEAM_ID` | the developer team's 10-character id |
+| `KOS_APNS_TOPIC` | KOS for iPhone's bundle id |
+
+or from Settings, Devices, Phone notifications (`POST /api/devices/push {
+"keyId", "teamId", "topic", "secret" }`, each a string, empty to clear),
+where `secret` is the handle of a vault secret holding the .p8's text (a
+note), read at each send and never shown. `GET /api/devices` says where
+push stands (`push { configured, source?, problem?, settings }`) and, for
+each phone, `push { on, env? }`. Neither the key nor a JWT is logged; an
+environment key is scrubbed as the device keys are.
+
 ## Builds and updates
 
 Each device app tells KOS which build it is when it connects (the hello's
@@ -906,6 +979,7 @@ Device: `{ "t": "event", "name": "session.paused", "data": { "session": "...", "
 | `session.extended` | `session`, `until` (the owner gave it more time on the device) |
 | `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`, `window`, `detached`: Chrome's debugging bar was closed, `restarted`: a Chrome's worker started again and lost it) |
 | `update.state` | `build` (the id KOS told of), `state` (`reloading`: a Chrome reloads into it now; `missing`: its folder never came to hold it, so it is loaded from another, and KOS settles it as still behind) |
+| `push.token` | A phone's only: `token` (APNs' device token, hex) and `env` (`sandbox`, `production`); with no `token`, notifications are off and KOS forgets the one it had (see [Push](#push)) |
 
 ### The host's log
 
