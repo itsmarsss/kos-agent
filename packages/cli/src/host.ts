@@ -984,6 +984,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       // card never went out, gets one now.
       onConnected: async () => {
         for (const action of kernel.approvals.pending()) {
+          // A secret's use is never carded on Discord: it was told where to decide when it was asked.
+          if (usesSecret(action.tool, JSON.parse(action.args))) continue;
           if (!adapter!.hasCard(String(action.id))) await adapter!.requestApproval(creds.ownerId, approvalRequest(action)).catch(() => undefined);
         }
       },
