@@ -24,8 +24,11 @@ picks something offers it as you type: `/switch` your chats and projects
 by name, `/run` your jobs, `/approve` and `/deny` what waits on you;
 `/mode` takes `ask` or `auto`. They are yours alone: anyone else is told
 so and nothing runs. `/mode` shows the chat's mode, and sets it as the
-dashboard's chip does, for you only and never Auto over SMS or while
-halted; `/halt` and `/resume` are the kill switch. `/inbox` lists what
+dashboard's chip does, for you only and never Auto while halted;
+`/halt` and `/resume` are the kill switch. Auto, the kill switch and
+`/run` are set from the dashboard, a paired device or Discord, never from
+SMS or iMessage, where a sender is the easiest to pass off as you; the
+same places a secret's use is decided. `/inbox` lists what
 waits on you, each ask as its own card with its own buttons, seen by you
 alone. The answer to any of them is shown to you alone. Typed in a bound
 channel or thread, a command acts on that room's chat (`/stop` stops it,

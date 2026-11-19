@@ -158,7 +158,7 @@ import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
 import { SdkOneShot, sdkModelFor, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
-import { Decisions, type DecisionResult, type DecisionSurface } from "./decisions.js";
+import { CONTROL_SURFACES, controlElsewhere, Decisions, type DecisionResult, type DecisionSurface } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
 import { GuardedTools, finishedAfterStop } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
@@ -3220,7 +3220,7 @@ export class Kernel {
         if (!command.mode) return { reply: said(this.chatMode(conversationId)) };
         // As the dashboard's chip: the owner's alone, and Auto never from a text message.
         if (!owner) return { reply: "Only the owner sets a chat's mode." };
-        if (command.mode === "auto" && channel === "sms") return { reply: "Auto is never set over SMS: a text is the easiest message to pass off as yours. Set it on the dashboard." };
+        if (command.mode === "auto" && !CONTROL_SURFACES.has(channel)) return { reply: controlElsewhere("Setting a chat to Auto") };
         if (command.mode === "auto" && this.killSwitch.halted) return { reply: "KOS is halted; every chat stays in Ask until it resumes." };
         this.setChatMode(conversationId, command.mode === "auto" ? { mode: "auto" } : ASK);
         return { reply: said(this.chatMode(conversationId)) };
@@ -3242,6 +3242,7 @@ export class Kernel {
 
       case "run": {
         if (!owner) return { reply: "Only the owner runs a job." };
+        if (!CONTROL_SURFACES.has(channel)) return { reply: controlElsewhere("Running a job now") };
         const raw = command.job.trim().replace(/^cron:/, "");
         const jobs = this.crons.list();
         const lower = raw.toLowerCase();
@@ -3257,11 +3258,13 @@ export class Kernel {
 
       case "halt":
         if (!owner) return { reply: "Only the owner throws the kill switch." };
+        if (!CONTROL_SURFACES.has(channel)) return { reply: controlElsewhere("Throwing the kill switch") };
         this.killSwitch.halt();
         return { reply: "Halted: nothing runs, and every chat is back in Ask, until `/resume`." };
 
       case "resume":
         if (!owner) return { reply: "Only the owner lifts the kill switch." };
+        if (!CONTROL_SURFACES.has(channel)) return { reply: controlElsewhere("Lifting the kill switch") };
         if (!this.killSwitch.halted) return { reply: "KOS is not halted." };
         this.killSwitch.resume();
         return { reply: "Resumed: KOS runs again. Chats stay in Ask until you set them." };

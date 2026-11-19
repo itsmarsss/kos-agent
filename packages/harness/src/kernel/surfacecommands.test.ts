@@ -52,17 +52,30 @@ describe("commands every surface runs", () => {
     expect(parseChatCommand("/here")).toEqual({ kind: "here" });
   });
 
-  it("shows and sets a chat's mode, the owner's alone, and never Auto over SMS", async () => {
+  it("shows and sets a chat's mode, the owner's alone, and never Auto from a text message", async () => {
     const chat = kernel.conversations.create({ userId: owner(), title: "Overnight" });
     expect(await run("/mode", chat.id)).toMatch(/^Ask: KOS asks you/);
     expect(await run("/mode auto", chat.id, "discord", false)).toBe("Only the owner sets a chat's mode.");
     expect(kernel.chatMode(chat.id).mode).toBe("ask");
-    expect(await run("/mode auto", chat.id, "sms")).toMatch(/never set over SMS/);
+    for (const channel of ["sms", "imessage"]) expect(await run("/mode auto", chat.id, channel), channel).toMatch(/^Setting a chat to Auto is never done from a text message/);
     expect(kernel.chatMode(chat.id).mode).toBe("ask");
     expect(await run("/mode auto", chat.id)).toMatch(/^Auto: /);
     expect(kernel.chatMode(chat.id).mode).toBe("auto");
     expect(await run("/mode ask", chat.id)).toMatch(/^Ask: /);
     expect(kernel.chatMode(chat.id).mode).toBe("ask");
+  });
+
+  it("never throws or lifts the kill switch, or runs a job, from a text message", async () => {
+    const chat = kernel.conversations.create({ userId: owner(), title: "Overnight" });
+    for (const channel of ["sms", "imessage"]) {
+      expect(await run("/halt", chat.id, channel), channel).toMatch(/^Throwing the kill switch is never done/);
+      expect(await run("/run Morning brief", chat.id, channel), channel).toMatch(/^Running a job now is never done/);
+    }
+    expect(kernel.killSwitch.halted).toBe(false);
+    await run("/halt", chat.id);
+    for (const channel of ["sms", "imessage"]) expect(await run("/resume", chat.id, channel), channel).toMatch(/^Lifting the kill switch is never done/);
+    expect(kernel.killSwitch.halted).toBe(true);
+    expect(await run("/resume", chat.id, "dashboard")).toMatch(/^Resumed/);
   });
 
   it("throws and lifts the kill switch, which puts every chat back in Ask and holds Auto off", async () => {
