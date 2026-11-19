@@ -134,9 +134,13 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
 - **A credential site.** On a site a saved secret may be filled on
   (the `evalBlocked` predicate the host gives `BrowserLive`, from the
   vault), `browser.eval` is refused in every tab whatever the page holds,
-  and a document a script of KOS's ran in is refused a fill (`scripted`).
-  Every saved value (the `saved` values the host gives) is masked in
-  every tab's words and pictures. See docs/secrets.md.
+  and a document a script of KOS's ran in is refused a fill (`scripted`),
+  as is every tab joined to it by an opener. Every saved value (the
+  `saved` values the host gives) is cleaned from every tab's words; a
+  page's pictures are masked only for the values it may be sent
+  (`savedFor`, those of secrets for its site, and the conversation's
+  filled ones). Service workers on credential sites are cleared at attach
+  and when a site is listed (`purgeWorkers`). See docs/secrets.md.
 - **A conversation's tabs together.** A popup can read its opener, and
   any tab can echo what another sent, so the secrets are held per
   conversation (`Kin`, from `BrowserLive`, popups adopted into the
@@ -156,6 +160,10 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   `kos-secret`), SVG text holding one not drawn, and no `::before` or
   `::after` on an element whose attributes hold one; one picture at a
   time, then put back. A page that cannot be masked is not pictured.
+  Whenever a page is masked at all (it may show a value filled in the
+  conversation or a saved one for its site), every text box on it is
+  blanked in the picture, not only those that hold a value: a box's
+  value is not read to decide.
   The owner's own screencast of the tab is not masked.
 
 ## Watching and taking over
