@@ -51,6 +51,11 @@ export function sdkTurnModel(reasoning: Route | undefined, chosen: TaskModelSett
   };
 }
 
+/** What the engine says when the model it was given is not one its login can run: in a thrown error or as the whole reply. */
+export function modelUnavailable(text: string): boolean {
+  return /\bmodel\b/i.test(text) && /(not[ _]found|not available|isn't available|may not exist|does not exist|not have access|no access|invalid model|unsupported model)/i.test(text);
+}
+
 /** What an ask spent, by model, and with which provider: known from the result, or from the answer as it streamed. */
 export interface SdkSpent {
   provider: string;

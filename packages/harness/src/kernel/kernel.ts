@@ -156,7 +156,7 @@ import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
-import { SDK_PROVIDER, SdkOneShot, sdkModelFor, sdkTurnModel, type SdkSpent } from "../chat/sdkname.js";
+import { modelUnavailable, SDK_PROVIDER, SdkOneShot, sdkModelFor, sdkTurnModel, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
 import { Decisions, type DecisionResult, type DecisionSurface } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
@@ -1490,7 +1490,9 @@ export class Kernel {
           tools.cutHuge = true;
           /** The calls this turn has written to the chat so far, by id. */
           const told = new Set<string>();
-          const sdkRun = runSdkChat({
+          // The owner's reasoning model when the engine runs that provider; the engine's own default otherwise.
+          const chosen = sdkTurnModel(this.inference.routeFor?.("reasoning"), parseModelSettings(this.settings.get(MODEL_SETTINGS_KEY)).reasoning);
+          const runOn = async (pick: { model?: string; effort?: Effort }): Promise<SdkChatResult> => runSdkChat({
             signal: stop.signal,
             // An aside reads the context chat's history (plus its own earlier
             // asides) rather than its empty session, same as the API path.
@@ -1520,7 +1522,7 @@ export class Kernel {
             system,
             tools,
             cwd: this.workspace.root,
-            ...sdkTurnModel(this.inference.routeFor?.("reasoning"), parseModelSettings(this.settings.get(MODEL_SETTINGS_KEY)).reasoning),
+            ...pick,
             maxTurns: this.behaviour().maxSteps,
             // The owner's own turn on a screen (one they dispatched included) carries on in fresh queries up to its
             // own budget; every other turn (a schedule, a guest, a dispatch or handoff from another chat) stops where
@@ -1558,7 +1560,22 @@ export class Kernel {
             // No tool-start here: the guarded toolbox already emits one for
             // every call, and emitting a second left each bubble with two
             // starts and one end, so half of them never stopped running.
-          }).catch((err: unknown) => {
+          });
+          /*
+           * A model the owner chose that this login cannot run (another plan,
+           * a model since retired) fails the turn before it does anything:
+           * the turn runs again on the engine's own default, and the owner
+           * is told once per model, not on every message.
+           */
+          const sdkRun = runOn(chosen)
+            .then(
+              (r) => (chosen.model && r.calls.length === 0 && modelUnavailable(r.text) ? this.onChosenModelUnavailable(chosen.model, () => runOn({})) : r),
+              (err: unknown) => {
+                if (chosen.model && told.size === 0 && !stop.signal.aborted && modelUnavailable(err instanceof Error ? err.message : String(err))) return this.onChosenModelUnavailable(chosen.model, () => runOn({}));
+                throw err;
+              },
+            )
+            .catch((err: unknown) => {
             /*
              * Failed, not stopped: the steps it wrote stand in the chat with
              * no answer under them, which reads as a turn still running and
@@ -1982,6 +1999,18 @@ export class Kernel {
    * otherwise the default screen model (a workspace with only an OpenAI key
    * routes screen work to OpenAI, which this engine cannot run).
    */
+  /** Chosen models this engine's login could not run, each told to the owner once. */
+  private readonly unavailableTold = new Set<string>();
+
+  /** Tell the owner, once per model, that the engine's default answered instead, and run the turn on it. */
+  private onChosenModelUnavailable(model: string, retry: () => Promise<SdkChatResult>): Promise<SdkChatResult> {
+    if (!this.unavailableTold.has(model)) {
+      this.unavailableTold.add(model);
+      this.caretaker.tell(`The reasoning model you chose, ${model}, is not available on the Claude login KOS's chat engine uses, so its own default model answered. Pick another in Settings, Models, or sign in with a plan that has it.`);
+    }
+    return retry();
+  }
+
   private sdkScreen(): { model: string; effort?: Effort } | undefined {
     const route = this.screenRoute();
     if (!route) return undefined;
