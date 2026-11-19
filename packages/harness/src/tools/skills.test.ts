@@ -9,7 +9,7 @@ import { GuardedTools } from "../kernel/guarded.js";
 import { ApprovalQueue } from "../ops/approvals.js";
 import { AuditLog } from "../ops/audit.js";
 import { WorkspaceBackup } from "../ops/backup.js";
-import type { SkillJail } from "../sandbox/runner.js";
+import { runSandbox, type SkillJail } from "../sandbox/runner.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { readSkills, skillHash } from "../skills/manifest.js";
 import { SkillPromoter } from "../skills/promote.js";
@@ -53,7 +53,8 @@ describe("skills tools", () => {
     root = mkdtempSync(join(tmpdir(), "kos-skills-"));
     ws = Workspace.open(root);
     approvals = new ApprovalQueue(ws.db, new SecretsRegistry());
-    const promoter = new SkillPromoter({ workspaceRoot: ws.root, backup: new WorkspaceBackup(ws.root) });
+    // Its sandbox in the same jail as the tools', so the container stands in for it off macOS too.
+    const promoter = new SkillPromoter({ workspaceRoot: ws.root, backup: new WorkspaceBackup(ws.root), runSandbox: (o) => runSandbox({ ...o, jail }) });
     registry = new ToolRegistry();
     disabled = [];
     promoted = {};
