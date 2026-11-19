@@ -95,6 +95,33 @@ export function clockWords(ms: number, locale?: string, timeZone?: string): stri
   return kept(`clock|${locale ?? ""}|${timeZone ?? ""}`, () => new Intl.DateTimeFormat(locale, { ...zoned(timeZone), timeStyle: "short" })).format(new Date(ms));
 }
 
+/**
+ * A moment as a list or a schedule writes it, on the reader's clock: the
+ * time alone today ("9:41 AM"), "Tomorrow 9:41 AM" or "Yesterday 9:41 AM",
+ * the weekday within the week either way ("Mon 9:41 AM"), and the date
+ * before or past that ("Nov 19, 9:41 AM", with the year when it is not this
+ * year's). One shape for every clock time the dashboard shows.
+ */
+export function momentWords(ms: number, now = Date.now(), locale?: string, timeZone?: string): string {
+  const clock = clockWords(ms, locale, timeZone);
+  const away = dayNumber(ms, timeZone) - dayNumber(now, timeZone);
+  if (away === 0) return clock;
+  if (away === 1 || away === -1) {
+    const words = kept(`relative|${locale ?? ""}`, () => new Intl.RelativeTimeFormat(locale, { numeric: "auto" }));
+    return `${capitalised(words.format(away, "day"), locale)} ${clock}`;
+  }
+  if (Math.abs(away) < 7) {
+    const day = kept(`weekday|${locale ?? ""}|${timeZone ?? ""}`, () => new Intl.DateTimeFormat(locale, { ...zoned(timeZone), weekday: "short" }));
+    return `${day.format(new Date(ms))} ${clock}`;
+  }
+  const yearOf = (t: number): number => new Date(dayNumber(t, timeZone) * 86_400_000).getUTCFullYear();
+  const sameYear = yearOf(ms) === yearOf(now);
+  const date = kept(`moment|${sameYear ? "" : "year"}|${locale ?? ""}|${timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, { ...zoned(timeZone), month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }),
+  );
+  return `${date.format(new Date(ms))}, ${clock}`;
+}
+
 /** What a mark says: the day's words, or the time after a pause. */
 export function markWords(mark: TimeMark, now = Date.now(), locale?: string, timeZone?: string): string {
   return mark.kind === "day" ? dayWords(mark.at, now, locale, timeZone) : clockWords(mark.at, locale, timeZone);

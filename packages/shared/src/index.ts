@@ -206,7 +206,7 @@ export {
   type RunAdapter,
   type RunOptions,
 } from "./screenrun.js";
-export { GAP_MS, clockWords, dayNumber, dayWords, markWords, timeMarks, type TimeMark } from "./chattime.js";
+export { GAP_MS, clockWords, dayNumber, dayWords, markWords, momentWords, timeMarks, type TimeMark } from "./chattime.js";
 export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timeCard, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
 export { pathsIn, type PathPart } from "./workspacepath.js";
 export { CHANNEL_TOKEN, channelNamesIn, surfaceName } from "./channel.js";
