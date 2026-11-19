@@ -1,9 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { appendFileSync, mkdirSync, realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { resolvePath } from "../jail/resolvePath.js";
-import { childEnv } from "../sandbox/env.js";
+import { RESERVED } from "../kernel/files.js";
+import { childEnv, findProgram } from "../sandbox/env.js";
+import { jailedProgram } from "../sandbox/jail.js";
+import { folderHash } from "../store/folderhash.js";
 import type { Daemon, DaemonStatus } from "./types.js";
 
 /**
@@ -27,11 +30,26 @@ import type { Daemon, DaemonStatus } from "./types.js";
  * - HOST is 127.0.0.1 and PORT is assigned, so a well-behaved server is
  *   reachable through the dashboard proxy and not from the network.
  *
- * That is a perimeter around what a daemon can *see*. What it can *do* is
- * bounded by the container, which is where KOS is meant to run once anything
- * executes unattended; on a bare host a child runs with the host account's
- * authority, exactly as a sandboxed skill does.
+ * - It runs in the jail: it writes only data/ beside its entry, reads none
+ *   of KOS's own state, database or settings, and reaches this machine only
+ *   unless the owner approved more. KOS's own ports are refused either way.
+ *   Where there is no jail it does not run.
+ * - The hash of its entry's folder is kept when the owner approves it: the
+ *   entry and every helper beside it, all but data/ and the daemons/ logs.
+ *   A daemon whose code changed since is not started, on a restart or a
+ *   reboot, until the owner approves it again: the yes was to that code.
  */
+
+/** Where a daemon writes: data/ in its entry's folder, left out of its hash. */
+export const DAEMON_DATA_DIR = "data";
+
+/** The hash of a daemon's code as it is now: its entry's folder, read through the jail. */
+export function daemonCodeHash(workspaceRoot: string, entry: string): string {
+  return folderHash(dirname(resolvePath(workspaceRoot, entry)), [DAEMON_DATA_DIR, "daemons"]);
+}
+
+/** Said when a daemon's entry is not the code the owner approved. */
+export const CODE_CHANGED = "its code changed since the owner approved it: start it again with daemons.start, which asks the owner";
 
 /** Restart delays, in order. A daemon that gets past the last one starts over. */
 const BACKOFF_MS = [1_000, 2_000, 5_000, 15_000, 30_000];
@@ -58,6 +76,13 @@ export interface SupervisorOptions {
   logPathFor?: (daemon: Daemon) => string;
   /** Told when a daemon dies for good, so the owner can hear about it. */
   onCrash?: (daemon: Daemon, reason: string) => void;
+  /**
+   * The daemon's row as it is now, read before every start: a restart that
+   * comes due after a stop or a removal finds it off or gone and does nothing.
+   */
+  current?: (id: number) => Daemon | undefined;
+  /** True when the host itself runs in the container, which is the jail. */
+  contained?: boolean;
 }
 
 function defaultLogPath(daemon: Daemon): string {
@@ -68,6 +93,8 @@ export class DaemonSupervisor {
   private readonly running = new Map<number, Running>();
   private readonly status = new Map<number, DaemonStatus>();
   private readonly tails = new Map<number, string[]>();
+  /** Restarts waiting out their backoff, so a stop or a removal can call them off. */
+  private readonly pending = new Map<number, NodeJS.Timeout>();
   private closed = false;
 
   constructor(private readonly options: SupervisorOptions) {}
@@ -104,21 +131,28 @@ export class DaemonSupervisor {
    * has a problem the caller can fix now, and reporting it as a crash puts it
    * in a backoff loop over a typo.
    */
-  start(daemon: Daemon): void {
+  start(asked: Daemon): void {
     if (this.closed) throw new Error("the host is shutting down");
-    if (this.running.has(daemon.id)) return;
+    if (this.running.has(asked.id)) return;
+    this.cancelRestart(asked.id);
+    // As the store has it now: turned off or removed since, it stays down.
+    const daemon = this.options.current ? this.options.current(asked.id) : asked;
+    if (!daemon?.enabled) return;
 
     // The jail, before anything is spawned. A path that resolves outside the
     // workspace is not a daemon, whatever the row says.
-    const entry = resolvePath(this.options.workspaceRoot, daemon.entry);
-    const cwd = resolvePath(
-      this.options.workspaceRoot,
-      daemon.project ? `projects/${daemon.project}` : ".",
-    );
+    const root = this.options.workspaceRoot;
+    const entry = resolvePath(root, daemon.entry);
+    const cwd = resolvePath(root, daemon.project ? `projects/${daemon.project}` : ".");
+    if (daemon.codeHash === null || daemonCodeHash(root, daemon.entry) !== daemon.codeHash) {
+      this.status.set(daemon.id, { ...this.statusOf(daemon.id), state: "stopped", pid: null, since: null, lastError: CODE_CHANGED });
+      throw new Error(`${daemon.project}/${daemon.name} was not started: ${CODE_CHANGED}`);
+    }
 
-    const command = daemon.runtime === "python" ? "python3" : process.execPath;
+    const data = join(dirname(entry), DAEMON_DATA_DIR);
+    mkdirSync(data, { recursive: true });
     const env = childEnv(
-      { home: cwd, tmp: cwd },
+      { home: data, tmp: data },
       {
         KOS_DAEMON: "1",
         // Loopback: a daemon is reached through the dashboard proxy, not by
@@ -128,9 +162,23 @@ export class DaemonSupervisor {
       },
     );
 
+    // The interpreter, and the folder it loads its own libraries from, which may be under the owner's home.
+    const interpreter = daemon.runtime === "python" ? findProgram("python3", env.PATH ?? "") : process.execPath;
+    if (!interpreter) throw new Error(`could not start ${daemon.name}: python3 is not installed on this machine`);
+    const program = jailedProgram(interpreter, [entry, ...daemon.args], {
+      workspaceRoot: root,
+      writes: [data],
+      hidden: [...RESERVED, ".env"].map((name) => join(root, name)),
+      reads: [dirname(dirname(realpathSync(interpreter)))],
+      // Open, it resolves names as well, which a sealed program asks a service for.
+      ...(daemon.network === "open" ? { services: ["com.apple.dnssd.service"] } : { network: "local" as const }),
+      sealed: true,
+      ...(this.options.contained !== undefined ? { contained: this.options.contained } : {}),
+    });
+
     let child: ChildProcess;
     try {
-      child = spawn(command, [entry, ...daemon.args], {
+      child = spawn(program.file, program.args, {
         cwd,
         env,
         stdio: ["ignore", "pipe", "pipe"],
@@ -184,12 +232,15 @@ export class DaemonSupervisor {
   async stop(id: number): Promise<void> {
     const run = this.running.get(id);
     if (!run) {
+      // Between runs, waiting out a backoff: the restart is called off, or the stop would be undone when it fires.
+      this.cancelRestart(id);
       const status = this.statusOf(id);
       this.status.set(id, { ...status, state: "stopped", pid: null, since: null });
       return;
     }
     run.stopping = true;
     if (run.timer) clearTimeout(run.timer);
+    this.cancelRestart(id);
 
     await new Promise<void>((resolve) => {
       const done = (): void => {
@@ -220,6 +271,7 @@ export class DaemonSupervisor {
   /** Stop everything, for a host that is going down. */
   async stopAll(): Promise<void> {
     this.closed = true;
+    for (const id of [...this.pending.keys()]) this.cancelRestart(id);
     for (const [, run] of this.running) {
       if (run.timer) clearTimeout(run.timer);
       run.stopping = true;
@@ -236,7 +288,9 @@ export class DaemonSupervisor {
     const status = this.statusOf(daemon.id);
     const ranFor = status.since ? Date.now() - status.since : 0;
 
-    if (deliberate || this.closed || !daemon.enabled) {
+    // As the store has it now: one turned off or removed while it ran is not brought back.
+    const wanted = this.options.current ? this.options.current(daemon.id)?.enabled === true : daemon.enabled;
+    if (deliberate || this.closed || !wanted) {
       this.status.set(daemon.id, {
         ...status,
         state: "stopped",
@@ -280,21 +334,28 @@ export class DaemonSupervisor {
       lastError: reason,
     });
     const timer = setTimeout(() => {
+      this.pending.delete(daemon.id);
       if (this.closed) return;
       try {
         this.start(daemon);
       } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
         const now = this.statusOf(daemon.id);
-        this.status.set(daemon.id, {
-          ...now,
-          state: "crashed",
-          lastError: err instanceof Error ? err.message : String(err),
-        });
+        this.status.set(daemon.id, { ...now, state: "crashed", lastError: reason });
+        // Left down unattended, it is news, as a crash loop is.
+        this.options.onCrash?.(daemon, reason);
       }
     }, wait);
+    this.pending.set(daemon.id, timer);
     // Not keeping the process alive on its own account: a pending restart is
     // no reason for the host to refuse to exit.
     timer.unref?.();
+  }
+
+  private cancelRestart(id: number): void {
+    const timer = this.pending.get(id);
+    if (timer) clearTimeout(timer);
+    this.pending.delete(id);
   }
 
   private append(daemon: Daemon, text: string): void {

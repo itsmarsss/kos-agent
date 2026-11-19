@@ -2,7 +2,7 @@ import { findChrome } from "@kos/browser";
 import { ScreenMemory } from "@kos/shared";
 import { PressRoutes } from "../channels/presses.js";
 import { DaemonStore } from "../daemons/store.js";
-import { DaemonSupervisor } from "../daemons/supervisor.js";
+import { DaemonSupervisor, daemonCodeHash } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
 import type { CheckAsk } from "../systems/artifactcheck.js";
 import { CronStore } from "../cron/store.js";
@@ -50,7 +50,7 @@ import { adoptFixes } from "./caretaker.js";
 import { createModulesModule } from "../tools/modules.js";
 import { createSecretsModule } from "../tools/secrets.js";
 import { EventBus } from "../modules/events.js";
-import { MODULES_KEY, enabledServers, parseModuleSettings } from "../modules/workspace.js";
+import { MODULES_KEY, adoptUnpinned, enabledServers, parseModuleSettings, runnableModules } from "../modules/workspace.js";
 import { BUILTIN_FEATURES } from "../modules/builtins.js";
 import { isContained } from "../sandbox/jail.js";
 import { PermissionStore } from "../ops/permissions.js";
@@ -224,9 +224,10 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     secrets,
     config: () => {
       const servers = { ...readMcpConfig(workspace.root).servers };
-      const enabled = parseModuleSettings(settings.get(MODULES_KEY)).enabled;
       const instancesOf = (module: string): string[] => manifest.listByModule(module).map((p) => p.slug);
-      for (const [name, server] of Object.entries(enabledServers(workspace, enabled, !isContained(), instancesOf))) {
+      // A module changed since the owner switched it on waits for them to switch it on again.
+      const changed = (name: string): void => console.warn(`modules: ${name} changed since it was switched on; it stays off until the owner switches it on again`);
+      for (const [name, server] of Object.entries(enabledServers(workspace, parseModuleSettings(settings.get(MODULES_KEY)), !isContained(), instancesOf, changed))) {
         if (!(name in servers)) servers[name] = server;
       }
       return { servers };
@@ -234,10 +235,13 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   });
   const supervisor = new DaemonSupervisor({
     workspaceRoot: workspace.root,
+    // Read before every start, so a restart due after a stop or a removal leaves it down.
+    current: (id) => daemons.get(id),
     // A daemon that has given up is news: it was running unattended, and
     // nobody is looking at a log they do not know to open.
     onCrash: (_daemon, reason) => kernelRef?.caretaker.tell(reason),
   });
+  const adopted = adoptPinsOnce(workspace, settings, daemons, audit);
   const spend = new SpendStore(workspace.db);
   const pending = new PendingMessages(workspace.db);
   const builds = new BuildRegistry(
@@ -421,7 +425,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       },
     ),
     createModulesModule({
-      enabled: () => parseModuleSettings(settings.get(MODULES_KEY)).enabled,
+      enabled: () => runnableModules(workspace, parseModuleSettings(settings.get(MODULES_KEY))),
       status: () => mcp.status(),
     }),
     // Tools from the owner's MCP servers, as any other module's tools.
@@ -826,6 +830,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     ...(options.discord ? { discord: options.discord } : {}),
     ...(options.chrome ? { chrome: options.chrome } : {}),
   });
+  if (adopted) kernelRef.caretaker.tell(adopted);
   // A chat deleted anywhere (the dashboard, chats.delete) is announced, so
   // the thread that stood for it on Discord goes with it.
   const kernel = kernelRef;
@@ -865,4 +870,32 @@ export function carryPromotions(kernel: Pick<Kernel, "workspace" | "audit" | "su
   if (stale.length) {
     kernel.suggestions.add("other", "Skills to promote again", `These skills changed since you promoted them, or are gone, so they ask before running: ${stale.join(", ")}. Ask KOS to promote any you still want (skills.promote), and a schedule that runs one waits on your yes until then.`);
   }
+}
+
+/** Set once the first boot that keeps pins has adopted what was on before them. */
+const PINS_ADOPTED_KEY = "pinsAdopted";
+
+/**
+ * Trust on first use, once: the modules switched on and the daemons approved
+ * before their code was pinned are pinned as they are now, each audited, so
+ * an upgrade turns nothing off. What was adopted comes back as one line for
+ * the owner; later boots adopt nothing, so a row without a pin made since
+ * waits for its yes.
+ */
+function adoptPinsOnce(workspace: Workspace, settings: SettingsStore, daemons: DaemonStore, audit: AuditLog): string | undefined {
+  if (settings.get<boolean>(PINS_ADOPTED_KEY)) return undefined;
+  const modules = adoptUnpinned(workspace, parseModuleSettings(settings.get(MODULES_KEY)));
+  if (modules.adopted.length) settings.set(MODULES_KEY, modules.settings);
+  const kept = daemons.adoptUnhashed((d) => {
+    try {
+      return daemonCodeHash(workspace.root, d.entry);
+    } catch {
+      return undefined;
+    }
+  });
+  settings.set(PINS_ADOPTED_KEY, true);
+  const names = [...modules.adopted.map((m) => `module ${m}`), ...kept.map((d) => `daemon ${d.project}/${d.name}`)];
+  for (const name of names) audit.record({ tool: "kos.pin", args: { adopted: name }, result: "pinned as it was at upgrade", isError: false });
+  if (!names.length) return undefined;
+  return `KOS now pins the code you approve: ${names.join(", ")} kept running, pinned as they were at this upgrade. From now on a change to one stops it until you approve it again.`;
 }

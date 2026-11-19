@@ -44,6 +44,8 @@ export interface JailOptions {
    * hand-off programs are denied to every jailed program, sealed or not.
    */
   sealed?: boolean;
+  /** Mach services a sealed program may look up besides the plain ones: com.apple.dnssd.service to resolve names. */
+  services?: string[];
   /** Readable although under a denied home: an interpreter's own libraries. */
   reads?: string[];
   /**
@@ -143,12 +145,9 @@ const HELD = [
   `(deny process-exec ${HANDOFF_PROGRAMS.map((p) => `(literal ${sb(p)})`).join(" ")})`,
 ];
 
-/** What a sealed program on the network looks up besides: names, and whether a certificate is trusted. */
-const NETWORK_SERVICES = ["com.apple.dnssd.service", "com.apple.trustd", "com.apple.trustd.agent"];
-
-/** Sealed besides: no signal past its own process group, and only the mach services a plain program needs, so no daemon does its bidding. */
-function sealedRules(network: JailOptions["network"]): string[] {
-  const services = network === false ? SEALED_SERVICES : [...SEALED_SERVICES, ...NETWORK_SERVICES];
+/** Sealed besides: no signal past its own process group, and only the mach services a plain program needs and those named, so no daemon does its bidding. */
+function sealedRules(extra: readonly string[]): string[] {
+  const services = [...new Set([...SEALED_SERVICES, ...extra])];
   return ["(deny signal (target others))", "(deny mach-lookup)", `(allow mach-lookup ${services.map((name) => `(global-name ${sb(name)})`).join(" ")})`];
 }
 
@@ -202,7 +201,7 @@ export function sandboxProfile(options: JailOptions): string {
     ...((options.secretFiles ?? kosSecretFiles()).length ? [`(deny file-read* ${subpaths(options.secretFiles ?? kosSecretFiles())})`] : []),
     "(allow file-read-metadata)",
     ...HELD,
-    ...(options.sealed ? sealedRules(options.network) : []),
+    ...(options.sealed ? sealedRules(options.services ?? []) : []),
     "",
   ];
   return lines.join("\n");

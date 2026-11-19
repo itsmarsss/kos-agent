@@ -227,6 +227,21 @@ describe("handleApiRequest", () => {
     rmSync(src, { recursive: true, force: true });
   });
 
+  it("switches a module on as its folder is, and shows it off once the folder changes", async () => {
+    const dir = join(root, "modules", "budget");
+    mkdirSync(dir, { recursive: true });
+    const manifest = { name: "budget", description: "A budget", blueprint: { type: "budget", schema: [], pages: [], jobs: [] } };
+    writeFileSync(join(dir, "module.json"), JSON.stringify(manifest), "utf8");
+    const listed = async () => (await handleApiRequest(kernel, { method: "GET", path: "/api/modules" })).body as { modules: { name: string; enabled: boolean; changed?: boolean }[] };
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/modules/enable", body: { name: "budget", enabled: true } })).status).toBe(200);
+    expect((await listed()).modules[0]).toMatchObject({ name: "budget", enabled: true });
+    expect((await listed()).modules[0]?.changed).toBeUndefined();
+    writeFileSync(join(dir, "module.json"), JSON.stringify({ ...manifest, risk: "safe" }), "utf8");
+    expect((await listed()).modules[0]).toMatchObject({ name: "budget", enabled: false, changed: true });
+    await handleApiRequest(kernel, { method: "POST", path: "/api/modules/enable", body: { name: "budget", enabled: true } });
+    expect((await listed()).modules[0]).toMatchObject({ name: "budget", enabled: true });
+  });
+
   it("lists skills from a repository folder and servers from the registry, through an injected fetch", async () => {
     const table: Record<string, unknown> = {
       "https://api.github.com/repos/anthropics/skills/contents/skills": [{ name: "pdf", type: "dir" }],

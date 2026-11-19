@@ -182,14 +182,14 @@ own.close();`,
     }
   });
 
-  it("seals a program to the few mach services a plain one needs, with names and certificate trust when it has the network", () => {
-    const offline = sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: [], sealed: true, network: false });
-    const online = sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: [], sealed: true });
-    expect(offline).toContain("(deny mach-lookup)");
-    expect(offline).not.toContain("com.apple.dnssd.service");
+  it("seals a program to the few mach services a plain one needs, and those it is given besides", () => {
+    const plain = sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: [], sealed: true });
+    const online = sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: [], sealed: true, services: ["com.apple.dnssd.service", "com.apple.trustd"] });
+    expect(plain).toContain("(deny mach-lookup)");
+    expect(plain).not.toContain("com.apple.trustd");
     expect(online).toContain('(global-name "com.apple.dnssd.service")');
     expect(online).toContain('(global-name "com.apple.trustd")');
-    for (const p of [offline, online]) expect(p).not.toMatch(/launchservicesd|coreservices|lsd/);
+    for (const p of [plain, online]) expect(p).not.toMatch(/launchservicesd|coreservices|lsd/);
   });
 
   /** An approved run's jail: the whole workspace writable, the network open but for KOS's ports, not sealed; run as the shell tool runs it, leading its own process group. */
@@ -267,5 +267,14 @@ s.listen(0, "127.0.0.1", async () => { console.log(await (await fetch("http://12
     const inside = jailedCommand("ls", { workspaceRoot: "/w", platform: "linux", contained: true });
     expect(inside).toEqual({ file: "/bin/sh", args: ["-c", "ls"] });
     expect(() => jailedCommand("ls", { workspaceRoot: "/w", platform: "linux", contained: false })).toThrow(/jail/);
+  });
+});
+
+describe("a sealed jail's services", () => {
+  it("looks up only the plain ones, and those it is given besides", () => {
+    const plain = sandboxProfile({ workspaceRoot: "/w", homes: [], sealed: true, secretFiles: [] });
+    expect(plain).not.toContain("com.apple.dnssd.service");
+    const resolving = sandboxProfile({ workspaceRoot: "/w", homes: [], sealed: true, secretFiles: [], services: ["com.apple.dnssd.service"] });
+    expect(resolving).toMatch(/\(allow mach-lookup [^\n]*\(global-name "com\.apple\.dnssd\.service"\)/);
   });
 });
