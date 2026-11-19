@@ -54,26 +54,59 @@ export interface Taint {
   nodes: Map<number, string>;
 }
 
+/**
+ * What a conversation's tabs share about the secrets KOS filled: a popup can
+ * read its opener, and any tab may echo what another sent, so every value
+ * filled in any of them is masked in all, and while one holds a secret no
+ * script runs in any.
+ */
+export interface Kin {
+  /** Every value filled in any of the tabs, for their life. */
+  readonly values: FilledValue[];
+  /** Whether any of the tabs holds a secret KOS filled in its page now. */
+  holding(): boolean;
+}
+
 /** Shorter than this, a value is not looked for in text: two digits would mask half a page. */
-const ECHO_MIN = 3;
+export const ECHO_MIN = 3;
 
 function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** The pattern a value is found by in text: a number by its digits with a space, dot or dash allowed between any two. */
-function patternOf(value: FilledValue): RegExp | undefined {
-  const text = value.digits ? value.text.replace(/\D/g, "") : value.text;
-  if (text.length < ECHO_MIN) return undefined;
-  return new RegExp(value.digits ? text.split("").map(escape).join("[\\s.\\-]?") : escape(text), "g");
+/**
+ * A character of a value however a page may say it back: as itself, percent
+ * encoded in either case of hex (as encodeURIComponent, a form or the
+ * browser's own address bar encode it, each leaving some characters be), a
+ * space as + too, and a quote or a backslash as JSON escapes it.
+ */
+function charForms(c: string): string {
+  if (/[A-Za-z0-9]/.test(c)) return c;
+  const hex = (b: number): string => `%${Array.from(b.toString(16).padStart(2, "0"), (d) => `[${d.toUpperCase()}${d}]`).join("")}`;
+  // The JSON escape first: tried before the bare character, it is not cut in half.
+  const forms = [...(c === '"' || c === "\\" ? [escape(`\\${c}`)] : []), escape(c), Array.from(new TextEncoder().encode(c), hex).join(""), ...(c === " " ? ["\\+"] : [])];
+  return `(?:${forms.join("|")})`;
+}
+
+/**
+ * The patterns (RegExp sources) a value is found by in text: a number by its
+ * digits with a space, dot or dash allowed between any two; anything else
+ * each character in every form a page may say it back in, so an address
+ * or a script's JSON that carries it is found too. None shorter than `min`.
+ */
+export function echoPatterns(values: readonly FilledValue[], min = ECHO_MIN): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    const text = value.digits ? value.text.replace(/\D/g, "") : value.text;
+    if (text.length < min) continue;
+    out.push(value.digits ? text.split("").map(escape).join("[\\s.\\-]?") : Array.from(text, charForms).join(""));
+  }
+  return out;
 }
 
 /** `text` with every filled value said as hidden. */
 export function unechoed(text: string, values: readonly FilledValue[]): string {
   let out = text;
-  for (const value of values) {
-    const pattern = patternOf(value);
-    if (pattern) out = out.replace(pattern, HIDDEN_VALUE);
-  }
+  for (const source of echoPatterns(values)) out = out.replace(new RegExp(source, "g"), HIDDEN_VALUE);
   return out;
 }
