@@ -15,6 +15,7 @@ import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { changesPage, checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
+import { FILLED_PAGE, TAINTS_KEY, fillField, focusedOn, heldNow, heldRefusal, marked, maskedShot, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type TabTaint } from "./secret.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
 import { FolderWait, ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
@@ -184,6 +185,8 @@ const tabUrls = new Map<number, string>();
 const loaders = new Map<number, string>();
 /** Each KOS tab's main frame, by its id. */
 const mainFrames = new Map<number, string>();
+/** Tabs a secret was filled into, kept in session storage: what each is held to until its document changes (secret.ts). */
+let taints = new Map<number, TabTaint>();
 /** Waits on a navigation to commit, woken at each one. */
 const commits = new Set<() => void>();
 /** Each KOS tab's requests passed on to KOS that have not ended. */
@@ -227,7 +230,8 @@ async function load(): Promise<void> {
   settings = readSettings(local["settings"]);
   sentTheme = readDashboardTheme(local[SENT_THEME_KEY]);
   held = new Set(Array.isArray(local["held"]) ? (local["held"] as unknown[]).filter((v): v is string => typeof v === "string") : []);
-  const kept = await chrome.storage.session.get(["handed", "bar", HELD_KEY, ENDED_KEY, WAITING_KEY]);
+  const kept = await chrome.storage.session.get(["handed", "bar", HELD_KEY, ENDED_KEY, WAITING_KEY, TAINTS_KEY]);
+  taints = readTaints(kept[TAINTS_KEY]);
   lastEnded = readEnded(kept[ENDED_KEY]);
   waitingForLine = readWaiting(kept[WAITING_KEY]);
   for (const tab of Array.isArray(kept["handed"]) ? (kept["handed"] as number[]) : []) handed.add(tab);
@@ -300,6 +304,7 @@ const savePairings = (): Promise<void> => chrome.storage.local.set({ pairings })
 const saveSettings = (): Promise<void> => chrome.storage.local.set({ settings });
 const saveHeld = (): Promise<void> => chrome.storage.local.set({ held: [...held] });
 const saveHanded = (): Promise<void> => chrome.storage.session.set({ handed: [...handed] });
+const saveTaints = (): Promise<void> => chrome.storage.session.set({ [TAINTS_KEY]: Object.fromEntries(taints) });
 
 function hello(id: string): Hello {
   const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform;
@@ -551,6 +556,10 @@ async function answer(method: string, params: Record<string, unknown>, origin: s
       return relayAll(params, origin);
     case "page.read":
       return pageRead(params, origin);
+    case "secret.fill":
+      return secretFill(params, origin);
+    case "secret.picture":
+      return secretPicture(params, origin);
     default:
       if (PANEL_CALLS.has(method)) {
         toPanels(method, params, origin);
@@ -846,10 +855,12 @@ async function attachNow(tab: number): Promise<void> {
   await send("Runtime.enable");
   await send("Page.enable");
   // Where the tab is, from its page: Chrome's word for it, asked before the debugger heard anything, may be from before a navigation.
-  const tree = (await send("Page.getFrameTree").catch(() => undefined)) as { frameTree?: { frame?: { id?: unknown; url?: unknown } } } | undefined;
+  const tree = (await send("Page.getFrameTree").catch(() => undefined)) as { frameTree?: { frame?: { id?: unknown; url?: unknown; loaderId?: unknown } } } | undefined;
   const main = tree?.frameTree?.frame;
   if (typeof main?.url === "string") tabUrls.set(tab, main.url);
   if (typeof main?.id === "string") mainFrames.set(tab, main.id);
+  // The document a secret may be in, as the debugger finds it: a tab attached again is held to what was filled before.
+  if (typeof main?.loaderId === "string") loaders.set(tab, main.loaderId);
   await send("Runtime.addBinding", { name: BINDING, executionContextName: WORLD });
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installOverlay.toString()})(${JSON.stringify(CURSOR)})`, worldName: WORLD, runImmediately: true });
 }
@@ -900,6 +911,71 @@ function pausedError(): CallError {
   return new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
 }
 
+/** Commands to a tab's debugger, from the extension itself. */
+const sendTo =
+  (tab: number): Send =>
+  async (method, params = {}) =>
+    ((await chrome.debugger.sendCommand({ tabId: tab }, method, params)) as Record<string, unknown> | undefined) ?? {};
+
+/** What a tab a secret was filled into is held to now, by its document and address as the debugger last heard them. */
+function heldOn(tab: number): { nodes: { frame: string; node: number }[] } | undefined {
+  return heldNow(taints.get(tab), loaders.get(tab) ?? "", tabUrls.get(tab) ?? "");
+}
+
+/** Refused on a tab holding a secret: a script step, a copy, a drag, or typing into a filled field. */
+async function refuseHeld(tab: number, method: string, args: Record<string, unknown>): Promise<void> {
+  const held = heldOn(tab);
+  if (!held) return;
+  const why = heldRefusal(method, args);
+  if (why) throw new CallError("tainted", `${why} is refused: ${FILLED_PAGE}`);
+  if (held.nodes.length && typesText(method, args) && (await focusedOn(sendTo(tab), held.nodes))) throw new CallError("tainted", `typing into a filled field is refused: ${FILLED_PAGE}`);
+}
+
+/**
+ * A saved secret into one field of a tab of the session (secret.fill; see
+ * secret.ts): checked again here, put in, marked. The answer says it was
+ * filled and nothing more; the value is dropped from the call's parameters
+ * once read and never logged, and a refusal's words never hold it.
+ */
+async function secretFill(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
+  let put: SecretPut | undefined;
+  try {
+    put = readPut(params);
+    delete params["value"];
+    const s = live(params, origin);
+    const tab = tabOf(s, params);
+    if (s.paused) throw pausedError();
+    await refuseHidden(tab);
+    await attach(tab);
+    stillIn(s, tab);
+    if (s.paused) throw pausedError();
+    await pointAtNode(tab, { backendNodeId: put.node }, "move");
+    const doc = put.doc;
+    await fillField(sendTo(tab), put, (field) => {
+      taints.set(tab, marked(taints.get(tab), doc, tabUrls.get(tab) ?? "", field));
+      void saveTaints();
+    });
+    note("secret.fill: filled");
+    return { filled: true };
+  } catch (err) {
+    note(`secret.fill: refused (${err instanceof CallError ? err.code : "error"})`);
+    throw err instanceof CallError ? err : new CallError("internal", "the secret could not be filled");
+  } finally {
+    if (put) put.value = "";
+  }
+}
+
+/** A picture of a tab of the session with each of its frames masked by the patterns KOS sent for its origin (see secret.ts maskedShot). */
+async function secretPicture(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
+  const s = live(params, origin);
+  const tab = tabOf(s, params);
+  const masks = readMasks(params["masks"]);
+  await refuseHidden(tab);
+  await attach(tab);
+  stillIn(s, tab);
+  return picture(tab, params, masks);
+}
+
 async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   checkCommand(method, args);
   stillIn(s, tab);
@@ -915,6 +991,7 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
     stillIn(s, tab);
   }
   await reachable(tab, args);
+  await refuseHeld(tab, method, args);
   // KOS's cursor where its hands are about to act, on its way before they do.
   const aim = aimOf(method, args);
   if (aim && "at" in aim) await point(tab, aim.at, aim.how);
@@ -1043,12 +1120,24 @@ const framing = new Map<number, Promise<string | undefined>>();
 /** Pictures being taken, by tab: the cursor is whole again once the last is in. */
 const picturing = new Map<number, number>();
 
-/** A picture of the tab with KOS's cursor down to its arrow, whose halo and tag would cover what KOS reads. */
-async function picture(tab: number, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+/** Masked pictures under way, by tab, in turn: two at once would each put back what the other masked, mid-shot. */
+const masking = new Map<number, Promise<unknown>>();
+
+/**
+ * A picture of the tab with KOS's cursor down to its arrow, whose halo and
+ * tag would cover what KOS reads. A tab a secret was filled into, or one
+ * KOS sent `masks` for, is masked first (secret.ts maskedShot) and taken
+ * afresh, never from a frame Chrome drew before the masking.
+ */
+async function picture(tab: number, args: Record<string, unknown>, masks?: Record<string, string[]>): Promise<Record<string, unknown>> {
   picturing.set(tab, (picturing.get(tab) ?? 0) + 1);
   await toOverlays(tab, "window.__kos && window.__kos.capturing(true)", 100, true);
   try {
-    return await pictureOf(tab, args);
+    const held = heldOn(tab);
+    if (!held && !masks) return await pictureOf(tab, args, false);
+    const next = (masking.get(tab) ?? Promise.resolve()).then(() => maskedShot(sendTo(tab), held, masks, () => pictureOf(tab, args, true)));
+    masking.set(tab, next.catch(() => undefined));
+    return await next;
   } finally {
     const left = (picturing.get(tab) ?? 1) - 1;
     if (left > 0) picturing.set(tab, left);
@@ -1059,11 +1148,11 @@ async function picture(tab: number, args: Record<string, unknown>): Promise<Reco
   }
 }
 
-async function pictureOf(tab: number, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function pictureOf(tab: number, args: Record<string, unknown>, fresh: boolean): Promise<Record<string, unknown>> {
   const format = args["format"] === "png" ? "png" : "jpeg";
   const quality = typeof args["quality"] === "number" ? Math.min(100, Math.max(1, Math.round(args["quality"]))) : 80;
   const edge = typeof args["maxEdge"] === "number" && args["maxEdge"] > 0 ? Math.round(args["maxEdge"]) : 0;
-  if (format === "jpeg" && edge && (await onScreen(tab))) {
+  if (!fresh && format === "jpeg" && edge && (await onScreen(tab))) {
     const data = await frameOf(tab, quality, edge);
     if (data) return { data };
   }
@@ -1296,6 +1385,8 @@ chrome.tabs.onUpdated.addListener((tab, change, info) => {
 
 /** A tab gone from Chrome, closed or replaced by another (a page Chrome loaded ahead swapped in). */
 function gone(tab: number): void {
+  if (taints.delete(tab)) void saveTaints();
+  masking.delete(tab);
   tabUrls.delete(tab);
   loaders.delete(tab);
   mainFrames.delete(tab);

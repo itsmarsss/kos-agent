@@ -14,6 +14,7 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "DOM.describeNode",
   "DOM.focus",
   "DOM.getContentQuads",
+  "DOM.getDocument",
   "DOM.getFrameOwner",
   "DOM.getNodeForLocation",
   "DOM.resolveNode",
