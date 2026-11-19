@@ -963,11 +963,11 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await call("chat.status", { chat: "cm1:owner", conversation: "cm1:owner", said: "elsewhere", story: "› Not here" })).toMatchObject({ ok: true });
     await until(() => false, 200);
     expect(await text()).not.toContain("Not here");
-    // Held on an approval, the turn is the owner's to move: it says so, with no dots and no clock, and Approve comes first.
+    // Held on an approval, the turn is the owner's to move: it says so, with no dots and no clock, and Approve comes first on screen (the narrow card stands Deny, then Approve, reversed).
     expect(await call("chat.ask", { approval: { id: "a1", tool: "shell.run", reason: "runs a program", expiresAt: Date.now() + 60_000 } })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toBe("Waiting on you");
-    expect(await devtools.evaluate(panel, "[...document.querySelectorAll('.kos-ask .kos-ask-actions .btn')].map((b) => b.textContent)")).toEqual(["Approve", "Deny"]);
+    expect(await devtools.evaluate(panel, "[...document.querySelectorAll('.kos-ask .kos-ask-actions .btn')].map((b) => b.textContent)")).toEqual(["Deny", "Approve"]);
     expect(await devtools.evaluate(panel, "document.querySelector('.kos-ask .tag--warn')?.textContent")).toBe("Runs a program");
     expect(await devtools.evaluate(panel, "document.querySelector('.kos-ask .countdown')?.textContent")).toMatch(/^lapses in (59|60|1m 0)s$/);
     expect(await call("chat.settled", { approval: "a1" })).toMatchObject({ ok: true });
