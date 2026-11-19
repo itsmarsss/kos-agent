@@ -230,6 +230,12 @@ export class Scrubber {
         if (digits.length < DIGITS_MIN) continue;
         this.numbers.push({ name, pattern: digitsPattern(digits), last4: digits.slice(-4) });
         reach = Math.max(reach, digits.length * 19);
+        // Its digits as the encodings write them too, as an exact value's are: a page may echo a number in base64 or hex.
+        for (const text of needlesOf(digits)) {
+          if (text === digits) continue;
+          needles.push({ text, name });
+          reach = Math.max(reach, Math.min(text.length, STREAM_REACH));
+        }
         continue;
       }
       const plain = [value, JSON.stringify(value).slice(1, -1)];

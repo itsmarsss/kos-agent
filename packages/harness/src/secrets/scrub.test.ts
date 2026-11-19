@@ -120,6 +120,15 @@ describe("Scrubber digits mode", () => {
     expect(scrubber.scrub("id 942424242424242424")).toBe("id 942424242424242424");
   });
 
+  // Found by the leak suite: a page that echoed a filled card number in base64 passed it to the model whole.
+  it.each([
+    ["in base64", Buffer.from("4242424242424242").toString("base64")],
+    ["in base64url, inside a longer run", `eyJ${Buffer.from("x4242424242424242y").toString("base64url")}`],
+    ["in hex", Buffer.from("4242424242424242").toString("hex").toUpperCase()],
+  ])("takes a card number out %s", (_how, written) => {
+    expect(scrubber.scrub(`echo ${written} done`)).toMatch(/\[secret visa-personal-7k2q\.number\]/);
+  });
+
   it("counts what it found", () => {
     expect([...scrubber.found("a 4242424242424242 b 4242 4242 4242 4242").hits]).toEqual([["visa-personal-7k2q.number", 2]]);
   });
