@@ -83,6 +83,9 @@ importers:
       '@kos/harness':
         specifier: workspace:*
         version: link:../harness
+      '@kos/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.5.4)

@@ -3,7 +3,8 @@ import { createServer as createHttpServer, type Server } from "node:http";
 import { createServer as createTcpServer } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { PortTakenError, assertPortFree, awaitOwnHost, portFree } from "./porttaken.js";
+import { listenThen } from "./host.js";
+import { PortTakenError, awaitOwnHost, portFree } from "./porttaken.js";
 
 const HOST = "127.0.0.1";
 
@@ -84,12 +85,14 @@ describe("awaitOwnHost", () => {
   });
 });
 
-describe("assertPortFree", () => {
-  it("passes on a free port and names the KOS holding a taken one", async () => {
+describe("listenThen", () => {
+  it("takes a free port, and names the KOS holding a taken one", async () => {
     const port = await freePort();
-    await assertPortFree(HOST, port);
+    const mine = createHttpServer();
+    await listenThen(mine, port, HOST, () => undefined);
+    await new Promise<void>((r) => mine.close(() => r()));
     await otherKos(port);
-    const err = await assertPortFree(HOST, port).catch((e: unknown) => e);
+    const err = await listenThen(createHttpServer(), port, HOST, () => undefined).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PortTakenError);
     expect((err as Error).message).toMatch(/another KOS \(pid 999999, workspace \/elsewhere\)/);
   });
