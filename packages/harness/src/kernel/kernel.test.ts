@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -854,6 +854,31 @@ describe("Kernel", () => {
     // A name that tries to climb out is just a name.
     expect(files.at(-1)!.files).toEqual([{ name: "../../notes.txt", path: "blobs/recap/uploads/notes.txt" }]);
     expect(readFileSync(join(root, "blobs", "recap", "uploads", "notes.txt"), "utf8")).toBe("hi");
+  });
+
+  it("never keeps an attachment through a link planted in the uploads folder, or into a linked one", async () => {
+    const reply = (): ModelResponse => ({ content: [{ type: "text", text: "Kept." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    kernel = await boot({ generate: async () => reply() });
+    const outside = mkdtempSync(join(tmpdir(), "kos-planted-"));
+    try {
+      const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Uploads" });
+      mkdirSync(join(root, "uploads"), { recursive: true });
+      // A link to a file that is there, and one to a file that is not yet: both read as taken, neither is written through.
+      writeFileSync(join(outside, "agent.plist"), "owner's own");
+      symlinkSync(join(outside, "agent.plist"), join(root, "uploads", "report.txt"));
+      symlinkSync(join(outside, "new.plist"), join(root, "uploads", "report copy.txt"));
+      await kernel.handleMessage("here", { sessionId: c.id, attachments: [{ name: "report.txt", mediaType: "text/plain", data: Buffer.from("guest bytes").toString("base64") }] });
+      expect(readFileSync(join(outside, "agent.plist"), "utf8")).toBe("owner's own");
+      expect(existsSync(join(outside, "new.plist"))).toBe(false);
+      expect(readFileSync(join(root, "uploads", "report copy 2.txt"), "utf8")).toBe("guest bytes");
+      // The folder itself a link: nothing is kept there at all.
+      rmSync(join(root, "uploads"), { recursive: true, force: true });
+      symlinkSync(outside, join(root, "uploads"));
+      await kernel.handleMessage("again", { sessionId: c.id, attachments: [{ name: "x.txt", mediaType: "text/plain", data: Buffer.from("x").toString("base64") }] });
+      expect(existsSync(join(outside, "x.txt"))).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it("refuses a file past 100 MB before keeping it, saying why", async () => {
