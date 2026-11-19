@@ -709,7 +709,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   // Saved model choices are applied before anything runs, so the first turn
   // after a restart uses what the owner picked rather than the default.
   if (router) {
-    applyModelSettings(router, settings.get<ModelSettings>(MODEL_SETTINGS_KEY));
+    for (const warning of applyModelSettings(router, settings.get<ModelSettings>(MODEL_SETTINGS_KEY))) console.warn(`[models] ${warning}`);
   }
   const inference = options.inference ?? router!;
 

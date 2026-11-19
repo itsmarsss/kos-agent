@@ -925,8 +925,8 @@ export async function handleApiRequest(
     kernel.settings.set(MODEL_SETTINGS_KEY, settings);
     // Applied in place: the owner changing a model should not have to restart
     // the host to see it take effect.
-    kernel.applyModelSettings(settings);
-    return ok({ saved: settings, routes: kernel.routes() ?? null });
+    const warnings = kernel.applyModelSettings(settings);
+    return ok({ saved: settings, routes: kernel.routes() ?? null, ...(warnings.length ? { warnings } : {}) });
   }
 
   if (method === "GET" && path === "/api/models") {

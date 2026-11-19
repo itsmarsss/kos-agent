@@ -4963,11 +4963,11 @@ export class Kernel {
     this.secrets.adopt(SecretsRegistry.fromEnv());
   }
 
-  /** Repoint the router at the owner's saved choices, without a restart. */
-  applyModelSettings(settings: ModelSettings): void {
+  /** Repoint the router at the owner's saved choices, without a restart; what could not be applied, as warnings. */
+  applyModelSettings(settings: ModelSettings): string[] {
     const router = this.inference as { setRoute?: unknown; routeFor?: unknown };
-    if (typeof router.setRoute !== "function") return;
-    applyModelSettings(this.inference as Parameters<typeof applyModelSettings>[0], settings);
+    if (typeof router.setRoute !== "function") return [];
+    return applyModelSettings(this.inference as Parameters<typeof applyModelSettings>[0], settings);
   }
 
   /**
