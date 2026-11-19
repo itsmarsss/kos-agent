@@ -114,13 +114,12 @@ shell, Python and TeX tools ("this needs a jail: install bubblewrap
     ```
 
   - A command with the network nests bwrap in namespaces unshare makes,
-    and Ubuntu's `unshare-userns-restrict` keeps unshare's children from
-    making more, so there only the system-wide switch lets it run:
+    and Ubuntu's AppArmor keeps unshare's children from making more, so there only the system-wide switch lets it run:
     `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, and
     the same line in `/etc/sysctl.d/` to keep it. Without it, such a
     command fails, saying so; or use Docker.
 
-- KOS runs bwrap, pasta, slirp4netns and prlimit only from `/usr/bin`,
+- KOS runs bwrap, unshare, pasta, slirp4netns, mkfifo and prlimit only from `/usr/bin`,
   `/usr/local/bin` and `/bin`, and only when root owns the program and
   every folder above it, writable by no one else. It tries bwrap once, and
   uses the container (5c) or refuses when it fails. Restart KOS after
