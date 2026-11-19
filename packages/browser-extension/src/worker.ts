@@ -15,6 +15,7 @@ import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { changesPage, checkCommand, forwarded, isInput, isWebPage, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
+import { HandFrames } from "./handframes.js";
 import { FILLED_PAGE, TAINTS_KEY, editsField, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type Shot, type TabTaint } from "./secret.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
@@ -133,6 +134,10 @@ const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.sw
 
 const BINDING = "kosOverlay";
 const GROUP = "KOS";
+/** The overlay as each frame is given it, in its own world. */
+const OVERLAY_SOURCE = `(${installOverlay.toString()})(${JSON.stringify(CURSOR)})`;
+/** Each tab's frames in processes of their own, which the overlay reports the owner's hand from too. */
+const handFrames = new HandFrames((target, method, params) => chrome.debugger.sendCommand(target, method, params), { source: OVERLAY_SOURCE, world: WORLD, binding: BINDING });
 
 let pairings: Paired[] = [];
 let settings: ExtensionSettings = DEFAULTS;
@@ -309,6 +314,8 @@ const saveTaints = (): Promise<void> => chrome.storage.session.set({ [TAINTS_KEY
 function hello(id: string): Hello {
   const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform;
   const kept = helloSession(lastSession, id);
+  // Whether the owner holds it now: a Hand back pressed while the line was down is heard this way.
+  const live = kept && !kept.ended && session?.info.id === kept.id ? { ...kept, paused: session.paused } : kept;
   return {
     app: { version: chrome.runtime.getManifest().version, platform: "chrome", os: platform || "unknown" },
     consent: asksFirst(settings, id) ? "device" : "kos",
@@ -316,7 +323,7 @@ function hello(id: string): Hello {
     displays: [],
     ...(build ? { build } : {}),
     ...(installType ? { install: installType } : {}),
-    ...(kept ? { session: kept } : {}),
+    ...(live ? { session: live } : {}),
   };
 }
 
@@ -448,8 +455,9 @@ function backOnLine(id: string): void {
   clearTimeout(lineWait);
   lineWait = undefined;
   note("the session goes on across the new line");
-  // What KOS may have missed meanwhile: the owner taking over.
+  // What KOS may have missed meanwhile: the owner taking over, or handing back.
   if (session.paused) tell("session.paused", { session: session.info.id, reason: "owner" });
+  else tell("session.resumed", { session: session.info.id });
 }
 
 const lines = new Lines<Link>({
@@ -547,6 +555,9 @@ async function answer(method: string, params: Record<string, unknown>, origin: s
     case "tabs.close": {
       const s = live(params, origin);
       const tab = tabOf(s, params);
+      // Not while the owner has it, nor a tab of theirs on a site hidden from KOS: those are theirs to close.
+      if (s.paused) throw pausedError();
+      if (handed.has(tab) || tab === beside) await refuseHidden(tab);
       await chrome.tabs.remove(tab);
       return {};
     }
@@ -698,14 +709,15 @@ function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promi
 async function toOverlays(tab: number, expression: string, withinMs = 1_500, awaitPromise = false): Promise<void> {
   const worlds = overlays.get(tab);
   if (!worlds) return;
-  await Promise.all(
-    [...worlds].map((world) =>
+  await Promise.all([
+    handFrames.toOverlays(tab, expression, withinMs),
+    ...[...worlds].map((world) =>
       Promise.race([
         chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression, contextId: world, awaitPromise }).catch(() => worlds.delete(world)),
         new Promise((r) => setTimeout(r, withinMs)),
       ]),
     ),
-  );
+  ]);
 }
 
 /** The most KOS's hands wait on the cursor: its quick glide is 45 to 135 ms, and a busy page holds nothing up past this. */
@@ -765,6 +777,7 @@ async function end(reason: EndReason): Promise<void> {
     [...attached].map(async (tab) => {
       await toOverlays(tab, "window.__kos && window.__kos.remove()");
       await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
+      handFrames.forget(tab);
     }),
   );
   attached.clear();
@@ -812,15 +825,19 @@ async function listTabs(): Promise<ListedTab[]> {
       ...(id === beside ? { focus: true as const } : {}),
       ...(taint ? { held: { loader: taint.loader, urls: taint.urls } } : {}),
     };
-    // A tab on a hidden site is KOS's to know of, and nothing more.
-    if (isHidden(tab.url ?? "", settings.hiddenSites)) out.push({ id: String(id), url: "", title: "Hidden from KOS", hidden: true, ...mark });
-    else out.push({ id: String(id), url: tab.url ?? "", title: tab.title ?? "", ...mark });
+    // A tab on a hidden site, or on a page that is not on the web (a file, one of Chrome's own), is KOS's to know of, and nothing more.
+    const url = tab.url ?? "";
+    if (isHidden(url, settings.hiddenSites)) out.push({ id: String(id), url: "", title: "Hidden from KOS", hidden: true, ...mark });
+    else if (url && !isWebPage(url)) out.push({ id: String(id), url: "", title: "Not a web page", ...mark });
+    else out.push({ id: String(id), url, title: tab.title ?? "", ...mark });
   }
   return out;
 }
 
 /** A tab of KOS's own, in its window (made the first time, out of the owner's way), grouped as KOS. */
 async function openTab(url: string): Promise<number> {
+  const s = session;
+  if (!s) throw new CallError("no_session", "no session is live in this Chrome");
   if (!isWebUrl(url)) throw new CallError("url", "only web pages (http and https) open in your Chrome");
   if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
   const kept = await chrome.storage.session.get("kosWindow");
@@ -839,8 +856,15 @@ async function openTab(url: string): Promise<number> {
   const groups = await chrome.tabGroups.query({ windowId, title: GROUP });
   const groupId = await chrome.tabs.group({ tabIds: tab.id!, ...(groups[0] ? { groupId: groups[0].id } : { createProperties: { windowId } }) });
   await chrome.tabGroups.update(groupId, { title: GROUP, color: "blue" });
-  session!.tabs.add(tab.id!);
+  // The session may have ended while the tab was made: it is left to the owner, with no debugger on it.
+  if (session !== s) throw new CallError("no_session", "the session ended while the tab opened");
+  s.tabs.add(tab.id!);
   await attach(tab.id!);
+  if (session !== s) {
+    await chrome.debugger.detach({ tabId: tab.id! }).catch(() => undefined);
+    attached.delete(tab.id!);
+    throw new CallError("no_session", "the session ended while the tab opened");
+  }
   return tab.id!;
 }
 
@@ -875,7 +899,10 @@ async function attachNow(tab: number): Promise<void> {
   // The document a secret may be in, as the debugger finds it: a tab attached again is held to what was filled before.
   if (typeof main?.loaderId === "string") loaders.set(tab, main.loaderId);
   await send("Runtime.addBinding", { name: BINDING, executionContextName: WORLD });
-  await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installOverlay.toString()})(${JSON.stringify(CURSOR)})`, worldName: WORLD, runImmediately: true });
+  await send("Page.addScriptToEvaluateOnNewDocument", { source: OVERLAY_SOURCE, worldName: WORLD, runImmediately: true });
+  // Frames from other sites run in processes of their own: each is attached too, so the owner's hand in one is seen.
+  // Best effort: a Chrome that will not attach them still has its tab worked in, with its frames' hands unseen.
+  await handFrames.watch({ tabId: tab }).catch((err: unknown) => note(`frames of other sites not watched: ${err instanceof Error ? err.message : String(err)}`));
 }
 
 const record = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -1264,7 +1291,8 @@ function frameOf(tab: number, quality: number, edge: number): Promise<string | u
 function fromHidden(tab: number, params: Record<string, unknown>): boolean {
   const frame = params["frame"] as { url?: unknown } | undefined;
   const request = params["request"] as { url?: unknown } | undefined;
-  return [tabUrls.get(tab), frame?.url, request?.url, params["documentURL"]].some((u) => typeof u === "string" && isHidden(u, settings.hiddenSites));
+  // A dialog says the address of the frame that opened it as `url`.
+  return [tabUrls.get(tab), frame?.url, request?.url, params["documentURL"], params["url"]].some((u) => typeof u === "string" && isHidden(u, settings.hiddenSites));
 }
 
 // The owner's hands.
@@ -1303,11 +1331,22 @@ async function resume(): Promise<void> {
   await Promise.all([paint(), badge()]);
 }
 
-async function fromOverlay(tab: number, world: number, payload: string): Promise<void> {
+/**
+ * What an overlay said: in the tab's own session, or in a frame's of its own
+ * (`frame`), where it draws nothing and only reports the owner's hand.
+ */
+async function fromOverlay(tab: number, world: number, payload: string, frame?: string): Promise<void> {
   let message: Record<string, unknown>;
   try {
     message = JSON.parse(payload) as Record<string, unknown>;
   } catch {
+    return;
+  }
+  if (frame !== undefined && message["kind"] !== "input") {
+    if (message["kind"] === "hello") {
+      handFrames.hello(frame, world);
+      await chrome.debugger.sendCommand({ tabId: tab, sessionId: frame }, "Runtime.evaluate", { expression: "window.__kos && window.__kos.alive()", contextId: world }).catch(() => undefined);
+    }
     return;
   }
   switch (message["kind"]) {
@@ -1321,12 +1360,16 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
       }
       return;
     }
-    case "input":
+    case "input": {
       // The owner may scroll a KOS tab freely, if they said so.
       if (settings.takeover === "clicksAndKeys" && message["type"] === "wheel") return;
+      if (!session || session.paused) return;
+      const now = Date.now();
+      const input = await inTab(tab, world, frame, message as unknown as PageInput);
       // A click or a key takes over at once; a scroll just after they allowed it or handed it back is their hand still letting go.
-      if (session && !session.paused && session.takesOver(message as unknown as PageInput, Date.now())) await pause();
+      if (session && !session.paused && session.takesOver(input, now)) await pause();
       return;
+    }
     case "place": {
       const x = Number(message["x"]);
       const y = Number(message["y"]);
@@ -1351,6 +1394,25 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
 }
 
 /**
+ * Input an overlay reported, where it landed in the tab: a frame's report is
+ * in that frame's coordinates, and KOS aims its own in the tab's. One whose
+ * frame cannot be placed is left with no point, and is matched against KOS's
+ * own input by kind and time alone (session.ts).
+ */
+async function inTab(tab: number, world: number, frame: string | undefined, input: PageInput): Promise<PageInput> {
+  if (typeof input.x !== "number" || typeof input.y !== "number") return input;
+  const from = frame !== undefined ? handFrames.frameOf(frame, world) : worldsOf.get(tab)?.frameOf(world);
+  const at = await handFrames.inTab(tab, frame, from, { x: input.x, y: input.y }, mainFrames.get(tab));
+  return at ? { ...input, ...at } : { type: input.type };
+}
+
+/** An event about a tab's frames in processes of their own, or on one's session: the overlay's word there is heard as any other's. */
+async function fromFrames(tab: number, frame: string | undefined, method: string, params: Record<string, unknown>): Promise<void> {
+  const heard = await handFrames.heard(tab, frame, method, params);
+  if (heard && frame !== undefined && session?.tabs.has(tab)) await fromOverlay(tab, heard.world, heard.payload, frame);
+}
+
+/**
  * The owner's Stop on the bar, in the popup or in the side panel: the
  * chat the session is for is told to stop its turn too, then the session
  * ends as theirs to end.
@@ -1365,6 +1427,8 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   const tab = source.tabId;
   if (tab === undefined || !attached.has(tab)) return;
   const p = (params ?? {}) as Record<string, unknown>;
+  // A frame's own session, or a frame attached or gone: the extension's alone, never passed on to KOS.
+  if (source.sessionId !== undefined || method.startsWith("Target.")) return void fromFrames(tab, source.sessionId, method, p);
   if (heardWorld(tab, method, p)) return;
   if (!session?.tabs.has(tab)) return;
   if (method === "Runtime.bindingCalled") {
@@ -1426,6 +1490,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   if (tab === undefined) return;
   attached.delete(tab);
   overlays.delete(tab);
+  handFrames.forget(tab);
   pointed.delete(tab);
   restsAt.delete(tab);
   tabUrls.delete(tab);
@@ -1637,12 +1702,17 @@ async function hand(tab: number, give: boolean): Promise<void> {
 
 // The side panel.
 
-/** What a KOS says to the side panels talking to it; the chat it shows them is the one they are on. */
+/**
+ * What a KOS says to the side panels talking to it; the chat it shows them
+ * is the one they are on. Only `chat.show` says that: a status, an ask or a
+ * settled turn names the chat it is about, which may be one the panel left.
+ */
 function toPanels(method: string, params: Record<string, unknown>, origin: string): void {
+  const shown = method === "chat.show" && typeof params["conversation"] === "string" ? params["conversation"] : undefined;
   for (const panel of panels) {
     if (panel.kos !== origin) continue;
-    const moved = typeof params["conversation"] === "string" && params["conversation"] !== panel.conversation;
-    if (typeof params["conversation"] === "string") panel.conversation = params["conversation"];
+    const moved = shown !== undefined && shown !== panel.conversation;
+    if (shown !== undefined) panel.conversation = shown;
     panel.port.postMessage({ type: method, ...params });
     if (moved) tellEnded(panel);
   }

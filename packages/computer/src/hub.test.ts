@@ -138,15 +138,46 @@ describe("pairing a device", () => {
     expect(status(() => hub.pair({ code: "AAAA-AAAA", name: "x", platform: "macos", publicKey: fake.publicKey }))).toBe(403);
     expect(status(() => hub.pair({ code: hub.issueCode().code, name: "x", platform: "macos", publicKey: "bm90IGEga2V5" }))).toBe(400);
     hub.pair({ code: hub.issueCode().code, name: "x", platform: "macos", publicKey: fake.publicKey });
-    expect(status(() => hub.pair({ code: hub.issueCode().code, name: "x", platform: "macos", publicKey: fake.publicKey }))).toBe(409);
+    // Already paired: refused with the code kept, for another device or this one once it is removed.
+    const { code } = hub.issueCode();
+    expect(status(() => hub.pair({ code, name: "x", platform: "macos", publicKey: fake.publicKey }))).toBe(409);
+    expect(hub.codes.redeem(code)).toBe(true);
     expect(status(() => hub.pair({ code: 7, name: "x", platform: "macos", publicKey: fake.publicKey }))).toBe(400);
   });
 
-  it("voids every open code after ten wrong ones", () => {
+  it("shuts out a source after ten wrong codes, leaving the owner's code good for anyone else", () => {
     const { hub } = setup();
     const { code } = hub.issueCode();
-    for (let i = 0; i < 10; i++) expect(hub.codes.redeem(`WRONG${i}XX`)).toBe(false);
-    expect(hub.codes.redeem(code)).toBe(false);
+    for (let i = 0; i < 10; i++) expect(hub.codes.redeem(`WRONG${i}XX`, "https://evil.example")).toBe(false);
+    expect(hub.codes.redeem(code, "https://evil.example")).toBe(false);
+    expect(hub.codes.redeem(code, "local")).toBe(true);
+  });
+
+  it("tells a shut-out source nothing of a key already paired, and counts its wrong code against it", () => {
+    const { hub } = setup();
+    const fake = new FakeDevice();
+    hub.pair({ code: hub.issueCode().code, name: "x", platform: "macos", publicKey: fake.publicKey });
+    const status = (code: string, source: string): number | undefined => {
+      try {
+        hub.pair({ code, name: "x", platform: "macos", publicKey: fake.publicKey }, source);
+      } catch (err) {
+        return err instanceof PairError ? err.status : -1;
+      }
+      return undefined;
+    };
+    const { code } = hub.issueCode();
+    for (let i = 0; i < 9; i++) expect(status(`WRONG${i}XX`, "10.0.0.9")).toBe(403);
+    // A wrong code with a paired key is the tenth wrong one; the right one then tells it nothing.
+    expect(status("WRONGAXX", "10.0.0.9")).toBe(403);
+    expect(status(code, "10.0.0.9")).toBe(403);
+    expect(status(code, "local")).toBe(409);
+  });
+
+  it("voids every open code after ten wrong ones from several sources", () => {
+    const { hub } = setup();
+    const { code } = hub.issueCode();
+    for (let i = 0; i < 10; i++) expect(hub.codes.redeem(`WRONG${i}XX`, `10.0.0.${i % 3}`)).toBe(false);
+    expect(hub.codes.redeem(code, "local")).toBe(false);
   });
 
   it("lets a code lapse after ten minutes", () => {
@@ -494,6 +525,21 @@ describe("a session", () => {
     expect(logged.at(-1)).toMatch(/ended: offline, by its line did not come back$/);
   });
 
+  it("hears a Hand back made while the line was down from the hello, and lets steps through again", async () => {
+    const { hub } = setup({ lineGraceMs: 20_000, handBackWaitMs: 5_000 });
+    const fake = await chromeOnline(hub);
+    const session = await hub.begin({ conversation: "a", device: hub.find("Chrome")!, task: "t", requester: "r", minutes: 5 });
+    fake.send({ t: "event", name: "session.paused", data: { session: session.id, reason: "owner" } });
+    expect(hub.sessionOf("a")?.paused).toBe(true);
+    const waiting = hub.untilHandedBack("a");
+    fake.drop();
+    const back = new FakeDevice(fake.id, fake.key);
+    hub.accept(back.socket);
+    back.hello({ ...CHROME_APP, session: { id: session.id, paused: false } });
+    expect(await waiting).toBe(true);
+    expect(await hub.act("a", "screen.capture", {})).toMatchObject({ image: "SU1H" });
+  });
+
   it("holds a step taken while the line is down until the device is back with the session, and refuses it when it comes back without", async () => {
     const { hub } = setup({ lineGraceMs: 20_000 });
     const fake = await chromeOnline(hub);
@@ -631,6 +677,55 @@ describe("a session", () => {
     expect(fake.calls.filter((c) => c.method === "session.end")).toHaveLength(2);
     expect(hub.sessionOf("c1")).toBeUndefined();
     expect(hub.withdraw("c1")).toBe(false);
+  });
+
+  it("takes down every ask at the kill switch, and opens nothing on a yes given after it", async () => {
+    let halted = false;
+    const { hub } = setup({ halted: () => halted });
+    const fake = await online(hub);
+    fake.answers.delete("session.begin");
+    const asked = hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 }).catch((err: unknown) => err);
+    await settle();
+    halted = true;
+    hub.endAll("host");
+    expect(await asked).toMatchObject({ code: "halted" });
+    expect(hub.asking("c1")).toBe(false);
+    // A device that answers yes as the halt lands: given back there, and nothing held here.
+    halted = false;
+    fake.answers.set("session.begin", () => {
+      halted = true;
+      return { ok: true, result: { granted: true, until: Date.now() + 60_000, space: { width: 10, height: 10 } } };
+    });
+    await expect(hub.begin({ conversation: "c2", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 })).rejects.toMatchObject({ code: "halted" });
+    expect(hub.sessionOf("c2")).toBeUndefined();
+    expect(fake.calls.at(-1)?.method).toBe("session.end");
+  });
+
+  it("asks a device for one chat at a time", async () => {
+    const { hub } = setup();
+    const fake = await online(hub);
+    fake.answers.delete("session.begin");
+    const first = hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 }).catch((err: unknown) => err);
+    await settle();
+    await expect(hub.begin({ conversation: "c2", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 })).rejects.toMatchObject({ code: "busy" });
+    hub.withdraw("c1");
+    await first;
+  });
+
+  it("ends a session found past its time on the device too, and says so to listeners", async () => {
+    let now = Date.now();
+    const store = new DeviceStore(openDatabase(":memory:"));
+    const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined, beginTimeoutMs: 200, callTimeoutMs: 200, lineGraceMs: 0, now: () => now });
+    const fake = await online(hub);
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: true, until: now + 60_000, space: { width: 10, height: 10 } } }));
+    await hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 1 });
+    let told = 0;
+    hub.onChange(() => told++);
+    now += 61_000;
+    expect(hub.sessionOf("c1")).toBeUndefined();
+    await settle();
+    expect(told).toBe(1);
+    expect(fake.calls.at(-1)?.method).toBe("session.end");
   });
 
   it("tells an ask the owner never answered from one they refused", async () => {

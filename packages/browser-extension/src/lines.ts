@@ -6,13 +6,16 @@ import type { Paired } from "./pairings.js";
  * dialled. A second ask while one is opening waits on it, so a worker that
  * wakes to its alarm and its start at once never dials twice. A line the
  * owner held, or unpaired, while its key was read is not opened. A line KOS
- * no longer takes is not dialled again by the minute's round, only when the
- * owner asks (Try now, Pair again, a changed setting).
+ * no longer takes, or whose host could not prove it is KOS, is not dialled
+ * again by the minute's round, only when the owner asks (Try now, Pair
+ * again, a changed setting).
  */
 
 /** What a line needs of its link. */
 export interface Dialled {
   start(): void;
+  /** The host at its address could not prove it is the KOS paired with: dialled again only when the owner asks. */
+  readonly distrusted?: boolean;
 }
 
 export interface LinesDeps<L extends Dialled> {
@@ -50,7 +53,7 @@ export class Lines<L extends Dialled> {
   async connectAll(pairings: readonly Paired[], unpairedToo = false): Promise<void> {
     for (const p of pairings) {
       if (!this.deps.wanted(p.device)) continue;
-      if (!unpairedToo && this.deps.stateOf(p.device) === "unpaired") continue;
+      if (!unpairedToo && (this.deps.stateOf(p.device) === "unpaired" || this.links.get(p.device)?.distrusted)) continue;
       await this.connect(p);
     }
   }

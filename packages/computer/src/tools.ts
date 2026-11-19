@@ -486,7 +486,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   const chromeStartRisk: ToolRisk = {
     floor: "safe",
     escalate: (input) => {
-      const device = hub.find(str(input.chrome), "browser");
+      const device = chromeFor(deps.caller(), str(input.chrome));
       return device && hub.consentOf(device.id) === "kos" ? "this Chrome lets KOS start sessions without asking in it" : false;
     },
     why: "works in the owner's own Chrome, signed in as them",
@@ -524,6 +524,15 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   };
   /** Chats whose computer last answered that a password field has focus, until a step there goes through. */
   const secureFocus = new Set<string>();
+
+  /**
+   * The Chrome a start means: the one named, else the side panel's own. The
+   * risk check and the start resolve it the same way, so the Chrome asked
+   * about is the Chrome started.
+   */
+  function chromeFor(chat: string | undefined, named: string | undefined): ReturnType<DeviceHub["find"]> {
+    return hub.find(named ?? (chat ? deps.panelChrome?.(chat) : undefined), "browser");
+  }
 
   /** The Mac whose window the calling chat is, by id. */
   function macOf(): string | undefined {
@@ -582,8 +591,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   const beginChrome = async (chat: string, input: { task: string; chrome?: string; minutes?: number; keep?: boolean }, signal?: AbortSignal): Promise<string> => {
     const settings = hub.settings();
     // From the side panel, the Chrome the owner is talking from.
-    const panel = input.chrome ? undefined : deps.panelChrome?.(chat);
-    const device = hub.find(input.chrome ?? panel, "browser");
+    const device = chromeFor(chat, input.chrome);
     if (!device) {
       if (input.chrome && hub.find(input.chrome, "phone")) throw new Error(`${input.chrome} is the owner's phone, which is chat only: it has no browser KOS can work`);
       const which = input.chrome ? `No Chrome called ${input.chrome}.` : "More than one Chrome could be meant; name one as `chrome`.";
@@ -1109,6 +1117,10 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
  * a time. The whole text went every time, up to 40,000 characters, into a
  * turn that often needed its title.
  */
+/** The most of a page's title and address chrome.page says. */
+const TITLE_MAX = 300;
+const URL_MAX = 2_000;
+
 export function pageText(page: Record<string, unknown>, from?: number): string {
   const text = typeof page["text"] === "string" ? page["text"] : "";
   const selection = typeof page["selection"] === "string" ? page["selection"].trim() : "";
@@ -1118,9 +1130,10 @@ export function pageText(page: Record<string, unknown>, from?: number): string {
   const part = text.slice(start, start + size);
   const left = text.length - (start + part.length);
   const more = left > 0 ? `\n\n(${left.toLocaleString("en-US")} more characters; chrome.page with from: ${start + part.length} reads on)` : "";
+  // The title and address are the page's to set too: fenced with the rest, the title cut to a line's length.
+  const title = String(page["title"] ?? "").replace(/\s+/g, " ").trim().slice(0, TITLE_MAX) || "(untitled)";
   const head = [
-    `${String(page["title"] ?? "") || "(untitled)"}`,
-    String(page["url"] ?? ""),
+    fenced(`${title}\n${String(page["url"] ?? "").slice(0, URL_MAX)}`),
     ...(from === undefined && selection ? ["", "The owner selected:", fenced(selection)] : []),
     ...(from === undefined && headings.length ? ["", "Headings:", fenced(headings.map((h) => `- ${h.replace(/\s+/g, " ").trim().slice(0, 120)}`).join("\n"))] : []),
     "",

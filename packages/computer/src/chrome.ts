@@ -170,6 +170,10 @@ export class OwnerChrome implements BrowserElsewhere {
    * held: a new session on it cleans and masks them as the old one did.
    */
   private readonly carried = new Map<string, FilledValue[]>();
+  /** The conversation that last worked in each tab of each Chrome, by device and tab, past its session. */
+  private readonly worked = new Map<string, string>();
+  /** Conversations that filled a secret in any of their tabs, while one of those tabs is still open. */
+  private readonly filledBy = new Set<string>();
 
   constructor(
     private readonly hub: DeviceHub,
@@ -221,6 +225,7 @@ export class OwnerChrome implements BrowserElsewhere {
     const b = this.borrowed(conversation);
     if (!b.current || !b.tabs.has(b.current)) b.current = await this.open(conversation, b);
     const tab = b.current;
+    this.worked.set(this.keyOf(conversation, tab), conversation);
     return { page: this.pageOf(conversation, b, tab), capture: (maxEdge) => this.capture(conversation, tab, maxEdge) };
   }
 
@@ -236,14 +241,29 @@ export class OwnerChrome implements BrowserElsewhere {
 
   async useTab(conversation: string, tab: string): Promise<void> {
     const b = this.borrowed(conversation);
+    // Another conversation's tab is not taken while the owner has the Chrome, nor once that conversation filled a secret
+    // in any of its tabs: a page there may be a popup that reaches the one filled through its opener.
+    const key = this.keyOf(conversation, tab);
+    const other = this.worked.get(key);
+    if (other !== undefined && other !== conversation) {
+      if (this.hub.sessionOf(conversation)?.paused) throw new Error("that tab is another conversation's, and the owner has the Chrome now; open a tab of your own");
+      if (this.filledBy.has(other)) throw new Error("that tab is another conversation's, and a secret was filled in its tabs; open a tab of your own");
+    }
     if (!b.tabs.has(tab)) await this.refresh(conversation, b);
     if (!b.tabs.has(tab)) throw new Error("no such tab in the owner's Chrome; the owner hands one to KOS from the extension");
+    this.worked.set(key, conversation);
     b.current = tab;
+  }
+
+  /** A tab as the conversation's Chrome names it: its device and its id there. */
+  private keyOf(conversation: string, tab: string): string {
+    return `${this.hub.sessionOf(conversation)?.device ?? ""}:${tab}`;
   }
 
   async newTab(conversation: string): Promise<string> {
     const b = this.borrowed(conversation);
     b.current = await this.open(conversation, b);
+    this.worked.set(this.keyOf(conversation, b.current), conversation);
     return b.current;
   }
 
@@ -346,6 +366,8 @@ export class OwnerChrome implements BrowserElsewhere {
   private async putSecret(conversation: string, tab: string, put: SecretPut): Promise<void> {
     try {
       await this.act(conversation, "secret.fill", { tab, ...put }, SECRET_FILL_MS);
+      this.filledBy.add(conversation);
+      this.worked.set(this.keyOf(conversation, tab), conversation);
       if (isSecretSlot(put.slot)) {
         const key = `${this.hub.sessionOf(conversation)?.device ?? ""}:${tab}`;
         const values = this.carried.get(key) ?? [];
@@ -437,6 +459,14 @@ export class OwnerChrome implements BrowserElsewhere {
   }
 
   /** What the extension tells: a page's events for its hands, tabs closing, tabs handed. */
+  /** A tab gone: what was filled into it goes, and a conversation with no tab left is no longer held to its fills. */
+  private closed(key: string): void {
+    this.carried.delete(key);
+    const was = this.worked.get(key);
+    this.worked.delete(key);
+    if (was !== undefined && ![...this.worked.values()].includes(was)) this.filledBy.delete(was);
+  }
+
   private heard(device: string, event: DeviceEvent, session: Session | undefined): void {
     const entry = session ? [...this.held].find(([, b]) => b.session === session.id) : undefined;
     const data = event.data;
@@ -452,7 +482,7 @@ export class OwnerChrome implements BrowserElsewhere {
       return;
     }
     // A tab gone takes what was filled into it with it, whichever session it was in.
-    if (event.name === "tab.closed" && tab) this.carried.delete(`${device}:${tab}`);
+    if (event.name === "tab.closed" && tab) this.closed(`${device}:${tab}`);
     if (!entry || !tab) return;
     const [, b] = entry;
     if (event.name === "tab.closed") {

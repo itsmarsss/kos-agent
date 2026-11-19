@@ -281,9 +281,12 @@ The reads, each with the query keys it takes and no other:
 - `/api/agents`, `/api/conversations/<id>/messages` (which marks the chat
   read, as opening it on the dashboard does);
 - `/api/files`, `/api/file`, `/api/file/text`, `/api/file/raw` (a picture's
-  bytes), `/api/file/view` (a PDF's bytes), each `path`;
+  bytes), `/api/file/view` (a PDF's bytes), `/api/file/office` (an Office
+  file as the viewers draw it), each `path`;
 - `/api/memory` (`limit`), `/api/memory/trace` (`key`);
-- `/api/runs` (`limit`, `failed`), `/api/crons`.
+- `/api/runs` (`limit`, `failed`), `/api/crons`;
+- `/api/secrets`, `/api/secrets/<secret>/uses` (`limit`): what the owner
+  keeps and its uses, never a value.
 
 And the actions, `POST`, each with exactly its body: `/api/approve` (`{
 "id": 41, "remember"?: true }`), `/api/deny` (`{ "id": 41 }`),
@@ -543,7 +546,14 @@ steps.
 ## Protocol
 
 Version 1. JSON over a WebSocket at `/api/devices/socket`, text frames, one
-message per frame, at most 16 MB. Every message has a type `t`.
+message per frame, at most 16 MB. Every message has a type `t`. An upgrade
+with any `Origin` but an extension's (`chrome-extension://`) is refused
+with 403, `null` (a sandboxed frame, data:, file:) included: a device sends
+none, and KOS for Chrome its extension's own. A socket has 16 KB to send
+before its hello is proved, and at most eight sockets wait on a hello at
+once, four from one sender (its address; from a proxy on loopback, the last
+address the proxy added; a device on loopback with no proxy, a sender of
+its own); one beyond that is answered 503.
 
 ### Pairing (HTTP)
 
@@ -560,8 +570,12 @@ message per frame, at most 16 MB. Every message has a type `t`.
 ```
 
 answers `{ "device": "dev_...", "hostKey": "<base64, 32 bytes>", "protocol": 1 }`.
-A wrong code is a 403. After ten wrong codes in ten minutes every open code
-is void.
+A wrong code is a 403. Wrong codes are counted by where they came from (an
+address on the Wi-Fi listener; on KOS's own port, a browser page's origin,
+else the sender as the device socket counts it): ten from one source in ten
+minutes shut that source out for the rest of them, already paired keys
+included, and ten from three sources or more void every open code. A device
+already paired, with a right code, is a 409, its code left unspent.
 
 The pairing link is `kos-device://pair?url=<KOS address>&code=<code>`, and a
 link for a phone over Wi-Fi adds `&pin=<pin>`, the certificate the phone pins
@@ -596,9 +610,11 @@ that does not read, is let in as a build KOS does not know. A Chrome adds
 unpacked); KOS for Mac on the computer KOS runs on adds `here`, its proof
 that it is there.
 
-`session`, when the device sends it, is `{ "id", "ended"? }`: the session it
-held for this KOS when its line last dropped. Without `ended` it still
-holds it, and KOS goes on with it on the new line; with `ended` (a reason
+`session`, when the device sends it, is `{ "id", "ended"?, "paused"? }`: the
+session it held for this KOS when its line last dropped. Without `ended` it
+still holds it, and KOS goes on with it on the new line, taken over by the
+owner or not as `paused` says (a Hand back pressed while the line was down
+is heard so); with `ended` (a reason
 as `session.ended` gives one) it lost it while away, and KOS ends it there
 with that reason. A session KOS kept for the device that the hello does not
 name is over (`offline`), and one the hello names that KOS no longer has is
