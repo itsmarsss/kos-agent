@@ -29,6 +29,8 @@ export type CdpListener = (event: CdpEvent) => void;
 
 /** How long a command may wait for its reply. */
 const REPLY_MS = 15_000;
+/** How long the browser may take to answer a dial. */
+const DIAL_MS = 10_000;
 
 export class CdpClient {
   private socket: CdpSocket | null = null;
@@ -43,21 +45,31 @@ export class CdpClient {
     return this.socket !== null;
   }
 
-  /** Connect to the browser endpoint. Resolves on open, rejects on the first error. */
-  async dial(url: string, onClosed: () => void): Promise<void> {
+  /** Connect to the browser endpoint. Resolves on open, rejects on the first error, or when it has not opened in DIAL_MS. */
+  async dial(url: string, onClosed: () => void, timeoutMs = DIAL_MS): Promise<void> {
     if (this.socket) throw new Error("already connected");
     const socket = this.connect(url);
     this.socket = socket;
     this.closedBy = onClosed;
-    await new Promise<void>((resolve, reject) => {
-      socket.onopen = () => resolve();
-      socket.onerror = () => reject(new Error("could not reach the browser"));
-      socket.onclose = () => {
-        reject(new Error("the browser hung up"));
-        this.dropped(socket);
-      };
-      socket.onmessage = (ev) => this.receive(ev.data);
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.onopen = () => resolve();
+        socket.onerror = () => reject(new Error("could not reach the browser"));
+        socket.onclose = () => {
+          reject(new Error("the browser hung up"));
+          this.dropped(socket);
+        };
+        socket.onmessage = (ev) => this.receive(ev.data);
+        timer = setTimeout(() => {
+          // Given up on, not hung up: the socket is let go without telling anyone it closed.
+          if (this.socket === socket) this.close();
+          reject(new Error("the browser did not answer"));
+        }, timeoutMs);
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   close(): void {
