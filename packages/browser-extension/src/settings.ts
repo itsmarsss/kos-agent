@@ -124,13 +124,18 @@ export function siteOf(text: string): string | undefined {
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) || host === "localhost" ? host : undefined;
 }
 
-/** Whether a page's address is on a hidden site, or a subdomain of one. */
+/**
+ * Whether a page's address is on a hidden site, or a subdomain of one: by
+ * its host as Chrome resolves it (lower case, in punycode, without the one
+ * trailing dot a fully qualified name may carry), and a blob or a
+ * filesystem address by the address inside it.
+ */
 export function isHidden(url: string, sites: readonly string[]): boolean {
   let host: string;
   try {
-    host = new URL(url).hostname.toLowerCase();
+    host = new URL(url.replace(/^(blob|filesystem):/i, "")).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
     return false;
   }
-  return sites.some((site) => host === site || host.endsWith(`.${site}`));
+  return host !== "" && sites.some((site) => host === site || host.endsWith(`.${site}`));
 }

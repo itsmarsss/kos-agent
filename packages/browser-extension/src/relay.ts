@@ -14,6 +14,7 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "DOM.describeNode",
   "DOM.focus",
   "DOM.getContentQuads",
+  "DOM.getDocument",
   "DOM.getFrameOwner",
   "DOM.getNodeForLocation",
   "DOM.resolveNode",
@@ -43,6 +44,30 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "Runtime.releaseObjectGroup",
 ]);
 
+/** Commands whose answer is the page's DOM, through shadow roots: user-agent ones are taken out of it (withoutFieldText). */
+const DOM_READS: ReadonlySet<string> = new Set(["DOM.getDocument", "DOM.describeNode"]);
+
+type DomAnswer = { shadowRootType?: unknown; children?: DomAnswer[]; shadowRoots?: DomAnswer[]; contentDocument?: DomAnswer; templateContent?: DomAnswer };
+
+/**
+ * An answer of the page's DOM without the browser's own shadow roots: an
+ * input's holds the text in it as a text node, so a password the owner or
+ * KOS typed would cross to KOS with every read of the tree. KOS's hands
+ * read neither the text nor anything else in them.
+ */
+export function withoutFieldText(method: string, answer: Record<string, unknown>): Record<string, unknown> {
+  if (!DOM_READS.has(method)) return answer;
+  const strip = (n: DomAnswer | undefined): void => {
+    if (!n) return;
+    if (n.shadowRoots) n.shadowRoots = n.shadowRoots.filter((r) => r.shadowRootType !== "user-agent");
+    for (const child of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) strip(child);
+    strip(n.contentDocument);
+    strip(n.templateContent);
+  };
+  strip((answer["root"] ?? answer["node"]) as DomAnswer | undefined);
+  return answer;
+}
+
 /** Events KOS's hands listen for; the rest stay in the browser. */
 const EVENTS: ReadonlySet<string> = new Set([
   "Input.dragIntercepted",
@@ -63,6 +88,15 @@ export function isWebUrl(url: string): boolean {
   return /^https?:\/\//i.test(url) || url === "about:blank";
 }
 
+/**
+ * A page a tab may be on for KOS to drive it: a web address or a blank
+ * page, a blob of a web page's own, or the page Chrome shows for one that
+ * would not load. Not one of Chrome's own pages or an extension's.
+ */
+export function isWebPage(url: string): boolean {
+  return isWebUrl(url) || /^blob:https?:\/\//i.test(url) || url.startsWith("chrome-error://chromewebdata/");
+}
+
 /** The world KOS's hands make for their page-side scripts (WORLD in packages/browser/src/page.ts): the one world KOS may make. */
 export const HANDS_WORLD = "kos-hands";
 
@@ -81,10 +115,30 @@ export function checkCommand(method: string, params: Record<string, unknown>): v
     const url = params["url"];
     if (typeof url !== "string" || !isWebUrl(url)) throw new CallError("url", "only web pages (http and https) open in your Chrome");
   }
+  if (method === "Input.dispatchKeyEvent" && pastes(params)) throw new CallError("method", "a paste is refused in your Chrome: it would hand KOS whatever is on your clipboard; type the text instead");
+  // The browser's own shadow roots hold each field's text: a node found at a point is never one inside them.
+  if (method === "DOM.getNodeForLocation") params["includeUserAgentShadowDOM"] = false;
   if (method === "Page.createIsolatedWorld") {
     if (params["worldName"] !== HANDS_WORLD) throw new CallError("method", `the only world KOS may make is ${HANDS_WORLD}`);
     if (params["grantUniveralAccess"] !== undefined && params["grantUniveralAccess"] !== false) throw new CallError("method", "a world KOS makes has no more reach than the page");
   }
+}
+
+/** Modifier bits as Input.dispatchKeyEvent takes them. */
+const CONTROL = 2;
+const META = 4;
+const SHIFT = 8;
+
+/** Whether a key event pastes: by an editing command, Control or Meta with V, or Shift with Insert. */
+function pastes(params: Record<string, unknown>): boolean {
+  const commands = Array.isArray(params["commands"]) ? params["commands"] : [];
+  if (commands.some((c) => typeof c === "string" && /^paste/i.test(c))) return true;
+  const modifiers = typeof params["modifiers"] === "number" ? params["modifiers"] : 0;
+  const key = typeof params["key"] === "string" ? params["key"].toLowerCase() : "";
+  const code = typeof params["code"] === "string" ? params["code"] : "";
+  const vk = params["windowsVirtualKeyCode"];
+  if ((modifiers & (CONTROL | META)) !== 0 && (key === "v" || code === "KeyV" || vk === 86)) return true;
+  return (modifiers & SHIFT) !== 0 && (key === "insert" || code === "Insert" || vk === 45);
 }
 
 /** What a world in a tab is: the page's own or KOS's hands', which KOS may reach; the overlay's, or another's (an extension's), which it may not. */

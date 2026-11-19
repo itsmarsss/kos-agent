@@ -176,7 +176,7 @@ function hostParts(origin: string): { scheme: string; sub: string; domain: strin
 /**
  * The secret a secrets tool's ask places, and where: its label and handle,
  * the fields, and the page's real origin large, its registrable domain in
- * bold, with the frames the fields sit in and what to weigh (a page that
+ * bold, with the browser it goes into when it is the owner's Chrome, the frames the fields sit in and what to weigh (a page that
  * is not encrypted, a site it was never filled on, a name in look-alike
  * letters). Never a value.
  */
@@ -207,6 +207,7 @@ export function AskSecretBlock({ secret }: { secret: AskSecret }): ReactElement 
           )}
         </p>
       )}
+      {secret.surface === "chrome" && <p className="kos-ask-secret-frames">In your Chrome{secret.device ? ` (${secret.device})` : ""}</p>}
       {frames.length > 0 && <p className="kos-ask-secret-frames">In a frame from {frames.join(", ")}</p>}
       {secret.targets && secret.targets.length > 0 && (
         <p className="kos-ask-secret-frames">

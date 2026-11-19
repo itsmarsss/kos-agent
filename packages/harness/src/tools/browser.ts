@@ -79,6 +79,8 @@ export interface BrowserElsewhere {
   picture(conversationId: string, maxEdge: number): Promise<string | undefined>;
   /** What it is, in words for a result: "the owner's Chrome (Chrome on macOS)". */
   describe(conversationId: string): string;
+  /** The paired device the conversation's session is on, for what a secret's use records and its ask shows. */
+  device?(conversationId: string): { id: string; name: string } | undefined;
 }
 
 export interface BrowserToolsDeps {
