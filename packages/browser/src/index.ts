@@ -24,8 +24,8 @@ export {
   type BrowserTab,
 } from "./live.js";
 export { sweepProfiles, type SweepOptions, type SweepResult } from "./profiles.js";
-export { Page, SecretRefused, TAINTED, sendEach, type Call, type FieldSpot, type FillExpect, type Look, type PageLimits, type PageOptions, type Session } from "./page.js";
-export { isSecretSlot, type SecretSlot } from "./taint.js";
+export { Page, SecretRefused, TAINTED, sendEach, type Call, type FieldSpot, type FillExpect, type HeldElsewhere, type Look, type PageLimits, type PageOptions, type SecretPut, type Session } from "./page.js";
+export { echoPatterns, isDigitSlot, isSecretSlot, keepFilled, type FilledValue, type Kin, type SecretSlot } from "./taint.js";
 export { INDEX_MAX, Refs, TREE_MAX, indexOf, treeOf, type AxNode, type PageIndex } from "./snapshot.js";
 export { STEP_KEYS, WAIT_MAX_MS, parseStep, touchesPage, type Step } from "./steps.js";
 export { probe as probeArtifact, type ProbeResult, type ProbedElement } from "./artifactprobe.js";

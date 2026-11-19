@@ -13,7 +13,7 @@ import { CURSOR } from "./cursorlook.js";
 import { installOverlay } from "./overlay.js";
 import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
-import { checkCommand, forwarded, isWebUrl, Worlds } from "./relay.js";
+import { checkCommand, forwarded, isWebPage, isWebUrl, Worlds } from "./relay.js";
 import { GRACE_MS, Session } from "./session.js";
 import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf, themeOf } from "./settings.js";
 
@@ -85,6 +85,35 @@ describe("what reaches a tab", () => {
       expect(() => checkCommand("Page.navigate", { url })).toThrow(/only web pages/);
     }
     expect(isWebUrl("about:blank")).toBe(true);
+  });
+
+  it("refuses a paste on every tab, by its command or its key: it would hand KOS the owner's clipboard", () => {
+    for (const key of [
+      { key: "v", modifiers: 4, commands: ["paste"] },
+      { key: "v", modifiers: 2, commands: ["pasteAndMatchStyle"] },
+      { key: "v", code: "KeyV", modifiers: 2 },
+      { windowsVirtualKeyCode: 86, modifiers: 4 },
+      { key: "Insert", modifiers: 8 },
+      { key: "Enter", commands: ["Paste"] },
+    ]) {
+      expect(() => checkCommand("Input.dispatchKeyEvent", { type: "keyDown", ...key })).toThrow(/paste/);
+    }
+    for (const key of [{ key: "v" }, { key: "V", modifiers: 8 }, { key: "z", modifiers: 4, commands: ["undo"] }, { key: "Insert" }]) {
+      expect(() => checkCommand("Input.dispatchKeyEvent", { type: "keyDown", ...key })).not.toThrow();
+    }
+  });
+
+  it("drives a tab only while it is on a web page, a web page's blob or Chrome's page for one that would not load", () => {
+    for (const url of ["https://example.com/", "about:blank", "blob:https://example.com/0f1e", "chrome-error://chromewebdata/"]) expect(isWebPage(url)).toBe(true);
+    for (const url of ["chrome://settings/", "chrome-extension://abc/popup.html", "file:///etc/passwd", "devtools://devtools/x", "view-source:https://example.com", "blob:chrome-extension://abc/1"]) expect(isWebPage(url)).toBe(false);
+  });
+
+  it("never finds a node inside the browser's own shadow roots, which hold each field's text", () => {
+    for (const asked of [{ x: 1, y: 1 }, { x: 1, y: 1, includeUserAgentShadowDOM: true }]) {
+      const params: Record<string, unknown> = { ...asked };
+      checkCommand("DOM.getNodeForLocation", params);
+      expect(params["includeUserAgentShadowDOM"]).toBe(false);
+    }
   });
 
   it("lets KOS make only its hands' own world, with no more reach than the page", () => {
@@ -380,6 +409,12 @@ describe("the owner's settings", () => {
     expect(isHidden("https://notchase.com", sites)).toBe(false);
     expect(isHidden("about:blank", sites)).toBe(false);
     expect(isHidden("https://my.1password.com/vault", DEFAULT_HIDDEN)).toBe(true);
+    // As Chrome resolves the host: a trailing dot, another case, a blob or a filesystem address of the site.
+    for (const url of ["https://1password.com./login", "https://MY.1Password.COM/", "blob:https://my.1password.com/5f0c", "filesystem:https://my.1password.com/temporary/x"]) {
+      expect(isHidden(url, DEFAULT_HIDDEN)).toBe(true);
+    }
+    expect(isHidden("https://xn--bcher-kva.example/", [siteOf("bücher.example")!])).toBe(true);
+    expect(isHidden("blob:null/5f0c", DEFAULT_HIDDEN)).toBe(false);
   });
 });
 
