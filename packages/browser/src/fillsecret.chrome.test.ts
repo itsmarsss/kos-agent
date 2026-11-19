@@ -134,6 +134,20 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
       );
     // A page that watches itself for any sign of a picture's masking: a change to its tree, its attributes, its styles or its highlights.
     if (req.url === "/oracle") return html(page("Oracle", `<label>Password <input id=pw type=password></label><div style="font-size:40px">guess-one <span id=echo style="color:${MAGENTA}"></span></div><script>${ORACLE}</script>`));
+    // A tall page whose password field sits a screen and more down, beside a blue block a picture of the right part shows.
+    if (req.url?.startsWith("/tall"))
+      return html(
+        page("Tall", `<div style="height:${Number(req.url.split("?")[1] ?? 0) + 300}px"></div><label>Password <input id=pw type=password></label><div style="background:#0000ff;width:400px;height:200px"></div><div style="height:2000px"></div>`),
+      );
+    // A page with something moving on it.
+    if (req.url === "/moving")
+      return html(
+        page("Moving", `<style>@keyframes turn{to{transform:rotate(360deg)}}</style><div id=spin style="width:40px;height:40px;background:#888;animation:turn 2s steps(4) infinite"></div><div id=form style="animation:turn 2s steps(4) infinite;margin:40px"><label>Password <input id=pw type=password></label></div>`),
+      );
+    // A frame drawn upside down, its magenta box in a corner that turning moves to the opposite one.
+    if (req.url === "/turned")
+      return html(page("Turned", `<label>Password <input id=pw type=password></label><iframe src="${payBase}/corner" style="width:500px;height:300px;border:0;transform:rotate(180deg)"></iframe>`));
+    if (req.url === "/corner") return html(page("Corner", `<input id=box value="magenta words" style="width:200px;margin:0">`));
     if (req.url?.startsWith("/echo")) return html(page("Echo", `<p>You sent ${decodeURIComponent(req.url.split("=")[1] ?? "")}</p>`));
     html(login());
   };
@@ -171,6 +185,18 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     })()`);
     return Number(counted);
   };
+  /** How many pixels of a JPEG are near pure blue, counted as magentaIn counts. */
+  const blueIn = async (jpeg: string): Promise<number> =>
+    Number(
+      await tab.page.evaluate(`await (async () => {
+      const img = new Image(); img.src = "data:image/jpeg;base64,${jpeg}"; await img.decode();
+      const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+      const g = c.getContext("2d"); g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, c.width, c.height).data; let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] < 70 && d[i + 1] < 70 && d[i + 2] > 190) n++;
+      return n;
+    })()`),
+    );
   /** The ref the last look gave a labelled control. */
   const refOf = (seen: string, label: string): string => {
     const m = new RegExp(`"${label}"[^\\n]*@(e\\d+)`).exec(seen);
@@ -478,6 +504,35 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     const masked = await tab.capture(1000);
     await new Promise((r) => setTimeout(r, 50));
     expect(await peek("JSON.stringify(window.seen)")).toBe("[]");
+    await visit(tab, [`${base}/next`], { then: "none" });
+    expect(await magentaIn(raw)).toBeGreaterThan(200);
+    expect(await magentaIn(masked!)).toBeLessThan(20);
+  });
+
+  it("masks a scrolled page where it is drawn, and pictures the part of it on screen", async () => {
+    for (const scrolled of [200, 1500]) {
+      await fillPassword(`/tall?${scrolled}`);
+      await sessionOf(tab).send("Runtime.evaluate", { expression: `window.scrollTo(0, ${scrolled})` });
+      expect(await peek("Math.round(window.scrollY)")).toBe(scrolled);
+      const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
+      const masked = await tab.capture(1000);
+      await visit(tab, [`${base}/next`], { then: "none" });
+      expect(await magentaIn(raw)).toBeGreaterThan(200);
+      expect(await magentaIn(masked!)).toBeLessThan(20);
+      // The part of the page on screen, not its top: the blue block beside the field is there.
+      expect(await blueIn(masked!)).toBeGreaterThan(5_000);
+    }
+  });
+
+  it("pictures no page that is moving, and paints a frame drawn turned over whole", async () => {
+    await fillPassword("/moving");
+    expect(await tab.capture(1000)).toBeUndefined();
+    // Something else moving, the spinner, is no reason not to picture it.
+    await sessionOf(tab).send("Runtime.evaluate", { expression: "document.getElementById('form').getAnimations().forEach((a) => a.cancel())" });
+    expect(await tab.capture(1000)).toBeDefined();
+    await fillPassword("/turned");
+    const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
+    const masked = await tab.capture(1000);
     await visit(tab, [`${base}/next`], { then: "none" });
     expect(await magentaIn(raw)).toBeGreaterThan(200);
     expect(await magentaIn(masked!)).toBeLessThan(20);

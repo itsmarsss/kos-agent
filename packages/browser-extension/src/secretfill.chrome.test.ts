@@ -59,7 +59,7 @@ document.getElementById('pw').addEventListener('input', (e) => { document.getEle
  * the password as typed, in magenta, beside a guess of its own.
  */
 const ORACLE_PAGE = `<!doctype html><meta charset=utf-8><title>Oracle</title><style>input{font-size:28px;width:380px;height:44px;display:block;color:#ff00ff}</style>
-<input id=pw type=password><div style="font-size:40px">guess-one <span id=echo style="color:#ff00ff"></span></div>
+<input id=pw type=password><div style="font-size:40px">guess-one <span id=echo style="color:#ff00ff"></span></div><div id=spin style="width:20px;height:20px;background:#888"></div>
 <script>window.seen = [];
 const echo = document.getElementById('echo');
 const pw = document.getElementById('pw');
@@ -415,6 +415,11 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     // A held tab: every text box painted over; the echo only where KOS sends its pattern.
     expect(await pixels(held, "magenta")).toBeGreaterThan(200);
     expect(await pixels(echoed, "magenta")).toBe(0);
+    // A filled field that moves may be drawn where it was not measured: no picture. Something else moving is no reason.
+    await devtools.evaluate(page, "document.body.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(40px)' }], { duration: 4000, easing: 'steps(4)', iterations: Infinity })");
+    expect(await call("cdp.send", { tab, method: "Page.captureScreenshot", params: { format: "jpeg", quality: 90 } })).toMatchObject({ error: { code: "cdp" } });
+    await devtools.evaluate(page, "document.getAnimations().forEach((a) => a.cancel()); document.getElementById('spin').animate([{ opacity: 1 }, { opacity: 0.2 }], { duration: 4000, iterations: Infinity })");
+    expect(await call("cdp.send", { tab, method: "Page.captureScreenshot", params: { format: "jpeg", quality: 90 } })).toMatchObject({ ok: true });
   });
 
   it("refuses a page a service worker runs, which KOS clears nowhere in the owner's Chrome", async () => {

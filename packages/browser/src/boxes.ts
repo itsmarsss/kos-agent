@@ -101,6 +101,8 @@ async function placer(send: Send, world: number, frame: string): Promise<(boxes:
   const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
   const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
   const [left, top, right, bottom] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  // A frame turned, skewed or mirrored is not placed box by box: all of it is painted over.
+  if (!upright(quad)) return () => (right > left && bottom > top ? [left, top, right - left, bottom - top] : []);
   const view = await run<Viewport>(send, world, viewportNow, []);
   const sx = (right - left) / Math.max(1, view.width);
   const sy = (bottom - top) / Math.max(1, view.height);
@@ -117,13 +119,21 @@ async function placer(send: Send, world: number, frame: string): Promise<(boxes:
   };
 }
 
+/** Whether a quad (clockwise from its first corner) is an upright rectangle drawn the right way round, to half a pixel. */
+export function upright(q: readonly number[]): boolean {
+  const near = (a: number, b: number): boolean => Math.abs(a - b) <= 0.5;
+  const [x0, y0, x1, y1, x2, y2, x3, y3] = q as [number, number, number, number, number, number, number, number];
+  return near(y0, y1) && near(x1, x2) && near(y2, y3) && near(x3, x0) && x1 > x0 && y3 > y0;
+}
+
 /**
  * The boxes a picture of the tab must be painted over, or undefined when it
  * need not be: on a tab `held` to a secret, every text box of every frame
  * reachable; in a frame `patternsFor` its origin gives patterns (an
  * about:blank one by the page's), its text boxes and each echo of them. A
- * frame of another process, which no world reaches, is passed over; the
- * main frame must be measured, or this throws.
+ * child frame where a box is moving, or drawn turned or mirrored, is
+ * painted over whole. A frame of another process, which no world reaches, is
+ * passed over; the main frame must be measured and still, or this throws.
  */
 export async function boxesOf(send: Send, worldOf: (frame: string) => Promise<number | undefined>, held: boolean, patternsFor: (origin: string) => string[]): Promise<SecretBoxes | undefined> {
   try {
@@ -143,7 +153,14 @@ export async function boxesOf(send: Send, worldOf: (frame: string) => Promise<nu
         continue;
       }
       const place = frame === main ? (b: number[]): number[] => b : await placer(send, world, frame);
-      for (const root of frameRoots) boxes.push(...place(await run<number[]>(send, world, secretBoxes, [patterns], root)));
+      const found = await Promise.all(frameRoots.map((root) => run<{ boxes: number[]; moving: boolean }>(send, world, secretBoxes, [patterns], root)));
+      // A box moving may be drawn somewhere other than where it was measured: the main frame is not pictured, a child frame is painted over whole.
+      if (found.some((f) => f.moving)) {
+        if (frame === main) throw new Error("the page is moving where it may show a secret, so it is not pictured");
+        boxes.push(...place([0, 0, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER]));
+        continue;
+      }
+      for (const f of found) boxes.push(...place(f.boxes));
     }
     if (!needed) return undefined;
     const world = await worldOf(main);

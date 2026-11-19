@@ -628,9 +628,13 @@ export function taint(this: Element): void {
  * RegExp source); SVG text that holds one; and an element whose attributes
  * hold one and that draws a ::before or ::after, which may show them
  * (content: attr()). As boxes in this frame's viewport, four numbers each
- * (x, y, width, height), for the picture to be painted over where they are.
+ * (x, y, width, height), for the picture to be painted over where they are;
+ * and whether any of them, or a frame in this root, is moving now (a CSS
+ * animation or transition, or script's own, on it or on anything around
+ * it, through shadow roots), when it may be drawn somewhere other than
+ * where it was measured.
  */
-export function secretBoxes(this: Document | ShadowRoot, patterns: string[]): number[] {
+export function secretBoxes(this: Document | ShadowRoot, patterns: string[]): { boxes: number[]; moving: boolean } {
   const found = patterns.map((p) => new RegExp(p, "g"));
   const holds = (text: string): boolean =>
     found.some((p) => {
@@ -639,7 +643,9 @@ export function secretBoxes(this: Document | ShadowRoot, patterns: string[]): nu
     });
   const NOT_TEXT = /^(hidden|checkbox|radio|button|submit|reset|image|file|range|color)$/;
   const out: number[] = [];
-  const add = (r: DOMRect | DOMRectReadOnly): void => {
+  const measured = new Set<Element>();
+  const add = (r: DOMRect | DOMRectReadOnly, el?: Element | null): void => {
+    if (el) measured.add(el);
     const x = Math.max(0, r.left);
     const y = Math.max(0, r.top);
     const right = Math.min(innerWidth, r.right);
@@ -656,9 +662,11 @@ export function secretBoxes(this: Document | ShadowRoot, patterns: string[]): nu
     if (node instanceof Element) {
       const el = node;
       const editingHost = el instanceof HTMLElement && el.isContentEditable && !(el.parentElement?.isContentEditable ?? false);
-      if ((el instanceof HTMLInputElement && !NOT_TEXT.test(el.type)) || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || editingHost) add(el.getBoundingClientRect());
-      else if (el instanceof SVGTextContentElement && holds(el.textContent ?? "")) add(el.getBoundingClientRect());
-      if (Array.from(el.attributes).some((a) => holds(a.value)) && drawsPseudo(el)) add(el.getBoundingClientRect());
+      if ((el instanceof HTMLInputElement && !NOT_TEXT.test(el.type)) || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || editingHost) add(el.getBoundingClientRect(), el);
+      else if (el instanceof SVGTextContentElement && holds(el.textContent ?? "")) add(el.getBoundingClientRect(), el);
+      if (Array.from(el.attributes).some((a) => holds(a.value)) && drawsPseudo(el)) add(el.getBoundingClientRect(), el);
+      // A frame's boxes are placed where its element is drawn, which may move too.
+      if (el instanceof HTMLIFrameElement || el instanceof HTMLFrameElement) measured.add(el);
       continue;
     }
     const text = (node as Text).data;
@@ -672,11 +680,21 @@ export function secretBoxes(this: Document | ShadowRoot, patterns: string[]): nu
         const range = document.createRange();
         range.setStart(node, m.index);
         range.setEnd(node, m.index + m[0].length);
-        for (const r of Array.from(range.getClientRects())) add(r);
+        for (const r of Array.from(range.getClientRects())) add(r, node.parentElement);
       }
     }
   }
-  return out;
+  // What moves: the element each running animation is on, and everything inside it, across shadow roots.
+  const movers = new Set<Element>();
+  for (const a of document.getAnimations()) {
+    const target = a.playState === "running" && a.effect instanceof KeyframeEffect ? a.effect.target : null;
+    if (target) movers.add(target);
+  }
+  const moves = (el: Element): boolean => {
+    for (let at: Node | null = el; at; at = at.parentNode ?? (at instanceof ShadowRoot ? at.host : null)) if (at instanceof Element && movers.has(at)) return true;
+    return false;
+  };
+  return { boxes: out, moving: movers.size > 0 && [...measured].some(moves) };
 }
 
 /** This frame's viewport: its size, and where the part of it drawn is and at what zoom (the visual viewport, which a pinch moves). */
