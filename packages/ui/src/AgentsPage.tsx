@@ -7,6 +7,7 @@ import { api, type AgentInfo, type InvalidAgent } from "./api.js";
 import { Drawer } from "./Drawer.js";
 import { PageHead } from "./PageHead.js";
 import { hrefFor } from "./routes.js";
+import { agoWords } from "./schedulewords.js";
 
 /**
  * The blobs, each with what it is up to.
@@ -29,14 +30,6 @@ export interface AgentsPageProps {
 
 const POLL_MS = 5000;
 
-function ago(ts: number): string {
-  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
-
 function when(ts: number): string {
   const d = new Date(ts);
   const today = new Date();
@@ -57,7 +50,7 @@ export function upTo(a: AgentInfo): string {
   if (t.activity === "working") return "Working now…";
   if (t.activity === "needs-you") return "Waiting on you";
   if (t.activity === "error") return `Its last turn failed${t.lastError ? `: ${t.lastError}` : ""}`;
-  if (t.lastSaid) return `“${plain(t.lastSaid)}” · ${ago(t.updatedAt)}`;
+  if (t.lastSaid) return `“${plain(t.lastSaid)}” · ${agoWords(t.updatedAt)}`;
   return "Nothing said yet";
 }
 
@@ -66,7 +59,7 @@ export function runsWhen(a: AgentInfo): string {
   if (!a.job) return "runs when dispatched or spoken to";
   if (!a.job.enabled) return `paused · ${a.job.schedule}`;
   const next = a.job.nextRunAt ? `next ${when(a.job.nextRunAt)}` : a.job.schedule;
-  return a.job.lastRunAt ? `${next} · last run ${ago(a.job.lastRunAt)}` : `${next} · not run yet`;
+  return a.job.lastRunAt ? `${next} · last run ${agoWords(a.job.lastRunAt)}` : `${next} · not run yet`;
 }
 
 /**

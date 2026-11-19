@@ -11,6 +11,7 @@ import { highlights, tokenize } from "./highlight.js";
 import { isOfficePath, OfficeBody } from "./OfficeView.js";
 import { hrefFor } from "./routes.js";
 import { Signed } from "./signed.js";
+import { agoWords } from "./schedulewords.js";
 
 /**
  * A file, looked at in a window over the page.
@@ -28,17 +29,6 @@ export function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
-export function ago(ms: number): string {
-  if (!ms) return "";
-  const secs = Math.round((Date.now() - ms) / 1000);
-  if (secs < 60) return "just now";
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
 }
 
 /** A PDF, by name: shown as itself in the browser's own viewer. */
@@ -331,7 +321,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                   <span className="preview-meta">
                     {bytes(shown.size)}
                     {shown.language && shown.language !== "text" && shown.omitted !== "binary" ? ` · ${shown.language}` : ""}
-                    {shown.modifiedAt ? ` · ${ago(shown.modifiedAt)}` : ""}
+                    {shown.modifiedAt ? ` · ${agoWords(shown.modifiedAt)}` : ""}
                   </span>
                 )}
                 <span className="preview-acts">

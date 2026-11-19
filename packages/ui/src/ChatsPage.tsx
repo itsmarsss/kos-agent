@@ -362,7 +362,6 @@ export function ChatsPage({
   useEffect(() => setListOpen(false), [activeId]);
   useDismiss(listOpen, () => setListOpen(false), { away: false, scroll: false, resize: false, escape: "dialog" });
   const [showArchived, setShowArchived] = useState(false);
-  /** The row whose Delete was pressed once; a second press deletes. */
   /** A chat just archived from its header, offered back for a moment. */
   const [undo, setUndo] = useState<{ id: string; title: string } | null>(null);
   useEffect(() => {

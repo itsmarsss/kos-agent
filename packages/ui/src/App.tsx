@@ -52,6 +52,7 @@ import { WidgetPage } from "./WidgetPage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { Refreshes } from "./refreshes.js";
+import { agoWords } from "./schedulewords.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
@@ -68,15 +69,6 @@ function whenNext(at: number): string {
   tomorrow.setDate(tomorrow.getDate() + 1);
   if (d.toDateString() === tomorrow.toDateString()) return `tomorrow ${hm}`;
   return `${d.toLocaleDateString(undefined, { weekday: "short" })} ${hm}`;
-}
-
-/** "12m ago", "3h ago", "4d ago". */
-function whenAgo(ts: number): string {
-  const mins = Math.max(1, Math.round((Date.now() - ts) / 60_000));
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
 }
 
 export function App(): React.ReactElement {
@@ -1276,7 +1268,7 @@ export function App(): React.ReactElement {
                     go({ name: "chats", id: c.conversationId! });
                   }}
                 >
-                  {c.running ? "Watch" : c.lastRunAt ? whenAgo(c.lastRunAt) : "Open"}
+                  {c.running ? "Watch" : c.lastRunAt ? agoWords(c.lastRunAt) : "Open"}
                 </button>
               ) : (
                 <span className="ops-muted">never</span>
