@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import { UNCHANGED, WAIT_BUDGET_MS, doneText, pause, runActions, type ActThen, type RunAdapter } from "@kos/shared";
 
+import { urlFor } from "./address.js";
 import type { FieldSpot, FillExpect, Page } from "./page.js";
 import { WAIT_FOR_MS, parseStep, type Step } from "./steps.js";
 
@@ -53,25 +54,6 @@ const RUN_MS = 120_000;
 export const STEPS_MAX = 20;
 /** Pages in one visit, at most. */
 export const VISIT_MAX = 4;
-
-/** Schemes an agent may open. Files and the browser's own pages stay out: they are not the web. */
-const OPEN_SCHEMES = /^(https?:|about:blank$|data:)/i;
-
-/**
- * An address as typed made into a url: a scheme kept, a bare host given
- * https (http for this machine), and anything that reaches past the web
- * (a file, the browser's settings) refused.
- */
-export function urlFor(raw: string): string {
-  const s = raw.trim();
-  if (/^(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i.test(s)) return `http://${s}`;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) {
-    if (!OPEN_SCHEMES.test(s)) throw new Error(`${s.split(":")[0]}: addresses are not opened; only web pages (http and https)`);
-    return s;
-  }
-  if (/^[^\s/]+\.[^\s/]+/.test(s)) return `https://${s}`;
-  throw new Error(`${s} is not an address; give a url like https://example.com`);
-}
 
 /** The host of a url, or "" when it has none. */
 function hostOf(url: string): string {

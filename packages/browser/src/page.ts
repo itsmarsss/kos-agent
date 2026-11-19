@@ -1,3 +1,4 @@
+import { isDataUrl, urlFor } from "./address.js";
 import type { CdpEvent } from "./cdp.js";
 import * as inpage from "./inpage.js";
 import { parseKeys, type KeyPress } from "./keys.js";
@@ -450,7 +451,10 @@ export class Page {
    * To a url, until the page can be read (or has loaded in full). A page
    * still loading at the deadline is handed back as it is, said to be so.
    */
-  async goto(url: string, until: "dom" | "load" = "dom"): Promise<{ stillLoading: boolean }> {
+  async goto(address: string, until: "dom" | "load" = "dom"): Promise<{ stillLoading: boolean }> {
+    // Every way here is the web's: a javascript: address would run in the page, a secret's among them.
+    const url = urlFor(address);
+    if (isDataUrl(url) && this.holding()) throw new Error(`a data: address is refused: ${TAINTED}`);
     let answer: Record<string, unknown>;
     try {
       answer = await this.send("Page.navigate", { url }, this.limits.domMs);
@@ -531,7 +535,7 @@ export class Page {
   /** A script run in the page, top-level await allowed; its answer as text. */
   async evaluate(code: string): Promise<string> {
     // A script could read a secret straight out of its field.
-    if (this.tainted()) throw new Error(`browser.eval is refused: ${TAINTED}`);
+    if (this.holding()) throw new Error(`browser.eval is refused: ${TAINTED}`);
     const answer = await this.send(
       "Runtime.evaluate",
       { expression: code, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
@@ -742,6 +746,11 @@ export class Page {
   private tainted(): Taint | undefined {
     if (this.taint && this.taint.loader !== this.life.loader) this.taint = undefined;
     return this.taint;
+  }
+
+  /** Whether a secret KOS filled is in this page now, where a script could reach it. */
+  private holding(): boolean {
+    return this.tainted() !== undefined;
   }
 
   /** Text read from the page with every secret filled into it said as hidden, where the page echoes one. */

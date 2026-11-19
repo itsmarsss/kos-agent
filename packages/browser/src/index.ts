@@ -2,7 +2,8 @@ export { CdpClient, type CdpEvent, type CdpListener, type CdpSocket } from "./cd
 export { BLACK_HOLE, ChromeHost, chromeArgs, findChrome, sealedArgs, type ChromeLaunch, type ChromeOptions, type ChromeState } from "./chrome.js";
 export { KEEP_DAYS, keptSessionCookies, type CdpCookie } from "./cookies.js";
 export { downloadsFolder, safeName, settleDownload, uniquePath } from "./downloads.js";
-export { PICTURE, STEPS_MAX, VISIT_MAX, act, evaluate, fenced, fieldSpots, fillSecrets, leftSite, look, opensElsewhere, readAt, seeAfter, stepsOf, urlFor, visit, type ActOptions, type SecretFill, type SeeOptions, type Seen, type Tab, type Then } from "./hands.js";
+export { PICTURE, STEPS_MAX, VISIT_MAX, act, evaluate, fenced, fieldSpots, fillSecrets, leftSite, look, opensElsewhere, readAt, seeAfter, stepsOf, visit, type ActOptions, type SecretFill, type SeeOptions, type Seen, type Tab, type Then } from "./hands.js";
+export { urlFor } from "./address.js";
 export { parseKeys, type KeyPress } from "./keys.js";
 export {
   BrowserLive,

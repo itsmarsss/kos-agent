@@ -314,6 +314,19 @@ ${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTru
     expect(echoed.text.split("\n").slice(1).join("\n")).not.toContain(PASSWORD);
   });
 
+  it("opens no javascript: address, and no data: one while a page holds a secret", async () => {
+    await fillPassword("/");
+    const steal = "javascript:document.title=document.getElementById('pw').value";
+    await expect(act(tab, stepsOf([{ open: steal }]), "none")).rejects.toThrow(/javascript: addresses are not opened/);
+    await expect(tab.page.goto(steal)).rejects.toThrow(/not opened/);
+    await expect(tab.page.goto(" JavaScript:void 0")).rejects.toThrow(/not opened/);
+    await expect(act(tab, stepsOf([{ open: "data:text/html,<p>x" }]), "none")).rejects.toThrow(/data: address is refused/);
+    expect(await peek("document.title")).toBe(`typed ${PASSWORD}`);
+    await visit(tab, [`${base}/next`], { then: "none" });
+    await act(tab, stepsOf([{ open: "data:text/html,<title>plain</title>" }]), "none");
+    expect(await peek("document.title")).toBe("plain");
+  });
+
   it("takes only refs while the page holds a secret: no selector, no scope, no wait for words", async () => {
     await fillPassword("/");
     await expect(act(tab, stepsOf([{ click: "#pw" }]), "none")).rejects.toThrow(/aiming at #pw is refused/);

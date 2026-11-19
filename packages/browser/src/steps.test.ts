@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { KEEP_DAYS, keptSessionCookies } from "./cookies.js";
-import { stepsOf, urlFor } from "./hands.js";
+import { urlFor } from "./address.js";
+import { stepsOf } from "./hands.js";
 import { parseKeys } from "./keys.js";
 import { parseStep, touchesPage } from "./steps.js";
 
