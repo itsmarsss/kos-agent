@@ -80,6 +80,12 @@ export interface DecisionsDeps {
   /** Something a tool did that the kernel must notice, e.g. a schedule changed. */
   onToolRan: (tool: string) => void;
   handleMessage: (text: string, opts: { sessionId: string; userId: string; origin: "system" }) => Promise<{ reply: string }>;
+  /**
+   * Why a yes on an ask that places a secret may be KOS's own hand, if it
+   * may: decided on the device KOS is working on in that chat, or a moment
+   * after a device acted for KOS. Read at each such yes; none, and none is.
+   */
+  handsOn?: (device: string | undefined, conversationId: string | null) => string | undefined;
 }
 
 /**
@@ -110,6 +116,15 @@ export function controlElsewhere(what: string): string {
  * DECIDING_SURFACES (a chat channel, one added later) is refused a secret's ask.
  */
 export type DecisionSurface = "dashboard" | "chrome" | "mac" | "phone" | "cli" | "discord" | "sms" | "imessage" | (string & Record<never, never>);
+
+/** How a yes was given: where, from which paired device (its id), as a typed command or a press, and whether to remember it. */
+export interface DecisionOptions {
+  remember?: boolean;
+  surface: DecisionSurface;
+  device?: string;
+  /** A typed /approve rather than a card's button: never enough for a secret's ask. */
+  typed?: boolean;
+}
 
 /** Said on a chat surface for an ask that places a secret, in place of its buttons or a typed decision. */
 export function secretAskElsewhere(id: number | string): string {
@@ -162,7 +177,7 @@ export class Decisions {
     return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
   }
 
-  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface }): Promise<DecisionResult> {
+  async approve(id: number, decidedBy: string | undefined, options: DecisionOptions): Promise<DecisionResult> {
     const d = this.deps;
     const action = d.approvals.get(id);
     if (!action || action.status !== "pending") return { ok: false, message: `no pending action #${id}` };
@@ -174,6 +189,13 @@ export class Decisions {
     if (!DECIDING_SURFACES.has(options.surface) && placing) {
       return { ok: false, message: secretAskElsewhere(id) };
     }
+    // Typed words are not a press: on a device's own chat they could be KOS's own keys.
+    if (options.typed && placing) {
+      return { ok: false, message: `#${id} uses a secret, which is decided with its card's buttons on the dashboard or a paired device, never a typed /approve.` };
+    }
+    // Nor from where KOS's own pointer may be: the ask stays, for the owner to decide where KOS is not.
+    const handsOn = placing ? d.handsOn?.(options.device, action.conversationId) : undefined;
+    if (handsOn) return { ok: false, message: `#${id} was not approved: ${handsOn}` };
     const awaited = d.approvals.isAwaited(id);
     // A secrets tool's ask nobody waits on any more is not run later: the page it was for is gone.
     if (!awaited && action.tool.startsWith(SECRETS_PREFIX)) {

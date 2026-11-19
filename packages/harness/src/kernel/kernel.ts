@@ -158,7 +158,7 @@ import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
 import { modelUnavailable, SDK_PROVIDER, SdkOneShot, sdkModelFor, sdkTurnModel, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
-import { CONTROL_SURFACES, controlElsewhere, Decisions, type DecisionResult, type DecisionSurface } from "./decisions.js";
+import { CONTROL_SURFACES, controlElsewhere, Decisions, type DecisionOptions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
 import { GuardedTools, finishedAfterStop } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
@@ -634,6 +634,7 @@ export class Kernel {
   readonly browser: BrowserLive;
   /** The owner's own Chrome, when computer use offers it. */
   private elsewhere: BrowserElsewhere | undefined;
+  private handsOn: ((device: string | undefined, conversationId: string | null) => string | undefined) | undefined;
   /** The owner's Discord server, when KOS lives in one; what a "#channel" in a message is comes from here. */
   readonly discord: DiscordServices | undefined;
   /** What the browser showed after each step, for the thread. */
@@ -828,6 +829,7 @@ export class Kernel {
       },
       onToolRan: (tool) => this.afterToolRan(tool),
       handleMessage: (text, opts) => this.handleMessage(text, opts),
+      handsOn: (device, conversationId) => this.handsOn?.(device, conversationId),
       halted: () => this.killSwitch.halted,
     });
     this.caretaker = new Caretaker({
@@ -3021,7 +3023,7 @@ export class Kernel {
   }
 
   /** Carry out the owner's decision on a queued action. Every surface comes through here. */
-  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface }): Promise<DecisionResult> {
+  async approve(id: number, decidedBy: string | undefined, options: DecisionOptions): Promise<DecisionResult> {
     return this.decisions.approve(id, decidedBy, options);
   }
 
@@ -3390,7 +3392,7 @@ export class Kernel {
           };
         }
         const result =
-          command.kind === "approve" ? await this.approve(action.id, userId, { surface: channel }) : await this.deny(action.id, userId);
+          command.kind === "approve" ? await this.approve(action.id, userId, { surface: channel, typed: true }) : await this.deny(action.id, userId);
         const what = `@approval:${action.id} ${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(action.conversationId))}`;
         return { reply: result.ok ? `${command.kind === "approve" ? "Approved" : "Denied"} ${what}.` : result.message };
       }
@@ -4390,6 +4392,11 @@ export class Kernel {
     const away = this.away(conversationId);
     const site = conversationId ? (away ? away.siteOf(conversationId) : this.browser.siteOf(conversationId)) : undefined;
     return { browser: { prefix: BROWSER_PREFIX, ...(site ? { site } : {}), strict: BROWSER_STRICT, ...(away ? { yours: true } : {}) } };
+  }
+
+  /** Where KOS's own hand is on the paired devices, so a yes on a secret's ask is never taken from it (Decisions). */
+  setHandsOn(judge: (device: string | undefined, conversationId: string | null) => string | undefined): void {
+    this.handsOn = judge;
   }
 
   /**

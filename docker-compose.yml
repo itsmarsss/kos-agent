@@ -6,6 +6,8 @@ services:
     build: .
     container_name: kos
     restart: unless-stopped
+    # The image runs `serve`, which leaves Discord off. With the Discord keys in .env:
+    # command: ["node", "packages/cli/dist/main.js", "serve", "--discord", "--host", "0.0.0.0", "--port", "4317"]
     ports:
       - "127.0.0.1:4317:4317"
     env_file:
@@ -14,7 +16,7 @@ services:
       KOS_WORKSPACE: /workspace
       KOS_HOST: "0.0.0.0"
       KOS_PORT: "4317"
-      # Set KOS_DASHBOARD_TOKEN in .env if you publish the port beyond loopback.
+      # KOS_DASHBOARD_TOKEN in .env is required here: the container has no write key, so every change needs it.
       # The secrets vault (docs/secrets.md): KOS_VAULT_KEY in .env is its key,
       # base64 of 32 bytes. Tools still run as KOS's own user here, so the
       # vault stays shut unless .env also sets KOS_VAULT_ALLOW_SHARED_UID=1.

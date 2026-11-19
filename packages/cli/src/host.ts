@@ -54,6 +54,7 @@ import {
   type PendingAction,
 } from "@kos/harness";
 import { createComputerUse, type Glance, type PanelArtifact, type PanelArtifacts, type PanelDeps, type PanelPlaceOf } from "@kos/computer";
+import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
 
 /** The surfaces a device panel is: a Chrome's side panel, a Mac's window, a phone's chat. */
 type PanelSurface = "chrome" | "mac" | "phone";
@@ -64,7 +65,11 @@ import { ThreadMirror } from "./threadmirror.js";
 import { pingsOwner, postInPlace, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
-import { PortTakenError, assertPortFree, portTakenMessage } from "./porttaken.js";
+import { PortTakenError, portTakenMessage } from "./porttaken.js";
+import { bindRefusal } from "./bind.js";
+import { BootBox, backoffMs, portClaim, restartArgs, retryableLogin, startSurface, stopWithin, whenUp } from "./lifecycle.js";
+import { rotateOwnLog } from "./logrotate.js";
+import { logPath } from "./service.js";
 
 export interface HostOptions {
   rootDir: string;
@@ -217,6 +222,19 @@ export function hostNamesOf(host: string, env: NodeJS.ProcessEnv = process.env):
   return [host, env.KOS_DEVICE_LAN_HOST, ...publicHostsOf(env.KOS_PUBLIC_URL).map((h) => h.replace(/:\d+$/, "")), ...(env.KOS_HOST_NAMES ?? "").split(",")]
     .map((h) => h?.trim())
     .filter((h): h is string => !!h);
+}
+
+/**
+ * KOS's own addresses, however it is reached, for the agent's fetches to
+ * keep away from and for no secret to be typed on its dashboard: each name
+ * it answers to (hostNamesOf) on its port, KOS_PUBLIC_URL's host as it is
+ * written, and each KOS_HOST_NAMES name on any port (a tunnel's or a proxy's
+ * name is KOS's alone), a loopback name never on any port.
+ */
+export function ownHostsOf(host: string, port: number, env: NodeJS.ProcessEnv = process.env): string[] {
+  const loopback = new Set(["localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"]);
+  const anyPort = (env.KOS_HOST_NAMES ?? "").split(",").map((h) => h.trim()).filter((h) => h && !loopback.has(h.replace(/:\d+$/, "")));
+  return [...new Set([...hostNamesOf(host, env).map((h) => (/^(\[[^\]]+\]|[^:]+):\d+$/.test(h) ? h : `${h}:${port}`)), ...publicHostsOf(env.KOS_PUBLIC_URL), ...anyPort])];
 }
 
 /** The host a public url reaches KOS on, for the agent's fetches to keep away from. */
@@ -402,12 +420,48 @@ export function scrubOutput(scrub: (text: string) => string, streams: NodeJS.Wri
   }
 }
 
-export async function runHost(options: HostOptions): Promise<void> {
+/** A host that is up: `stop` shuts it down within its deadline and names what it could not stop. */
+export interface RunningHost {
+  stop(): Promise<string[]>;
+}
+
+/** How often the host looks at the size of its own log. */
+const LOG_CHECK_MS = 10 * 60_000;
+
+export async function runHost(options: HostOptions): Promise<RunningHost> {
+  // Beyond loopback, every request needs the token: refused before anything is taken.
+  const refused = bindRefusal(options.host, options.token);
+  if (refused) throw new Error(refused);
   keepRunning();
   // The port this host answers on, for the jail to keep every program it runs away from (sandbox/jail.ts kosPorts).
   process.env.KOS_PORT = String(options.port);
-  // Before booting anything: a host that cannot have the port must not start crons or channels first.
-  await assertPortFree(options.host, options.port, options.token);
+
+  /*
+   * The port first, before the kernel boots: a second start fails here, before
+   * it marks the running host's turns cut short or starts its daemons. Until
+   * the dashboard is attached the port answers 503. This boot's write key is
+   * kept only once the port is this host's: in the page KOS serves, and in a
+   * file only the owner reads (0600, outside the workspace, denied to every
+   * jailed program) for the kos CLI. Never in the environment. In the
+   * container the agent's programs share loopback with KOS, so there is no
+   * key and every change needs the dashboard token.
+   */
+  const contained = isContained();
+  const writeKey = contained ? undefined : randomBytes(32).toString("base64url");
+  const claim = portClaim(options.token ? { token: options.token } : {});
+  await listenThen(claim.server, options.port, options.host, () => {
+    if (!writeKey) return;
+    const keyFile = writeKeyPath(options.port);
+    saveWriteKey(keyFile, writeKey);
+    // The path alone, so the jail can deny reading it (sandbox/jail.ts).
+    process.env.KOS_WRITE_KEY_FILE = keyFile;
+  }, options.token);
+  // The log this host writes (daemon.log, detached or under launchd), kept to a few files of a set size.
+  const rotate = (): void => void rotateOwnLog(logPath(options.rootDir));
+  rotate();
+  setInterval(rotate, LOG_CHECK_MS).unref();
+  // What the agent built, on a port of its own (HostOptions.sitesPort).
+  const sitesPort = options.sitesPort ?? options.port + 1;
   let imessageAdapter: IMessageAdapter | undefined;
   let imessageClaim: HandleClaim | undefined;
   let imessageRuntime: ReturnType<typeof connectChannel> | undefined;
@@ -420,6 +474,9 @@ export async function runHost(options: HostOptions): Promise<void> {
   }
 
   let runtime: ChannelRuntime | undefined;
+  let smsRuntime: ReturnType<typeof connectChannel> | undefined;
+  /** Each device panel's runtime (a Chrome's side panel, a Mac's window, a phone's chat), by surface. */
+  const panelRuntimes: [string, { stop(): Promise<void> }][] = [];
 
   /*
    * The surfaces a message can be sent on, by name.
@@ -440,8 +497,16 @@ export async function runHost(options: HostOptions): Promise<void> {
 
   /** A scheduled run's place on the server, once the server is laid out; unset without one. */
   let placer: PlaceNotifier | undefined;
+  /*
+   * The kernel once Kernel.boot returns. The computer module activates inside
+   * boot, and its callbacks can run then: a restart's cut-off Mac install is
+   * settled and audited, a phone on the Wi-Fi listener asks something. What
+   * must happen waits for the kernel; what answers says KOS is still starting.
+   */
+  const boot = new BootBox<Kernel>();
+  const booted = (): Kernel => boot.get();
   /** The scheduled job a conversation is the thread of, when it is one. */
-  const cronOf = (conversationId: string) => (conversationId.startsWith("cron:") ? kernel.crons.get(Number(conversationId.slice("cron:".length))) : undefined);
+  const cronOf = (conversationId: string) => (conversationId.startsWith("cron:") ? boot.current?.crons.get(Number(conversationId.slice("cron:".length))) : undefined);
 
   const notify =
     (creds && wantDiscord) || sms
@@ -630,38 +695,51 @@ export async function runHost(options: HostOptions): Promise<void> {
       return panelModels();
     },
   });
-  const boot: { kernel?: Kernel } = {};
-  const earlyKeys: [string, string][] = [];
+  /** The dashboard's options, made after boot; a phone's ask of the dashboard waits for them as for the kernel. */
+  const dashboardBox = new BootBox<DashboardServerOptions>();
+  // KOS's own address, however it is reached.
+  const ownHosts = (): string[] => ownHostsOf(options.host, options.port);
   const computer = createComputerUse({
+    // No secret is typed on its dashboard.
+    ownHosts,
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
     ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
     // Read by KOS for Mac on this computer to prove it is here, so KOS may rebuild it (docs/computer.md, Builds and updates).
     localKeyPath: process.env.KOS_DEVICE_LOCAL_KEY_FILE?.trim() || join(homedir(), ".kos", "device-local.key"),
     // The device keys are KOS's own: never offered to the agent, and scrubbed should one ever come back in a result.
-    // The module activates inside Kernel.boot, before `kernel` is set: keys read then wait for it.
-    watchKey: (name, value) => (boot.kernel ? boot.kernel.secrets.watch(name, value) : earlyKeys.push([name, value])),
-    caller: () => kernel.callerConversationId,
-    // The vault's values and sites, read at each use, as KOS's own browser reads them (Kernel's BrowserLive).
-    pageSecrets: {
-      saved: () => kernel.secrets.browserValues(),
-      savedFor: (origins) => kernel.secrets.pageValues(origins),
-      evalBlocked: (origin) => kernel.secrets.evalBlocked(origin),
-    },
+    // Every callback here can run inside Kernel.boot, where the module activates: none reads `kernel` directly.
+    watchKey: (name, value) => boot.when((k) => k.secrets.watch(name, value)),
+    caller: () => boot.current?.callerConversationId,
+    // The vault's values and sites, read at each use, as KOS's own browser reads them (Kernel's BrowserLive); none before boot.
+    pageSecrets: whenUp(
+      {
+        saved: () => booted().secrets.browserValues(),
+        savedFor: (origins: Parameters<Kernel["secrets"]["pageValues"]>[0]) => booted().secrets.pageValues(origins),
+        evalBlocked: (origin: string) => booted().secrets.evalBlocked(origin),
+      },
+      booted,
+    ),
     // An ask to use a computer or a Chrome says who asks by the name it goes by everywhere.
-    titleOf: (id) => kernel.nameOf(id),
-    halted: () => kernel.killSwitch.halted,
-    face: () => kernel.kosDrawing(),
-    theme: () => kernel.dashboardTheme(),
+    titleOf: (id) => boot.current?.nameOf(id) ?? id,
+    // Nothing runs on a device before KOS is up.
+    halted: () => boot.current?.killSwitch.halted ?? true,
+    face: () => boot.current?.kosDrawing() ?? drawingOf(lookOf(KOS_SEED)),
+    theme: () => boot.current?.dashboardTheme() ?? { mode: "system" },
     panels: {
-      chrome: panelDeps("chrome", chromeChat),
-      mac: panelDeps("mac", macChat),
+      chrome: whenUp(panelDeps("chrome", chromeChat), booted),
+      mac: whenUp(panelDeps("mac", macChat), booted),
       phone: {
-        ...panelDeps("phone", phoneChat),
-        glance,
-        artifacts: phoneArtifacts,
-        // The dashboard's own handler, with no token: the phone is proved on its line. Only a phone's panel is given it.
-        dashboard: (req) => handleApiRequest(kernel, req, dashboard),
-        audit: (entry) => void kernel.audit.record({ ...entry, userId: kernel.profile.ownerId }),
+        ...whenUp(
+          {
+            ...panelDeps("phone", phoneChat),
+            glance,
+            artifacts: phoneArtifacts,
+            // The dashboard's own handler, with no token: the phone is proved on its line. Only a phone's panel is given it.
+            dashboard: (req: Parameters<typeof handleApiRequest>[1]) => handleApiRequest(booted(), req, dashboardBox.get()),
+          },
+          booted,
+        ),
+        audit: (entry) => boot.when((k) => void k.audit.record({ ...entry, userId: k.profile.ownerId })),
       },
     },
     lan: {
@@ -671,10 +749,10 @@ export async function runHost(options: HostOptions): Promise<void> {
       certPath: process.env.KOS_DEVICE_LAN_CERT_FILE?.trim() || join(homedir(), ".kos", "device-lan.pem"),
       forced: process.env.KOS_DEVICE_LAN === "1",
     },
-    // A session started unasked is written down as the start it stands for.
-    audit: (entry) => void kernel.audit.record(entry),
+    // A session started unasked is written down as the start it stands for; one settled during boot, once it is up.
+    audit: (entry) => boot.when((k) => void k.audit.record(entry)),
     // The owner's Stop on a device stops the chat's turn, as the dashboard's does.
-    stopTurn: (id) => kernel.stop(id),
+    stopTurn: (id) => boot.current?.stop(id) ?? false,
     // Each device app kept on the build this checkout holds: packages/cli/dist is two folders down from it.
     updates: deviceUpdates(fileURLToPath(new URL("../../..", import.meta.url)), (line) => console.error(line)),
   });
@@ -704,7 +782,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     secrets,
     allowedHosts: options.allowedHosts,
     // KOS's own address, however it is reached: the agent's fetches never come back to its API.
-    ownHosts: () => [`${options.host}:${options.port}`, ...publicHostsOf(process.env.KOS_PUBLIC_URL)],
+    ownHosts,
     ...(Number.isInteger(browserPort) && browserPort > 0 && browserPort < 65_536 ? { chrome: { port: browserPort } } : {}),
     extraModules: [computer.module],
     features: [{ name: "computer", description: "Use a paired computer: its screen, pointer and keyboard" }],
@@ -782,14 +860,22 @@ export async function runHost(options: HostOptions): Promise<void> {
     restart: async () => {
       const child = spawn(
         process.execPath,
-        [fileURLToPath(new URL("./main.js", import.meta.url)), "restart", "--workspace", options.rootDir, "--host", options.host, "--port", String(options.port)],
+        // With the flags this host was started with: a scratch host started --no-discord comes back without the owner's bot.
+        restartArgs(fileURLToPath(new URL("./main.js", import.meta.url)), {
+          rootDir: options.rootDir,
+          host: options.host,
+          port: options.port,
+          ...(options.discord === false ? { discord: false } : {}),
+          ...(options.requireDiscord ? { requireDiscord: true } : {}),
+          sitesPort,
+        }),
         // The vault's key was taken out of this process's env once read; the next host needs it back.
         { detached: true, stdio: "ignore", env: { ...process.env, ...(vaultKey ? { KOS_VAULT_KEY: vaultKey } : {}) } },
       );
       child.unref();
     },
-    // Every surface the owner is on, and a device panel when its chat is the one asking.
-    onApprovalRequested: (action) => {
+    // Every surface the owner is on, and a device panel when its chat is the one asking. Not before boot returns.
+    onApprovalRequested: (action) => boot.when(() => {
       const request = approvalRequest(action);
       // A secret's use is decided on the dashboard or a paired device: the chat surfaces are told, not asked.
       if (usesSecret(action.tool, JSON.parse(action.args))) {
@@ -803,10 +889,9 @@ export async function runHost(options: HostOptions): Promise<void> {
       void computer.panel.requestApproval("owner", request);
       void computer.mac.requestApproval("owner", request);
       void computer.phone.requestApproval("owner", request);
-    },
+    }),
   });
-  boot.kernel = kernel;
-  for (const [name, value] of earlyKeys.splice(0)) kernel.secrets.watch(name, value);
+  boot.set(kernel);
 
   // What the last host's throwaway Chromes left in the temp folder, cleared without holding up the start.
   kernel.sweepStaleProfiles();
@@ -865,48 +950,77 @@ export async function runHost(options: HostOptions): Promise<void> {
         }
       : {}),
   };
-  /*
-   * This boot's write key: in the page KOS serves, and in a file only the
-   * owner reads (0600, outside the workspace, denied to every jailed
-   * program) for the kos CLI. Never in the environment. In the container
-   * the agent's programs share loopback with KOS, so there is no key and
-   * every change needs the dashboard token.
-   */
-  const contained = isContained();
-  const writeKey = contained ? undefined : randomBytes(32).toString("base64url");
+  dashboardBox.set(dashboard);
   // The names KOS answers to; an address is always taken (a rebinding needs a name).
   const hostNames = hostNamesOf(options.host);
   const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : { tokenForWrites: true }), hostNames });
 
   // A chat that borrowed the owner's Chrome browses there.
   kernel.setBrowserElsewhere(computer.chrome);
+  // A yes on a secret's ask is never taken from where KOS's own hand is.
+  kernel.setHandsOn((device, conversation) => computer.handsOn(device, conversation));
 
   // The two upgrades the dashboard server takes: the dashboard's own socket, and a paired device's.
   const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : {}), hostNames });
-  server.on("upgrade", (req, socket, head) => {
+  // The port, held since before boot, answers as the dashboard from now on.
+  claim.attach(server, (req, socket, head) => {
     if (!live.upgrade(req, socket, head) && !computer.upgrade(req, socket, head)) socket.destroy();
   });
 
-  // Kept only once this host holds the port: a second start that fails to listen leaves the running host's key alone.
-  await listenThen(server, options.port, options.host, () => {
-    if (!writeKey) return;
-    const keyFile = writeKeyPath(options.port);
-    saveWriteKey(keyFile, writeKey);
-    // The path alone, so the jail can deny reading it (sandbox/jail.ts).
-    process.env.KOS_WRITE_KEY_FILE = keyFile;
-  }, options.token);
+  const daemonState = (discord: boolean): void =>
+    writeDaemonState(options.rootDir, {
+      pid: process.pid,
+      host: options.host,
+      port: options.port,
+      workspace: kernel.workspace.root,
+      startedAt: new Date().toISOString(),
+      discord,
+    });
+  daemonState(false);
 
-  writeDaemonState({
-    pid: process.pid,
-    host: options.host,
-    port: options.port,
-    workspace: kernel.workspace.root,
-    startedAt: new Date().toISOString(),
-    discord: false,
-  });
-
-  const sitesPort = options.sitesPort ?? options.port + 1;
   let siteServer: Server | undefined;
+
+  /*
+   * Shutting down, once however many signals come: daemons first, so none
+   * outlives the host to be started twice by the next one, then each
+   * surface, computer use and Chrome, within SHUTDOWN_MS (lifecycle.ts).
+   * What did not stop in time is named in the log, and the host exits anyway.
+   */
+  let stopping: Promise<string[]> | undefined;
+  /** The next try of a Discord login the network failed, while one waits. */
+  let discordRetry: NodeJS.Timeout | undefined;
+  const stop = (): Promise<string[]> =>
+    (stopping ??= (async () => {
+      clearTimeout(discordRetry);
+      clearDaemonState(options.rootDir);
+      live.close();
+      for (const listening of [claim.server, siteServer]) {
+        listening?.close();
+        listening?.closeAllConnections();
+      }
+      const left = await stopWithin([
+        ["daemons", () => kernel.supervisor.stopAll()],
+        ["Discord", () => runtime?.stop()],
+        ["SMS", () => smsRuntime?.stop()],
+        ["iMessage", () => imessageRuntime?.stop()],
+        ...panelRuntimes.map(([name, panel]): [string, () => Promise<void>] => [`${name} panel`, () => panel.stop()]),
+        ["computer use", () => computer.close()],
+        ["Chrome", () => kernel.closeBrowser()],
+      ]);
+      imessageClaim?.release();
+      if (left.length > 0) console.error(`shutdown: not stopped: ${left.join(", ")}`);
+      kernel.close();
+      return left;
+    })());
+  const onSignal = (): void => {
+    console.log("shutting down…");
+    // Exit 0 however it went: launchd takes that as a stop asked for, and does not start another.
+    void stop().finally(() => process.exit(0));
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  /** Where each surface's start is told: the log, and the health the dashboard shows. */
+  const surfaceDeps = { health: kernel.health, log: (line: string) => console.error(line) };
   if (sitesPort > 0) {
     try {
       siteServer = startSiteServer(kernel.workspace, sitesPort, options.host, { store: kernel.daemons, supervisor: kernel.supervisor });
@@ -933,7 +1047,8 @@ export async function runHost(options: HostOptions): Promise<void> {
   if (staticDir) console.log(`ui: ${staticDir}`);
   else console.log("ui: not built (pnpm -C packages/ui build); API only");
 
-  if (wantDiscord && creds) {
+  /** Discord, logged in and laid out. A login that fails throws, and its adapter is let go: discord.js reconnects only after one that worked. */
+  const startDiscord = async (creds: NonNullable<ReturnType<typeof discordCreds>>): Promise<void> => {
     // Where a reference in a reply, or a chat a slash command names, links
     // to: the public URL when there is one; otherwise this host, which is
     // right on the machine it runs on.
@@ -1084,16 +1199,16 @@ export async function runHost(options: HostOptions): Promise<void> {
         kernel.profile.ownerId,
       ),
     });
-    await runtime.start();
+    try {
+      await runtime.start();
+    } catch (err) {
+      await runtime.stop().catch(() => undefined);
+      runtime = undefined;
+      adapter = undefined;
+      throw err;
+    }
     meta.discord = true;
-    writeDaemonState({
-      pid: process.pid,
-      host: options.host,
-      port: options.port,
-      workspace: kernel.workspace.root,
-      startedAt: new Date().toISOString(),
-      discord: true,
-    });
+    daemonState(true);
     console.log("Discord: listening for DMs");
     /*
      * The bot wears KOS's own face, as set under Settings, Appearance, and
@@ -1265,14 +1380,34 @@ export async function runHost(options: HostOptions): Promise<void> {
       // No server to lay out: only the face to keep up.
       setInterval(() => void wear(), 5 * 60_000).unref();
     }
-  } else if (wantDiscord && !creds) {
-    console.log(
-      "Discord: skipped (set DISCORD_TOKEN + KOS_OWNER_DISCORD to enable)",
-    );
-  }
+  };
+  /*
+   * A login the network failed (a filter, DNS, Discord down) is tried again,
+   * waiting longer each time; one refused for its token or intents is not,
+   * since trying again cannot mend it.
+   */
+  const discordUp = async (creds: NonNullable<ReturnType<typeof discordCreds>>, attempt: number): Promise<void> => {
+    const result = await startSurface("Discord", () => startDiscord(creds), surfaceDeps);
+    if (result.started) {
+      // Logged in while the host was going down: let it go too.
+      if (stopping) await runtime?.stop().catch(() => undefined);
+      return;
+    }
+    if (stopping) return;
+    if (!retryableLogin(result.error)) {
+      console.error("Discord: fix the token or intents, then restart KOS");
+      return;
+    }
+    const wait = backoffMs(attempt);
+    console.error(`Discord: trying again in ${Math.round(wait / 1_000)}s`);
+    discordRetry = setTimeout(() => void discordUp(creds, attempt + 1), wait);
+    discordRetry.unref();
+  };
+  if (wantDiscord && creds) await discordUp(creds, 0);
+  else if (wantDiscord) console.log("Discord: skipped (set DISCORD_TOKEN + KOS_OWNER_DISCORD to enable)");
+  else console.log("Discord: off (--no-discord; serve implies it, serve --discord turns it on)");
 
-  let smsRuntime: ReturnType<typeof connectChannel> | undefined;
-  if (sms) {
+  const startSms = async (sms: NonNullable<ReturnType<typeof smsConfig>>): Promise<void> => {
     smsAdapter = new SmsAdapter({
       accountSid: sms.accountSid,
       authToken: sms.authToken,
@@ -1286,9 +1421,16 @@ export async function runHost(options: HostOptions): Promise<void> {
       ownerRecipientId: sms.owner,
       identity: new AllowlistMapping([{ channel: smsAdapter.name, senderId: sms.owner }], kernel.profile.ownerId),
     });
-    await smsRuntime.start();
+    try {
+      await smsRuntime.start();
+    } catch (err) {
+      smsAdapter = undefined;
+      smsRuntime = undefined;
+      throw err;
+    }
     console.log(`SMS: texts to ${sms.from} from your number arrive at POST /api/sms/inbound`);
-  }
+  };
+  if (sms) await startSurface("SMS", () => startSms(sms), surfaceDeps);
 
   /*
    * iMessage, when the owner has said which thread.
@@ -1298,23 +1440,24 @@ export async function runHost(options: HostOptions): Promise<void> {
    * keep everything else.
    */
   const imessage = imessageConfig();
+  // The thread is claimed only once there is a database to watch: a claim with nothing behind it would be held for nothing.
+  const handleClaim = imessage && existsSync(imessage.dbPath) ? claimHandle(imessage.handle) : undefined;
   if (imessage) {
-    const claim = claimHandle(imessage.handle);
-    if (!existsSync(imessage.dbPath)) {
+    if (!handleClaim) {
       meta.imessage = { state: "skipped", detail: `no database at ${imessage.dbPath}` };
       console.log(`iMessage: skipped (no database at ${imessage.dbPath})`);
-    } else if (!claim.ok) {
-      meta.imessage = { state: "skipped", detail: `pid ${claim.heldBy} is already watching that thread` };
+    } else if (!handleClaim.ok) {
+      meta.imessage = { state: "skipped", detail: `pid ${handleClaim.heldBy} is already watching that thread` };
       /*
        * Two hosts on one thread answer each other forever, and every lap is
        * two real messages and two turns. Better to run without the surface
        * and say why.
        */
       console.log(
-        `iMessage: skipped (pid ${claim.heldBy} is already watching that thread)`,
+        `iMessage: skipped (pid ${handleClaim.heldBy} is already watching that thread)`,
       );
     } else {
-      imessageClaim = claim.claim;
+      imessageClaim = handleClaim.claim;
       try {
         imessageAdapter = new IMessageAdapter({
           handle: imessage.handle,
@@ -1357,12 +1500,13 @@ export async function runHost(options: HostOptions): Promise<void> {
    * dashboard, one from another of the owner's Chromes) is told there as it
    * goes, as Discord's thread is.
    */
-  const panelRuntimes: { stop(): Promise<void> }[] = [];
   for (const panel of [computer.panel, computer.mac, computer.phone]) {
-    const runtime = connectChannel(panel, kernel, { ownerRecipientId: "owner", identity: panel.identity(kernel.profile.ownerId) });
-    await runtime.start();
-    panelRuntimes.push(runtime);
-    kernel.progress.subscribe((event) => panel.watch(event));
+    await startSurface(`${panel.name} panel`, async () => {
+      const runtime = connectChannel(panel, kernel, { ownerRecipientId: "owner", identity: panel.identity(kernel.profile.ownerId) });
+      await runtime.start();
+      panelRuntimes.push([panel.name, runtime]);
+      kernel.progress.subscribe((event) => panel.watch(event));
+    }, surfaceDeps);
   }
 
   /*
@@ -1385,29 +1529,7 @@ export async function runHost(options: HostOptions): Promise<void> {
 
   console.log("Attach with: kos   |  stop with: kos stop");
 
-  const shutdown = (): void => {
-    console.log("shutting down…");
-    clearDaemonState(kernel.workspace.root);
-    void computer.close();
-    live.close();
-    server.close();
-    void (async () => {
-      try {
-        if (runtime) await runtime.stop();
-        if (smsRuntime) await smsRuntime.stop();
-        if (imessageRuntime) await imessageRuntime.stop();
-        for (const panelRuntime of panelRuntimes) await panelRuntime.stop();
-        imessageClaim?.release();
-        await kernel.closeBrowser();
-      } catch {
-        // ignore
-      }
-      kernel.close();
-      process.exit(0);
-    })();
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  return { stop };
 }
 
 

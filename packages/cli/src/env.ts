@@ -3,38 +3,27 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Load a gitignored .env into process.env without overwriting vars already set
- * in the shell. Looks at cwd first, then the monorepo root (relative to this
- * package), so `pnpm kos` and `node packages/cli/dist/main.js` both work.
+ * Load the harness's gitignored .env into process.env without overwriting
+ * vars already set in the shell.
+ *
+ * One file only: KOS_ENV_FILE when the shell names one, else the .env at the
+ * repository root. Never one from the current directory: run from the
+ * workspace, that is a file approved programs can write, and its keys
+ * (KOS_UI_DIST, KOS_HOST) would decide what the dashboard serves and where.
  */
-export function loadEnv(): void {
-  for (const path of envCandidates()) {
-    if (!existsSync(path)) continue;
-    applyEnvFile(path);
-    return;
-  }
+export function loadEnv(path = envFilePath()): void {
+  if (existsSync(path)) applyEnvFile(path);
 }
 
 /**
- * Where an env file is, or where one would go.
- *
- * The settings page needs a path to write even when nothing has been saved
- * yet, so an existing file wins and the repo root is the fallback rather than
- * there being no answer.
+ * Where the env file is, or where one would go: the settings page needs a
+ * path to write even when nothing has been saved yet.
  */
-export function envFilePath(): string {
-  const candidates = envCandidates();
-  return candidates.find((path) => existsSync(path)) ?? candidates[1] ?? candidates[0]!;
-}
-
-function envCandidates(): string[] {
-  const here = dirname(fileURLToPath(import.meta.url));
-  // packages/cli/dist -> repo root
-  const repoRoot = resolve(here, "../../..");
-  return [
-    resolve(process.cwd(), ".env"),
-    resolve(repoRoot, ".env"),
-  ];
+export function envFilePath(env: NodeJS.ProcessEnv = process.env): string {
+  const named = env.KOS_ENV_FILE?.trim();
+  if (named) return resolve(named);
+  // packages/cli/dist (or src) -> repo root
+  return resolve(dirname(fileURLToPath(import.meta.url)), "../../..", ".env");
 }
 
 function applyEnvFile(path: string): void {

@@ -1,7 +1,9 @@
 # Configuration
 
-`.env` next to the repository is read by the `kos` command and is
-git-ignored. `.env.example` documents every key. Most of what follows is
+`.env` at the repository root is read by the `kos` command and is
+git-ignored. `KOS_ENV_FILE`, set in the shell, names another file instead.
+A `.env` in the current directory is never read: run from the workspace,
+it would be a file the agent's approved programs can write. `.env.example` documents every key. Most of what follows is
 also settable in the dashboard.
 
 ## Models
@@ -25,9 +27,9 @@ under Spend.
 
 ```
 KOS_WORKSPACE=           default ~/kos-workspace
-KOS_HOST=                default 127.0.0.1; anything else exposes KOS to the network
+KOS_HOST=                default 127.0.0.1; anything else exposes KOS to the network, and needs KOS_DASHBOARD_TOKEN
 KOS_PORT=                default 4317; sites are served on the next port
-KOS_DASHBOARD_TOKEN=     bearer token for every API route; set one if reachable beyond this machine
+KOS_DASHBOARD_TOKEN=     bearer token for every API route; required to listen beyond loopback
 KOS_HOOK_SECRET=         enables POST /api/hooks/<job>
 KOS_ALLOWED_HOSTS=       hosts http.fetch reads without asking; any other host asks you first, and a yes you remember stands for that host
 KOS_FETCH_LAN=           places on your own network http.fetch may reach, empty by default: host:port, address:port or CIDR:port, and loopback:<port> for a program on this machine, comma separated (192.168.1.0/24:8123, nas.local:5000, loopback:8080); KOS's own ports never, whatever is listed
@@ -125,6 +127,6 @@ kos                                attach a REPL
 kos once "message"                 one message
 kos module install|update|remove|list
 kos eval memory [--agent] | dream | observe
-kos memory-mcp --token kosc_...    memory as an MCP server
+kos memory-mcp                     memory as an MCP server (KOS_CALLER_TOKEN=kosc_...)
 kos doctor                         preflight
 ```

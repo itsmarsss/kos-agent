@@ -1,12 +1,18 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join, resolve } from "node:path";
+
+import { dialHost, isLocalHost } from "./bind.js";
 
 /**
- * On-disk pointer to the multi-modal host (kos start). Scoped by workspace so
- * multiple workspaces can each have one daemon.
+ * On-disk pointer to the multi-modal host (kos start), one per workspace.
+ *
+ * Kept under ~/.kos/run, never in the workspace: a program the owner
+ * approved can write the workspace, and what this file names is where the
+ * CLI sends the dashboard token and the write key, and which pid it signals.
  */
-
 export interface DaemonState {
   pid: number;
   host: string;
@@ -16,17 +22,24 @@ export interface DaemonState {
   discord: boolean;
 }
 
-export function statePath(workspace: string): string {
-  return join(workspace, ".kos", "daemon.json");
+/** Where a workspace's host state is: by a hash of its path, so two workspaces each have one. */
+export function statePath(workspace: string, home = homedir()): string {
+  const key = createHash("sha256").update(resolve(workspace)).digest("hex").slice(0, 16);
+  return join(home, ".kos", "run", `${key}.json`);
 }
 
-/** Fallback when probing without a workspace open. */
-export function globalStatePath(): string {
-  return join(homedir(), ".kos", "daemon.json");
+/**
+ * Where a host from before ~/.kos/run kept its state: in the workspace, and
+ * a copy in ~/.kos. Read once, so the first stop after an upgrade still finds
+ * the running host; a workspace file is one approved programs could write,
+ * so what it names is trusted only after verifyHost or isKosHostProcess, as
+ * any state is.
+ */
+export function legacyStatePaths(workspace: string, home = homedir()): string[] {
+  return [join(resolve(workspace), ".kos", "daemon.json"), join(home, ".kos", "daemon.json")];
 }
 
-export function readDaemonState(workspace: string): DaemonState | null {
-  const path = statePath(workspace);
+function readState(path: string): DaemonState | null {
   if (!existsSync(path)) return null;
   try {
     return JSON.parse(readFileSync(path, "utf8")) as DaemonState;
@@ -35,32 +48,40 @@ export function readDaemonState(workspace: string): DaemonState | null {
   }
 }
 
-export function writeDaemonState(state: DaemonState): void {
-  const path = statePath(state.workspace);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(state, null, 2));
-  // Mirror for quick discovery when workspace is default.
-  try {
-    const g = globalStatePath();
-    mkdirSync(dirname(g), { recursive: true });
-    writeFileSync(g, JSON.stringify(state, null, 2));
-  } catch {
-    // non-fatal
-  }
+export function readDaemonState(workspace: string, home = homedir()): DaemonState | null {
+  const current = readState(statePath(workspace, home));
+  if (current) return current;
+  const [inWorkspace, global] = legacyStatePaths(workspace, home) as [string, string];
+  const legacy = readState(inWorkspace);
+  if (legacy) return legacy;
+  // The global copy was the last host started anywhere: only this workspace's is this workspace's.
+  const last = readState(global);
+  return last && resolve(last.workspace) === resolve(workspace) ? last : null;
 }
 
-export function clearDaemonState(workspace: string): void {
-  const path = statePath(workspace);
+/** The legacy files, once a host keeps its state where it now lives: the global copy only when it is this workspace's. */
+function clearLegacy(workspace: string, home: string): void {
+  const [inWorkspace, global] = legacyStatePaths(workspace, home) as [string, string];
+  if (existsSync(inWorkspace)) unlinkSync(inWorkspace);
+  const last = readState(global);
+  if (existsSync(global) && (!last || resolve(last.workspace) === resolve(workspace))) unlinkSync(global);
+}
+
+/** Written 0600 in a 0700 folder: the owner's alone. */
+export function writeDaemonState(workspace: string, state: DaemonState, home = homedir()): void {
+  const path = statePath(workspace, home);
+  const dir = join(path, "..");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
+  writeFileSync(path, JSON.stringify(state, null, 2), { mode: 0o600 });
+  chmodSync(path, 0o600);
+  clearLegacy(workspace, home);
+}
+
+export function clearDaemonState(workspace: string, home = homedir()): void {
+  const path = statePath(workspace, home);
   if (existsSync(path)) unlinkSync(path);
-  const g = globalStatePath();
-  if (existsSync(g)) {
-    try {
-      const cur = JSON.parse(readFileSync(g, "utf8")) as DaemonState;
-      if (cur.workspace === workspace) unlinkSync(g);
-    } catch {
-      // ignore
-    }
-  }
+  clearLegacy(workspace, home);
 }
 
 /** True if pid looks alive (signal 0). */
@@ -71,4 +92,58 @@ export function isPidAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+/** The URL a host in the state is reached at: on this machine, an any-address by loopback. */
+export function baseUrlOf(state: Pick<DaemonState, "host" | "port">): string {
+  const host = dialHost(state.host);
+  return `http://${host.includes(":") ? `[${host}]` : host}:${state.port}`;
+}
+
+/** Whether the state's host is this workspace's KOS, and where it answers; or why it is not trusted. */
+export type HostCheck = { ok: true; baseUrl: string } | { ok: false; why: string };
+
+/**
+ * Check the host the state names before anything is sent to it or its pid
+ * is signalled: it must be on this machine, and its /api/health must answer
+ * with the state's pid and workspace. The token goes only to this machine;
+ * the write key, which the caller adds after, only to a host that passed.
+ */
+export async function verifyHost(state: DaemonState, token: string | undefined, timeoutMs = 2_000): Promise<HostCheck> {
+  if (!isLocalHost(state.host)) return { ok: false, why: `it names ${state.host}, which is not this machine` };
+  const baseUrl = baseUrlOf(state);
+  try {
+    const res = await fetch(`${baseUrl}/api/health`, {
+      ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const health = (await res.json()) as { ok?: unknown; pid?: unknown; workspace?: unknown };
+    if (!res.ok || health.ok !== true) return { ok: false, why: `${baseUrl} did not answer as KOS (${res.status})` };
+    if (health.pid !== state.pid || health.workspace !== state.workspace) {
+      return { ok: false, why: `${baseUrl} is another KOS (pid ${String(health.pid)}, workspace ${String(health.workspace)})` };
+    }
+    return { ok: true, baseUrl };
+  } catch (err) {
+    return { ok: false, why: `${baseUrl} did not answer (${err instanceof Error ? err.message : String(err)})` };
+  }
+}
+
+/** A process's command line, or undefined when there is no such process. */
+function commandOf(pid: number): string | undefined {
+  try {
+    return execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", timeout: 2_000 }).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a pid is a KOS host for this workspace by its command line: this
+ * CLI's own main.js, given this workspace. For a host that does not answer
+ * (wedged), so `kos stop` can still stop it and never a stranger with a
+ * reused pid.
+ */
+export function isKosHostProcess(pid: number, main: string, workspace: string, command = commandOf): boolean {
+  const line = command(pid);
+  return line !== undefined && line.includes(main) && ` ${line} `.includes(` --workspace ${workspace} `);
 }

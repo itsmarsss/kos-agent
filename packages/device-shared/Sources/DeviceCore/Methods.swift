@@ -12,6 +12,10 @@ public enum CallMethod: String, CaseIterable, Sendable {
   case pointerScroll = "pointer.scroll"
   case keysType = "keys.type"
   case keysPress = "keys.press"
+  /// What field has focus, never what it holds: the stamp a secret's ask is approved against.
+  case keysFocus = "keys.focus"
+  /// A saved secret typed into that field, once the owner approved it (docs/secrets.md).
+  case keysSecret = "keys.secret"
 }
 
 public enum EventName: String, Sendable {
@@ -37,6 +41,8 @@ public struct SessionBeginParams: Decodable, Sendable {
   public let target: TargetHint?
   public let minutes: Double
   public let maxEdge: Double?
+  /// KOS's own addresses (`host:port`, or a host on any port): its dashboard, which KOS never acts on in the session.
+  public let kosHosts: [String]?
 }
 
 public struct SessionRef: Decodable, Sendable {
@@ -171,8 +177,10 @@ public struct CaptureResult: Encodable, Sendable {
   public let app: FrontApp?
   /// Set when the picture waited for the screen to settle, as asked: KOS then need not wait itself.
   public let settled: Bool?
+  /// Set when a whole web page is blacked out: a field KOS typed a secret into was hidden by it.
+  public let pageMasked: Bool?
 
-  public init(image: String, mediaType: String, width: Int, height: Int, cursor: Point, app: FrontApp?, settled: Bool? = nil) {
+  public init(image: String, mediaType: String, width: Int, height: Int, cursor: Point, app: FrontApp?, settled: Bool? = nil, pageMasked: Bool? = nil) {
     self.image = image
     self.mediaType = mediaType
     self.width = width
@@ -180,6 +188,7 @@ public struct CaptureResult: Encodable, Sendable {
     self.cursor = cursor
     self.app = app
     self.settled = settled
+    self.pageMasked = pageMasked
   }
 }
 

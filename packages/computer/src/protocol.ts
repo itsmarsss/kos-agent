@@ -127,7 +127,12 @@ export type ErrorCode =
   | "secure_input"
   | "hidden_app"
   | "bad_request"
-  | "internal";
+  | "internal"
+  | "target"
+  | "origin"
+  | "field"
+  | "secret_field"
+  | "partial";
 
 export interface Reply {
   t: "reply";
@@ -158,6 +163,8 @@ export type Method =
   | "pointer.scroll"
   | "keys.type"
   | "keys.press"
+  | "keys.focus"
+  | "keys.secret"
   | "tabs.list"
   | "tabs.open"
   | "tabs.close"
@@ -241,6 +248,8 @@ export interface Capture {
   height: number;
   cursor: Point;
   app?: { name: string; bundle?: string };
+  /** A web page is blacked out whole: a field KOS typed a secret into was hidden by it, until it moves on. */
+  pageMasked?: boolean;
 }
 
 /** The bytes a device signs to prove its key: KOS's nonce, bound to the device's id. */
