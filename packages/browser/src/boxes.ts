@@ -17,8 +17,6 @@ import { secretBoxes, viewportNow } from "./inpage.js";
  * and pictured again, or not pictured at all.
  */
 
-export type { Send };
-
 /** A frame's viewport as inpage.viewportNow reads it, in CSS pixels. */
 export interface Viewport {
   width: number;

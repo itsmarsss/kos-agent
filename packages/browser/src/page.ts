@@ -42,8 +42,8 @@ export interface Session {
   batch?(calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]>;
   /**
    * The session of a frame of the tab that runs in a process of its own (a
-   * frame of another site, most payment frames), by the frame's id, which is
-   * its target's (frames.ts); undefined where none is attached.
+   * frame of another site, most payment frames), by the frame's id
+   * (frames.ts); undefined where none is attached.
    */
   frame?(id: string): Session | undefined;
 }
