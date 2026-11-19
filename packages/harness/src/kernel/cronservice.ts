@@ -44,6 +44,12 @@ export interface CronServiceDeps {
   backup: { ensureRepo: () => Promise<void>; snapshot: (message: string) => Promise<unknown> };
   /** Run the job in its own thread with the guarded toolbox. The kernel's. */
   run: (job: CronJob) => Promise<CronExecResult>;
+  /**
+   * The conversation a job's runs speak in, which is the lane it queues on:
+   * a blob's thread for a blob's job, so it waits behind the owner's turn
+   * there rather than running beside it. Its own thread by default.
+   */
+  place?: (job: CronJob) => string;
 }
 
 export const BACKUP_JOB = "kos.backup";
@@ -56,7 +62,7 @@ export class CronService {
   start(): void {
     this.scheduler = new CronScheduler(
       this.deps.crons,
-      (job) => this.deps.enqueue(() => this.runLogged(job), cronSessionId(job.id)),
+      (job) => this.deps.enqueue(() => this.runLogged(job), this.deps.place?.(job) ?? cronSessionId(job.id)),
       {
         killSwitch: this.deps.killSwitch,
         maxSelfPromptsPerHour: () => this.deps.selfPromptsPerHour(),

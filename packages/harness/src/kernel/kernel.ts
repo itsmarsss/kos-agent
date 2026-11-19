@@ -856,6 +856,7 @@ export class Kernel {
       },
       backup: args.backup,
       run: (job) => this.runScheduledJob(job),
+      place: (job) => this.jobPlace(job),
     });
     this.extractor = new MemoryExtractor({
       ownerId: args.profile.ownerId,
@@ -5514,6 +5515,12 @@ export class Kernel {
   private readonly firedByHand = new Set<number>();
 
   fireCron(id: number): Promise<CronFireResult> {
+    // Queued behind the very turn asking for it, a run from the job's own place would wait on itself for good.
+    const job = this.crons.get(id);
+    if (job && caller.getStore() === this.jobPlace(job)) {
+      const error = "this job runs in this very chat, after the turn asking for it: it cannot be run by hand from here. Ask from another chat, or let its schedule run it.";
+      return Promise.resolve({ outcome: { fired: false, reason: "error", error }, ok: false, error });
+    }
     this.firedByHand.add(id);
     return this.cron.fire(id).finally(() => this.firedByHand.delete(id));
   }
