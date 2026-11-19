@@ -364,11 +364,11 @@ async function fillNow(reach: Reach, put: SecretPut, mark: (field: Marked) => vo
   }
   await part.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: put.node }).catch(() => undefined);
   const secret = isSecret(put.slot);
-  const why = await on<string>(put.frame, put.node, fillable, [put.slot, secret]);
+  const why = await on<string>(put.frame, put.node, fillable, [put.slot, secret, put.frameOrigin]);
   if (why) throw new CallError("field", `the field: ${why}`);
   const via = here.via;
   if (secret) mark({ frame: put.frame, node: put.node, ...(via ? { via } : {}) });
-  const args = [put.value, isDigits(put.slot)];
+  const args = [put.value, isDigits(put.slot), put.frameOrigin];
   let held = await on<boolean>(put.frame, put.node, putValue, args);
   if (!held) {
     // The page wants keys: typed only while the field has the keyboard, checked on both sides of the typing. Keys go to the tab, which sends them where the keyboard is.

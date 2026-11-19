@@ -314,8 +314,9 @@ of pictures as any frame's (docs/browser.md, docs/browser-extension.md).
 Its origin is the one that frame's own session says it committed, and a
 fill there is refused (`refused:origin`) unless the owner ticked it in the
 secret's `use.web.frames`; the Secrets page offers the common providers
-for a card. Only a frame on a challenge host (Turnstile, reCAPTCHA) is not
-reached in the owner's Chrome, so a field there is refused (`unreachable`).
+for a card. A frame on a challenge host (Turnstile, reCAPTCHA), or in the
+owner's Chrome on a site the owner hid, is never reached: a field there is
+refused (`unreachable`), and pictures paint it over whole.
 
 How a fill is asked about, by the secret's `policy.ask`:
 
@@ -379,7 +380,9 @@ harness sets, as a fill's does.
 
 No script on a credential site. `browser.eval` is refused, in every
 conversation and whether or not anything was filled, on any page whose
-main frame or any of its frames, one in another process too, is on a site a secret may be filled on:
+main frame or any of its frames in the tab's own process is on a site a secret may be filled on
+(a script in the page reaches no frame of another process, and the
+document it ran in takes no fill, `refused:scripted`):
 every secret's `use.web.origins` and `use.web.frames`, matched by
 registrable domain (`shared/src/domain.ts`). The rule is read from the
 vault at each call (`SecretsRegistry.evalBlocked`, handed to

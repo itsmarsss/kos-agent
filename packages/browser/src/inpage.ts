@@ -522,9 +522,12 @@ export function controls(scope: string | null, max: number): Element[] {
  * Only an input or a textarea of a type the slot fits: a password only into
  * type=password, a card number only where its autocomplete or its label
  * says card number. It must be drawn (at least 8 by 8, not see-through),
- * in view and the topmost thing at its middle, enabled and writable.
+ * in view and the topmost thing at its middle, enabled and writable. Its
+ * frame's page must still be on `origin`, the one approved, as it says
+ * itself here.
  */
-export function fillable(this: Element, slot: string, secret: boolean): string {
+export function fillable(this: Element, slot: string, secret: boolean, origin: string): string {
+  if (location.origin !== origin) return "its frame is on another origin now";
   if (!(this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement)) return "not a text field";
   const type = this instanceof HTMLInputElement ? this.type.toLowerCase() : "textarea";
   const TEXTUAL = ["text", "email", "tel", "url", "search", "number", "textarea"];
@@ -589,14 +592,16 @@ export function frameShown(this: Element): boolean {
   return box.right > 0 && box.bottom > 0 && box.left < innerWidth && box.top < innerHeight;
 }
 
-/** Whether the field holds `value`, by its digits alone for a number a page may space: the value is never read back out. */
-export function holds(this: Element, value: string, digits: boolean): boolean {
+/** Whether the field holds `value`, by its digits alone for a number a page may space, its frame still on `origin`: the value is never read back out. */
+export function holds(this: Element, value: string, digits: boolean, origin: string): boolean {
+  if (location.origin !== origin) return false;
   const now = (this as HTMLInputElement).value ?? "";
   return digits ? now.replace(/\D/g, "") === value.replace(/\D/g, "") : now === value;
 }
 
-/** The value set through the native setter and the events typing raises, for a field typing did not fill; whether it holds it now. */
-export function putValue(this: Element, value: string, digits: boolean): boolean {
+/** The value set through the native setter and the events typing raises, for a field typing did not fill, only while its frame is on `origin`; whether it holds it now. */
+export function putValue(this: Element, value: string, digits: boolean, origin: string): boolean {
+  if (location.origin !== origin) return false;
   const el = this as HTMLInputElement | HTMLTextAreaElement;
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, value);

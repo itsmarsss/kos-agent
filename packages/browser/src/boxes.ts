@@ -1,4 +1,4 @@
-import { partOf, tabMap, webOrigin, type Reach, type Send } from "./frames.js";
+import { frameTrees, partOf, tabMap, webOrigin, type Reach, type Send } from "./frames.js";
 import { secretBoxes, viewportNow } from "./inpage.js";
 
 /**
@@ -116,6 +116,9 @@ export type WorldOf = (frame: string, via: string, send: Send) => Promise<number
  * be painted; the main frame must be measured and still, or this throws.
  */
 export async function boxesOf(reach: Reach, worldOf: WorldOf, held: boolean, patternsFor: (origin: string) => string[]): Promise<SecretBoxes | undefined> {
+  // Whether anything is to be painted, by the frames' trees alone: the DOM is read only when it is, or when the frames could not all be listed.
+  const light = await frameTrees(reach).catch(() => undefined);
+  if (!held && light?.complete && [...light.frames.keys()].every((frame) => patternsFor(webOrigin(light, frame)).length === 0)) return undefined;
   const touched = new Set<Send>([reach.send]);
   try {
     const map = await tabMap(reach);

@@ -208,9 +208,14 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   to land on each frame's element on the way before it lands on the
   element; keys go to the tab, which sends them where the keyboard is,
   followed down each frame's focus, through their sessions. Everything a
-  tainted page refuses, it refuses there too, and `browser.eval` is
-  refused on any page with a frame of a credential site, in whatever
-  process. A frame no session reaches is painted over whole in pictures.
+  tainted page refuses, it refuses there too. `browser.eval` is held to
+  the frames of the tab's own process, as a script in the page reaches no
+  other; the document it ran in takes no fill, whatever frame the field
+  is in. A challenge's frame (Turnstile, reCAPTCHA, `isChallenge`) stays
+  attached but is never looked into. A frame no session reaches is
+  painted over whole in pictures. Pictures read the frames' trees first
+  and the DOM only when something is to be painted, and a fill keeps to
+  the sessions it read where the field is.
   The browser hits a point of a part's document, not its viewport, so a
   hit test is moved by how far that part is scrolled.
 

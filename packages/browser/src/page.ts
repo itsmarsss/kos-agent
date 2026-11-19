@@ -5,7 +5,7 @@ import { copyKey, parseKeys, type KeyPress } from "./keys.js";
 import { controlsOf, HIDDEN_VALUE, holdsValue, indexOf, INDEX_MAX, Refs, secretField, treeOf, type AxNode, type Control, type PageIndex } from "./snapshot.js";
 import { WAIT_FOR_MS, type Step } from "./steps.js";
 import { boxesOf, pixelBoxes, steadyShot, type SecretBoxes } from "./boxes.js";
-import { tabMap, webOrigin, type Reach, type TabMap } from "./frames.js";
+import { ownFrames, partDom, type FrameInfo as TabFrame, type Reach } from "./frames.js";
 import { paintedJpeg } from "./paint.js";
 import { echoPatterns, isDigitSlot, isSecretSlot, keepFilled, noSecrets, unechoed, type FilledValue, type Kin, type SecretSlot, type TabSecrets, type Taint } from "./taint.js";
 
@@ -46,6 +46,8 @@ export interface Session {
    * (frames.ts); undefined where none is attached.
    */
   frame?(id: string): Session | undefined;
+  /** The ids of the frames of other processes `frame` reaches now, where the browser keeps them. */
+  frames?(): string[];
 }
 
 /** An element of the page: its backend node, and the part of the tab that holds it ("" for the tab's own session, else the frame of another process whose session does; frames.ts). */
@@ -367,6 +369,10 @@ export class Page {
   private readonly vias = new Map<string, string>();
   /** The part each frame of another process is attached under, by that frame: the part its element is in. */
   private readonly holders = new Map<string, string>();
+  /** The parts of other processes commands went to since the last release, whose objects it lets go of. */
+  private readonly touched = new Set<string>();
+  /** While a secret goes in: the session of each part as it was read for the fill, which every command of the fill goes to. */
+  private pinned: Map<string, Session> | undefined;
   /** The main frame's current document, and the lifecycle points it has reached. */
   /** The main frame's current document, the lifecycle points it has reached, and when it began by `tick` (0 for one KOS found already there). */
   private life = { loader: "", reached: new Set<string>(), at: 0 };
@@ -484,7 +490,9 @@ export class Page {
     const p = event.params;
     if (part !== undefined) {
       const frame = event.method === "Page.frameNavigated" ? (p["frame"] as { id?: unknown } | undefined)?.id : event.method === "Page.frameDetached" ? p["frameId"] : undefined;
-      if (typeof frame === "string") this.forgetWorld(frame);
+      if (typeof frame !== "string") return;
+      this.forgetWorld(frame);
+      if (event.method === "Page.frameDetached") this.forgetFrame(frame);
       return;
     }
     switch (event.method) {
@@ -508,6 +516,9 @@ export class Page {
         const frame = p["frame"] as { id?: string; parentId?: string; url?: string } | undefined;
         if (frame?.id) this.forgetWorld(frame.id);
         if (frame?.id && !frame.parentId) {
+          // A new document: the frames of other processes it holds are read afresh.
+          this.vias.clear();
+          this.holders.clear();
           this.mainFrame = frame.id;
           this.site = siteOf(frame.url ?? "");
           this.url = frame.url ?? "";
@@ -517,6 +528,7 @@ export class Page {
       case "Page.frameDetached": {
         const frame = String(p["frameId"] ?? "");
         this.forgetWorld(frame);
+        this.forgetFrame(frame);
         // Its fields went with it. A page that held only those is still held whole: which of its own may echo them is not known.
         const taint = this.secrets.taint;
         if (taint) for (const [node, at] of taint.nodes) if (at === frame) taint.nodes.delete(node);
@@ -583,6 +595,12 @@ export class Page {
   private forgetWorld(frame: string): void {
     this.worlds.delete(frame);
     this.partWorlds.delete(frame);
+  }
+
+  /** A frame gone from the page: which part it was in, and what it was attached under, with it. */
+  private forgetFrame(frame: string): void {
+    this.vias.delete(frame);
+    this.holders.delete(frame);
   }
 
   /** What happened on the page that the agent should hear: dialogs answered, a crash recovered. */
@@ -704,6 +722,9 @@ export class Page {
   async index(scope?: string): Promise<Look> {
     this.freshDocument();
     if (scope) this.refsOnly(`looking within ${scope}`);
+    // Each look reads where the frames are afresh.
+    this.vias.clear();
+    this.holders.clear();
     const found = await this.found(this.mainFrame, "", scope ?? null, { left: FRAMES_MAX, local: new Map() });
     if (found) return { index: this.cleanIndex(indexOf(found.controls, found.total, this.refs)), unread: found.unread, ...(found.closed ? { closed: found.closed } : {}) };
     // No world of KOS's own on this tab (a KOS for Chrome from before there was one): the tree it was read from before.
@@ -737,13 +758,13 @@ export class Page {
   async evaluate(code: string): Promise<string> {
     // A script could read a secret straight out of its field.
     if (this.holding()) throw new Error(`browser.eval is refused: ${TAINTED}`);
-    // On a site a secret may be filled on, a script could read a copy the site keeps, or wait for the next fill: any frame's, one in another process too.
+    // On a site a secret may be filled on, a script could read a copy the site keeps, or wait for the next fill. The frames of the
+    // tab's own process are the ones a script in the page reaches; one of another process it cannot, and the document it ran in takes no fill.
     const before = await this.document();
     const refuse = (origin: string, why: string): never => {
       throw new Error(`browser.eval is refused on ${origin}: ${why}, so no script of KOS's runs in its pages. Looking, reading, acting with steps and browser.handoff still work here.`);
     };
-    const map = await this.map();
-    for (const { origin } of map.frames.values()) {
+    for (const { origin } of before.frames) {
       const why = /^https?:/i.test(origin) ? this.evalBlocked(origin) : undefined;
       if (why) refuse(origin, why);
     }
@@ -751,11 +772,11 @@ export class Page {
     const contexts = await this.mainWorlds();
     const main = contexts.get(before.frame);
     if (!main) throw new Error("browser.eval found no page to run in (it may be loading); look at the page again");
-    for (const [id, { origin }] of map.frames) {
+    for (const { id, origin } of before.frames) {
       if (/^https?:/i.test(origin)) continue;
-      const own = contexts.get(id)?.origin ?? webOrigin(map, id);
-      const why = (own ? this.evalBlocked(own) : undefined) ?? this.evalBlocked(origin);
-      if (why) refuse(own || origin, why);
+      const own = contexts.get(id)?.origin ?? origin;
+      const why = this.evalBlocked(own) ?? this.evalBlocked(origin);
+      if (why) refuse(own, why);
     }
     this.scripted.mark(before.loader);
     // Run in the context checked, which no later page can host; and only while it is still on the origin checked.
@@ -869,10 +890,9 @@ export class Page {
    */
   async fieldSpot(ref: string): Promise<FieldSpot> {
     const spot = this.refNode(ref);
-    const map = await this.map();
-    const frame = this.frameOf(map, spot);
+    const { main, frames, frame } = await this.spotOf(spot);
     const field = await this.callIn<FieldSpot["field"]>(frame, spot.node, inpage.fieldInfo);
-    return { origin: map.frames.get(map.main)?.origin ?? "", frameOrigin: map.frames.get(frame)?.origin ?? "", doc: this.life.loader, field };
+    return { origin: frames.get(main)?.origin ?? "", frameOrigin: frames.get(frame)?.origin ?? "", doc: this.life.loader, field };
   }
 
   /**
@@ -891,14 +911,24 @@ export class Page {
    */
   async fillSecret(ref: string, value: string, expect: FillExpect): Promise<void> {
     const spot = this.refNode(ref);
-    const { node, via } = spot;
     await this.settled();
     if (this.life.loader !== expect.doc) throw new SecretRefused("changed", "the page changed since you approved; look again and ask again");
     if (this.scripted.has(this.life.loader)) throw new SecretRefused("scripted", "a script of yours ran in this page (browser.eval) and could catch what is filled; open the page afresh, look again and ask again");
-    const map = await this.map();
-    const frame = this.frameOf(map, spot);
-    const frames = map.frames;
-    const origin = frames.get(map.main)?.origin ?? "";
+    const { main, frames, frame, sessions } = await this.spotOf(spot);
+    // Every command of the fill goes to the sessions just read: a frame's session swapped for another meanwhile takes none of it.
+    this.pinned = sessions;
+    for (const via of sessions.keys()) if (via) for (const [id, f] of frames) if (f.via === via) this.partWorlds.delete(id);
+    try {
+      await this.fillIn(ref, spot, value, expect, main, frames, frame);
+    } finally {
+      this.pinned = undefined;
+    }
+  }
+
+  /** The fill's checks and the value going in, once where the field is has been read. */
+  private async fillIn(ref: string, spot: Spot, value: string, expect: FillExpect, main: string, frames: Map<string, TabFrame>, frame: string): Promise<void> {
+    const { node, via } = spot;
+    const origin = frames.get(main)?.origin ?? "";
     // A frame of another process is on the origin its own session says it committed, never the page's word for it.
     const frameOrigin = frames.get(frame)?.origin ?? "";
     if (origin !== expect.origin) throw new SecretRefused("origin", `the page is on ${origin || "no site"} now, not ${expect.origin}, which was approved`);
@@ -910,7 +940,7 @@ export class Page {
       if (why) throw new SecretRefused("worker", `${why}; open the page afresh, look again and ask again`);
     }
     // A field in a frame the page hides (a honeypot) is as hidden as a field that is: each frame's element, in the part its parent is in.
-    for (let at = frame; at !== map.main; ) {
+    for (let at = frame; at !== main; ) {
       const parent = frames.get(at)?.parent;
       const holder = parent === undefined ? undefined : frames.get(parent)?.via;
       const owner = holder === undefined ? undefined : (await this.sendVia(holder, "DOM.getFrameOwner", { frameId: at }))["backendNodeId"];
@@ -921,10 +951,10 @@ export class Page {
     }
     await this.sendVia(via, "DOM.scrollIntoViewIfNeeded", { backendNodeId: node }).catch(() => undefined);
     const secret = isSecretSlot(expect.slot);
-    const why = await this.callIn<string>(frame, node, inpage.fillable, [{ value: expect.slot }, { value: secret }]);
+    const why = await this.callIn<string>(frame, node, inpage.fillable, [{ value: expect.slot }, { value: secret }, { value: frameOrigin }]);
     if (why) throw new SecretRefused("field", `${ref}: ${why}`);
     const digits = isDigitSlot(expect.slot);
-    const args: CallArg[] = [{ value }, { value: digits }];
+    const args: CallArg[] = [{ value }, { value: digits }, { value: frameOrigin }];
     // Marked before it goes in: a field that took part of it holds a secret too, and so may the page.
     if (secret) {
       await this.callIn(frame, node, inpage.taint);
@@ -1110,8 +1140,8 @@ export class Page {
    * has no world of KOS's own, or no session reaches it.
    */
   private async keyboardAt(): Promise<Spot | undefined | "unknown"> {
-    const map = await this.map();
-    let [frame, via] = [map.main, ""];
+    const local = new Map<string, Promise<Set<string>>>();
+    let [frame, via] = [this.mainFrame, ""];
     for (let depth = 0; depth <= FRAMES_MAX; depth++) {
       const context = await this.world(frame, via);
       if (context === undefined) return "unknown";
@@ -1121,9 +1151,12 @@ export class Page {
       const node = (await this.sendVia(via, "DOM.describeNode", { objectId }))["node"] as { backendNodeId?: number; frameId?: string } | undefined;
       if (node?.backendNodeId === undefined) return "unknown";
       if (!node.frameId) return { node: node.backendNodeId, via };
-      if (map.unreached.has(node.frameId)) return "unknown";
       frame = node.frameId;
-      via = map.frames.get(frame)?.via ?? via;
+      // A frame not in this part's own tree is in a process of its own, followed through its session.
+      if (!(await this.localFrames(via, local)).has(frame)) {
+        if (!this.session.frame?.(frame)) return "unknown";
+        via = frame;
+      }
     }
     return "unknown";
   }
@@ -1138,41 +1171,69 @@ export class Page {
   }
 
   /**
-   * The tab's frames and the parts its sessions hold, by the browser's own
-   * trees (frames.ts), each frame's part kept for the calls that follow.
+   * Where an element is, by the browser's own trees: the frames of its part
+   * and of each part above it to the tab's (their frame trees), and the
+   * element's frame (its part's DOM). A part a look did not place, or whose
+   * session answers for another frame, is refused. The sessions read are
+   * the ones a fill keeps to.
    */
-  private async map(): Promise<TabMap> {
-    const map = await tabMap(this.reach());
-    for (const [frame, { via, parent }] of map.frames) {
-      this.vias.set(frame, via);
-      const holder = parent === undefined ? undefined : map.frames.get(parent)?.via;
-      if (via === frame && holder !== undefined) this.holders.set(frame, holder);
+  private async spotOf(spot: Spot): Promise<{ main: string; frames: Map<string, TabFrame>; frame: string; sessions: Map<string, Session> }> {
+    const unreachable = (): SecretRefused => new SecretRefused("unreachable", "the field is in a frame KOS cannot reach; look again, or hand the tab to the owner with browser.handoff");
+    const chain: string[] = [];
+    for (let at: string | undefined = spot.via; at !== undefined && !chain.includes(at); at = at ? this.holders.get(at) : undefined) chain.push(at);
+    if (chain.at(-1) !== "") throw unreachable();
+    const frames = new Map<string, TabFrame>();
+    const sessions = new Map<string, Session>();
+    let [main, own] = ["", new Map<string, TabFrame>()];
+    for (const via of chain) {
+      const part = via ? this.session.frame?.(via) : this.session;
+      if (!part) throw unreachable();
+      sessions.set(via, part);
+      const got = await ownFrames((method, params) => this.sendTo(part, method, params, AX_MS), via);
+      if (via && got.root !== via) throw unreachable();
+      if (!via) main = got.root;
+      if (via === spot.via) own = got.own;
+      for (const [id, f] of got.own) if (!frames.has(id)) frames.set(id, f);
     }
-    return map;
+    const part = sessions.get(spot.via)!;
+    const { frameOf } = await partDom((method, params) => this.sendTo(part, method, params, AX_MS), spot.via || main, own);
+    const frame = frameOf.get(spot.node);
+    if (frame === undefined) throw unreachable();
+    for (const [id, f] of frames) this.vias.set(id, f.via);
+    return { main, frames, frame, sessions };
   }
 
   /** The tab as frames.ts reads it: its own session, and each frame of another process through the session attached for it. */
   private reach(): Reach {
+    const listed = this.session.frames?.bind(this.session);
     return {
       send: (method, params) => this.send(method, params, AX_MS),
-      frame: (id) => (this.session.frame?.(id) ? (method, params) => this.sendVia(id, method, params, AX_MS) : undefined),
+      frame: (id) => {
+        const part = this.session.frame?.(id);
+        if (!part) return undefined;
+        return (method, params) => {
+          this.touched.add(id);
+          return this.sendTo(part, method, params, AX_MS);
+        };
+      },
+      ...(listed ? { frames: listed } : {}),
     };
   }
 
-  /** The frame an element is in, by the browser's own trees of the tab's parts. One in a frame no session reaches is in none. */
-  private frameOf(map: TabMap, spot: Spot): string {
-    const frame = map.parts.get(spot.via)?.frameOf.get(spot.node);
-    if (frame === undefined) throw new SecretRefused("unreachable", "the field is in a frame KOS cannot reach; hand the tab to the owner with browser.handoff");
-    return frame;
-  }
-
-  /** A command to the session of a part of the tab: the tab's own for "", else that of the frame of another process (frames.ts). */
-  private sendVia(via: string, method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
-    if (!via) return this.send(method, params, timeoutMs);
-    const part = this.session.frame?.(via);
-    if (!part) return Promise.reject(new SecretRefused("unreachable", "a frame of the page in another process is gone, or no session reaches it; look again"));
+  /** A command to one session of the tab, no longer waited for once the owner presses Stop. */
+  private sendTo(part: Session, method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
     if (this.stop?.aborted) return Promise.reject(new Stopped());
     return this.guard(part.send(method, params, timeoutMs), this.stop, part);
+  }
+
+  /** A command to the session of a part of the tab: the tab's own for "", else that of the frame of another process (frames.ts); during a fill, the one it read. */
+  private sendVia(via: string, method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
+    const pinned = this.pinned?.get(via);
+    if (!via && !pinned) return this.send(method, params, timeoutMs);
+    const part = pinned ?? this.session.frame?.(via);
+    if (!part) return Promise.reject(new SecretRefused("unreachable", "a frame of the page in another process is gone, or no session reaches it; look again"));
+    if (via) this.touched.add(via);
+    return this.sendTo(part, method, params, timeoutMs);
   }
 
   /** A page-side function run on an element in its frame's world of KOS's own, its answer by value. */
@@ -1193,7 +1254,8 @@ export class Page {
   async release(): Promise<void> {
     this.objects.ids.clear();
     this.partWorlds.clear();
-    const parts = [this.session, ...[...new Set(this.vias.values())].flatMap((via) => (via ? (this.session.frame?.(via) ?? []) : []))];
+    const parts = [this.session, ...[...this.touched].flatMap((via) => this.session.frame?.(via) ?? [])];
+    this.touched.clear();
     await Promise.all(parts.map((part) => part.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined)));
   }
 

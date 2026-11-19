@@ -380,7 +380,8 @@ describe("a key on a page holding a secret in a frame", () => {
   const holding = (focus: Record<string, { objectId: string; node: number; frameId?: string } | undefined>, worlds = ["F", "C"]) => {
     const ids = new Map(Object.values(focus).flatMap((f) => (f ? [[f.objectId, f] as const] : [])));
     const { session, calls } = tab({
-      "Page.getFrameTree": () => FRAME,
+      // Frame C is of the tab's own process: in its frame tree.
+      "Page.getFrameTree": () => ({ frameTree: { ...FRAME.frameTree, childFrames: [{ frame: { id: "C", url: "https://shop.example/card" } }] } }),
       "Page.createIsolatedWorld": (p) => {
         const frame = String(p["frameId"]);
         if (!worlds.includes(frame)) throw Object.assign(new Error("not passed on"), { code: "method" });
