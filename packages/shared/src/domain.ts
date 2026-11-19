@@ -46,6 +46,8 @@ const SUFFIXES = new Set([
   "appspot.com", "blogspot.com", "azurewebsites.net", "cloudfront.net", "s3.amazonaws.com", "fly.dev", "onrender.com", "glitch.me",
   "repl.co", "ngrok.io", "ngrok-free.app", "trycloudflare.com", "myshopify.com", "wixsite.com", "squarespace.com", "webflow.io",
   "translate.goog", "sharepoint.com", "readthedocs.io", "surge.sh", "deno.dev", "codesandbox.io", "stackblitz.io",
+  "run.app", "a.run.app", "githubusercontent.com", "notion.site", "r2.dev", "azurestaticapps.net", "cloudfunctions.net",
+  "elasticbeanstalk.com", "replit.app", "replit.dev",
 ]);
 
 /** The registrable domain of `host`; an address or a single-label host is itself. */

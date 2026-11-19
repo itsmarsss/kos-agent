@@ -456,7 +456,6 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
             const warnings = [
               ...(origin.startsWith("http://") ? ["The page is not encrypted (plain http)."] : []),
               ...(used ? [] : [`${meta.label} has not been filled on this site before.`]),
-              ...(form && form.method === "unset" ? ["The form names no method, so sent as it is, what is typed goes into the page's address."] : []),
               ...(form?.action && originOf(form.action) !== origin ? [`The form sends to ${originOf(form.action) ?? form.action}, not this site.`] : []),
             ];
             const ask: AskSecret = {
@@ -572,16 +571,22 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
                 return `${origin} is plain http; a secret is filled only on https sites (and http://localhost).`;
               }
               if (originAllowed(origin, meta.use.web.origins)) return `${meta.label} is already allowed on ${origin}; fill it with secrets.fill.`;
-              if (countIn(allowAsks) > ALLOW_SITE_MAX) return `This turn has asked to allow secrets on new sites ${ALLOW_SITE_MAX} times already; tell the owner what you need instead.`;
+              const asks = countIn(allowAsks);
+              if (asks > ALLOW_SITE_MAX) {
+                if (asks === ALLOW_SITE_MAX + 1) deps.tellOwner?.(`KOS asked to allow ${meta.label} (${meta.handle}) on new sites more than ${ALLOW_SITE_MAX} times in one turn, the last on ${origin}. Look at what it was asked to do.`);
+                return `This turn has asked to allow secrets on new sites ${ALLOW_SITE_MAX} times already; tell the owner what you need instead.`;
+              }
               return false;
             } catch (err) {
               return (err as Error).message;
             }
           },
+          // Read from the tab and the vault, never the model, as a fill's stamp is.
           stamp: (input) => {
+            const own = Object.fromEntries(Object.entries(input).filter(([key]) => !STAMPED.includes(key)));
             const meta = deps.vault()?.get(str(input, "secret")?.toLowerCase() ?? "");
             const origin = originOf(deps.browser.url());
-            return { ...input, ...(meta ? { label: meta.label } : {}), ...(origin ? { origin } : {}) };
+            return { ...own, ...(meta ? { label: meta.label } : {}), ...(origin ? { origin } : {}) };
           },
           why: (input) => `adds ${typeof input["origin"] === "string" ? input["origin"] : "this site"} to where a saved secret may be filled`,
           secret: (input) => {

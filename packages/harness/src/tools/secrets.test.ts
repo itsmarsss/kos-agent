@@ -283,6 +283,15 @@ describe("the secrets tools", () => {
       expect(vault.get(login)?.use.web.origins).toEqual([SITE, "https://gist.github.com"]);
       expect((await guarded().execute("secrets.allow_site", { secret: login, why: "x" })).content).toMatch(/already allowed/);
     });
+
+    it("asks about the tab's origin and the vault's label, whatever the model passed for them", async () => {
+      page.url = "https://gist.github.com/new";
+      void guarded().execute("secrets.allow_site", { secret: login, why: "x", origin: "https://github.com", label: "Your bank", frameOrigins: ["https://evil.example"] });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      const args = JSON.parse(approvals.pending()[0]!.args) as Record<string, unknown>;
+      expect(args).toMatchObject({ origin: "https://gist.github.com", label: "GitHub" });
+      expect(args).not.toHaveProperty("frameOrigins");
+    });
   });
 
   describe("secrets.request", () => {
@@ -326,6 +335,7 @@ describe("the secrets tools", () => {
       }
       expect(asked.slice(0, 3).every((a) => a.startsWith("Queued for approval"))).toBe(true);
       expect(asked[3]).toMatch(/asked to allow secrets on new sites 3 times already/);
+      expect(told).toEqual([expect.stringMatching(/asked to allow GitHub .* more than 3 times in one turn, the last on https:\/\/d\.example/)]);
     });
   });
 });
