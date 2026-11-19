@@ -833,11 +833,13 @@ export class BrowserLive {
     const sessionId = await this.sessionFor(tab);
     const metrics: Record<string, unknown> = await this.cdp.send("Page.getLayoutMetrics", {}, sessionId).catch(() => ({}));
     const size = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as Record<string, unknown>;
-    const width = typeof size["clientWidth"] === "number" ? size["clientWidth"] : 0;
-    const height = typeof size["clientHeight"] === "number" ? size["clientHeight"] : 0;
+    const num = (key: string): number => (typeof size[key] === "number" ? (size[key] as number) : 0);
+    const [width, height] = [num("clientWidth"), num("clientHeight")];
     const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
+    // A clip is in the document's coordinates: the part drawn now is at the visual viewport's place in it, however far the page is scrolled.
+    const clip = width && height ? { x: num("pageX"), y: num("pageY"), width, height, scale } : undefined;
     const shot: Record<string, unknown> = await this.cdp
-      .send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: PICTURE.quality } : {}), ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }, sessionId)
+      .send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: PICTURE.quality } : {}), ...(clip ? { clip } : {}) }, sessionId)
       .catch(() => ({}));
     return typeof shot["data"] === "string" && shot["data"] ? { data: shot["data"], width, height } : undefined;
   }
