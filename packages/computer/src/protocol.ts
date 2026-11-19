@@ -174,6 +174,7 @@ export type Method =
   | "cdp.batch"
   | "secret.fill"
   | "secret.picture"
+  | "tab.origins"
   | PanelMethod;
 
 /**

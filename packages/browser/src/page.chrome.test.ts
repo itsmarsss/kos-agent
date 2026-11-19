@@ -290,14 +290,18 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     for (const leaked of ["hunter2", "4242", "918273", "737", "5555", "tok-in-editable", "•"]) expect(outline.text).not.toContain(leaked);
   });
 
-  it("reads open shadow roots and the frames it can reach, says which it could not, and acts in them", async () => {
+  it("reads open shadow roots, the frames it can reach and those of other processes through their own sessions, and acts in them", async () => {
     const seen = await visit(tab, [`${base}/framed`], { then: "look", until: "load" });
-    expect(seen.text).toMatch(/button "Top" @e1\nbutton "In shadow" @e2\nbutton "Inner button" @e3\nbutton "Inner button" @e4/);
-    expect(seen.text).toMatch(/Not read: an embedded frame from localhost:\d+/);
+    expect(seen.text).toMatch(/button "Top" @e1\nbutton "In shadow" @e2\nbutton "Inner button" @e3\nbutton "Inner button" @e4\nbutton "Inner button" @e5/);
+    expect(seen.text).not.toContain("Not read");
     await act(tab, stepsOf([{ click: "@e2" }]), "none");
     expect(await tab.page.evaluate("document.title")).toBe("shadow");
     // The frame of another origin, read in a world of its own, is acted in by its ref too.
     await act(tab, stepsOf([{ click: "@e4" }]), "none");
+    expect(await tab.page.evaluate("document.title")).toBe(`inner ${new URL(otherBase).port}`);
+    // The frame of another site, in a process of its own, too: the click lands there through each frame on the way.
+    await tab.page.evaluate("document.title = 'none'");
+    await act(tab, stepsOf([{ click: "@e5" }]), "none");
     expect(await tab.page.evaluate("document.title")).toBe(`inner ${new URL(otherBase).port}`);
     const outline = await look(tab, "snapshot");
     expect(outline.text).toContain('button "Inner button"');

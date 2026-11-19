@@ -1,3 +1,4 @@
+import { frameTrees, partOf, tabMap, webOrigin, type Reach, type Send } from "./frames.js";
 import { secretBoxes, viewportNow } from "./inpage.js";
 
 /**
@@ -16,9 +17,6 @@ import { secretBoxes, viewportNow } from "./inpage.js";
  * and pictured again, or not pictured at all.
  */
 
-/** A command to the tab's debugger. */
-export type Send = (method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>;
-
 /** A frame's viewport as inpage.viewportNow reads it, in CSS pixels. */
 export interface Viewport {
   width: number;
@@ -36,40 +34,6 @@ export interface SecretBoxes {
 
 /** The objects a measuring makes, let go of together. */
 const GROUP = "kos-boxes";
-
-export type Frames = Map<string, { origin: string; parent?: string; loader: string }>;
-
-/** The tab's frames as the browser holds them, with the main frame's id. */
-export async function frameTree(send: Send): Promise<{ main: string; frames: Frames }> {
-  type Tree = { frame?: { id?: string; securityOrigin?: string; loaderId?: string }; childFrames?: Tree[] };
-  const frames: Frames = new Map();
-  const walk = (t: Tree | undefined, parent?: string): void => {
-    const id = t?.frame?.id;
-    if (!id) return;
-    frames.set(id, { origin: t.frame?.securityOrigin ?? "", loader: t.frame?.loaderId ?? "", ...(parent ? { parent } : {}) });
-    for (const child of t.childFrames ?? []) walk(child, id);
-  };
-  const tree = (await send("Page.getFrameTree"))["frameTree"] as Tree | undefined;
-  walk(tree);
-  return { main: tree?.frame?.id ?? "", frames };
-}
-
-type DomNode = { backendNodeId?: number; nodeType?: number; frameId?: string; children?: DomNode[]; shadowRoots?: DomNode[]; contentDocument?: DomNode };
-
-/** The page's documents and shadow roots, open and closed, by the frame each is in, and each node's frame, from the browser's own tree. */
-export async function domTree(send: Send, main: string): Promise<{ frameOf: Map<number, string>; roots: Map<string, number[]> }> {
-  const frameOf = new Map<number, string>();
-  const roots = new Map<string, number[]>();
-  const walk = (n: DomNode | undefined, frame: string): void => {
-    if (!n) return;
-    if (n.backendNodeId !== undefined) frameOf.set(n.backendNodeId, frame);
-    if ((n.nodeType === 9 || n.nodeType === 11) && n.backendNodeId !== undefined) roots.set(frame, [...(roots.get(frame) ?? []), n.backendNodeId]);
-    for (const child of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) walk(child, frame);
-    if (n.contentDocument && n.frameId) walk(n.contentDocument, n.frameId);
-  };
-  walk((await send("DOM.getDocument", { depth: -1, pierce: true }))["root"] as DomNode | undefined, main);
-  return { frameOf, roots };
-}
 
 const failed = (): Error => new Error("the page could not be measured to mask");
 
@@ -91,19 +55,30 @@ async function run<T>(send: Send, world: number, fn: (...args: never[]) => unkno
   return (answer["result"] as { value?: T } | undefined)?.value as T;
 }
 
-/** A child frame's boxes placed in the main frame's viewport, where its element's content box is drawn, and cut to it; none when it is not drawn. */
-async function placer(send: Send, world: number, frame: string): Promise<(boxes: number[]) => number[]> {
-  const owner = (await send("DOM.getFrameOwner", { frameId: frame }))["backendNodeId"];
-  if (typeof owner !== "number") throw failed();
+/** Boxes in one frame's viewport, moved into another's. */
+type Place = (boxes: number[]) => number[];
+
+/** The upright box a quad covers, as left, top, right and bottom. */
+function bounds(quad: readonly number[]): [number, number, number, number] {
+  const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
+  const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+/**
+ * Boxes in a frame's viewport, placed where its element's content box is
+ * drawn in the viewport of the top frame of the session the element is in,
+ * and cut to it; none when it is not drawn. `view` is the frame's viewport,
+ * none to paint the whole box over (a frame not measured). A frame turned,
+ * skewed or mirrored is not placed box by box: all of it is painted over.
+ */
+async function placeIn(send: Send, owner: number, view: Viewport | undefined): Promise<Place> {
   const model = await send("DOM.getBoxModel", { backendNodeId: owner }).catch(() => undefined);
   const quad = (model?.["model"] as { content?: number[] } | undefined)?.content;
   if (!quad || quad.length < 8) return () => [];
-  const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
-  const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
-  const [left, top, right, bottom] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-  // A frame turned, skewed or mirrored is not placed box by box: all of it is painted over.
-  if (!upright(quad)) return () => (right > left && bottom > top ? [left, top, right - left, bottom - top] : []);
-  const view = await run<Viewport>(send, world, viewportNow, []);
+  const [left, top, right, bottom] = bounds(quad);
+  const whole = (): number[] => (right > left && bottom > top ? [left, top, right - left, bottom - top] : []);
+  if (!view || !upright(quad)) return whole;
   const sx = (right - left) / Math.max(1, view.width);
   const sy = (bottom - top) / Math.max(1, view.height);
   return (boxes) => {
@@ -126,48 +101,100 @@ export function upright(q: readonly number[]): boolean {
   return near(y0, y1) && near(x1, x2) && near(y2, y3) && near(x3, x0) && x1 > x0 && y3 > y0;
 }
 
+/** A world of the measurer's own in a frame, made through the session that holds it (its part, `via`, and that part's `send`); undefined where none is made. */
+export type WorldOf = (frame: string, via: string, send: Send) => Promise<number | undefined>;
+
 /**
  * The boxes a picture of the tab must be painted over, or undefined when it
  * need not be: on a tab `held` to a secret, every text box of every frame
- * reachable; in a frame `patternsFor` its origin gives patterns (an
- * about:blank one by the page's), its text boxes and each echo of them. A
- * child frame where a box is moving, or drawn turned or mirrored, is
- * painted over whole. A frame of another process, which no world reaches, is
- * passed over; the main frame must be measured and still, or this throws.
+ * reachable; in a frame `patternsFor` its origin gives patterns (a blank
+ * one by the nearest web origin above it), its text boxes and each echo of
+ * them. A frame in another process is measured through its own session, its
+ * boxes placed through each frame element between it and the page. A child
+ * frame where a box is moving, or drawn turned or mirrored, or one no
+ * session or world reaches, is painted over whole wherever anything is to
+ * be painted; the main frame must be measured and still, or this throws.
  */
-export async function boxesOf(send: Send, worldOf: (frame: string) => Promise<number | undefined>, held: boolean, patternsFor: (origin: string) => string[]): Promise<SecretBoxes | undefined> {
+export async function boxesOf(reach: Reach, worldOf: WorldOf, held: boolean, patternsFor: (origin: string) => string[]): Promise<SecretBoxes | undefined> {
+  // Whether anything is to be painted, by the frames' trees alone: the DOM is read only when it is, or when the frames could not all be listed.
+  const light = await frameTrees(reach).catch(() => undefined);
+  if (!held && light?.complete && [...light.frames.keys()].every((frame) => patternsFor(webOrigin(light, frame)).length === 0)) return undefined;
+  const touched = new Set<Send>([reach.send]);
   try {
-    const { main, frames } = await frameTree(send);
-    const top = frames.get(main)?.origin ?? "";
-    const { roots } = await domTree(send, main);
-    const boxes: number[] = [];
-    let needed = false;
-    for (const [frame, frameRoots] of roots) {
-      const origin = frames.get(frame)?.origin ?? "";
-      const patterns = patternsFor(/^https?:/i.test(origin) ? origin : top);
-      if (!held && patterns.length === 0) continue;
-      needed = true;
-      const world = await worldOf(frame);
-      if (world === undefined) {
-        if (frame === main) throw failed();
-        continue;
-      }
-      const place = frame === main ? (b: number[]): number[] => b : await placer(send, world, frame);
-      const found = await Promise.all(frameRoots.map((root) => run<{ boxes: number[]; moving: boolean }>(send, world, secretBoxes, [patterns], root)));
-      // A box moving may be drawn somewhere other than where it was measured: the main frame is not pictured, a child frame is painted over whole.
-      if (found.some((f) => f.moving)) {
-        if (frame === main) throw new Error("the page is moving where it may show a secret, so it is not pictured");
-        boxes.push(...place([0, 0, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER]));
-        continue;
-      }
-      for (const f of found) boxes.push(...place(f.boxes));
-    }
+    const map = await tabMap(reach);
+    const { main, frames, parts } = map;
+    const patterns = new Map<string, string[]>();
+    for (const frame of frames.keys()) patterns.set(frame, patternsFor(webOrigin(map, frame)));
+    const needed = held || [...patterns.values()].some((p) => p.length > 0);
     if (!needed) return undefined;
-    const world = await worldOf(main);
-    if (world === undefined) throw failed();
-    return { boxes, view: await run<Viewport>(send, world, viewportNow, []) };
+    const views = new Map<string, Viewport>();
+    const worldIn = async (frame: string): Promise<{ send: Send; world: number } | undefined> => {
+      const part = partOf(map, frame);
+      if (!part) return undefined;
+      touched.add(part.send);
+      const world = await worldOf(frame, frames.get(frame)?.via ?? "", part.send);
+      return world === undefined ? undefined : { send: part.send, world };
+    };
+    const viewOf = async (frame: string): Promise<Viewport | undefined> => {
+      if (!views.has(frame)) {
+        const at = await worldIn(frame);
+        if (at) views.set(frame, await run<Viewport>(at.send, at.world, viewportNow, []));
+      }
+      return views.get(frame);
+    };
+    // Each frame's boxes into the main frame's viewport: through its element in its parent's part, then through the frame that part is.
+    const places = new Map<string, Promise<Place>>();
+    const toMain = (frame: string, measured = true): Promise<Place> => {
+      const key = `${frame}:${measured}`;
+      let got = places.get(key);
+      if (!got) {
+        got = (async (): Promise<Place> => {
+          if (frame === main) return (b) => b;
+          const unreached = map.unreached.get(frame);
+          const outer = unreached ? unreached.via : frames.get(frames.get(frame)?.parent ?? "")?.via;
+          const holder = outer === undefined ? undefined : parts.get(outer);
+          if (outer === undefined || !holder) throw failed();
+          const owner = unreached?.owner ?? (await holder.send("DOM.getFrameOwner", { frameId: frame }))["backendNodeId"];
+          if (typeof owner !== "number") throw failed();
+          const local = await placeIn(holder.send, owner, measured ? await viewOf(frame) : undefined);
+          // The part's boxes are in the viewport of the frame it is; the tab's are the main frame's.
+          const up = outer === "" ? (b: number[]): number[] => b : await toMain(outer);
+          return (b) => up(local(b));
+        })();
+        places.set(key, got);
+      }
+      return got;
+    };
+    const boxes: number[] = [];
+    const everything = [0, 0, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER];
+    for (const part of parts.values()) {
+      for (const [frame, frameRoots] of part.roots) {
+        const own = patterns.get(frame) ?? [];
+        if (!held && own.length === 0) continue;
+        const at = await worldIn(frame);
+        if (!at) {
+          if (frame === main) throw failed();
+          boxes.push(...(await toMain(frame, false))(everything));
+          continue;
+        }
+        const found = await Promise.all(frameRoots.map((root) => run<{ boxes: number[]; moving: boolean }>(at.send, at.world, secretBoxes, [own], root)));
+        // A box moving may be drawn somewhere other than where it was measured: the main frame is not pictured, a child frame is painted over whole.
+        if (found.some((f) => f.moving)) {
+          if (frame === main) throw new Error("the page is moving where it may show a secret, so it is not pictured");
+          boxes.push(...(await toMain(frame, false))(everything));
+          continue;
+        }
+        const place = await toMain(frame);
+        for (const f of found) boxes.push(...place(f.boxes));
+      }
+    }
+    // A frame in a process no session reaches is not looked into: what it shows is painted over whole.
+    for (const frame of map.unreached.keys()) boxes.push(...(await toMain(frame, false))(everything));
+    const view = await viewOf(main);
+    if (!view) throw failed();
+    return { boxes, view };
   } finally {
-    await send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined);
+    await Promise.all([...touched].map((send) => send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined)));
   }
 }
 

@@ -1,3 +1,4 @@
+import { tabMap } from "@kos/browser/frames";
 import { KOS_SEED, drawingOf, eyeAt, lookOf, outline, readDashboardTheme, smoothPath, type DashboardTheme, type FaceDrawing } from "@kos/shared";
 
 import { kosAddress, parsePairing, type Pairing } from "./address.js";
@@ -14,9 +15,9 @@ import { readPage } from "./page.js";
 import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
-import { changesPage, checkCommand, forwarded, isInput, isWebPage, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
+import { changesPage, checkCommand, checkFrameCommand, forwarded, isInput, isWebPage, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
 import { HandFrames } from "./handframes.js";
-import { FILLED_PAGE, TAINTS_KEY, editsField, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type Shot, type TabTaint } from "./secret.js";
+import { FILLED_PAGE, TAINTS_KEY, editsField, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type Reach, type SecretPut, type Send, type Shot, type TabTaint } from "./secret.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
 import { FolderWait, ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
@@ -137,7 +138,7 @@ const GROUP = "KOS";
 /** The overlay as each frame is given it, in its own world. */
 const OVERLAY_SOURCE = `(${installOverlay.toString()})(${JSON.stringify(CURSOR)})`;
 /** Each tab's frames in processes of their own, which the overlay reports the owner's hand from too. */
-const handFrames = new HandFrames((target, method, params) => chrome.debugger.sendCommand(target, method, params), { source: OVERLAY_SOURCE, world: WORLD, binding: BINDING });
+const handFrames = new HandFrames((target, method, params) => chrome.debugger.sendCommand(target, method, params), { source: OVERLAY_SOURCE, world: WORLD, binding: BINDING }, (url) => isHidden(url, settings.hiddenSites));
 
 let pairings: Paired[] = [];
 let settings: ExtensionSettings = DEFAULTS;
@@ -571,6 +572,8 @@ async function answer(method: string, params: Record<string, unknown>, origin: s
       return secretFill(params, origin);
     case "secret.picture":
       return secretPicture(params, origin);
+    case "tab.origins":
+      return tabOrigins(params, origin);
     default:
       if (PANEL_CALLS.has(method)) {
         toPanels(method, params, origin);
@@ -909,7 +912,15 @@ const record = (v: unknown): Record<string, unknown> => (typeof v === "object" &
 
 async function relay(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
   const s = live(params, origin);
-  return relayOne(s, tabOf(s, params), str(params["method"]), record(params["params"]));
+  return relayOne(s, tabOf(s, params), str(params["method"]), record(params["params"]), frameNamed(params));
+}
+
+/** The frame of another process a call names, by its frame id (its target's), to be sent through that frame's own session; none for the tab's. */
+function frameNamed(params: Record<string, unknown>): string | undefined {
+  const frame = params["frame"];
+  if (frame === undefined) return undefined;
+  if (typeof frame !== "string" || !frame || frame.length > 512) throw new CallError("bad_request", "a frame is named by its id");
+  return frame;
 }
 
 /**
@@ -924,13 +935,14 @@ async function relay(params: Record<string, unknown>, origin: string): Promise<R
 async function relayAll(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
   const s = live(params, origin);
   const tab = tabOf(s, params);
+  const frame = frameNamed(params);
   const calls = (Array.isArray(params["calls"]) ? params["calls"] : []).map(record);
   if (calls.length === 0 || calls.length > BATCH_MAX) throw new CallError("bad_request", `a batch is 1 to ${BATCH_MAX} commands`);
   // KOS's hands act one after another, each after its cursor: never side by side.
   if (params["parallel"] === true && calls.some((c) => isInput(str(c["method"])))) throw new CallError("bad_request", "a batch with input in it runs in order");
   const one = async (call: Record<string, unknown>): Promise<Record<string, unknown>> => {
     try {
-      return { result: await relayOne(s, tab, str(call["method"]), record(call["params"])) };
+      return { result: await relayOne(s, tab, str(call["method"]), record(call["params"]), frame) };
     } catch (err) {
       // The owner taking over is the whole batch's answer, as it is a lone command's: KOS waits for them. So is the session or the tab gone.
       if (err instanceof CallError && WHOLE_BATCH.has(err.code)) throw err;
@@ -951,11 +963,23 @@ function pausedError(): CallError {
   return new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
 }
 
-/** Commands to a tab's debugger, from the extension itself. */
+/** Commands to one session of a tab's debugger, from the extension itself. */
 const sendTo =
-  (tab: number): Send =>
+  (target: chrome.debugger.Debuggee & { sessionId?: string }): Send =>
   async (method, params = {}) =>
-    ((await chrome.debugger.sendCommand({ tabId: tab }, method, params)) as Record<string, unknown> | undefined) ?? {};
+    ((await chrome.debugger.sendCommand(target, method, params)) as Record<string, unknown> | undefined) ?? {};
+
+/** A tab as the extension's own checks reach it: its debugger, and each frame of another process KOS's hands may reach, through that frame's own session. */
+function reachOf(tab: number): Reach {
+  return {
+    send: sendTo({ tabId: tab }),
+    frame: (id) => {
+      const sessionId = handFrames.sessionOf(tab, id);
+      return sessionId ? sendTo({ tabId: tab, sessionId }) : undefined;
+    },
+    frames: () => handFrames.framesOf(tab),
+  };
+}
 
 /** What a tab a secret was filled into is held to now, by its document and address as the debugger last heard them. */
 function heldOn(tab: number): { nodes: { frame: string; node: number }[] } | undefined {
@@ -970,7 +994,7 @@ async function refuseHeld(tab: number, method: string, args: Record<string, unkn
   if (why) throw new CallError("tainted", `${why} is refused: ${FILLED_PAGE}`);
   if (!typesText(method, args) && !editsField(method, args)) return;
   // On a page a secret was in come back to, no field is known: an editing command anywhere is taken as aimed at one.
-  if (!held.nodes.length ? editsField(method, args) : await focusedOn(sendTo(tab), held.nodes)) throw new CallError("tainted", `typing or editing in a filled field is refused: ${FILLED_PAGE}`);
+  if (!held.nodes.length ? editsField(method, args) : await focusedOn(reachOf(tab), held.nodes)) throw new CallError("tainted", `typing or editing in a filled field is refused: ${FILLED_PAGE}`);
 }
 
 /**
@@ -991,9 +1015,9 @@ async function secretFill(params: Record<string, unknown>, origin: string): Prom
     await attach(tab);
     stillIn(s, tab);
     if (s.paused) throw pausedError();
-    await pointAtNode(tab, { backendNodeId: put.node }, "move");
+    await pointAtField(tab, put);
     const doc = put.doc;
-    await fillField(sendTo(tab), put, (field) => {
+    await fillField(reachOf(tab), put, (field) => {
       taints.set(tab, marked(taints.get(tab), doc, tabUrls.get(tab) ?? "", field));
       void saveTaints();
     });
@@ -1021,8 +1045,43 @@ async function secretPicture(params: Record<string, unknown>, origin: string): P
   return shot;
 }
 
-async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+/** KOS's cursor to a field a secret goes into: in a frame of another process, where that frame is drawn in the tab; nowhere when the field's frame is not found. */
+async function pointAtField(tab: number, put: SecretPut): Promise<void> {
+  const via = (await tabMap(reachOf(tab)).catch(() => undefined))?.frames.get(put.frame)?.via;
+  if (via === "") return pointAtNode(tab, { backendNodeId: put.node }, "move");
+  const sessionId = via === undefined ? undefined : handFrames.sessionOf(tab, via);
+  if (!sessionId) return;
+  const got = (await chrome.debugger.sendCommand({ tabId: tab, sessionId }, "DOM.getContentQuads", { backendNodeId: put.node }).catch(() => undefined)) as { quads?: unknown } | undefined;
+  const at = middleOf(got?.quads);
+  const inTab = at ? await handFrames.inTab(tab, sessionId, put.frame, at, mainFrames.get(tab)) : undefined;
+  if (inTab) await point(tab, inTab, "move");
+}
+
+/**
+ * One command from KOS to a tab, or to a frame of it in a process of its
+ * own (`frame`, by its id): only a reading or a script of KOS's hands goes
+ * to a frame, through that frame's own session, and only one whose Runtime
+ * domain is on (handframes.ts), never a challenge's.
+ */
+/**
+ * The web origins of a tab's frames, those in processes of their own among
+ * them, read here (frames.ts): KOS names by them the patterns a picture of
+ * the tab is masked by (secret.picture). The page's tree stays here.
+ */
+async function tabOrigins(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
+  const s = live(params, origin);
+  const tab = tabOf(s, params);
+  await refuseHidden(tab);
+  await attach(tab);
+  stillIn(s, tab);
+  const map = await tabMap(reachOf(tab)).catch(() => undefined);
+  if (!map) throw new CallError("cdp", "the tab's frames could not be read");
+  return { origins: [...new Set([...map.frames.values()].map((f) => f.origin).filter((o) => /^https?:\/\//.test(o) && !isHidden(o, settings.hiddenSites)))] };
+}
+
+async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>, frame?: string): Promise<Record<string, unknown>> {
   checkCommand(method, args);
+  if (frame !== undefined) checkFrameCommand(method);
   stillIn(s, tab);
   // Not a look, a click or a word on a hidden site, and no way there.
   await refuseHidden(tab);
@@ -1035,10 +1094,12 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
     if (!session?.tabs.has(tab) && attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
     stillIn(s, tab);
   }
-  await reachable(tab, args);
+  const sessionId = frame === undefined ? undefined : handFrames.sessionOf(tab, frame);
+  if (frame !== undefined && !sessionId) throw new CallError("cdp", "that frame is not one KOS reaches: it is gone, on a site you hid, or a challenge's");
+  await reachable(tab, args, sessionId);
   await refuseHeld(tab, method, args);
-  // KOS's cursor where its hands are about to act, on its way before they do.
-  const aim = aimOf(method, args);
+  // KOS's cursor where its hands are about to act, on its way before they do: input is the tab's, and aimed in its terms.
+  const aim = frame === undefined ? aimOf(method, args) : undefined;
   if (aim && "at" in aim) await point(tab, aim.at, aim.how);
   else if (aim && "typing" in aim) void toOverlays(tab, "window.__kos && window.__kos.typing()", 300);
   if (changesPage(method)) {
@@ -1058,7 +1119,7 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   let answer: Record<string, unknown>;
   try {
     if (method === "Page.captureScreenshot") answer = await picture(tab, args);
-    else answer = ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
+    else answer = ((await chrome.debugger.sendCommand({ tabId: tab, ...(sessionId ? { sessionId } : {}) }, method, args)) as Record<string, unknown> | undefined) ?? {};
     // A navigation answers before its page is in; the next command waits for it, so it is checked against where the tab went.
     if (method === "Page.navigate" && typeof answer["loaderId"] === "string" && !answer["errorText"]) await committed(tab, answer["loaderId"]);
   } catch (err) {
@@ -1071,11 +1132,13 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   }
   // Checked again once answered: a page that went to a hidden site while the command ran (a click, a reload, a redirect) gives KOS nothing of it.
   await refuseHidden(tab);
+  // Nor a frame that did: a frame of another process on a hidden site is not KOS's to reach.
+  if (frame !== undefined && handFrames.sessionOf(tab, frame) !== sessionId) throw new CallError("cdp", "that frame is not one KOS reaches: it is gone, on a site you hid, or a challenge's");
   // An element focused to type in, or scrolled to: the cursor to its middle, now that it is in view, before KOS's next command.
   if (aim && "node" in aim) await pointAtNode(tab, aim.node, aim.how);
   if (method === "Page.getNavigationHistory") return withoutHidden(answer);
   // What the browser says a field holds stays here: its own shadow roots, and the tree's value of a field a secret is in.
-  return hiddenValues(method, withoutFieldText(method, answer), heldOn(tab));
+  return hiddenValues(method, withoutFieldText(method, answer), heldOn(tab), frame ?? "");
 }
 
 /**
@@ -1139,9 +1202,9 @@ function committed(tab: number, loader: string): Promise<void> {
 /** How long a command naming a world Chrome has not said it made waits to hear of it: one KOS just made may be told a moment after. */
 const WORLD_WAIT_MS = 200;
 
-/** Refused unless each world a command names is the tab's page's or KOS's hands', one just made waited for a moment. */
-async function reachable(tab: number, args: Record<string, unknown>): Promise<void> {
-  const of = (): Worlds => worldsOf.get(tab) ?? new Worlds();
+/** Refused unless each world a command names is the page's or KOS's hands' in the tab or the frame session it goes to, one just made waited for a moment. */
+async function reachable(tab: number, args: Record<string, unknown>, frameSession?: string): Promise<void> {
+  const of = (): Worlds => (frameSession !== undefined ? handFrames.worldsOf(frameSession) : worldsOf.get(tab)) ?? new Worlds();
   if (!of().heard(args)) {
     await new Promise<void>((resolve) => {
       const done = (): void => {
@@ -1192,7 +1255,7 @@ async function picture(tab: number, args: Record<string, unknown>, masks?: Recor
   try {
     const held = heldOn(tab);
     if (!held && !masks) return await pictureOf(tab, args);
-    const next = (masking.get(tab) ?? Promise.resolve()).then(() => maskedShot(sendTo(tab), held !== undefined, masks, () => rawShot(tab), (shot, boxesIn) => painted(shot, boxesIn, args)));
+    const next = (masking.get(tab) ?? Promise.resolve()).then(() => maskedShot(reachOf(tab), held !== undefined, masks, () => rawShot(tab), (shot, boxesIn) => painted(shot, boxesIn, args)));
     masking.set(tab, next.catch(() => undefined));
     return { data: await next };
   } finally {
@@ -1409,6 +1472,12 @@ async function inTab(tab: number, world: number, frame: string | undefined, inpu
 /** An event about a tab's frames in processes of their own, or on one's session: the overlay's word there is heard as any other's. */
 async function fromFrames(tab: number, frame: string | undefined, method: string, params: Record<string, unknown>): Promise<void> {
   const heard = await handFrames.heard(tab, frame, method, params);
+  if (method === "Runtime.executionContextCreated") for (const wake of [...worldsMade]) wake();
+  // Where a frame of another process went is KOS's hands' to know, for their worlds in it: as a frame of the tab's own process is told.
+  const part = frame === undefined ? undefined : handFrames.frameIdOf(frame);
+  if (method === "Page.frameNavigated" && part !== undefined && session?.tabs.has(tab) && !fromHidden(tab, params)) {
+    tell("cdp.event", { session: session.info.id, tab: String(tab), frame: part, method, params });
+  }
   if (heard && frame !== undefined && session?.tabs.has(tab)) await fromOverlay(tab, heard.world, heard.payload, frame);
 }
 

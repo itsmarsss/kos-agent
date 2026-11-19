@@ -13,6 +13,7 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "Accessibility.getFullAXTree",
   "DOM.describeNode",
   "DOM.focus",
+  "DOM.getBoxModel",
   "DOM.getContentQuads",
   "DOM.getDocument",
   "DOM.getFrameOwner",
@@ -43,6 +44,37 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "Runtime.releaseObject",
   "Runtime.releaseObjectGroup",
 ]);
+
+/**
+ * What KOS may ask of a frame's own session (a frame of another process,
+ * handframes.ts): reading it and running its hands' scripts in it. Going
+ * places, input, pictures and dialogs are the tab's, which sends input on to
+ * whichever frame is under the pointer or has the keyboard.
+ */
+const FRAME_COMMANDS: ReadonlySet<string> = new Set([
+  "Accessibility.getFullAXTree",
+  "DOM.describeNode",
+  "DOM.focus",
+  "DOM.getBoxModel",
+  "DOM.getContentQuads",
+  "DOM.getDocument",
+  "DOM.getFrameOwner",
+  "DOM.getNodeForLocation",
+  "DOM.resolveNode",
+  "DOM.scrollIntoViewIfNeeded",
+  "Page.createIsolatedWorld",
+  "Page.getFrameTree",
+  "Runtime.callFunctionOn",
+  "Runtime.evaluate",
+  "Runtime.getProperties",
+  "Runtime.releaseObject",
+  "Runtime.releaseObjectGroup",
+]);
+
+/** Refused unless a command may go to a frame's own session. */
+export function checkFrameCommand(method: string): void {
+  if (!FRAME_COMMANDS.has(method)) throw new CallError("method", `${method} goes to the tab, not to one of its frames`);
+}
 
 /** Commands whose answer is the page's DOM, through shadow roots: user-agent ones are taken out of it (withoutFieldText). */
 const DOM_READS: ReadonlySet<string> = new Set(["DOM.getDocument", "DOM.describeNode"]);

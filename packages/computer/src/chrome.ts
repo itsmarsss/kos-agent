@@ -89,7 +89,7 @@ const SECRET_FILL_MS = 20_000;
 /** The extension's refusals of a fill that are KOS's own (SecretRefused): recorded as refused:<code>, the words the extension's. */
 const FILL_REFUSALS: ReadonlySet<string> = new Set(["changed", "origin", "field", "unreachable", "focus", "worker"]);
 
-/** A call to the extension on the conversation's line: a method, its params, and how long its answer may take. */
+/** A call to the extension on the conversation's line: a method, its params (a frame of another process named by `frame`), and how long its answer may take. */
 export type Relay = (method: "cdp.send" | "cdp.batch", params: Record<string, unknown>, timeoutMs: number) => Promise<Record<string, unknown>>;
 
 /** The extension's answer to a method it does not have: one from before batches. */
@@ -100,14 +100,17 @@ function unknownMethod(err: unknown): boolean {
 /**
  * A tab's commands, through the extension: one at a time, or several in one
  * round trip, a hundred at most to each. An extension from before batches
- * says it has no such method, and is sent them one by one from then on.
+ * says it has no such method, and is sent them one by one from then on. A
+ * frame of the tab in a process of its own is reached by its id, through
+ * that frame's own session in the extension (`frame`).
  */
-export function relayLine(relay: Relay, tab: string): TabSession {
+export function relayLine(relay: Relay, tab: string, frame?: string): TabSession {
+  const to = { tab, ...(frame !== undefined ? { frame } : {}) };
   const send = (method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> =>
-    relay("cdp.send", { tab, method, params: params ?? {} }, (timeoutMs ?? 15_000) + RELAY_SLACK_MS);
+    relay("cdp.send", { ...to, method, params: params ?? {} }, (timeoutMs ?? 15_000) + RELAY_SLACK_MS);
   let batches = true;
   const chunk = async (calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]> => {
-    const answer = await relay("cdp.batch", { tab, calls: calls.map((c) => ({ method: c.method, params: c.params ?? {} })), parallel }, (timeoutMs ?? 15_000) * Math.max(1, parallel ? 1 : calls.length) + RELAY_SLACK_MS);
+    const answer = await relay("cdp.batch", { ...to, calls: calls.map((c) => ({ method: c.method, params: c.params ?? {} })), parallel }, (timeoutMs ?? 15_000) * Math.max(1, parallel ? 1 : calls.length) + RELAY_SLACK_MS);
     const results = Array.isArray(answer["results"]) ? (answer["results"] as { result?: Record<string, unknown>; error?: { code?: string; message?: string } }[]) : [];
     return calls.map((_, i) => {
       const r = results[i];
@@ -139,7 +142,7 @@ export function relayLine(relay: Relay, tab: string): TabSession {
     }
     return out;
   };
-  return { send, batch };
+  return { send, batch, ...(frame === undefined ? { frame: (id: string) => relayLine(relay, tab, id) } : {}) };
 }
 
 /** A JPEG's longer side, from its frame header near the start; 0 when there is none to read. */
@@ -406,7 +409,7 @@ export class OwnerChrome implements BrowserElsewhere {
     const send = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> =>
       this.hub.act(conversation, "cdp.send", { tab, method, params }, 20_000, turnStop.getStore()).catch(() => ({}) as Record<string, unknown>);
     const dataOf = (shot: Record<string, unknown>): string | undefined => (typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined);
-    const masks = await this.masksFor(conversation, send);
+    const masks = await this.masksFor(conversation, tab, send);
     // A page that may show a secret is masked by the extension, or not pictured at all: one from before secret.picture is not pictured.
     if (masks === null) return undefined;
     if (masks) {
@@ -428,25 +431,18 @@ export class OwnerChrome implements BrowserElsewhere {
 
   /**
    * The patterns a picture of the tab is masked by, for each origin among
-   * its frames: the values filled in the conversation's tabs on that origin
-   * and the saved ones for its site, never another's (Page.masked does the
-   * same in KOS's own browser). Undefined when there is nothing to mask;
-   * null when the frames could not be read, so nothing is pictured.
+   * its frames, those of other processes among them: the values filled in
+   * the conversation's tabs on that origin and the saved ones for its site,
+   * never another's (Page.masked does the same in KOS's own browser).
+   * Undefined when there is nothing to mask; null when the frames could not
+   * be read, so nothing is pictured.
    */
-  private async masksFor(conversation: string, send: (method: string) => Promise<Record<string, unknown>>): Promise<Record<string, string[]> | null | undefined> {
+  private async masksFor(conversation: string, tab: string, send: (method: string) => Promise<Record<string, unknown>>): Promise<Record<string, string[]> | null | undefined> {
     const filled = this.held.get(conversation)?.filled ?? [];
     const secrets = this.secrets;
     if (!secrets && filled.length === 0) return undefined;
-    type FrameTree = { frame?: { securityOrigin?: string }; childFrames?: FrameTree[] };
-    const origins = new Set<string>();
-    const walk = (t: FrameTree | undefined): void => {
-      const origin = t?.frame?.securityOrigin;
-      if (origin && /^https?:\/\//.test(origin)) origins.add(origin);
-      for (const child of t?.childFrames ?? []) walk(child);
-    };
-    const tree = (await send("Page.getFrameTree"))["frameTree"] as FrameTree | undefined;
-    if (!tree) return filled.length ? null : undefined;
-    walk(tree);
+    const origins = await this.originsOf(conversation, tab, send);
+    if (!origins) return filled.length ? null : undefined;
     const masks: Record<string, string[]> = {};
     for (const origin of origins) {
       // A value filled is found only on the origins it was filled on: no other frame is sent a pattern it could learn it by.
@@ -456,6 +452,32 @@ export class OwnerChrome implements BrowserElsewhere {
       if (patterns.length) masks[origin] = patterns;
     }
     return Object.keys(masks).length ? masks : undefined;
+  }
+
+  /**
+   * The web origins of a tab's frames, as the extension reads them in
+   * Chrome (tab.origins): those of frames in processes of their own among
+   * them, which the tab's own frame tree leaves out. An extension from
+   * before that is asked the tab's frame tree. Undefined when neither is read.
+   */
+  private async originsOf(conversation: string, tab: string, send: (method: string) => Promise<Record<string, unknown>>): Promise<Set<string> | undefined> {
+    const web = (origin: unknown): origin is string => typeof origin === "string" && /^https?:\/\//.test(origin);
+    try {
+      const listed = await this.hub.act(conversation, "tab.origins", { tab }, 20_000, turnStop.getStore());
+      return Array.isArray(listed["origins"]) ? new Set(listed["origins"].filter(web)) : undefined;
+    } catch (err) {
+      if (!unknownMethod(err)) return undefined;
+    }
+    type FrameTree = { frame?: { securityOrigin?: string }; childFrames?: FrameTree[] };
+    const origins = new Set<string>();
+    const walk = (t: FrameTree | undefined): void => {
+      if (web(t?.frame?.securityOrigin)) origins.add(t.frame.securityOrigin);
+      for (const child of t?.childFrames ?? []) walk(child);
+    };
+    const tree = (await send("Page.getFrameTree"))["frameTree"] as FrameTree | undefined;
+    if (!tree) return undefined;
+    walk(tree);
+    return origins;
   }
 
   /** What the extension tells: a page's events for its hands, tabs closing, tabs handed. */
@@ -494,6 +516,8 @@ export class OwnerChrome implements BrowserElsewhere {
     if (event.name !== "cdp.event") return;
     const method = String(data["method"] ?? "");
     const params = (typeof data["params"] === "object" && data["params"] !== null ? data["params"] : {}) as Record<string, unknown>;
+    // A frame of another process's own event: where its frames went, never the tab's address.
+    if (typeof data["frame"] === "string") return void b.pages.get(tab)?.handle({ method, params }, data["frame"]);
     if (method === "Page.frameNavigated") {
       const frame = params["frame"] as { parentId?: string; url?: string } | undefined;
       const kept = b.tabs.get(tab);

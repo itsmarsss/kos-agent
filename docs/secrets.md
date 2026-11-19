@@ -305,6 +305,19 @@ keys the model passed is dropped. It answers with the page as
 the fill still says it was filled. Three refusals in one turn tell the
 owner in the Inbox.
 
+Payment frames. A card's fields on a checkout are most often a payment
+provider's (Stripe Elements at `js.stripe.com`, Adyen, Braintree, PayPal),
+in a frame of another site, which Chrome runs in a process of its own. Both
+browsers reach such a frame through a session of its own, attached as it
+comes, so its fields have refs, take a fill, are held and are painted out
+of pictures as any frame's (docs/browser.md, docs/browser-extension.md).
+Its origin is the one that frame's own session says it committed, and a
+fill there is refused (`refused:origin`) unless the owner ticked it in the
+secret's `use.web.frames`; the Secrets page offers the common providers
+for a card. A frame on a challenge host (Turnstile, reCAPTCHA), or in the
+owner's Chrome on a site the owner hid, is never reached: a field there is
+refused (`unreachable`), and pictures paint it over whole.
+
 How a fill is asked about, by the secret's `policy.ask`:
 
 - `always`: every time.
@@ -367,7 +380,9 @@ harness sets, as a fill's does.
 
 No script on a credential site. `browser.eval` is refused, in every
 conversation and whether or not anything was filled, on any page whose
-main frame or any of its frames is on a site a secret may be filled on:
+main frame or any of its frames in the tab's own process is on a site a secret may be filled on
+(a script in the page reaches no frame of another process, and the
+document it ran in takes no fill, `refused:scripted`):
 every secret's `use.web.origins` and `use.web.frames`, matched by
 registrable domain (`shared/src/domain.ts`). The rule is read from the
 vault at each call (`SecretsRegistry.evalBlocked`, handed to

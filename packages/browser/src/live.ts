@@ -4,8 +4,9 @@ import { CdpClient, type CdpEvent, type CdpSocket } from "./cdp.js";
 import type { ChromeHost, ChromeLaunch, ChromeState } from "./chrome.js";
 import { keptSessionCookies, type CdpCookie } from "./cookies.js";
 import { PICTURE } from "./hands.js";
-import { Page, type PageLimits, type PageShot } from "./page.js";
+import { Page, type PageLimits, type PageShot, type Session } from "./page.js";
 import { urlFor } from "./address.js";
+import { isChallenge } from "./frames.js";
 import { noSecrets, type FilledValue, type Kin, type TabSecrets } from "./taint.js";
 
 /**
@@ -289,6 +290,9 @@ interface Binding {
   tabs: Set<string>;
 }
 
+/** Frames of a tab in processes of their own, attached flattened as they come, and nothing else (no workers): the page runs on as it would. */
+const FRAMES_ATTACHED = { autoAttach: true, waitForDebuggerOnStart: false, flatten: true, filter: [{ type: "iframe", exclude: false }, { exclude: true }] };
+
 /** How often session cookies are given an expiry while Chrome runs. */
 const KEEP_LOGINS_MS = 60_000;
 /** How long Chrome may take to keep its cookies and close when KOS stops. */
@@ -345,6 +349,13 @@ export class BrowserLive {
   private readonly watches = new Map<string, Watch>();
   /** CDP sessions attached per tab, for input and the screencast. */
   private readonly sessions = new Map<string, string>();
+  /**
+   * The sessions Chrome attached for frames of a tab that run in a process
+   * of their own (a frame of another site, most payment frames), by
+   * session: the tab, the frame (its target's id), and the line its hands
+   * reach it by (Page's Session.frame).
+   */
+  private readonly frameSessions = new Map<string, { tab: string; frame: string; line: Session }>();
   private readonly maxFps: number;
   private readonly now: () => number;
   private readonly report: (message: string) => void;
@@ -430,7 +441,11 @@ export class BrowserLive {
     if (!page) {
       // The session is looked up at each call, so a tab re-attached after a detach is still reached.
       page = new Page(
-        { send: async (method, params, timeoutMs) => this.cdp.send(method, params, await this.sessionFor(tab), timeoutMs) },
+        {
+          send: async (method, params, timeoutMs) => this.cdp.send(method, params, await this.sessionFor(tab), timeoutMs),
+          frame: (id) => this.frameLine(tab, id),
+          frames: () => [...this.frameSessions.values()].flatMap((f) => (f.tab === tab && this.frameLine(tab, f.frame) ? [f.frame] : [])),
+        },
         {
           now: this.now,
           ...(this.options.pageLimits ? { limits: this.options.pageLimits } : {}),
@@ -743,6 +758,7 @@ export class BrowserLive {
     if (this.held.has(target)) this.letGo(target);
     this.targets.delete(target);
     this.sessions.delete(target);
+    this.forgetFrames(target);
     this.pages.delete(target);
     this.secrets.delete(target);
     this.moves.delete(target);
@@ -939,6 +955,7 @@ export class BrowserLive {
     this.targets.clear();
     this.watches.clear();
     this.sessions.clear();
+    this.frameSessions.clear();
     this.pages.clear();
     this.secrets.clear();
     this.bindings.clear();
@@ -986,6 +1003,7 @@ export class BrowserLive {
     }
     this.watches.clear();
     this.sessions.clear();
+    this.frameSessions.clear();
     this.pages.clear();
     this.secrets.clear();
     this.scripted.clear();
@@ -1027,8 +1045,14 @@ export class BrowserLive {
       for (const [tab, sessionId] of this.sessions) {
         if (sessionId === event.sessionId) this.pages.get(tab)?.handle(event);
       }
+      // A frame of another process: heard only for where its frames went, for the hands' worlds in them.
+      const child = this.frameSessions.get(event.sessionId);
+      if (child) this.pages.get(child.tab)?.handle(event, child.frame);
     }
     switch (event.method) {
+      case "Target.attachedToTarget":
+        if (event.sessionId) this.frameAttached(event.sessionId, event.params);
+        return;
       case "Target.targetCreated":
       case "Target.targetInfoChanged": {
         const info = event.params["targetInfo"] as Record<string, unknown> | undefined;
@@ -1082,7 +1106,13 @@ export class BrowserLive {
         for (const [tab, s] of this.sessions) {
           if (s !== sessionId) continue;
           this.sessions.delete(tab);
+          this.forgetFrames(tab);
           this.pages.delete(tab);
+        }
+        const child = this.frameSessions.get(sessionId);
+        if (child) {
+          this.frameSessions.delete(sessionId);
+          this.pages.get(child.tab)?.partGone(child.frame);
         }
         // A cast on that session went with it: started again on a new one.
         for (const [tab, watch] of this.watches) {
@@ -1216,7 +1246,7 @@ export class BrowserLive {
     this.deliver(tab, watch, { seq: ++watch.seq, data, width, height, at: this.now() });
   }
 
-  /** The CDP session for a tab, attached on first use. */
+  /** The CDP session for a tab, attached on first use, with its frames of other processes attached as they come. */
   private async sessionFor(tab: string): Promise<string> {
     const known = this.sessions.get(tab);
     if (known) return known;
@@ -1225,7 +1255,40 @@ export class BrowserLive {
     const sessionId = String(result["sessionId"] ?? "");
     if (!sessionId) throw new Error("Chrome gave no session for the tab");
     this.sessions.set(tab, sessionId);
+    await this.cdp.send("Target.setAutoAttach", FRAMES_ATTACHED, sessionId).catch((err: unknown) => this.report(`frames of other sites in ${tab} not attached: ${err instanceof Error ? err.message : String(err)}`));
     return sessionId;
+  }
+
+  /**
+   * A frame of another process attached under a tab's session or one of its
+   * frames': its frame events heard, and frames of other processes under it
+   * attached in turn. Anything else attached is not KOS's.
+   */
+  private frameAttached(parent: string, params: Record<string, unknown>): void {
+    const sessionId = String(params["sessionId"] ?? "");
+    const info = params["targetInfo"] as { type?: unknown; targetId?: unknown; url?: unknown } | undefined;
+    const tab = [...this.sessions].find(([, s]) => s === parent)?.[0] ?? this.frameSessions.get(parent)?.tab;
+    if (!tab || !sessionId || info?.type !== "iframe" || typeof info.targetId !== "string") return;
+    this.frameSessions.set(sessionId, { tab, frame: info.targetId, line: { send: (method, p, timeoutMs) => this.cdp.send(method, p, sessionId, timeoutMs) } });
+    // Where its frames go is heard, for the hands' worlds there; a challenge's is let be.
+    if (!isChallenge(typeof info.url === "string" ? info.url : "")) void this.cdp.send("Page.enable", {}, sessionId).catch(() => undefined);
+    void this.cdp.send("Target.setAutoAttach", FRAMES_ATTACHED, sessionId).catch(() => undefined);
+  }
+
+  /**
+   * The hands' line to a tab's frame of another process, by the frame's id:
+   * none for a challenge's (Turnstile, reCAPTCHA), which looks for a
+   * debugger, so it is kept attached but never looked into; pictures paint
+   * it over whole.
+   */
+  private frameLine(tab: string, frame: string): Session | undefined {
+    if (isChallenge(this.targets.get(frame)?.url ?? "")) return undefined;
+    return [...this.frameSessions.values()].find((f) => f.tab === tab && f.frame === frame)?.line;
+  }
+
+  /** A tab's frames of other processes let go of, with its session. */
+  private forgetFrames(tab: string): void {
+    for (const [sessionId, f] of this.frameSessions) if (f.tab === tab) this.frameSessions.delete(sessionId);
   }
 
   private emitTabs(): void {

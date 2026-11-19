@@ -39,9 +39,12 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   costs what its first sixty controls do, not its whole tree: rendered
   controls only, through open shadow roots and the frames it can reach;
   a frame of another origin is read in a world of its own, side by side
-  with the rest, and one in another process, or still loading its page,
-  is named as unread, as is a part of the page in a closed shadow root,
-  which no script reaches (the outline reads it). A control the page marks
+  with the rest; one of another site, which Chrome runs in a process of
+  its own (most payment frames), through that frame's own session (below);
+  one still loading its page, or one no session reaches, is named as
+  unread, as is a part of the page in a closed shadow root, which no
+  script reaches (the outline reads it, and leaves frames of other
+  processes out). A control the page marks
   as presentation is kept when it can still be focused, and what an element
   owns by `aria-owns` is read inside it, as a reader does. Text a page draws
   with CSS (`::before`, `::after`) is not read into a name: a control named
@@ -119,8 +122,10 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   checked to hold the value by a yes or no from KOS's world, never read
   back.
   A field in a frame of another process (most payment frames on the web)
-  is out of reach: the fill says so, and the owner takes the tab. Nothing
-  thrown holds the value. A Page made with `putSecret` (the owner's
+  is reached through that frame's own session: its origin is the one that
+  session says it committed, each frame element between it and the page is
+  checked drawn and in view in its parent's session, and the value is set
+  in a world of KOS's own there. Nothing thrown holds the value. A Page made with `putSecret` (the owner's
   Chrome, through KOS for Chrome) hands the value to it after these
   checks instead of setting it itself: the extension checks again on its
   side, puts it in and sees that the field holds it
@@ -173,7 +178,10 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   editing hosts and selects, every echo of a value in text, SVG text
   holding one, and an element whose attributes hold one that draws a
   `::before` or `::after`. A child frame's boxes are placed where its
-  element is drawn. The page is measured on both sides of the picture,
+  element is drawn; one of another process is measured in its own
+  session and placed through each frame element between it and the page
+  (`DOM.getFrameOwner` and the element's box in its parent's session).
+  The page is measured on both sides of the picture,
   taken again if it moved and not at all if it keeps moving, and the
   boxes are painted black on the PNG in the host (`paint.ts`), sent as a
   JPEG. A frame is sent the patterns of only the values filled on its
@@ -183,6 +191,33 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   box is painted over, not only those that hold a value: a box's value is
   not read to decide.
   The owner's own screencast of the tab is not masked.
+
+- **Frames of other processes.** A frame of another site runs in a
+  process of its own, which the tab's session does not reach: the tab
+  lists it in its DOM with its frame's id and no document, and leaves it
+  out of its frame tree. Each tab's session has Chrome attach such frames
+  as sessions of their own as they come (`Target.setAutoAttach`, flattened,
+  iframes only, the page not held), each such session in turn, and KOS
+  reads the tab as the parts its sessions hold (`frames.ts`), joined where
+  a frame's element sits in its parent's part. A backend node is its
+  process's own, so a ref names its part too. Its frames' navigations are
+  heard on its session, for KOS's worlds there, which are made afresh
+  each call, and a session that detaches (a frame gone to yet another
+  site) takes its worlds and its filled fields with it. A click on an
+  element there is aimed in the tab where the frame is drawn, and checked
+  to land on each frame's element on the way before it lands on the
+  element; keys go to the tab, which sends them where the keyboard is,
+  followed down each frame's focus, through their sessions. Everything a
+  tainted page refuses, it refuses there too. `browser.eval` is held to
+  the frames of the tab's own process, as a script in the page reaches no
+  other; the document it ran in takes no fill, whatever frame the field
+  is in. A challenge's frame (Turnstile, reCAPTCHA, `isChallenge`) stays
+  attached but is never looked into. A frame no session reaches is
+  painted over whole in pictures. Pictures read the frames' trees first
+  and the DOM only when something is to be painted, and a fill keeps to
+  the sessions it read where the field is.
+  The browser hits a point of a part's document, not its viewport, so a
+  hit test is moved by how far that part is scrolled.
 
 ## Watching and taking over
 
@@ -227,7 +262,10 @@ back from, a page that never finishes loading. `persite.chrome.test.ts`
 tries what the per-site rule stops: a script before a fill, another
 conversation reading the site's own copies, a script after leaving the
 page, a service worker, a restart. `fillsecret.chrome.test.ts`
-fills a login and a card in a frame of another origin, and is refused a
+fills a login and a card in a frame of another origin, and a card, its
+expiry and CVC in a frame of another site (localhost in a page on
+127.0.0.1: a process of its own), clicks there, holds and paints it as
+any frame, and is refused it on an origin not approved; it is refused a
 wrong origin or frame, a page changed since, a field of the wrong kind, a
 hidden, tiny or read-only one, and a form sent by GET however it says
 so; checks what a tainted page hands back and refuses (a `javascript:`

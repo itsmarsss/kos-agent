@@ -7,14 +7,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { isPrivatePath, kosAddress, parsePairing, socketUrl } from "./address.js";
 import { CallError, deviceProof, fromBase64, hostProof, readFrame, toBase64 } from "./protocol.js";
 import { Link, said, type Hello, type LinkState } from "./link.js";
-import { HandFrames, isChallenge } from "./handframes.js";
+import { isChallenge } from "@kos/browser/frames";
+import { HandFrames } from "./handframes.js";
 import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { CURSOR } from "./cursorlook.js";
 import { installOverlay } from "./overlay.js";
 import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
-import { checkCommand, forwarded, isWebPage, isWebUrl, Worlds } from "./relay.js";
+import { checkCommand, checkFrameCommand, forwarded, isWebPage, isWebUrl, Worlds } from "./relay.js";
 import { GRACE_MS, Session } from "./session.js";
 import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf, themeOf } from "./settings.js";
 
@@ -77,6 +78,13 @@ describe("what reaches a tab", () => {
     expect(() => checkCommand("Input.dispatchMouseEvent", {})).not.toThrow();
     for (const method of ["Network.getAllCookies", "Storage.getCookies", "Target.createTarget", "Browser.close", "Page.setDownloadBehavior", "Network.setCookie", "Debugger.enable"]) {
       expect(() => checkCommand(method, {})).toThrow(CallError);
+    }
+  });
+
+  it("sends a frame of another process only its readings and its hands' scripts: going places, input and pictures are the tab's", () => {
+    for (const method of ["DOM.getDocument", "DOM.resolveNode", "Runtime.callFunctionOn", "Page.createIsolatedWorld", "Accessibility.getFullAXTree"]) expect(() => checkFrameCommand(method)).not.toThrow();
+    for (const method of ["Page.navigate", "Page.reload", "Input.insertText", "Input.dispatchKeyEvent", "Page.captureScreenshot", "Page.handleJavaScriptDialog", "Network.enable"]) {
+      expect(() => checkFrameCommand(method)).toThrow(CallError);
     }
   });
 
@@ -636,6 +644,17 @@ describe("the frames of another process KOS watches for the owner's hand", () =>
     await attach("gate");
     expect(to("pay")).toEqual(["Page.enable", "Page.getFrameTree", "Runtime.enable", "Runtime.addBinding", "Page.addScriptToEvaluateOnNewDocument", "Target.setAutoAttach"]);
     expect(to("gate")).toEqual(["Page.enable", "Page.getFrameTree", "Target.setAutoAttach"]);
+  });
+
+  it("lets KOS's hands reach a frame by the id its own frame tree gives it, on its tab, and never a challenge's", async () => {
+    const { hands, attach } = frames({ pay: "https://js.stripe.com/v3/inner.html", gate: "https://challenges.cloudflare.com/turnstile/if/x" });
+    await attach("pay");
+    await attach("gate");
+    expect(hands.sessionOf(1, "pay")).toBe("pay");
+    expect(hands.sessionOf(1, "gate")).toBeUndefined();
+    expect(hands.sessionOf(2, "pay")).toBeUndefined();
+    await hands.heard(1, "pay", "Page.frameNavigated", { frame: { id: "pay", url: "https://www.google.com/recaptcha/api2/anchor" } });
+    expect(hands.sessionOf(1, "pay")).toBeUndefined();
   });
 
   it("waits for a blank frame's page, and turns the Runtime domain off in a frame that goes to a challenge", async () => {

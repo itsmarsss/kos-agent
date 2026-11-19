@@ -192,6 +192,30 @@ describe("the live view of the one Chrome", () => {
     expect(await live.page(tab)).not.toBe(page);
   });
 
+  it("attaches a tab's frames of other processes, reaches a payment frame's, and never a challenge's", async () => {
+    const { live, chrome } = setup();
+    const tab = await live.tabFor("c1");
+    const page = await live.page(tab);
+    await page.ready();
+    expect(chrome.calls("Target.setAutoAttach")[0]).toMatchObject({ sessionId: "S-T1", params: { autoAttach: true, flatten: true, waitForDebuggerOnStart: false } });
+    const attach = (targetId: string, url: string): void => {
+      chrome.event("Target.targetCreated", { targetInfo: { targetId, type: "iframe", url } });
+      chrome.event("Target.attachedToTarget", { sessionId: `S-${targetId}`, targetInfo: { targetId, type: "iframe", url } }, "S-T1");
+    };
+    attach("PAY", "https://js.stripe.com/v3/elements-inner-card.html");
+    attach("GATE", "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/if/x");
+    await flush();
+    const session = (page as unknown as { session: { frame(id: string): unknown; frames(): string[] } }).session;
+    expect(session.frames()).toEqual(["PAY"]);
+    expect(session.frame("PAY")).toBeDefined();
+    expect(session.frame("GATE")).toBeUndefined();
+    // Kept attached, its Page domain left off: nothing of KOS's reaches it.
+    expect(chrome.calls("Page.enable").some((c) => c.sessionId === "S-GATE")).toBe(false);
+    // A frame gone to another site detaches: it is reached no more.
+    chrome.event("Target.detachedFromTarget", { sessionId: "S-PAY", targetId: "PAY" }, "S-T1");
+    expect(session.frame("PAY")).toBeUndefined();
+  });
+
   it("says where a conversation's tab is, and counts each time its page moves under it", async () => {
     const { live, chrome } = setup();
     const tab = await live.tabFor("c1");

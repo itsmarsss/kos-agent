@@ -1,4 +1,5 @@
-import { boxesOf, domTree, frameTree, pixelBoxes, steadyShot, type Send } from "@kos/browser/boxes";
+import { boxesOf, pixelBoxes, steadyShot } from "@kos/browser/boxes";
+import { partOf, tabMap, type Reach, type Send } from "@kos/browser/frames";
 import { fillable, frameShown, hasKeyboard, holds, isFocused, putValue, selectAll } from "@kos/browser/inpage";
 import { copyKey } from "@kos/browser/keys";
 
@@ -12,7 +13,10 @@ import { CallError } from "./protocol.js";
  * of the tab (its frames, their origins, the document), never the page's
  * word: the page is on the origin approved, the field is in the frame
  * approved and is one the secret may go into, nothing hides it, and no
- * service worker runs the page. It puts the value in through the native
+ * service worker runs the page. A frame of another site (a payment
+ * provider's) runs in a process of its own: its field is reached through
+ * that frame's own session (handframes.ts), its origin the one that
+ * session says the frame committed. It puts the value in through the native
  * setter in a world of its own that KOS cannot reach, sees that the field
  * holds it without reading it back, marks the field, and answers that it
  * did, nothing more. The value is held for the call alone.
@@ -111,10 +115,11 @@ export function readMasks(v: unknown): Record<string, string[]> {
   return out;
 }
 
-/** A field a secret is in: its frame and its backend node. */
+/** A field a secret is in: its frame and its backend node, and the frame of another process whose session holds it when it is not the tab's (`via`; frames.ts). */
 export interface Marked {
   frame: string;
   node: number;
+  via?: string;
 }
 
 /**
@@ -135,7 +140,7 @@ const urlKey = (url: string): string => url.split("#")[0] ?? "";
 /** The taint with one more field marked in the document `loader` at `url`: a new document's starts afresh, its addresses kept. */
 export function marked(taint: TabTaint | undefined, loader: string, url: string, field: Marked): TabTaint {
   const next: TabTaint = taint?.loader === loader ? { ...taint, nodes: [...taint.nodes] } : { loader, nodes: [], urls: [...(taint?.urls ?? [])] };
-  if (!next.nodes.some((n) => n.frame === field.frame && n.node === field.node)) next.nodes.push(field);
+  if (!next.nodes.some((n) => n.frame === field.frame && n.node === field.node && n.via === field.via)) next.nodes.push(field);
   const key = urlKey(url);
   if (key && !next.urls.includes(key)) next.urls = [...next.urls, key];
   return next;
@@ -163,7 +168,9 @@ export function readTaints(v: unknown): Map<number, TabTaint> {
   for (const [tab, t] of Object.entries(v as Record<string, unknown>)) {
     const taint = t as Partial<TabTaint> | undefined;
     if (!Number.isInteger(Number(tab)) || typeof taint?.loader !== "string" || !Array.isArray(taint.nodes) || !Array.isArray(taint.urls)) continue;
-    const nodes = taint.nodes.filter((n): n is Marked => typeof n?.frame === "string" && Number.isInteger(n?.node));
+    const nodes = taint.nodes
+      .filter((n): n is Marked => typeof n?.frame === "string" && Number.isInteger(n?.node) && (n.via === undefined || typeof n.via === "string"))
+      .map((n) => ({ frame: n.frame, node: n.node, ...(n.via ? { via: n.via } : {}) }));
     out.set(Number(tab), { loader: taint.loader, nodes, urls: taint.urls.filter((u): u is string => typeof u === "string") });
   }
   return out;
@@ -193,11 +200,12 @@ type AxAnswer = { nodeId?: string; backendDOMNodeId?: number; role?: { value?: u
  * "(hidden)", and what is inside it (the browser's own editor, whose text is
  * the value) left out: the tree says what a field holds. On a page a secret
  * was in come back to (`held` with no fields), which field holds it again is
- * not known, so every text box is.
+ * not known, so every text box is. `via` is the session the tree is of: a
+ * backend node is its process's own, so only that session's fields are hers.
  */
-export function hiddenValues(method: string, answer: Record<string, unknown>, held: { nodes: readonly Marked[] } | undefined): Record<string, unknown> {
+export function hiddenValues(method: string, answer: Record<string, unknown>, held: { nodes: readonly Marked[] } | undefined, via = ""): Record<string, unknown> {
   if (method !== "Accessibility.getFullAXTree" || !held || !Array.isArray(answer["nodes"])) return answer;
-  const filled = new Set(held.nodes.map((m) => m.node));
+  const filled = new Set(held.nodes.filter((m) => (m.via ?? "") === via).map((m) => m.node));
   const hides = (n: AxAnswer): boolean => (held.nodes.length === 0 ? TEXT_ROLES.has(String(n.role?.value ?? "")) : n.backendDOMNodeId !== undefined && filled.has(n.backendDOMNodeId));
   const nodes = answer["nodes"] as AxAnswer[];
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
@@ -255,8 +263,8 @@ export function typesText(method: string, params: Record<string, unknown>): bool
 export const FILLED_PAGE =
   "a secret was filled into this page, so a script in it, copying, cutting, selecting all or pasting, dragging, and typing or editing in a filled field are refused until a new page loads";
 
-/** A command to the tab's debugger. */
-export type { Send };
+/** A command to one session of the tab's debugger, and the tab as its sessions reach it. */
+export type { Reach, Send };
 
 /** A world of the extension's own in a frame; undefined where Chrome makes none (a frame of another process). */
 async function worldIn(send: Send, frame: string): Promise<number | undefined> {
@@ -285,85 +293,105 @@ async function callOn<T>(send: Send, world: number, node: number, fn: PageFn, ar
  * a secret too. Throws a CallError that never holds the value: `changed`,
  * `origin`, `field`, `unreachable`, `worker` or `focus`.
  */
-export async function fillField(send: Send, put: SecretPut, mark: (field: Marked) => void): Promise<void> {
+export async function fillField(reach: Reach, put: SecretPut, mark: (field: Marked) => void): Promise<void> {
+  const touched = new Set<Send>([reach.send]);
   try {
-    await fillNow(send, put, mark);
+    await fillNow(reach, put, mark, touched);
   } catch (err) {
     if (err instanceof CallError) throw err;
     // The debugger's words are not passed on: one about a call could quote what it carried.
     throw new CallError("changed", "the page changed while the secret went in; look again");
   } finally {
-    await send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined);
+    await Promise.all([...touched].map((send) => send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined)));
   }
 }
 
-async function fillNow(send: Send, put: SecretPut, mark: (field: Marked) => void): Promise<void> {
-  const { main, frames } = await frameTree(send);
+/** The main frame's document now, by the tab's own frame tree. */
+async function mainLoader(send: Send): Promise<string | undefined> {
+  return ((await send("Page.getFrameTree"))["frameTree"] as { frame?: { loaderId?: string } } | undefined)?.frame?.loaderId;
+}
+
+async function fillNow(reach: Reach, put: SecretPut, mark: (field: Marked) => void, touched: Set<Send>): Promise<void> {
+  const map = await tabMap(reach);
+  const { main, frames } = map;
   const top = frames.get(main);
   if (!top || top.loader !== put.doc) throw new CallError("changed", "the page changed since it was approved; look again and ask again");
   if (top.origin !== put.origin || !fillsOn(top.origin)) throw new CallError("origin", `the page is on ${top.origin || "no site"} now, not ${put.origin}, which was approved`);
+  // A frame of another process is on the origin its own session says it committed.
   const here = frames.get(put.frame);
   if (!here || here.origin !== put.frameOrigin || !CHECKED_ORIGIN.test(here.origin)) throw new CallError("origin", `the field's frame is on ${here?.origin || "no site"}, not ${put.frameOrigin}, which was approved`);
-  const { frameOf } = await domTree(send, main);
-  const nodeFrame = frameOf.get(put.node);
-  if (nodeFrame === undefined) throw new CallError("unreachable", "the field is in a frame KOS cannot reach (another process, as many payment frames are); hand the tab to the owner");
+  const part = partOf(map, put.frame);
+  const nodeFrame = part?.frameOf.get(put.node);
+  if (!part || nodeFrame === undefined) throw new CallError("unreachable", "the field is in a frame KOS cannot reach; hand the tab to the owner");
   if (nodeFrame !== put.frame) throw new CallError("origin", "the field is not in the frame that was approved");
+  touched.add(part.send);
   const worlds = new Map<string, number>();
-  const world = async (frame: string): Promise<number> => {
+  const world = async (frame: string): Promise<{ send: Send; id: number }> => {
+    const at = partOf(map, frame);
+    if (!at) throw new CallError("unreachable", "the extension cannot look into the frame the field is in");
     let id = worlds.get(frame);
     if (id === undefined) {
-      id = await worldIn(send, frame);
+      id = await worldIn(at.send, frame);
       if (id === undefined) throw new CallError("unreachable", "the extension cannot look into the frame the field is in");
       worlds.set(frame, id);
     }
-    return id;
+    touched.add(at.send);
+    return { send: at.send, id };
   };
   const on = async <T>(frame: string, node: number, fn: PageFn, args: unknown[] = []): Promise<T> => {
-    const got = await callOn<T>(send, await world(frame), node, fn, args);
+    const { send, id } = await world(frame);
+    const got = await callOn<T>(send, id, node, fn, args);
     if (!got) throw new CallError("changed", "the field is gone from the page (it changed); look again");
     return got.value;
   };
-  // A field in a frame the page hides (a honeypot) is as hidden as a field that is.
+  // A field in a frame the page hides (a honeypot) is as hidden as a field that is: each frame's element, in the part its parent is in.
   for (let at = put.frame; at !== main; ) {
     const parent = frames.get(at)?.parent;
-    const owner = (await send("DOM.getFrameOwner", { frameId: at }))["backendNodeId"];
-    if (!parent || typeof owner !== "number") throw new CallError("unreachable", "the field is in a frame the extension cannot reach");
-    await send("DOM.scrollIntoViewIfNeeded", { backendNodeId: owner }).catch(() => undefined);
+    const holder = parent === undefined ? undefined : partOf(map, parent);
+    const owner = holder ? (await holder.send("DOM.getFrameOwner", { frameId: at }))["backendNodeId"] : undefined;
+    if (!parent || !holder || typeof owner !== "number") throw new CallError("unreachable", "the field is in a frame the extension cannot reach");
+    await holder.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: owner }).catch(() => undefined);
     if (!(await on<boolean>(parent, owner, frameShown))) throw new CallError("field", "the field is in a frame that is hidden or out of view");
     at = parent;
   }
   // KOS clears no site's data in the owner's Chrome, so a worker that runs the page could catch what it sends.
   for (const frame of new Set([put.frame, main])) {
-    const controlled = await send("Runtime.evaluate", { expression: "Boolean(navigator.serviceWorker && navigator.serviceWorker.controller)", contextId: await world(frame), returnByValue: true });
+    const { send, id } = await world(frame);
+    const controlled = await send("Runtime.evaluate", { expression: "Boolean(navigator.serviceWorker && navigator.serviceWorker.controller)", contextId: id, returnByValue: true });
     if ((controlled["result"] as { value?: unknown } | undefined)?.value !== false) {
       throw new CallError("worker", "a service worker runs this page and could catch what is sent; KOS clears no site's workers in your Chrome, so the owner fills this one themselves");
     }
   }
-  await send("DOM.scrollIntoViewIfNeeded", { backendNodeId: put.node }).catch(() => undefined);
+  await part.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: put.node }).catch(() => undefined);
   const secret = isSecret(put.slot);
-  const why = await on<string>(put.frame, put.node, fillable, [put.slot, secret]);
+  const why = await on<string>(put.frame, put.node, fillable, [put.slot, secret, put.frameOrigin]);
   if (why) throw new CallError("field", `the field: ${why}`);
-  if (secret) mark({ frame: put.frame, node: put.node });
-  const args = [put.value, isDigits(put.slot)];
+  const via = here.via;
+  if (secret) mark({ frame: put.frame, node: put.node, ...(via ? { via } : {}) });
+  const args = [put.value, isDigits(put.slot), put.frameOrigin];
   let held = await on<boolean>(put.frame, put.node, putValue, args);
   if (!held) {
-    // The page wants keys: typed only while the field has the keyboard, checked on both sides of the typing.
-    await send("DOM.focus", { backendNodeId: put.node });
+    // The page wants keys: typed only while the field has the keyboard, checked on both sides of the typing. Keys go to the tab, which sends them where the keyboard is.
+    await part.send("DOM.focus", { backendNodeId: put.node });
     await on(put.frame, put.node, selectAll);
     if (!(await on<boolean>(put.frame, put.node, hasKeyboard))) throw new CallError("focus", "the field would not keep the keyboard (the page moved it elsewhere); nothing was typed");
-    await send("Input.insertText", { text: put.value });
+    await reach.send("Input.insertText", { text: put.value });
     if (!(await on<boolean>(put.frame, put.node, hasKeyboard))) throw new CallError("focus", "the keyboard moved off the field while it was typed into; look at the page before anything else");
     held = await on<boolean>(put.frame, put.node, holds, args);
   }
   if (!held) throw new CallError("field", "the field did not take it as given (it may format or limit what goes in); look to see what it holds");
   // Still the document it went into: one that went meanwhile took it nowhere KOS can say.
-  if ((await frameTree(send)).frames.get(main)?.loader !== put.doc) throw new CallError("changed", "the page changed while the secret went in; look again");
+  if ((await mainLoader(reach.send)) !== put.doc) throw new CallError("changed", "the page changed while the secret went in; look again");
 }
 
-/** Whether any of a tab's marked fields has the focus. */
-export async function focusedOn(send: Send, nodes: readonly Marked[]): Promise<boolean> {
+/** Whether any of a tab's marked fields has the focus; one in a frame no session reaches is taken to. */
+export async function focusedOn(reach: Reach, nodes: readonly Marked[]): Promise<boolean> {
+  const touched = new Set<Send>();
   try {
-    for (const { frame, node } of nodes) {
+    for (const { frame, node, via } of nodes) {
+      const send = via ? reach.frame(via) : reach.send;
+      if (!send) return true;
+      touched.add(send);
       const world = await worldIn(send, frame);
       // A frame the extension cannot look into is taken to have the field focused.
       if (world === undefined) return true;
@@ -371,7 +399,7 @@ export async function focusedOn(send: Send, nodes: readonly Marked[]): Promise<b
     }
     return false;
   } finally {
-    await send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined);
+    await Promise.all([...touched].map((send) => send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined)));
   }
 }
 
@@ -392,11 +420,13 @@ export type Paint = (shot: Shot, boxesIn: (image: { width: number; height: numbe
  * about:blank one by the page's), its text boxes and every place the page
  * echoes one; all measured in a world of the extension's own on both sides
  * of the picture, and painted over on it by `paint`. Throws when it cannot
- * mask, so no picture is taken rather than one that shows a secret.
+ * mask, so no picture is taken rather than one that shows a secret. A
+ * frame of another process is measured through its own session; one no
+ * session of the extension's reaches (a challenge's) is painted over whole.
  */
-export async function maskedShot(send: Send, held: boolean, masks: Record<string, string[]> | undefined, shoot: () => Promise<Shot>, paint: Paint): Promise<string> {
+export async function maskedShot(reach: Reach, held: boolean, masks: Record<string, string[]> | undefined, shoot: () => Promise<Shot>, paint: Paint): Promise<string> {
   const worlds = new Map<string, number>();
-  const world = async (frame: string): Promise<number | undefined> => {
+  const world = async (frame: string, _via: string, send: Send): Promise<number | undefined> => {
     if (!worlds.has(frame)) {
       const id = await worldIn(send, frame);
       if (id !== undefined) worlds.set(frame, id);
@@ -404,7 +434,7 @@ export async function maskedShot(send: Send, held: boolean, masks: Record<string
     return worlds.get(frame);
   };
   try {
-    const measure = (): ReturnType<typeof boxesOf> => boxesOf(send, world, held, (origin) => masks?.[origin] ?? []);
+    const measure = (): ReturnType<typeof boxesOf> => boxesOf(reach, world, held, (origin) => masks?.[origin] ?? []);
     const { shot, boxes } = await steadyShot(measure, shoot);
     if (!shot.data) throw new Error("no picture");
     return boxes ? await paint(shot, (image) => pixelBoxes(boxes, image)) : shot.data;

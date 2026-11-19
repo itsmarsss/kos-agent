@@ -56,7 +56,7 @@ describe("the index of a page", () => {
     const refs = new Refs();
     indexOf(SHOP, refs);
     expect(indexOf(SHOP, refs).lines[0]).toBe('textbox "Email" = "ada@example.com" @e1');
-    expect(refs.nodeOf("e3")).toBe(6);
+    expect(refs.nodeOf("e3")).toEqual({ node: 6, via: "" });
     refs.clear();
     expect(refs.nodeOf("e3")).toBeUndefined();
   });

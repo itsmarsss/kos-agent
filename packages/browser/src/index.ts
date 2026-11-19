@@ -23,6 +23,7 @@ export {
   type BrowserStatus,
   type BrowserTab,
 } from "./live.js";
+export { tabMap, webOrigin, type FrameInfo, type Reach, type TabMap } from "./frames.js";
 export { sweepProfiles, type SweepOptions, type SweepResult } from "./profiles.js";
 export { Page, SecretRefused, TAINTED, sendEach, type Call, type FieldSpot, type FillExpect, type HeldElsewhere, type Look, type PageLimits, type PageOptions, type SecretPut, type Session } from "./page.js";
 export { echoPatterns, isDigitSlot, isSecretSlot, keepFilled, type FilledValue, type Kin, type SecretSlot } from "./taint.js";
