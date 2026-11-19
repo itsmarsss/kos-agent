@@ -143,11 +143,14 @@ const HELD = [
   `(deny process-exec ${HANDOFF_PROGRAMS.map((p) => `(literal ${sb(p)})`).join(" ")})`,
 ];
 
+/** What a sealed program on the network looks up besides: names, and whether a certificate is trusted. */
+const NETWORK_SERVICES = ["com.apple.dnssd.service", "com.apple.trustd", "com.apple.trustd.agent"];
+
 /** Sealed besides: only the mach services a plain program needs, so no daemon does its bidding. */
-const SEALED = [
-  "(deny mach-lookup)",
-  `(allow mach-lookup ${SEALED_SERVICES.map((name) => `(global-name ${sb(name)})`).join(" ")})`,
-];
+function sealedRules(network: JailOptions["network"]): string[] {
+  const services = network === false ? SEALED_SERVICES : [...SEALED_SERVICES, ...NETWORK_SERVICES];
+  return ["(deny mach-lookup)", `(allow mach-lookup ${services.map((name) => `(global-name ${sb(name)})`).join(" ")})`];
+}
 
 /**
  * The profile: everything allowed, then writes denied except in the
@@ -199,7 +202,7 @@ export function sandboxProfile(options: JailOptions): string {
     ...((options.secretFiles ?? kosSecretFiles()).length ? [`(deny file-read* ${subpaths(options.secretFiles ?? kosSecretFiles())})`] : []),
     "(allow file-read-metadata)",
     ...HELD,
-    ...(options.sealed ? SEALED : []),
+    ...(options.sealed ? sealedRules(options.network) : []),
     "",
   ];
   return lines.join("\n");

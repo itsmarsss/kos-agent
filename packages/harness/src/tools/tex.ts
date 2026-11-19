@@ -110,7 +110,9 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
             const command = jailedProgram(file, ["-X", "compile", "--untrusted", "--keep-logs", "--outdir", tmp, basename(source)], {
               workspaceRoot: ws.root,
               writes: [tmp, cache],
-              hidden: [...RESERVED].map((name) => join(ws.root, name)),
+              hidden: [...RESERVED, ".env"].map((name) => join(ws.root, name)),
+              // It runs unasked, so nothing it starts may act for it outside the sandbox; the network stays, for the bundle.
+              sealed: true,
               contained,
               ...(options.platform ? { platform: options.platform } : {}),
             });

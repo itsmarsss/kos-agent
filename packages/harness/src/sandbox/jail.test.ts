@@ -182,6 +182,16 @@ own.close();`,
     }
   });
 
+  it("seals a program to the few mach services a plain one needs, with names and certificate trust when it has the network", () => {
+    const offline = sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: [], sealed: true, network: false });
+    const online = sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: [], sealed: true });
+    expect(offline).toContain("(deny mach-lookup)");
+    expect(offline).not.toContain("com.apple.dnssd.service");
+    expect(online).toContain('(global-name "com.apple.dnssd.service")');
+    expect(online).toContain('(global-name "com.apple.trustd")');
+    for (const p of [offline, online]) expect(p).not.toMatch(/launchservicesd|coreservices|lsd/);
+  });
+
   /** An approved run's jail: the whole workspace writable, the network open but for KOS's ports, not sealed; run as the shell tool runs it, leading its own process group. */
   const approved = async (dir: string, command: string): Promise<{ code: number | null; out: string }> => {
     const jailed = jailedCommand(command, { workspaceRoot: dir, homes: [], kosPorts: [45_998], secretFiles: [] });
