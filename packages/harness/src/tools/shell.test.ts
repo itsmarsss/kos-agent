@@ -7,11 +7,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { vaultDir } from "../secrets/vault.js";
 import { Workspace } from "../store/workspace.js";
 import { underAuto } from "../kernel/caller.js";
 import { programOf } from "../risk/rules.js";
 import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
-import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
+import { CONFIG_REFUSED, CONTAINER_SECRET_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
 
@@ -42,6 +43,30 @@ describe("shell.run in the container", () => {
       const jailed = new ToolRegistry();
       await createShellModule({ contained: false }).activate(toolRegistryContext(jailed, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() }));
       expect(jailed.classify("shell.run", { command: "pnpm build" }).beyondAuto).toBeUndefined();
+    } finally {
+      ws.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("a read-only line in the container", () => {
+  it("asks, since the container is its only jail, and names no secret the container holds", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-shell-contained-"));
+    const ws = Workspace.open(root);
+    try {
+      const registry = new ToolRegistry();
+      await createShellModule({ contained: true }).activate(toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() }));
+      for (const command of ["ls", "cat notes.txt", "grep -ra x .", "git status"]) {
+        expect(registry.classify("shell.run", { command }).tier, command).toBe("risky");
+      }
+      for (const command of ["cat /proc/1/environ", "cat /PROC/self/environ", "tr '\\0' '\\n' < /proc/1/environ", `grep -r "" ${homedir()}`, `ls ${homedir()}/.kos`, `cat ${vaultDir()}/key`]) {
+        expect(await registry.refusal("shell.run", { command }), command).toBe(CONTAINER_SECRET_REFUSED);
+      }
+      expect(await registry.refusal("shell.run", { command: "ls processes" })).toBeUndefined();
+      const jailed = new ToolRegistry();
+      await createShellModule({ contained: false }).activate(toolRegistryContext(jailed, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() }));
+      expect(jailed.classify("shell.run", { command: "ls" }).tier).toBe("safe");
     } finally {
       ws.close();
       rmSync(root, { recursive: true, force: true });
