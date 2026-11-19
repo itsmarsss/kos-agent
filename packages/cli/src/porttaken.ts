@@ -102,7 +102,11 @@ export async function awaitOwnHost(options: AwaitOwnHostOptions): Promise<string
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  await stopChild(child);
-  if (!(await portFree(host, port))) return portTakenMessage(host, port, token);
-  return `host did not become ready within ${Math.round(timeoutMs / 1000)}s; check ${logPath}`;
+  // Still booting is not a refusal: a slow first start (Chrome, models) is left running.
+  const holder = await kosAt(host, port, token);
+  if (holder && holder.pid !== child.pid) {
+    await stopChild(child);
+    return takenBy(port, holder);
+  }
+  return `host did not answer within ${Math.round(timeoutMs / 1000)}s and is left running (pid ${child.pid}); check ${logPath}`;
 }

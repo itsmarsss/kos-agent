@@ -74,12 +74,13 @@ describe("awaitOwnHost", () => {
     expect(proc.exitCode).toBe(1);
   });
 
-  it("stops a child that never answers, and says where the log is", async () => {
+  it("leaves a slow child running, and says where the log is", async () => {
     const port = await freePort();
     const proc = track(child(port, "hang"));
     const refused = await awaitOwnHost({ child: proc, host: HOST, port, logPath: "/log", timeoutMs: 500 });
-    expect(refused).toBe("host did not become ready within 1s; check /log");
-    expect(proc.signalCode).toBe("SIGTERM");
+    expect(refused).toBe(`host did not answer within 1s and is left running (pid ${proc.pid}); check /log`);
+    expect(proc.exitCode).toBeNull();
+    expect(proc.signalCode).toBeNull();
   });
 });
 
