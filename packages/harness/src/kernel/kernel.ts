@@ -77,7 +77,7 @@ import { bootKernel, callerBlobOf } from "./boot.js";
 import { fileHomeOf, homeNote } from "./home.js";
 import { artifactFileRefusal, whyNot } from "../tools/systems.js";
 import { isKosState } from "../tools/files.js";
-import type { Reach } from "../tools/fence.js";
+import { fence, type Reach } from "../tools/fence.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 export { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
@@ -167,7 +167,7 @@ import { parseMentions } from "./mentions.js";
 import { originOf } from "./origin.js";
 import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
-import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
+import { keepFile, readFile as readWorkspaceFile } from "./files.js";
 import { ASK, MODE_WORDS, UNCHANGED, liveMode, modeLabel, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
@@ -830,6 +830,7 @@ export class Kernel {
       onToolRan: (tool) => this.afterToolRan(tool),
       handleMessage: (text, opts) => this.handleMessage(text, opts),
       handsOn: (device, conversationId) => this.handsOn?.(device, conversationId),
+      halted: () => this.killSwitch.halted,
     });
     this.caretaker = new Caretaker({
       ownerId: args.profile.ownerId,
@@ -860,6 +861,7 @@ export class Kernel {
       },
       backup: args.backup,
       run: (job) => this.runScheduledJob(job),
+      place: (job) => this.jobPlace(job),
     });
     this.extractor = new MemoryExtractor({
       ownerId: args.profile.ownerId,
@@ -897,10 +899,11 @@ export class Kernel {
       const named = this.modes.migrated.map((id) => this.conversations.get(id)?.title ?? id).join(", ");
       this.suggestions.add("other", "Auto is now per chat, and off", `These chats acted in your Chrome without asking: ${named}. Chat modes replaced that setting, and Auto now covers every risky step in a chat, so they are back in Ask. Turn Auto on from a chat's message box where you want it.`);
     }
-    // The kill switch ends every chat's Auto, as it ends every session.
+    // The kill switch ends every chat's Auto, as it ends every session, and stops every live turn: running or waiting on the owner, whose asks lapse with it.
     this.killSwitch.onChange((halted) => {
       if (!halted) return;
       for (const id of this.modes.clear()) this.bus.emit({ kind: "chat:mode", conversationId: id, mode: ASK });
+      for (const id of [...this.stops.keys()]) this.stop(id);
     });
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -1189,6 +1192,8 @@ export class Kernel {
       maskedShut?: boolean;
     },
   ): Promise<HandleResult> {
+    // Every turn starts here, however it came: a message queued before the switch was thrown, a dispatch, a handoff, a schedule's prompt.
+    if (this.killSwitch.halted) return { reply: "KOS is halted (kill switch engaged).", halted: true };
     {
       // Kept with the chat it ran in, so a run in the log leads to its chat.
       const runId = this.runs.start("chat", sessionId);
@@ -1325,7 +1330,9 @@ export class Kernel {
         // here so the agent gets the file's contents or the page's spec
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
-        const mentioned = this.resolveMentions(text, conversation?.id, { ...(guest ? { guest } : {}), owner });
+        // Scrubbed as a tool's result is: a file or a page named here would otherwise show the model a secret files.read masks.
+        const named = this.resolveMentions(text, conversation?.id, { ...(guest ? { guest } : {}), owner });
+        const mentioned = named === null ? null : this.secrets.scrub(named);
         // Where this message's files now live, so the model refers to them
         // by path and anything else can open them later.
         const keptNote = opts.kept?.length
@@ -1838,6 +1845,8 @@ export class Kernel {
         this.conversations.moveToProject(id, job.projectSlug ?? null);
         for (const [threadId, bound] of Object.entries(this.threadBindings())) if (bound === id) this.unbindThread(threadId);
       }
+      // Its turns have the tools the chat that made the job had, and no more; a job made unscoped leaves the scope the owner set.
+      if (job.toolAllow !== null && JSON.stringify(thread.toolAllow ?? null) !== JSON.stringify(job.toolAllow)) this.conversations.configure(id, { toolAllow: job.toolAllow });
     } else {
       this.conversations.create({
         id,
@@ -1846,6 +1855,7 @@ export class Kernel {
         // A job for a project runs in that project: what it remembers lands
         // in the project's scope, and the project's claims are in reach.
         ...(job.projectSlug ? { projectSlug: job.projectSlug } : {}),
+        ...(job.toolAllow ? { toolAllow: job.toolAllow } : {}),
         brief: [
           `The scheduled job "${job.name}" runs here, on ${job.schedule}.`,
           "Each run is a turn in this thread, so what it did last time is above.",
@@ -1854,6 +1864,16 @@ export class Kernel {
       });
     }
     return id;
+  }
+
+  /** Who a job is to the sql fence: its project, or its blob's thread, and never the owner, as no one watches it run. */
+  private jobReach(job: CronJob): Reach {
+    return {
+      project: job.projectSlug ?? undefined,
+      blob: job.agent ? callerBlobOf(agentConversationId(job.agent), this.conversations, this.roles) : undefined,
+      projects: this.manifest.list().map((p) => ({ slug: p.slug, name: p.name })),
+      owner: false,
+    };
   }
 
   /** The conversation a job's runs speak from, without making it: the blob's thread, or the job's own. */
@@ -4308,15 +4328,10 @@ export class Kernel {
     const kept: KeptFile[] = [];
     for (const file of attachments) {
       try {
-        const abs = this.workspace.resolve(dir);
-        mkdirSync(abs, { recursive: true });
         const name = basename(file.name).replace(/^\.+/, "") || "file";
-        const bytes = Buffer.from(file.data, "base64");
         // The same file sent again (a message replayed after a restart, or
         // simply sent twice) is the file already there, not a copy of it.
-        const same = existsSync(join(abs, name)) && readFileSync(join(abs, name)).equals(bytes);
-        const final = same ? name : existsSync(join(abs, name)) ? uniqueName(this.workspace, dir, name) : name;
-        if (!same) writeFileSync(join(abs, final), bytes);
+        const final = keepFile(this.workspace, dir, name, Buffer.from(file.data, "base64"));
         kept.push({ name: file.name, path: `${dir}/${final}` });
       } catch (err) {
         console.warn(`[kernel] could not keep ${file.name}:`, err instanceof Error ? err.message : String(err));
@@ -4950,11 +4965,18 @@ export class Kernel {
     try {
       const result = await runCronJob(job, {
         // The job's query and condition are reads that build the variable
-        // scope, so they run on the read-only handle. Writes belong in the
-        // job's actions, which go through the guarded tool path.
+        // scope, so they run on the read-only handle, and through the sql
+        // fence for the job's own project, as its chat's sql call would.
+        // Writes belong in the job's actions, which go through the guarded
+        // tool path, held to the allow-list of the chat that made the job.
         db: this.workspace.reader,
+        check: (sql) => {
+          const verdict = fence(this.workspace.db, sql, this.jobReach(job));
+          if (!verdict.ok) throw new Error(`the job's query was refused: ${verdict.reason}`);
+        },
         tools: this.guardedTools({
           ...(jobSession ? { conversationId: jobSession } : {}),
+          ...(job.toolAllow ? { allow: job.toolAllow } : {}),
           // Unattended: queue what needs a decision and finish, rather than
           // holding a queue slot until the owner wakes up.
           waitForApproval: false,
@@ -5616,6 +5638,12 @@ export class Kernel {
   private readonly firedByHand = new Set<number>();
 
   fireCron(id: number): Promise<CronFireResult> {
+    // Queued behind the very turn asking for it, a run from the job's own place would wait on itself for good.
+    const job = this.crons.get(id);
+    if (job && caller.getStore() === this.jobPlace(job)) {
+      const error = "this job runs in this very chat, after the turn asking for it: it cannot be run by hand from here. Ask from another chat, or let its schedule run it.";
+      return Promise.resolve({ outcome: { fired: false, reason: "error", error }, ok: false, error });
+    }
     this.firedByHand.add(id);
     return this.cron.fire(id).finally(() => this.firedByHand.delete(id));
   }

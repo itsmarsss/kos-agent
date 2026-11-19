@@ -217,8 +217,13 @@ instructions from outside both wait for you to switch them on. A folder that
 is not a skill is removed again, and the reason is said.
 
 A script skill, once promoted, runs without asking: `skills.promote`
-tests it in the sandbox and commits it, or asks you first when the code
-reaches for something risky, and from then on `skills.run` of it is free.
+asks you every time (no Auto and no remembered yes covers it), and on your
+yes tests it in the sandbox and commits it; from then on `skills.run` of it
+is free while every file in its folder is as you approved it. A change to
+any of them, or a link among them, and it asks again. Tested or for real,
+a script only runs in the jail (the container, or the macOS sandbox: no
+owner's home, no KOS settings or keys; under test no network and writes
+only to a scratch copy), and where there is none it is refused.
 Settings, Skills shows every skill, or one project's own, by kind or by
 state, says which scripts are promoted, and opens each one's file; a
 project's drawer lists its own. The Schedule page's Run a script template

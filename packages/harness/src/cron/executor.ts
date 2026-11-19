@@ -1,6 +1,6 @@
 import { runAgent, type Inference, type ToolBox } from "../agent/loop.js";
 import type { Db } from "../store/db.js";
-import { evaluateCondition, queryScope } from "./conditions.js";
+import { evaluateCondition, queryScope, readerOf } from "./conditions.js";
 import { template, templateArgs } from "./templating.js";
 import type { CronJob } from "./types.js";
 
@@ -19,6 +19,8 @@ export type CronExecResult =
 
 export interface CronExecutorDeps {
   db: Db;
+  /** Judges each statement the job's query and condition run, throwing to refuse: the fence for the job's project. */
+  check?: (sql: string) => void;
   /** Tool execution path (guarded in the kernel, so risky actions queue). */
   tools: ToolBox;
   /** Required for self_prompt jobs. */
@@ -42,8 +44,9 @@ export async function runCronJob(
   job: CronJob,
   deps: CronExecutorDeps,
 ): Promise<CronExecResult> {
-  const scope = queryScope(deps.db, job.query);
-  if (!evaluateCondition(deps.db, job.condition?.test ?? null, job.query)) {
+  const read = readerOf(deps.db, deps.check);
+  const scope = queryScope(read, job.query);
+  if (!evaluateCondition(read, job.condition?.test ?? null, job.query)) {
     return { ran: false, reason: "condition" };
   }
 
@@ -54,7 +57,7 @@ export async function runCronJob(
       // an earlier one left in a table: a script that writes today's post,
       // then a notify that says it. Read once up front, the second action
       // saw yesterday's row.
-      const args = templateArgs(action.args, queryScope(deps.db, job.query));
+      const args = templateArgs(action.args, queryScope(read, job.query));
       const r = await deps.tools.execute(action.tool, args);
       results.push({
         tool: action.tool,

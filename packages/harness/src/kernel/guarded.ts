@@ -10,7 +10,7 @@ import { beyondAutoRule } from "../risk/beyondauto.js";
 import type { RiskAssessment } from "../risk/tiers.js";
 import { hasSecretRef, placeSecrets, secretsNamed } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { approvedAs, attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, underAuto, type GuestOrigin, type TurnOrigin } from "./caller.js";
+import { allowsTool, approvedAs, attendance, caller, guested, onSite, origin, ownership, scheduled, toolScope, turn, turnStop, underAuto, type GuestOrigin, type TurnOrigin } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -305,8 +305,7 @@ export class GuardedTools implements ToolBox {
     }
     // Undefined is unrestricted. An allow-list that happens to be empty is a
     // real answer -- no tools -- not an absent one.
-    if (allow === undefined) return true;
-    return allow.some((prefix) => name === prefix || name.startsWith(`${prefix}.`));
+    return allowsTool(allow, name);
   }
 
   /**
@@ -421,8 +420,9 @@ export class GuardedTools implements ToolBox {
     const guest = this.deps.guest;
     // Who a vault secret's policy judges this call for.
     const who = { conversationId: conversationId ?? null, attended, guest: guest !== undefined };
+    const scope = { allow: this.deps.allow };
     const within = <T>(work: () => Promise<T>): Promise<T> =>
-      scheduled.run(job, () => guested.run(guest, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))))));
+      toolScope.run(scope, () => scheduled.run(job, () => guested.run(guest, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))))))));
     const run = async (n: string, i: Record<string, unknown>, site?: string, yes?: { id: number; by: string }): Promise<ToolExecution> => {
       // Placed at the last moment, so a key changed while the owner was asked is the one sent.
       const placed = placeSecrets(n, i, registry.secretSlots(n), secrets, who);
@@ -442,6 +442,9 @@ export class GuardedTools implements ToolBox {
     if (repeated) return { content: repeated, isError: true };
 
     this.deps.onStarted?.(name, called);
+
+    // Nothing runs while the kill switch is thrown, safe or not: a turn or a job still going when it was thrown does no more.
+    if (this.deps.halted?.()) return { content: "KOS is halted (kill switch engaged): nothing runs until the owner resumes it.", isError: true };
 
     // Enforced here too, not only in defs(): a model can name any tool it
     // likes, and an offered-but-not-executable list would be a fiction.
@@ -521,7 +524,7 @@ export class GuardedTools implements ToolBox {
       const mode = this.deps.chatMode?.();
       const covered = autoCovers({ mode, assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
       // Why Auto held back after all, from what the call would act on: said on the card, so the owner knows why it asked.
-      const heldBack = covered ? await this.deps.beyondAutoNow?.(name, input).catch(() => undefined) : undefined;
+      const heldBack = covered ? await this.deps.beyondAutoNow?.(name, input).catch(() => "could not check the page for a checkout") : undefined;
       // Why a chat in Auto asks anyway, from its rules or what the call acts on: the card says so and offers no remembered yes.
       const beyond = heldBack ?? (mode?.mode === "auto" ? assessment.beyondAuto : undefined);
       if (covered && !heldBack) {
