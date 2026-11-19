@@ -282,9 +282,12 @@ export class ChannelRuntime {
     let tick: ReturnType<typeof setTimeout> | undefined;
     let last: Promise<void> = Promise.resolve();
     // What rides beside the words: Auto, said as the answer says it, and the newest step's picture.
+    // The picture read once per frame, not on every redraw.
+    let picture: { id: number; image: string | undefined } | undefined;
     const extra = (): StoryExtra => {
       const frame = narrator.picture();
-      const image = frame !== undefined ? this.pictureOf?.(frame) : undefined;
+      if (frame !== undefined && picture?.id !== frame) picture = { id: frame, image: this.pictureOf?.(frame) };
+      const image = frame !== undefined ? picture?.image : undefined;
       return { ...(this.isAuto?.(ctx) ? { auto: true } : {}), ...(frame !== undefined && image ? { picture: { id: frame, image } } : {}) };
     };
     const show = (text: string): void => {
