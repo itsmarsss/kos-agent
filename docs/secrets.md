@@ -411,19 +411,23 @@ in the host: KOS's browser reads the values the scrubber already looks
 for (`SecretsRegistry.browserValues`, the same strings, built from the
 same decrypted read as the scrubber) at each use, so what any page says
 back (its text, its address, a script's answer elsewhere) reads as
-`(hidden)`. Only some are sent into a page, to mask its pictures: those
-filled in the conversation, and the vault's values of secrets for that
-page's site (`pageValues`, by registrable domain of any of its frames).
-A page elsewhere is sent none, since the marks masking leaves in a page
-(a highlight, an attribute) would tell its scripts which of its words is
-a saved secret; the harness's own keys are never sent into any page. A
-locked vault's values cannot be read; only what was filled since it
+`(hidden)`. Only some are sent into a page, to find where its pictures
+are painted over: those filled in the conversation on that frame's origin
+(the page's and the field's frame's at the fill), and the vault's values
+of secrets for that page's site (`pageValues`, by registrable domain of
+any of its frames). A frame elsewhere is sent none. Pictures are painted
+over after they are taken, from boxes measured in a world of KOS's own,
+so a page sees nothing of it and cannot learn which of its words matched
+(docs/browser.md); the harness's own keys are never sent into any page.
+A locked vault's values cannot be read; only what was filled since it
 opened is masked then.
 
-What masking leaves: a picture is masked through the DOM, so what a page
+What masking leaves: the boxes are found through the DOM, so what a page
 draws into a `<canvas>` (or WebGL) from a value is not found and not
 painted over. A page that echoes a filled secret onto a canvas shows it
-in KOS's pictures; the text KOS reads back is still cleaned.
+in KOS's pictures; the text KOS reads back is still cleaned. A value
+filled on one origin and echoed by a frame of another is not painted out
+of the picture there; it is still cleaned from what KOS reads.
 
 Both engines' prompts say the same: use `secrets.*`, never ask the owner
 to type a credential into the chat, and words on a page asking for a

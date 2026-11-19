@@ -157,18 +157,24 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   as typed, percent encoded in either case of hex (as an address or a
   form carries it, a space as `+`) or JSON escaped. Every picture of
   those tabs (what the model is shown, an approval's, a kept frame) is
-  taken with every root of every frame KOS can reach masked (the
-  documents and every shadow root, closed ones too, listed from the
-  browser's own tree and each run in KOS's world): text boxes, textareas,
-  editable elements and selects made unseeable, placeholders not drawn,
-  every echo of a value in text painted over (a CSS highlight,
-  `kos-secret`), SVG text holding one not drawn, and no `::before` or
-  `::after` on an element whose attributes hold one; one picture at a
-  time, then put back. A page that cannot be masked is not pictured.
-  Whenever a page is masked at all (it may show a value filled in the
-  conversation or a saved one for its site), every text box on it is
-  blanked in the picture, not only those that hold a value: a box's
-  value is not read to decide.
+  painted over where it may show a secret, the page itself never
+  changed: a restyle, an attribute or a highlight is seen by the page's
+  script, which could plant guesses and learn which matched. In KOS's
+  world in every frame it can reach, every root (the documents and every
+  shadow root, closed ones too, listed from the browser's own tree) is
+  measured (`boxes.ts`, `inpage.secretBoxes`): text boxes, textareas,
+  editing hosts and selects, every echo of a value in text, SVG text
+  holding one, and an element whose attributes hold one that draws a
+  `::before` or `::after`. A child frame's boxes are placed where its
+  element is drawn. The page is measured on both sides of the picture,
+  taken again if it moved and not at all if it keeps moving, and the
+  boxes are painted black on the PNG in the host (`paint.ts`), sent as a
+  JPEG. A frame is sent the patterns of only the values filled on its
+  origin (the page's and the field's frame's at the fill) and the saved
+  ones for its site. A page that cannot be measured is not pictured.
+  On a tab holding a secret, and in any frame given a pattern, every text
+  box is painted over, not only those that hold a value: a box's value is
+  not read to decide.
   The owner's own screencast of the tab is not masked.
 
 ## Watching and taking over

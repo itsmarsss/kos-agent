@@ -243,7 +243,12 @@ session, unattended work off unless allowed. In addition:
   `state` frame), and KOS's `chrome.start` goes to the approval queue there
   instead, so a session is always allowed by someone.
 - **Hidden sites stay hidden**: refused for opening and for every command
-  while a tab is on one, and left out of the tab list and of the events.
+  while a tab is on one, and left out of the tab list and of the events. A
+  host is matched as Chrome resolves it (lower case, punycode, one
+  trailing dot dropped), and a `blob:` or `filesystem:` address by the
+  address inside it. A side panel's read checks the tab again after the
+  owner's answer and after the read, and gives nothing of a page that went
+  elsewhere meanwhile.
 - **What a field holds stays here.** A read of the DOM comes back without
   the browser's own shadow roots, whose text is each field's value, and a
   field a saved secret was filled into is said to hold `(hidden)` in the
@@ -281,20 +286,54 @@ once read and never logged (the log says `secret.fill: filled`, or
 refused and the code); no error holds it.
 
 From then until the tab's document changes, and again whenever a document
-a secret was in is come back to (back, forward, a reload), the extension
-holds the tab, whoever's session it is in: KOS's script step (a
-`Runtime.evaluate` in the page's console mode or by unique context),
-Ctrl or Meta with A, C or X and the copy, cut and select-all commands,
-drags, and typing while a filled field has the keyboard are refused
-(`tainted`). Every picture of a held tab is taken afresh with the filled
-fields made unseeable (or, on a page come back to, every text box of the
-main frame), and `secret.picture` masks it as KOS's own browser does:
-each frame's text boxes unseeable and each place the page echoes a value
-painted over, by patterns KOS sends for that frame's origin only (the
-values filled in the conversation and the saved ones for that site). KOS
-sends a picture through `secret.picture` whenever there is a value to mask;
-an extension from before it shows no picture of such a page. The tab
-holds are kept in session storage, so they outlive the worker's sleeps.
+a secret was in is come back to (back, forward, a reload, or an address the
+document moved to by itself with `pushState`), the extension holds the
+tab, whoever's session it is in: KOS's script step (a `Runtime.evaluate`
+in the page's console mode or by unique context), every copy, cut,
+select-all and paste key (Ctrl or Meta with A, C or X, Ctrl or Meta with
+Insert, Shift with Insert or Delete) and every editing command that takes
+text out (`copy`, `cut`, `selectAll`, `yank`, and the kill-ring deletes
+`deleteToEndOf*`, `deleteToBeginningOf*`, `deleteWord*`), drags, and
+typing or any editing command while a filled field has the keyboard (on a
+page come back to, where no field is known, any editing command at all)
+are refused (`tainted`). The accessibility tree says each filled field
+holds `(hidden)`; on a page come back to, every text box. `tabs.list`
+says what each tab is held to (`held`: the document and the addresses), so
+a KOS that comes to the tab in a new session holds it in the host too,
+and cleans and masks what was filled there.
+
+Pictures change nothing in the page. Masking by restyling (a style
+element, an attribute, a CSS highlight) is seen by the page's own script,
+which could plant words it guesses at, watch which were masked, and learn
+a filled value. So in a world of the extension's own in each frame it
+reaches, the boxes that may show a secret are measured
+(`packages/browser/src/boxes.ts`): on a held tab every text box, textarea,
+editing host and select of every frame; and where KOS sends patterns
+through `secret.picture`, in each frame on that pattern's origin, those
+boxes and every stretch of text, SVG text and `::before`/`::after` (by the
+element's attributes) that echoes one. A child frame's boxes are placed
+where its element is drawn. The page is measured on both sides of a fresh
+picture (never a frame Chrome drew before), pictured again if it moved, not
+at all if it keeps moving, and the boxes are painted black on the picture
+in the worker (`OffscreenCanvas`). KOS sends a value's pattern only to the
+frames on the origins it was filled on (the page's and the field's
+frame's), and a saved value's only to its own sites' frames. KOS sends a
+picture through `secret.picture` whenever there is a value to mask; an
+extension from before it shows no picture of such a page. The tab holds
+are kept in session storage, so they outlive the worker's sleeps. KOS's
+cursor hides its halo for every picture, masked or not (a `data-capture`
+attribute on its own element), which tells a page nothing of a secret.
+
+On every tab, held or not, a paste is refused (the `paste` and
+`pasteAndMatchStyle` commands, Ctrl or Meta with V, Shift with Insert): it
+would hand KOS whatever is on the owner's clipboard. No command reaches a
+tab whose page is not a web address (one of Chrome's own, an extension's,
+a file), however the tab got there, and a step back or forward to a
+history entry that is not one is refused. A node found at a point is
+never one inside the browser's own shadow roots, which hold each field's
+text (`DOM.getNodeForLocation` with `includeUserAgentShadowDOM` forced
+off). The approval of a fill names the device; one that runs while the
+session is on another Chrome is refused (`refused:changed`).
 
 Where it differs from KOS's own browser, it fails closed:
 
@@ -317,6 +356,20 @@ Where it differs from KOS's own browser, it fails closed:
   does; KOS's hands clean it out of everything they hand on, as at home.
 - **Frames of another process** (many payment frames) are refused
   (`unreachable`); hand the tab to the owner.
+- **Workers, checked once.** Whether a service worker runs the page is
+  checked just before the value goes in. A page that registers one, or
+  has one claim it, between that check and the value going in is not
+  caught; the window is a few milliseconds, and the worker would have to
+  be one the site meant to catch its own login.
+
+What the owner's Chrome holds beyond KOS's reach: KOS's checks cover its
+own hands, not everything else in the browser. Other extensions the owner
+installed may read any page they have access to, the filled field among
+them. The site the secret is for receives it, as it would if the owner
+typed it. Chrome's own password and card managers may offer to save what
+was filled, and that prompt is the owner's to answer. A crash dump of the
+tab's renderer, if the owner sends Chrome's reports, may hold the page's
+memory. KOS for Chrome holds the value for the call alone.
 
 ## Protocol
 
@@ -334,7 +387,7 @@ before it reloads ([computer.md](computer.md#builds-and-updates)).
 | --- | --- | --- |
 | `session.begin` | `session`, `task`, `requester`, `conversation?`, `minutes` | `granted`, `until` |
 | `session.end` | `session` | `{}` |
-| `tabs.list` | `session` | `tabs [{ id, url, title, handed?, focus? }]` (`focus`: the tab beside the side panel) |
+| `tabs.list` | `session` | `tabs [{ id, url, title, handed?, focus?, held? }]` (`focus`: the tab beside the side panel; `held { loader, urls }`: what a saved secret holds the tab to, Saved secrets above) |
 | `tabs.open` | `session`, `url?` | `tab` |
 | `tabs.close` | `session`, `tab` | `{}` |
 | `cdp.send` | `session`, `tab`, `method`, `params?` | the command's result |
