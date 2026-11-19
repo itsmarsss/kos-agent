@@ -7,7 +7,8 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { PairError, type DeviceHub } from "./hub.js";
 import type { Socket } from "./link.js";
 import type { LanPairing, LanStatus } from "./lan.js";
-import type { ComputerSettings, Device } from "./store.js";
+import { PUSH_SETTING_RE, type PhonePush } from "./push.js";
+import type { ComputerSettings, Device, PushSettings } from "./store.js";
 import type { DeviceUpdates } from "./updates.js";
 import { MAX_FRAME_BYTES, SOCKET_PATH } from "./protocol.js";
 
@@ -47,6 +48,7 @@ export function deviceRoutes(
   titleOf: (conversation: string) => string,
   lan?: LanControl,
   updatesOf: () => DeviceUpdates | undefined = () => undefined,
+  pushOf: () => PhonePush | undefined = () => undefined,
 ): ApiExtension {
   return {
     prefix: PREFIX,
@@ -72,14 +74,34 @@ export function deviceRoutes(
         }
         case `GET ${PREFIX}`: {
           const updates = updatesOf();
+          const push = pushOf();
           return ok({
             devices: hub.list().map((d) => {
               const update = updates?.statusOf(d.id);
-              return { ...d, ...(d.session ? { session: { ...d.session, title: titleOf(d.session.conversation) } } : {}), ...(update ? { update } : {}) };
+              return {
+                ...d,
+                ...(d.session ? { session: { ...d.session, title: titleOf(d.session.conversation) } } : {}),
+                ...(update ? { update } : {}),
+                ...(push && d.kind === "phone" ? { push: push.of(d.id) } : {}),
+              };
             }),
             settings: hub.settings(),
             ...(lan ? { lan: lan.status() } : {}),
+            ...(push ? { push: push.status() } : {}),
           });
+        }
+        case `POST ${PREFIX}/push`: {
+          // The APNs key's id, the team, the app's bundle id and the vault secret holding the .p8: never the key itself.
+          const push = pushOf();
+          if (!push) return bad(503, "push is not available");
+          const patch: Partial<PushSettings> = {};
+          for (const field of Object.keys(PUSH_SETTING_RE) as (keyof PushSettings)[]) {
+            const value = body[field];
+            if (value === undefined) continue;
+            if (typeof value !== "string" || (value.trim() && !PUSH_SETTING_RE[field].test(value.trim()))) return bad(400, `${field} is not one`);
+            patch[field] = value;
+          }
+          return ok(push.save(patch));
         }
         case `POST ${PREFIX}/update`: {
           // The owner's Update now: the build tried once more, when the device is idle.

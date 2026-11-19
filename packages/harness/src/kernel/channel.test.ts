@@ -382,6 +382,20 @@ describe("connectChannel", () => {
     await panelRuntime.stop();
   });
 
+  it("decides a phone's press (a notification's Approve, sent over its line) as its panel's, the phone named", async () => {
+    await boot(stub([]));
+    const approve = vi.spyOn(kernel, "approve");
+    const phone = new InMemoryAdapter();
+    Object.defineProperty(phone, "name", { value: "phone" });
+    const phoneRuntime = connectChannel(phone, kernel, { ownerRecipientId: "owner" });
+    await phoneRuntime.start();
+    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "x" }, riskTier: "risky" });
+    await phone.decide({ id: String(action.id), approved: true, deciderId: "dev_phone" });
+    // Every rule a phone's decision meets (the Decisions gate, a secret's, the hands rule) is judged on this.
+    expect(approve.mock.calls.at(-1)?.[2]).toEqual({ remember: false, surface: "phone", device: "dev_phone" });
+    await phoneRuntime.stop();
+  });
+
   it("passes a surface's remember through to the kernel", async () => {
     await boot(stub(riskyScript()));
     await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });

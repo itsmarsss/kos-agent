@@ -53,7 +53,7 @@ import {
   type OutboundMessage,
   type PendingAction,
 } from "@kos/harness";
-import { createComputerUse, type Glance, type PanelArtifact, type PanelArtifacts, type PanelDeps, type PanelPlaceOf } from "@kos/computer";
+import { createComputerUse, readApnsEnv, type Glance, type PanelArtifact, type PanelArtifacts, type PanelDeps, type PanelPlaceOf } from "@kos/computer";
 import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
 
 /** The surfaces a device panel is: a Chrome's side panel, a Mac's window, a phone's chat. */
@@ -749,6 +749,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       certPath: process.env.KOS_DEVICE_LAN_CERT_FILE?.trim() || join(homedir(), ".kos", "device-lan.pem"),
       forced: process.env.KOS_DEVICE_LAN === "1",
     },
+    // Asks pushed to the owner's iPhones once an APNs key is given: here by KOS_APNS_*, else in Settings with the .p8 in the vault.
+    push: { env: readApnsEnv(process.env, (path) => readFileSync(path, "utf8")) },
     // A session started unasked is written down as the start it stands for; one settled during boot, once it is up.
     audit: (entry) => boot.when((k) => void k.audit.record(entry)),
     // The owner's Stop on a device stops the chat's turn, as the dashboard's does.
@@ -889,6 +891,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       void computer.panel.requestApproval("owner", request);
       void computer.mac.requestApproval("owner", request);
       void computer.phone.requestApproval("owner", request);
+      // A phone whose app is not open hears of it by a notification.
+      computer.push.asked(request);
     }),
   });
   boot.set(kernel);

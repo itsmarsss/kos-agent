@@ -932,7 +932,7 @@ const ASK_MAX = 200_000;
  * asks, what a remembered yes keeps; then the arguments whole, for the
  * details, and who asks.
  */
-function approvalOf(req: ApprovalRequest): Record<string, unknown> {
+export function approvalOf(req: ApprovalRequest): Record<string, unknown> {
   const args = req.args === undefined ? "" : typeof req.args === "string" ? req.args : JSON.stringify(req.args);
   const asksAlways = req.asksAlways ?? usesSecret(req.tool ?? "", req.args ?? {});
   const view =
