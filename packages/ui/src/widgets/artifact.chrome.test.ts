@@ -720,7 +720,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     // After the runtime has drawn the doc, a script draws into it and opens its toggle, as a page's own code may.
     const html = `<article data-doc><details><summary>More</summary><p>Hidden</p></details><ul class="checklist"><li data-checked="false">Milk</li></ul></article><script>
       setTimeout(() => { const a = document.querySelector("article"); a.querySelector("details").open = true; a.insertAdjacentHTML("beforeend", "<p>drawn</p>"); }, 300);
-      addEventListener("message", (e) => { if (e.data && e.data.ask === "box") { const r = document.querySelector(".todo-box").getBoundingClientRect(); top.postMessage({ box: { x: r.left + r.width / 2, y: r.top + r.height / 2 } }, "*"); } });
+      addEventListener("message", (e) => { if (e.data && e.data.ask === "box" && document.querySelector("details").open) { const r = document.querySelector(".todo-box").getBoundingClientRect(); top.postMessage({ box: { x: r.left + r.width / 2, y: r.top + r.height / 2 } }, "*"); } });
     </script>`;
     const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [bundled.outputFiles[0]!.text], kind: "doc" }));
     pages.set("/tick", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:400px" srcdoc="${srcdoc(frame)}"></iframe><script>
@@ -736,7 +736,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     </script></body>`);
     await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 400, deviceScaleFactor: 1, mobile: false });
     await send("Page.navigate", { url: `${base}/tick` });
-    await pause(700);
+    // Asked until the script has opened the toggle above it, which moves the box: a click before that lands where it was.
     let box: { x: number; y: number } | undefined;
     for (const end = Date.now() + BOUND_MS; !box && Date.now() < end; await pause(50)) {
       await value(`window.box = undefined; f.contentWindow.frames[0].postMessage({ ask: "box" }, "*")`);
