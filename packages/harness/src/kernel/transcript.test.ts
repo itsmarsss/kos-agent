@@ -135,6 +135,15 @@ describe("conversationEvents", () => {
     expect(events.map((e) => (e as { outcome?: string }).outcome)).toEqual(["denied", "lapsed", "approved", undefined]);
   });
 
+  it("marks a queued call that was approved and then failed as failed", () => {
+    const events = conversationEvents([
+      { role: "assistant", content: [{ type: "tool_use", id: "t9", name: "http.fetch", input: { url: "x" } }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "t9", content: "queued for approval (pending #9); not executed." }] },
+      { role: "user", content: [{ type: "text", text: `System: the owner decided on the pending action:\n- ${decidedLine(9, "http.fetch", JSON.stringify({ url: "x" }), { approved: true, isError: true, result: "boom" })}` }] },
+    ]);
+    expect(events[0]).toMatchObject({ outcome: "approved", isError: true });
+  });
+
   it("tells a queued call its outcome when the decision on it comes", () => {
     const queue = (id: string, n: number): ModelMessage[] => [
       { role: "assistant", content: [{ type: "tool_use", id, name: "files.rm", input: { path: "a" } }] },
@@ -154,6 +163,7 @@ describe("conversationEvents", () => {
       { role: "assistant", content: [{ type: "text", text: "@approval:7 (Delete a) lapsed: nobody decided within 24 hours, so nothing was done." }] },
     ]);
     expect(events.slice(0, 4).map((e) => (e as { outcome?: string }).outcome)).toEqual(["approved", "denied", "lapsed", undefined]);
+    expect((events[0] as { isError?: boolean }).isError).toBeUndefined();
   });
 
   it("shows a resume as a note of what was decided, not as the owner's words", () => {

@@ -126,16 +126,16 @@ function approvalNote(text: string): string | null {
 }
 
 /**
- * The decisions a line reports, by approval id: a resume after the owner
+ * The decisions a line reports, by approval id, and whether an approved call then failed: a resume after the owner
  * decided queued calls, in each of its shapes, and the note a lapse leaves.
  */
-function decisionsIn(text: string): Array<[string, CallOutcome]> {
-  const found: Array<[string, CallOutcome]> = [];
-  for (const m of text.matchAll(/^- @approval:(\d+) .+?: the owner (approved|denied)/gm)) found.push([m[1]!, m[2] === "denied" ? "denied" : "approved"]);
-  for (const m of text.matchAll(/^- #(\d+) \S+: (approved and run|denied by the owner)/gm)) found.push([m[1]!, m[2] === "approved and run" ? "approved" : "denied"]);
-  for (const m of text.matchAll(/^System: the owner (approved|denied) pending action #(\d+)\./gm)) found.push([m[2]!, m[1] === "denied" ? "denied" : "approved"]);
+function decisionsIn(text: string): Array<[string, CallOutcome, boolean]> {
+  const found: Array<[string, CallOutcome, boolean]> = [];
+  for (const m of text.matchAll(/^- @approval:(\d+) .+?: the owner (approved it, and it ran and failed|approved|denied)/gm)) found.push([m[1]!, m[2] === "denied" ? "denied" : "approved", m[2]!.endsWith("failed")]);
+  for (const m of text.matchAll(/^- #(\d+) \S+: (approved and run, FAILED|approved and run|denied by the owner)/gm)) found.push([m[1]!, m[2]!.startsWith("approved") ? "approved" : "denied", m[2]!.endsWith("FAILED")]);
+  for (const m of text.matchAll(/^System: the owner (approved|denied) pending action #(\d+)\./gm)) found.push([m[2]!, m[1] === "denied" ? "denied" : "approved", /\boutcome=FAILED\b/.test(text)]);
   const lapse = /^@approval:(\d+) \(.*\) lapsed: /s.exec(text);
-  if (lapse) found.push([lapse[1]!, "lapsed"]);
+  if (lapse) found.push([lapse[1]!, "lapsed", false]);
   return found;
 }
 
@@ -215,9 +215,12 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
           const note = message.role === "user" ? approvalNote(text) : null;
           // Only the harness's own lines decide: a resume, or the note a lapse leaves.
           if (note || (message.role === "assistant" && text.startsWith("@approval:"))) {
-            for (const [id, outcome] of decisionsIn(text)) {
+            for (const [id, outcome, failed] of decisionsIn(text)) {
               const call = held.get(id);
-              if (call) call.outcome = outcome;
+              if (!call) continue;
+              call.outcome = outcome;
+              // Approved and run, and it failed: a failure, not a plain yes.
+              if (failed) call.isError = true;
             }
           }
           events.push(
