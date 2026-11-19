@@ -409,6 +409,14 @@ export interface ApprovalRequest {
   secret?: AskSecret;
 }
 
+/** Who settled an ask and when, as a settled prompt says it. */
+export interface ApprovalDecided {
+  /** A name for whoever decided: "you", "auto mode". */
+  by?: string;
+  /** When, epoch ms. */
+  at?: number;
+}
+
 export interface Asker {
   name: string;
   conversationId: string;
@@ -517,7 +525,7 @@ export interface ChannelAdapter {
    * choice that had already been made, and pressing it reported that the
    * action did not exist.
    */
-  settleApproval?(id: string, outcome: ApprovalOutcome): Promise<void>;
+  settleApproval?(id: string, outcome: ApprovalOutcome, decided?: ApprovalDecided): Promise<void>;
   /**
    * Optional: acknowledge an inbound message and return a presence handle so
    * the runtime can show progress and edit the final reply in place.

@@ -22,20 +22,20 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { alwaysWords, askView, blocksToText, CHANNEL_TOKEN, detailLines, stepText, summarizeAction, withUnixTimes } from "@kos/shared";
+import { blocksToText, CHANNEL_TOKEN, withUnixTimes } from "@kos/shared";
 
 import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, roomConversationId, roomPlaceOf, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
-import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
+import { linkMentions, linkPaths, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
 import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import { DownLog } from "./downlog.js";
-import { HOST_KEYS } from "./hostkeys.js";
-import { offersAlways } from "./offers.js";
+import { approvalButtons, approvalCard, askSummary, parseApprovalCustomId, settledText, type ApprovalCard, type Decided } from "./askcard.js";
+import { noPreviews } from "./discordtext.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
@@ -56,10 +56,9 @@ import type {
   Sender,
 } from "./types.js";
 
-export const APPROVE_PREFIX = "kos:approve:";
-export const DENY_PREFIX = "kos:deny:";
-/** Approve, and remember this shape so it stops asking. */
-export const ALWAYS_PREFIX = "kos:always:";
+export { ALWAYS_PREFIX, APPROVE_PREFIX, DENY_PREFIX, approvalCard, approvalCustomIds, approvalText, parseApprovalCustomId, settledText, type ApprovalCard } from "./askcard.js";
+export { noPreviews, splitSummary } from "./discordtext.js";
+
 /** A button the agent put there, as opposed to one the risk gate did. */
 export const PRESS_PREFIX = "kos:press:";
 /** A button that runs a scheduled job now: `kos:cron:<id>`. */
@@ -144,23 +143,6 @@ const SEND_TRIES_MAX = 5;
 const UNSENT_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT"]);
 /** Failures once the request may have reached Discord: sent again, it could post twice. */
 const MAYBE_SENT_CODES = new Set(["ECONNRESET", "ETIMEDOUT", "EPIPE", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
-/** Subtext lines may not be longer than this and still read as a glance. */
-const DETAIL_MAX = 160;
-
-/**
- * The text of an approval prompt: what, then the small print.
- *
- * Two lines and the buttons. The embed this replaced had a title, a
- * description, three labelled fields, a footer and a plain-text copy of
- * the same above it; the owner read it as a form. The first line is the
- * action as summarizeAction says it; the subtext carries the tool, the id,
- * the arguments that matter and the reason, and renders small and grey.
- */
-/** The longest a code block's line may run before it is cut. */
-const CODE_MAX = 600;
-/** How much of what the agent said before asking the card quotes. */
-const WHY_MAX = 300;
-
 /**
  * A time written as `<t:2026-10-19T07:30:R>` becomes Discord's own token,
  * with the seconds filled in on the owner's clock, so Discord renders it on
@@ -185,164 +167,6 @@ export function storyText(status: string, dashboardUrl?: string, timezone?: stri
     .map((line) => (line.startsWith(STEP_MARK) ? `-# ${linkPaths(line, dashboardUrl)}` : line))
     .join("\n")
     .slice(0, 1900);
-}
-
-/** A bare url, not already in angle brackets and not the target of a masked link; a bracket made literal is neither. */
-const BARE_URL = /(?:(?<![<(])|(?<=\\[<(]))https?:\/\/[^\s<>()\]\\]+/g;
-/** A masked link whose target is not yet in angle brackets. */
-const MASKED_LINK = /\]\((https?:\/\/[^\s<>()]+)\)/g;
-
-/**
- * Every link in angle brackets, so Discord draws no preview card for it.
- *
- * A preview is Discord fetching the page and showing a title, a picture and
- * a snippet of it under KOS's words: a denied fetch of a wiki page came back
- * decorated with the wiki's own card. KOS links to pages it was told about
- * and to pages an agent read, neither of which should get to put a card in
- * the owner's DM, and Discord's crawler should not be visiting them on
- * KOS's behalf either. Code is left alone: nothing in it is a link.
- */
-export function noPreviews(text: string): string {
-  return outsideCode(text, (part) => part.replace(MASKED_LINK, "](<$1>)").replace(BARE_URL, "<$&>"));
-}
-
-/**
- * "Run: rm -rf build (in /w)" is a verb and a thing. The verb reads as a
- * sentence; the thing is a command, a path or a query, and goes in a code
- * block, where Discord leaves it alone. A summary with no such split is all
- * sentence.
- */
-export function splitSummary(summary: string): { head: string; body?: string } {
-  const i = summary.indexOf(": ");
-  if (i > 0 && i <= 24) return { head: summary.slice(0, i), body: summary.slice(i + 2) };
-  return { head: summary };
-}
-
-/** A line cut to fit by its middle, so its end always shows: the end of a command is where it hides what it does. */
-function cut(line: string, max: number): string {
-  if (line.length <= max) return line;
-  const tail = Math.floor((max - 1) * 0.4);
-  return `${line.slice(0, max - 1 - tail)}…${line.slice(line.length - tail)}`;
-}
-
-const CODE_FENCE = "```";
-
-/** The longest an approval card's text may run, leaving room for the line saying where it came from. */
-const CARD_MAX = 1900;
-/** The file every step rides in when a card cannot hold them all. */
-const STEPS_FILE = "steps.txt";
-/** Where the whole call goes when the card cannot show all of it. */
-const ARGS_FILE = "call.json";
-
-/** An approval card: its text, and every step as a file when the text cannot hold them. */
-export interface ApprovalCard {
-  content: string;
-  files?: { attachment: Buffer; name: string }[];
-}
-
-export function approvalText(req: ApprovalRequest): string {
-  return approvalCard(req).content;
-}
-
-export function approvalCard(req: ApprovalRequest): ApprovalCard {
-  // The sentence the ask belongs to, first: what KOS was saying when it
-  // reached for the tool. A card that opens with the command alone is a
-  // prompt to click yes blind.
-  // The model's words, all of it, so made literal: a masked link or a
-  // mention in them reads as written and does nothing.
-  const quote = (words: string): string => `> ${literal(cut(words.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX))}`;
-  const said = req.why?.trim() ? [quote(req.why)] : [];
-  // Who is asking, in the headline: "Recap needs your OK", not a bare command.
-  const asks = req.asker ? `**${literal(req.asker.name)} needs your OK**` : "**Needs your OK**";
-  if (req.tool === undefined) {
-    return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
-  }
-  const args = req.args ?? {};
-  const view = askView({ tool: req.tool, args, ...(req.names ? { names: req.names } : {}), ...(req.where ? { where: req.where } : {}), platform: HOST_KEYS });
-  const summary = summarizeAction(req.tool, args, req.names, req.where, HOST_KEYS);
-  // A run of actions is headed by where it acts, and its actions are the
-  // code, each on its own line, every one of them: the yes is for those.
-  // What the model said the step is for is its words, quoted with the rest
-  // of what it said, never the headline.
-  const actions = view.steps?.map(stepText);
-  if (view.said) said.push(quote(`KOS says: ${view.said}`));
-  const { head, body } = actions ? { head: view.place ?? view.title } : splitSummary(summary);
-  // The command itself, or failing that the arguments, in a code block: a
-  // `--include=*.ts` that turned italic was a command you could not read
-  // back, and an approval you cannot read is not one you can give.
-  const details = body ? [body] : detailLines(req.tool, args, req.names, req.where).slice(1);
-  const code = actions ?? (body ? [cut(body, CODE_MAX)] : details.filter((l) => !l.startsWith("…")).slice(0, 3).map((l) => cut(l, DETAIL_MAX)));
-  // Anything the card leaves out goes with it whole, in a file: no part of a call is approved unseen.
-  const partial = !actions && (code.length !== details.length || [summary, ...code].some((l, i) => l.includes("…") || (i > 0 && l !== details[i - 1])));
-  const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
-  const text = (shown: string[], more?: string): string =>
-    noPreviews(
-      [
-        ...said,
-        `${asks} · ${literal(head)}`,
-        ...(shown.length ? [CODE_FENCE, ...shown.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
-        ...(more ? [`-# ${more}`] : []),
-        `-# ${small}`,
-      ].join("\n"),
-    );
-  const whole = text(code);
-  if (!actions) {
-    if (!partial && whole.length <= CARD_MAX) return { content: whole };
-    const json = typeof args === "string" ? args : JSON.stringify(args, null, 2);
-    return {
-      content: text(code, `The whole call is in ${ARGS_FILE}`).slice(0, CARD_MAX + 100),
-      files: [{ attachment: Buffer.from(`${json}\n`, "utf8"), name: ARGS_FILE }],
-    };
-  }
-  if (whole.length <= CARD_MAX) return { content: whole };
-  // More steps than a message holds: as many as fit, and every one of them
-  // in a file on the card, so none is approved unseen.
-  let shown = actions.length;
-  const more = (n: number): string => `${actions.length - n} more step${actions.length - n === 1 ? "" : "s"}; every one is in ${STEPS_FILE}`;
-  while (shown > 0 && text(actions.slice(0, shown), more(shown)).length > CARD_MAX) shown -= 1;
-  return {
-    content: text(actions.slice(0, shown), more(shown)),
-    files: [{ attachment: Buffer.from(`${actions.join("\n")}\n`, "utf8"), name: STEPS_FILE }],
-  };
-}
-
-/** What a settled prompt becomes: one small line saying how it went. */
-export function settledText(outcome: ApprovalOutcome | "gone", summary: string | undefined, id: string, already = false, here = false): string {
-  const how = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : outcome === "gone" ? "No longer waiting" : "❌ Denied";
-  // Pressed after it was settled: how it went, and where, said as that. A lapse was nobody's decision.
-  const mark = !already || outcome === "gone" ? how : here || outcome === "expired" ? `Already decided: ${how}` : `Already decided on the dashboard: ${how}`;
-  if (!summary) return `-# ${mark} · #${id}`;
-  const { head, body } = splitSummary(summary);
-  return noPreviews(`-# ${mark} · ${literal(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`);
-}
-
-/** Encode the approve/deny button ids for a pending action. */
-export function approvalCustomIds(pendingId: string): {
-  approve: string;
-  deny: string;
-  always: string;
-} {
-  return {
-    approve: `${APPROVE_PREFIX}${pendingId}`,
-    deny: `${DENY_PREFIX}${pendingId}`,
-    always: `${ALWAYS_PREFIX}${pendingId}`,
-  };
-}
-
-/** Decode a button customId back into an approval decision, or null. */
-export function parseApprovalCustomId(
-  customId: string,
-): { id: string; approved: boolean; remember?: boolean } | null {
-  if (customId.startsWith(ALWAYS_PREFIX)) {
-    return { id: customId.slice(ALWAYS_PREFIX.length), approved: true, remember: true };
-  }
-  if (customId.startsWith(APPROVE_PREFIX)) {
-    return { id: customId.slice(APPROVE_PREFIX.length), approved: true };
-  }
-  if (customId.startsWith(DENY_PREFIX)) {
-    return { id: customId.slice(DENY_PREFIX.length), approved: false };
-  }
-  return null;
 }
 
 const FENCE = /^\s*```(\w*)\s*$/;
@@ -2650,7 +2474,10 @@ export class DiscordAdapter implements ChannelAdapter {
     });
     // Nothing back is nothing decided: the ask was gone, never the button pressed.
     const outcome = how?.outcome ?? "gone";
-    const settled = { content: settledText(outcome, prompt?.summary, decision.id, how?.already === true, how?.here === true), embeds: [] as never[], components: [] as never[] };
+    // Who pressed, and when, unless it was settled before the press.
+    const presser = (interaction.user as { globalName?: string | null; username?: string }).globalName ?? (interaction.user as { username?: string }).username;
+    const decided: Decided = how?.already ? {} : { ...(presser ? { by: presser } : {}), at: Date.now() };
+    const settled = { content: settledText(outcome, prompt?.summary, decision.id, how?.already === true, how?.here === true, decided), embeds: [] as never[], components: [] as never[] };
     // The prompt settles into one small line, on this card and its twin, as
     // soon as the decision is recorded; the action and the resumed turn's
     // answer come after, as their own message.
@@ -3200,24 +3027,11 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
-    const ids = approvalCustomIds(req.id);
-    // Always only by the one rule every surface keeps, its words saying what it keeps.
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(ids.approve)
-        .setLabel("Approve")
-        .setStyle(ButtonStyle.Success),
-      ...(offersAlways(req) ? [new ButtonBuilder().setCustomId(ids.always).setLabel(cut(alwaysWords(req.rule!.scope, req.names), 80)).setStyle(ButtonStyle.Primary)] : []),
-      new ButtonBuilder()
-        .setCustomId(ids.deny)
-        .setLabel("Deny")
-        .setStyle(ButtonStyle.Danger),
-    );
-
-    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names, req.where) : req.text;
+    const row = approvalButtons(req, this.dashboardUrl);
+    const summary = askSummary(req);
     // No secret leaves in a card, its words or the call it carries.
     const scrub = this.scrub;
-    const unscrubbed = approvalCard(req);
+    const unscrubbed = approvalCard(req, this.dashboardUrl ? { dashboardUrl: this.dashboardUrl } : {});
     const card: ApprovalCard = {
       content: scrub(unscrubbed.content),
       ...(unscrubbed.files ? { files: unscrubbed.files.map((f) => ({ ...f, attachment: Buffer.from(scrub(f.attachment.toString("utf8")), "utf8") })) } : {}),
@@ -3315,11 +3129,11 @@ export class DiscordAdapter implements ChannelAdapter {
    * The same edit the buttons make when pressed here, so a decision looks the
    * same wherever it was made.
    */
-  async settleApproval(id: string, outcome: ApprovalOutcome): Promise<void> {
+  async settleApproval(id: string, outcome: ApprovalOutcome, decided: Decided = {}): Promise<void> {
     const prompt = this.promptOf(id);
     if (!prompt) return;
     this.forget(id);
-    const settled = { content: settledText(outcome, prompt.summary, id), embeds: [] as never[], components: [] as never[] };
+    const settled = { content: settledText(outcome, prompt.summary, id, false, false, decided), embeds: [] as never[], components: [] as never[] };
     // Deleted, or too old to edit: a card that cannot be settled is not worth
     // failing a decision over, and its twin still is.
     await Promise.all(prompt.copies.map((c) => c.edit(settled).catch(() => undefined)));

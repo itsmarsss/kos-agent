@@ -529,7 +529,7 @@ describe("the approval prompt", () => {
       args: { command: "rm -rf build", cwd: "/w" },
       reason: "deletes files",
     });
-    expect(text.split("\n")).toEqual(["**Needs your OK** · Run", "```", "rm -rf build (in /w)", "```", "-# shell.run · #12 · deletes files"]);
+    expect(text.split("\n")).toEqual(["**Needs your OK** · Run", "-# In /w", "```", "rm -rf build", "```", "-# ⚠ Deletes files · shell.run · #12"]);
   });
 
   it("keeps a command literal, whatever Discord would make of its characters", () => {
@@ -543,7 +543,7 @@ describe("the approval prompt", () => {
     const lines = text.split("\n");
     expect(lines[0]).toMatch(/^\*\*Needs your OK\*\* · Delete project/);
     expect(lines.slice(1, 4)).toEqual(["```", "slug: old_site", "```"]);
-    expect(lines[4]).toBe("-# systems.project_delete · #5");
+    expect(lines[lines.length - 1]).toBe("-# systems.project_delete · #5");
   });
 
   it("shows every action of a step said by its purpose, whatever the purpose says", () => {
@@ -556,10 +556,10 @@ describe("the approval prompt", () => {
       tool: "computer.act",
       args: { intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] },
     });
-    expect(text.split("\n")).toEqual(["> KOS says: Note: just closing the popup", "**Needs your OK** · On your Mac", "```", "Type “hunter2”", "Press ⌘Q", "```", "-# computer.act · #21"]);
+    expect(text.split("\n")).toEqual(["**Needs your OK** · Use your Mac", "-# KOS says: “Note: just closing the popup”", "-# On your Mac", "1. Type “hunter2”", "2. Press `⌘Q`", "-# computer.act · #21"]);
     // Repeats are said once with their exact count: an approval leaves nothing out.
     const tabs = approvalText({ id: "22", text: "x", tool: "browser.act", args: { intent: "move on", steps: [{ press: "Tab" }, { press: "Tab" }, { press: "Enter" }] } });
-    expect(tabs).toContain("```\nPress Tab twice, then ⏎\n```");
+    expect(tabs).toContain("\n1. Press `Tab` twice, then `⏎`\n");
   });
 
   it("reads the model's words literally: no ping, no link, no bold", () => {
@@ -570,10 +570,11 @@ describe("the approval prompt", () => {
       args: { intent: "**Safe** [close the popup](https://evil.example) @everyone <@&42>", steps: [{ click: "@e1" }] },
       why: "# Heads up @here, see [the docs](https://evil.example)",
     });
-    const [why, intent, head] = card.split("\n");
-    // The model's words are quoted, literal; the headline is where the call acts.
-    expect(intent).toBe("> KOS says: \\*\\*Safe\\*\\* \\[close the popup\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\>");
-    expect(head).toBe("**Needs your OK** · In KOS's browser");
+    const [why, head, intent, place] = card.split("\n");
+    // The model's words are quoted, literal; the headline is what the call acts on, the place under it.
+    expect(intent).toBe("-# KOS says: “\\*\\*Safe\\*\\* \\[close the popup\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\>”");
+    expect(head).toBe("**Needs your OK** · Act on the page");
+    expect(place).toBe("-# In KOS's browser");
     expect(why).toBe("> \\# Heads up \\@here, see \\[the docs\\]\\(<https://evil.example>\\)");
     expect(settledText("approved", "**Done** @everyone", "24")).toBe("-# ✅ Approved · \\*\\*Done\\*\\* \\@everyone");
     // A step line in the story too, its references still linked.
@@ -636,7 +637,7 @@ describe("the approval prompt", () => {
     expect(approvalText({ id: "3", text: "Post to #general?" })).toBe("**Needs your OK** · Post to #general?\n-# #3");
     // What KOS was saying comes first, as one quoted line, so the card is a sentence and not a command.
     expect(approvalText({ id: "4", text: "x", tool: "shell.run", args: { command: "rm -rf build" }, why: "I'll clear the build folder\nso the rebuild is clean." })).toBe(
-      "> I'll clear the build folder so the rebuild is clean.\n**Needs your OK** · Run\n```\nrm -rf build\n```\n-# shell.run · #4",
+      "> I'll clear the build folder so the rebuild is clean.\n**Needs your OK** · Run\n-# In the workspace\n```\nrm -rf build\n```\n-# shell.run · #4",
     );
   });
 
@@ -653,7 +654,7 @@ describe("the approval prompt", () => {
     const lines = String(payloads[0]?.content).split("\n");
     expect(lines[0]).toMatch(/^\*\*Needs your OK\*\*/);
     expect(lines[lines.length - 1]).toMatch(/^-# /);
-    expect(lines.length).toBeLessThanOrEqual(5);
+    expect(lines.length).toBeLessThanOrEqual(6);
     expect((payloads[0]?.components as unknown[])).toHaveLength(1);
   });
 });
@@ -718,8 +719,7 @@ describe("a prompt with a picture", () => {
     expect(files[0]?.attachment.toString("utf8")).toBe("PIC");
     // The step as it reads, and the step as given, under it.
     const lines = String(payloads[0]?.content).split("\n");
-    expect(lines.slice(0, 4)).toEqual(["**Needs your OK** · In KOS's browser", "```", "Click element e5", "```"]);
-    expect(lines[4]).toBe("-# browser.act · #7 · on shop.example");
+    expect(lines).toEqual(["**Needs your OK** · Act on the page", "-# In KOS's browser", "1. Click element e5", "-# browser.act · #7 · on shop.example"]);
   });
 });
 
@@ -1754,7 +1754,7 @@ describe("DiscordAdapter authorization", () => {
     expect(decisions).toEqual([
       { id: "5", approved: true, deciderId: "owner-id" },
     ]);
-    expect(button.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: "-# ✅ Approved · #5" }));
+    expect(button.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringMatching(/^-# ✅ Approved <t:\d+:t> · #5$/) }));
   });
 
   it("labels a pressed card with how the ask really went, when it was decided elsewhere first", async () => {
@@ -1784,10 +1784,10 @@ describe("DiscordAdapter authorization", () => {
     const press = adapter.receiveInteraction(button as unknown as Interaction);
     await new Promise((r) => setTimeout(r, 5));
     // Labelled within the press's first seconds; the action still runs.
-    expect(order).toEqual(["-# ✅ Approved · #5"]);
+    expect(order).toEqual([expect.stringMatching(/^-# ✅ Approved <t:\d+:t> · #5$/)]);
     finish();
     await press;
-    expect(order).toEqual(["-# ✅ Approved · #5", "action done"]);
+    expect(order).toEqual([expect.stringMatching(/^-# ✅ Approved <t:\d+:t> · #5$/), "action done"]);
   });
 
   it("says a second press was decided here, and an ask gone is no longer waiting rather than what was pressed", async () => {

@@ -1,4 +1,6 @@
 export { secretAskElsewhere } from "./decisions.js";
+import { AUTO_DECIDER } from "@kos/shared";
+
 import { agentConversationId } from "../agents/roles.js";
 import { ChannelRuntime } from "../channels/runtime.js";
 import type { ChannelAdapter } from "../channels/types.js";
@@ -61,7 +63,10 @@ export function connectChannel(
     // has already been made.
     watchDecisions: (listener) =>
       kernel.approvals.onDecided((action) => {
-        if (action.status !== "pending") listener(String(action.id), action.status);
+        if (action.status === "pending") return;
+        // Who, as the owner reads it on the card: Auto by its name, and anyone else is the owner.
+        const by = action.status === "expired" ? undefined : action.decidedBy === AUTO_DECIDER ? AUTO_DECIDER : "you";
+        listener(String(action.id), action.status, { ...(by ? { by } : {}), ...(action.decidedAt !== null ? { at: action.decidedAt } : {}) });
       }),
     // The turn's own conversation is known before it runs, so its progress
     // can be told on the surface as it happens. A message addressed to an

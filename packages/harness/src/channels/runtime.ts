@@ -8,6 +8,7 @@ import { SingleOwnerMapping, type UserMapping } from "./identity.js";
 import { TurnNarrator } from "./narrate.js";
 import { BindingGoneError } from "./types.js";
 import type {
+  ApprovalDecided,
   ApprovalDecision,
   ApprovalOutcome,
   ApprovalSettled,
@@ -129,7 +130,7 @@ export interface ChannelRuntimeOptions {
    * Returns its own unsubscribe.
    */
   watchDecisions?: (
-    listener: (id: string, outcome: ApprovalOutcome) => void,
+    listener: (id: string, outcome: ApprovalOutcome, decided?: ApprovalDecided) => void,
   ) => () => void;
   /**
    * Optional: follow a turn's progress as it runs, so a surface with a
@@ -221,8 +222,8 @@ export class ChannelRuntime {
      * this settles the ones taken elsewhere and no others.
      */
     if (this.watchDecisions && this.adapter.settleApproval) {
-      this.unwatch = this.watchDecisions((id, outcome) => {
-        const settled = this.adapter.settleApproval?.(id, outcome);
+      this.unwatch = this.watchDecisions((id, outcome, decided) => {
+        const settled = this.adapter.settleApproval?.(id, outcome, decided);
         // A prompt that cannot be settled is not worth failing a decision over.
         if (settled) void settled.catch(() => undefined);
       });
