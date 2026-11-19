@@ -52,7 +52,7 @@ import { copyEntry, dispositionOf, listDirectory, makeDir, readForText, readForV
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type Rates, type SpendSummary } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
-import { readSkills, skillHash, type SkillRecord } from "../skills/manifest.js";
+import { readSkills, skillHashNow, type SkillRecord } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
@@ -428,7 +428,7 @@ function jobSpend(kernel: Kernel, jobId: number, rates: Rates): JobSpend | undef
 /** A script promoted whose files are as they were then: it runs without asking. */
 function promotedAsIs(kernel: Kernel, settings: SkillSettings, skill: SkillRecord): boolean {
   const hash = settings.promoted[skill.manifest.name];
-  return hash !== undefined && hash === skillHash(kernel.workspace, skill);
+  return hash !== undefined && hash === skillHashNow(kernel.workspace, skill);
 }
 
 /** A project's own skills: the ones made for it by name, each with whether it is on and, for a script, promoted. */
