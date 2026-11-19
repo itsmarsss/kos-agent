@@ -6,6 +6,17 @@ export function backInComposer(now: string, sent: string): string {
 }
 
 /**
+ * Where a message that did not reach KOS is kept, in one place only so it
+ * cannot be sent twice: under its own bubble, with Retry and Edit; back in
+ * the composer when it has no bubble (a command, words sent mid-turn); and
+ * nowhere when the server queued it all the same, where it shows as its row.
+ */
+export function unsentHome(sent: { reached: boolean; command: boolean; midTurn: boolean }): "bubble" | "composer" | "none" {
+  if (sent.reached) return "none";
+  return sent.command || sent.midTurn ? "composer" : "bubble";
+}
+
+/**
  * Enter sends, Shift+Enter starts a new line.
  *
  * This is what every chat surface does, so anything else is a small daily

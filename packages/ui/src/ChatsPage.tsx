@@ -36,6 +36,7 @@ import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
   api,
   type CronJob,
+  type Attachment,
   type ChatEvent,
   type Conversation,
   type PageSummary,
@@ -88,7 +89,7 @@ import { Modal } from "./Modal.js";
 import { HandoffForm } from "./HandoffForm.js";
 import { hrefFor } from "./routes.js";
 import { fileMention } from "./finder/model.js";
-import { backInComposer, composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
+import { backInComposer, composerKeyDown, unsentHome, useAutoGrow, useStickToBottom } from "./composer.js";
 
 /**
  * The chats page: a list that stays usable at fifty conversations, and the
@@ -183,6 +184,12 @@ export interface ChatsPageProps {
 
 
 /** A title cut to a length, with an ellipsis: the composer's placeholder names the chat however long it is. */
+/** A message that did not reach KOS, as Retry sends it again. */
+interface Unsent {
+  text: string;
+  files: Attachment[];
+}
+
 function clipped(title: string, max: number): string {
   return title.length > max ? `${title.slice(0, max - 1).trimEnd()}…` : title;
 }
@@ -275,6 +282,8 @@ export function ChatsPage({
   const [draft, setDraft] = useState("");
   // KOS not answering this tab: sending waits, and says so, until it is back.
   const reach = useReach();
+  // The files of each message that did not reach KOS, by its bubble, for its Retry and Edit.
+  const unsentFiles = useRef(new Map<ChatEvent, Attachment[]>());
   /** References put in the composer after what is typed, and the composer focused for the question. */
   const addToDraft = (words: string): void => {
     setDraft((d) => (d.trim() ? `${d.replace(/\s+$/, "")} ${words} ` : `${words} `));
@@ -990,11 +999,16 @@ export function ChatsPage({
    * Sends what is in the composer, or, given words, those words alone: a
    * typed block's Send speaks for the owner and leaves the composer as it is.
    */
-  async function send(spoken?: string): Promise<void> {
-    const composed = spoken === undefined;
-    const text = composed ? draft.trim() : spoken;
+  /**
+   * Send what the composer holds; or words said another way (`spoken`); or,
+   * `again`, a message that did not reach KOS, from its bubble, which leaves
+   * whatever the composer holds now alone.
+   */
+  async function send(spoken?: string, again?: Unsent): Promise<void> {
+    const composed = spoken === undefined && again === undefined;
+    const text = again ? again.text : composed ? draft.trim() : (spoken ?? "");
     const target = activeId;
-    if ((!text && (!composed || attachments.files.length === 0)) || !target) return;
+    if ((!text && (!composed || attachments.files.length === 0) && !again?.files.length) || !target) return;
     // Nothing goes while KOS is not answering: the words stay in the box until it is back.
     if (reach.down) return;
     if (composed && runLocally(text)) {
@@ -1005,7 +1019,7 @@ export function ChatsPage({
     // way: the bubble carries its attachments straight away and the composer
     // is empty. Waiting for the turn meant the files sat in the composer,
     // looking unsent, until the answer came back.
-    const files = composed ? attachments.files : [];
+    const files = again ? again.files : composed ? attachments.files : [];
     // A command is not part of the conversation, so it gets no bubble: one
     // appeared and was taken away again by the reload a moment later.
     const looksLikeCommand = /^\/\S/.test(text) && files.length === 0;
@@ -1105,9 +1119,13 @@ export function ChatsPage({
       const unsent = !waiting || !queuedAnyway(waiting, before, text);
       // The owner's own bubble stays, marked as not sent and why, where KOS's reply would have gone before.
       // Never the browser's words in KOS's slot: that read as KOS answering "Error: Failed to fetch".
-      setEvents((e) => (unsent && !looksLikeCommand ? e.map((x) => (x === bubble ? { ...bubble, unsent: msg } : x)) : e.filter((x) => x !== bubble)));
+      // Its words and files are kept with it, for Retry or Edit, and not put back in the composer as well:
+      // in both places, Send and Retry sent it twice.
+      const home = unsentHome({ reached: !unsent, command: looksLikeCommand, midTurn: aside !== null });
+      if (home === "bubble") unsentFiles.current.set(bubble, files);
+      setEvents((e) => (home === "bubble" ? e.map((x) => (x === bubble ? { ...bubble, unsent: msg } : x)) : e.filter((x) => x !== bubble)));
       if (looksLikeCommand || aside) onNotice(msg);
-      if (composed && unsent) {
+      if (composed && home === "composer") {
         setDraft((d) => backInComposer(d, text));
         attachments.restore(files);
       }
@@ -1370,9 +1388,20 @@ export function ChatsPage({
           reason={e.unsent}
           down={reach.down}
           onRetry={() => {
-            // Its words went back in the box; sent from there, the bubble is drawn again.
+            // Sent again from the bubble, which the send draws anew; the composer is left as it is.
+            const files = unsentFiles.current.get(e) ?? [];
+            unsentFiles.current.delete(e);
             setEvents((all) => all.filter((x) => x !== e));
-            void send();
+            void send(undefined, { text: e.text, files });
+          }}
+          onEdit={() => {
+            // Back in the composer to change, and gone from the thread, so it is in one place only.
+            const files = unsentFiles.current.get(e) ?? [];
+            unsentFiles.current.delete(e);
+            setEvents((all) => all.filter((x) => x !== e));
+            setDraft((d) => backInComposer(d, e.text));
+            attachments.restore(files);
+            inputRef.current?.focus();
           }}
         />
       </Fragment>
