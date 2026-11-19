@@ -83,7 +83,7 @@ function untrack(kill) {
 export async function launchHeadless({ binary = CHROME, args = [], prefix = "kos-headless-" } = {}) {
   const port = await freePort();
   const profile = mkdtempSync(join(tmpdir(), prefix));
-  const proc = spawn(binary, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...args, "about:blank"], { stdio: "ignore", detached: true });
+  const proc = spawn(binary, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--use-mock-keychain", ...args, "about:blank"], { stdio: "ignore", detached: true });
   const exited = new Promise((resolve) => {
     proc.once("exit", resolve);
     proc.once("error", resolve);
