@@ -246,6 +246,14 @@ export interface BrowserLiveOptions {
   pageLimits?: Partial<PageLimits>;
   now?: () => number;
   report?: (message: string) => void;
+  /**
+   * Every saved secret's values, read where the host keeps them (the
+   * scrubber's registry), never copied: masked in every tab's words and
+   * pictures, whichever conversation it is, and after a restart.
+   */
+  saved?: () => readonly FilledValue[];
+  /** Whether an origin is on a site a saved secret may be filled on: browser.eval runs in no page with such a frame. */
+  evalBlocked?: (origin: string) => boolean;
 }
 
 interface Target {
@@ -388,7 +396,14 @@ export class BrowserLive {
       // The session is looked up at each call, so a tab re-attached after a detach is still reached.
       page = new Page(
         { send: async (method, params, timeoutMs) => this.cdp.send(method, params, await this.sessionFor(tab), timeoutMs) },
-        { now: this.now, ...(this.options.pageLimits ? { limits: this.options.pageLimits } : {}), gate: (signal) => this.whileHeld(tab, signal), kin: () => this.kinOf(tab) },
+        {
+          now: this.now,
+          ...(this.options.pageLimits ? { limits: this.options.pageLimits } : {}),
+          gate: (signal) => this.whileHeld(tab, signal),
+          kin: () => this.kinOf(tab),
+          ...(this.options.saved ? { saved: this.options.saved } : {}),
+          ...(this.options.evalBlocked ? { evalBlocked: this.options.evalBlocked } : {}),
+        },
       );
       this.pages.set(tab, page);
     }

@@ -74,6 +74,10 @@ export interface PageOptions {
   gate?: (signal?: AbortSignal) => Promise<boolean>;
   /** The tabs this one shares its secrets with (its conversation's), looked up at each use: none for a tab of no one's. */
   kin?: () => Kin | undefined;
+  /** Every saved secret's values, masked in every tab whether or not one was filled (the vault's, as the scrubber holds them). */
+  saved?: () => readonly FilledValue[];
+  /** Whether an origin is a site a saved secret may be filled on, where no script of KOS's runs. */
+  evalBlocked?: (origin: string) => boolean;
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
@@ -234,12 +238,12 @@ export interface FillExpect extends Omit<FieldSpot, "field"> {
  * Why a secret was not filled. Never holds the value. `code` is what the
  * use is recorded as (refused:<code>): the ref is not of this page's last
  * look, the page changed, its origin or the field's frame is not the one
- * approved, the field is not one the secret may go into, or it is in a
- * frame KOS cannot reach.
+ * approved, the field is not one the secret may go into, it is in a
+ * frame KOS cannot reach, or a script of KOS's ran in the page.
  */
 export class SecretRefused extends Error {
   constructor(
-    readonly code: "ref" | "changed" | "origin" | "field" | "unreachable" | "focus",
+    readonly code: "ref" | "changed" | "origin" | "field" | "unreachable" | "focus" | "scripted",
     message: string,
   ) {
     super(message);
@@ -316,6 +320,10 @@ export class Page {
   private readonly now: () => number;
   private readonly gate: (signal?: AbortSignal) => Promise<boolean>;
   private readonly kin: () => Kin | undefined;
+  private readonly saved: () => readonly FilledValue[];
+  private readonly evalBlocked: (origin: string) => boolean;
+  /** Documents (by loader) a script of KOS's ran in: one may have left a hook for what is filled, so none is filled there. */
+  private readonly scripted = new Set<string>();
 
   constructor(
     private readonly session: Session,
@@ -325,6 +333,8 @@ export class Page {
     this.now = options.now ?? Date.now;
     this.gate = options.gate ?? (async () => false);
     this.kin = options.kin ?? (() => undefined);
+    this.saved = options.saved ?? (() => []);
+    this.evalBlocked = options.evalBlocked ?? (() => false);
   }
 
   /**
@@ -553,6 +563,15 @@ export class Page {
   async evaluate(code: string): Promise<string> {
     // A script could read a secret straight out of its field.
     if (this.holding()) throw new Error(`browser.eval is refused: ${TAINTED}`);
+    // On a site a secret may be filled on, a script could read a copy the site keeps, or wait for the next fill.
+    for (const { origin } of (await this.frameTree()).values()) {
+      if (this.evalBlocked(origin)) {
+        throw new Error(
+          `browser.eval is refused on ${origin}: a saved secret may be filled on this site, so no script of KOS's runs in its pages. Looking, reading, acting with steps and browser.handoff still work here.`,
+        );
+      }
+    }
+    this.scripted.add(this.life.loader);
     const answer = await this.send(
       "Runtime.evaluate",
       { expression: code, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
@@ -679,6 +698,7 @@ export class Page {
   async fillSecret(ref: string, value: string, expect: FillExpect): Promise<void> {
     const node = this.refNode(ref);
     if (this.life.loader !== expect.doc) throw new SecretRefused("changed", "the page changed since you approved; look again and ask again");
+    if (this.scripted.has(this.life.loader)) throw new SecretRefused("scripted", "a script of yours ran in this page (browser.eval) and could catch what is filled; open the page afresh, look again and ask again");
     const frame = await this.frameOf(node);
     const frames = await this.frameTree();
     const origin = frames.get(this.mainFrame)?.origin ?? "";
@@ -798,10 +818,11 @@ export class Page {
     return this.holdsSecret() || this.kin()?.holding() === true;
   }
 
-  /** Every value filled in this tab or any it shares its secrets with. */
+  /** Every value filled in this tab or any it shares its secrets with, and every saved secret's. */
   private values(): FilledValue[] {
-    const kin = this.kin()?.values ?? [];
-    return [...this.filled, ...kin.filter((v) => !this.filled.some((own) => own.text === v.text))];
+    const out = [...this.filled];
+    for (const v of [...(this.kin()?.values ?? []), ...this.saved()]) if (!out.some((had) => had.text === v.text)) out.push(v);
+    return out;
   }
 
   /** Text read from the page with every secret filled into it said as hidden, where the page echoes one. */

@@ -104,9 +104,25 @@ export function echoPatterns(values: readonly FilledValue[], min = ECHO_MIN): st
   return out;
 }
 
+/** Each value's pattern, made once: text is cleaned line by line against every saved secret. */
+const compiled = new WeakMap<FilledValue, RegExp | null>();
+
+function patternOf(value: FilledValue): RegExp | null {
+  let pattern = compiled.get(value);
+  if (pattern === undefined) {
+    const [source] = echoPatterns([value]);
+    pattern = source === undefined ? null : new RegExp(source, "g");
+    compiled.set(value, pattern);
+  }
+  return pattern;
+}
+
 /** `text` with every filled value said as hidden. */
 export function unechoed(text: string, values: readonly FilledValue[]): string {
   let out = text;
-  for (const source of echoPatterns(values)) out = out.replace(new RegExp(source, "g"), HIDDEN_VALUE);
+  for (const value of values) {
+    const pattern = patternOf(value);
+    if (pattern) out = out.replace(pattern, HIDDEN_VALUE);
+  }
   return out;
 }

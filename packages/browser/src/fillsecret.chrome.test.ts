@@ -82,6 +82,8 @@ ${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTru
       );
     // Keys only, and nothing in the way: typed for real.
     if (req.url === "/keys") return html(page("Keys", `<label>Password <input id=pw type=password></label><script>const pw = document.getElementById('pw'); pw.addEventListener('input', (e) => { if (!e.isTrusted) pw.value = ''; });</script>`));
+    // A sign-in page that opens a window of its own, which can reach back to it.
+    if (req.url === "/opener") return html(page("Opener", `<label>Password <input id=pw type=password></label><button id=pop onclick="window.open('/next', 'kid')">Open</button>`));
     if (req.url === "/getform") return html(page("Get", `<form method=get action="/echo"><label>Password <input id=pw type=password name=pw></label></form>`));
     // Forms the browser sends by GET though they do not say so: no method, one it does not know, a submit button's formmethod.
     if (req.url === "/nomethod") return html(page("Get", `<form action="/echo"><label>Password <input id=pw type=password name=pw></label></form>`));
@@ -386,9 +388,9 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
   });
 
   it("keeps every tab of the conversation from a secret: a popup reads nothing of its opener", async () => {
-    const seen = (await visit(tab, [`${base}/?popup`], { then: "look", until: "load" })).text;
+    const seen = (await visit(tab, [`${base}/opener`], { then: "look", until: "load" })).text;
     const before = live.tabsOf("fill").length;
-    await evaluate(tab, "window.open('/next', 'kid'); 1");
+    await act(tab, stepsOf([{ click: refOf(seen, "Open") }]), "none");
     const deadline = Date.now() + 5_000;
     while (live.tabsOf("fill").length === before && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
     const kid = live.tabsOf("fill").find((t) => t !== live.tabOf("fill"))!;
