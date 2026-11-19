@@ -827,6 +827,7 @@ export class Kernel {
       },
       onToolRan: (tool) => this.afterToolRan(tool),
       handleMessage: (text, opts) => this.handleMessage(text, opts),
+      halted: () => this.killSwitch.halted,
     });
     this.caretaker = new Caretaker({
       ownerId: args.profile.ownerId,

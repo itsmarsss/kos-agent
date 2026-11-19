@@ -263,7 +263,7 @@ describe("channelGuidance", () => {
   });
 
   it("shows a caller's words as the caller's, fenced, never as the owner's earlier words", () => {
-    const event = (role: "owner" | "agent", text: string, trust: "owner" | "external", caller = "kos") => ({ id: 1, ts: 0, userId: "o", conversationId: null, projectSlug: null, caller, role, kind: "message", text, trust, shadowed: false });
+    const event = (role: "owner" | "agent", text: string, trust: "owner" | "external", caller = "kos") => ({ id: 1, ts: 0, userId: "o", conversationId: null, projectSlug: null, caller, role, kind: "message", text, trust, shadowed: false, score: 1 });
     const { turnContext } = assembleSystemPrompt({
       baseSystem: "You are KOS.",
       profile: DEFAULT_PROFILE,

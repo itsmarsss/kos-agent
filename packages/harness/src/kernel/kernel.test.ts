@@ -856,6 +856,15 @@ describe("Kernel", () => {
     expect(readFileSync(join(root, "blobs", "recap", "uploads", "notes.txt"), "utf8")).toBe("hi");
   });
 
+  it("lapses a deleted chat's asks, so a later yes runs nothing as nobody's", async () => {
+    kernel = await boot(stubInference([]));
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Gone soon" });
+    const ask = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "notes/x.md" }, riskTier: "risky", reason: "r", conversationId: c.id });
+    kernel.conversations.remove(c.id);
+    expect(kernel.approvals.get(ask.id)?.status).toBe("expired");
+    expect((await kernel.approve(ask.id, undefined, { surface: "dashboard" })).ok).toBe(false);
+  });
+
   it("never keeps an attachment through a link planted in the uploads folder, or into a linked one", async () => {
     const reply = (): ModelResponse => ({ content: [{ type: "text", text: "Kept." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
     kernel = await boot({ generate: async () => reply() });
