@@ -295,6 +295,19 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     expect(await evaluate(tab, "document.title")).toContain("Next");
   });
 
+  it("takes keys on the page around a frame holding a secret, where the frame still says its field is focused", async () => {
+    const seen = await open();
+    const card = refOf(seen, "Card number");
+    await fillSecrets(tab, [{ ref: card, value: CARD, expect: await expectFor(card, "card-number") }], "none");
+    await expect(act(tab, stepsOf([{ click: card }, { press: "x" }]), "none")).rejects.toThrow(/x is refused/);
+    await act(tab, stepsOf([{ click: refOf(seen, "Nickname") }, { press: "x" }, { press: "Backspace" }]), "none");
+    // The frame goes: its field with it, and keys still type on the page.
+    await sessionOf(tab).send("Runtime.evaluate", { expression: "document.getElementById('payframe').remove()" });
+    await act(tab, stepsOf([{ click: refOf(seen, "Nickname") }, { press: "y" }]), "none");
+    expect(await peek("document.getElementById('nick').value")).toBe("y");
+    await visit(tab, [`${base}/next`], { then: "none" });
+  });
+
   it("refuses a page or a frame other than the one approved, and a page changed since", async () => {
     const seen = await open();
     const pw = refOf(seen, "Password");

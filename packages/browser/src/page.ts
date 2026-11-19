@@ -475,9 +475,14 @@ export class Page {
         }
         break;
       }
-      case "Page.frameDetached":
-        this.worlds.delete(String(p["frameId"] ?? ""));
+      case "Page.frameDetached": {
+        const frame = String(p["frameId"] ?? "");
+        this.worlds.delete(frame);
+        // Its fields went with it. A page that held only those is still held whole: which of its own may echo them is not known.
+        const taint = this.secrets.taint;
+        if (taint) for (const [node, at] of taint.nodes) if (at === frame) taint.nodes.delete(node);
         break;
+      }
       case "Page.navigatedWithinDocument":
         if (p["frameId"] === this.mainFrame) {
           this.url = String(p["url"] ?? "");
@@ -1017,15 +1022,33 @@ export class Page {
     const edits = (press.text !== undefined && press.key !== "Enter") || press.key === "Backspace" || press.key === "Delete";
     if (!taint || !(carries || edits)) return false;
     if (taint.nodes.size === 0) return carries;
-    for (const frame of new Set(taint.nodes.values())) {
+    const focused = await this.keyboardAt();
+    // Where the keyboard is cannot be told: a copy is refused, as it could carry the secret; a key that types is let be.
+    if (focused === "unknown") return carries;
+    return focused !== undefined && taint.nodes.has(focused);
+  }
+
+  /**
+   * The element a key goes to, followed down from the main frame: the
+   * focused element in each frame, into the frame it is, if it is one. A
+   * frame keeps its own focused element after the keyboard leaves it, so
+   * only the chain from the top says where a key lands. Unknown where a
+   * frame on the way has no world of KOS's own (another process's).
+   */
+  private async keyboardAt(): Promise<number | undefined | "unknown"> {
+    let frame = this.mainFrame;
+    for (let depth = 0; depth <= FRAMES_MAX; depth++) {
       const context = await this.world(frame);
-      // A frame KOS cannot look into is taken to have the field focused.
-      if (context === undefined) return true;
+      if (context === undefined) return "unknown";
       const got = await this.send("Runtime.evaluate", { expression: `(${inpage.focusedHere.toString()})()`, contextId: context, objectGroup: GROUP });
       const objectId = (got["result"] as { objectId?: string } | undefined)?.objectId;
-      if (objectId && taint.nodes.has(await this.backendOf(objectId))) return true;
+      if (!objectId) return undefined;
+      const node = (await this.send("DOM.describeNode", { objectId }))["node"] as { backendNodeId?: number; frameId?: string } | undefined;
+      if (node?.backendNodeId === undefined) return "unknown";
+      if (!node.frameId) return node.backendNodeId;
+      frame = node.frameId;
     }
-    return false;
+    return "unknown";
   }
 
   /** The element a ref from this document's last look names. */

@@ -371,3 +371,58 @@ describe("where the tab is", () => {
     expect(calls.some((c) => c.method === "Page.navigateToHistoryEntry")).toBe(false);
   });
 });
+
+describe("a key on a page holding a secret in a frame", () => {
+  /** A page whose secret is in frame C's field 10; where the keyboard is, by frame, is `focus`; a frame not in `worlds` has none of KOS's own. */
+  const holding = (focus: Record<string, { objectId: string; node: number; frameId?: string } | undefined>, worlds = ["F", "C"]) => {
+    const ids = new Map(Object.values(focus).flatMap((f) => (f ? [[f.objectId, f] as const] : [])));
+    const { session, calls } = tab({
+      "Page.getFrameTree": () => FRAME,
+      "Page.createIsolatedWorld": (p) => {
+        const frame = String(p["frameId"]);
+        if (!worlds.includes(frame)) throw Object.assign(new Error("not passed on"), { code: "method" });
+        return { executionContextId: worlds.indexOf(frame) + 1 };
+      },
+      "Runtime.evaluate": (p) => {
+        if (!String(p["expression"]).includes(inpage.focusedHere.toString())) return { result: { value: "complete" } };
+        const at = focus[worlds[Number(p["contextId"]) - 1]!];
+        return { result: at ? { objectId: at.objectId } : {} };
+      },
+      "DOM.describeNode": (p) => {
+        const at = ids.get(String(p["objectId"]));
+        return { node: { backendNodeId: at?.node, ...(at?.frameId ? { frameId: at.frameId } : {}) } };
+      },
+    });
+    const page = new Page(session, { secrets: { taint: { loader: "L", nodes: new Map([[10, "C"]]) }, urls: new Set(), filled: [] } });
+    return { page, calls };
+  };
+  const typed = (calls: { method: string }[]): number => calls.filter((c) => c.method === "Input.dispatchKeyEvent").length;
+
+  it("follows the keyboard down from the main frame: a frame left focused on its field takes no key", async () => {
+    const field = { objectId: "field", node: 10 };
+    const into = holding({ F: { objectId: "frame", node: 5, frameId: "C" }, C: field });
+    await into.page.ready();
+    await expect(into.page.step({ press: "x" })).rejects.toThrow(/is refused/);
+    await expect(into.page.step({ press: "Backspace" })).rejects.toThrow(/is refused/);
+    // The keyboard is on the main page's own field: the frame still says its field is focused, and that is no matter.
+    const away = holding({ F: { objectId: "user", node: 7 }, C: field });
+    await away.page.ready();
+    await away.page.step({ press: "x" });
+    await away.page.step({ press: "Meta+c" });
+    expect(typed(away.calls)).toBeGreaterThan(0);
+  });
+
+  it("refuses only a copy where the keyboard cannot be followed, and lets go of a frame's fields when it goes", async () => {
+    const { page, calls } = holding({ F: { objectId: "frame", node: 5, frameId: "C" } }, ["F"]);
+    await page.ready();
+    await expect(page.step({ press: "Meta+c" })).rejects.toThrow(/is refused/);
+    await page.step({ press: "x" });
+    expect(typed(calls)).toBeGreaterThan(0);
+    // The frame went: the page is held whole, so no copy anywhere, and keys type.
+    const gone = holding({ F: { objectId: "user", node: 7 } });
+    await gone.page.ready();
+    gone.page.handle({ method: "Page.frameDetached", params: { frameId: "C" } });
+    await expect(gone.page.step({ press: "Meta+c" })).rejects.toThrow(/is refused/);
+    await gone.page.step({ press: "Backspace" });
+  });
+});
