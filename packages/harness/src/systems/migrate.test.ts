@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
 import { openDatabase } from "../store/db.js";
-import { Migrator, buildMigrationSql, parseChangeSpec } from "./migrate.js";
+import { Migrator, buildMigrationSql, parseChangeSpec, type ChangeSpec } from "./migrate.js";
 import { registeredTables } from "./registered.js";
 
 describe("buildMigrationSql", () => {
@@ -371,13 +371,13 @@ describe("a project's migrations reach its own tables only", () => {
 
   it("refuses every step on a sibling's table, a rename included, and takes nothing over", () => {
     // budget_tracker_expenses reads as budget's tracker_expenses by name alone.
-    const steps = [
+    const steps: ChangeSpec[] = [
       { op: "add_column", table: "tracker_expenses", column: { name: "note", type: "TEXT" } },
       { op: "drop_column", table: "tracker_expenses", column: "id" },
       { op: "rename_column", table: "tracker_expenses", from: "id", to: "key" },
       { op: "create_index", table: "tracker_expenses", columns: ["id"] },
       { op: "rename_table", from: "tracker_expenses", to: "mine" },
-    ] as const;
+    ];
     for (const step of steps) expect(() => migrator.migrate("budget", step)).toThrow(/not a table project "budget" made/);
     expect(ws.db.prepare(`SELECT name FROM pragma_table_info('budget_tracker_expenses')`).all()).toEqual([{ name: "id" }]);
     expect([...registeredTables(ws.db, "budget")]).toEqual(["budget_tx"]);
