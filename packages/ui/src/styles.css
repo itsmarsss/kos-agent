@@ -609,6 +609,27 @@ select {
 .ops-toast--err { border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
 .ops-toast--err .ops-toast-icon { background: var(--danger-dim); color: var(--danger); }
 
+/* KOS not there for this tab: one slim line over the page, in the warn
+   tone while it retries and the danger tone when only a reload mends it. */
+.host-banner {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: var(--control-h-sm);
+  padding: 0.3rem 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+  background: color-mix(in srgb, var(--warn-dim) 80%, var(--bg));
+  color: var(--text);
+  font-size: var(--text-md);
+}
+.host-banner > svg { flex: none; color: var(--warn); }
+.host-banner-text { min-width: 0; flex: 1 1 auto; }
+.host-banner--stale { border-bottom-color: color-mix(in srgb, var(--danger) 40%, var(--line)); background: color-mix(in srgb, var(--danger-dim) 80%, var(--bg)); }
+.host-banner--stale > svg { color: var(--danger); }
+
 /* agent pages (keep usable) */
 .kos-page {
   display: grid;
@@ -2079,6 +2100,20 @@ select {
 }
 /* The owner's words in a tinted bubble with its corner toward them; KOS's
    as prose on the page, as the side panel draws them (docs/design.md, Chat). */
+/* The owner's message that never reached KOS: under its bubble, in the
+   danger tone, with Retry. */
+.chat-unsent {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin: 0.3rem 0 0;
+  color: var(--danger);
+  font-size: var(--text-md);
+}
+.chat-unsent > svg { flex: none; }
+.chat-unsent-text { min-width: 0; }
+
 .bubble--you {
   align-self: flex-end;
   background: color-mix(in srgb, var(--accent) 18%, var(--panel-2));
@@ -4231,6 +4266,7 @@ li:hover .chats-item-when { opacity: 0; }
   align-items: stretch;
 }
 .home-cell { min-width: 0; }
+.home-cell > .panel { height: 100%; box-sizing: border-box; }
 .home-cell--quarter { grid-column: span 3; }
 .home-cell--third { grid-column: span 4; }
 .home-cell--half { grid-column: span 6; }
@@ -4252,7 +4288,6 @@ li:hover .chats-item-when { opacity: 0; }
 .home-add-label {
   display: block;
   margin-bottom: 0.5rem;
-.home-cell > .panel { height: 100%; box-sizing: border-box; }
 }
 .home-add-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .home-add-item {
@@ -7068,6 +7103,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 
 /* A project's mark at a row's size: on a card, a project's head, the drawer's head. */
 .hero-mark--sm { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+/* A project's mark is its first letter, as the rail and Files draw it, at the tile's size. */
+.hero-mark--letter { font-weight: 700; font-size: var(--text-md); line-height: 1; }
 
 /* The project drawer's head: the mark on its colour, the words, Edit beside Close. */
 .insp-head--hero { align-items: flex-start; background: linear-gradient(180deg, hsl(var(--blob-h, 214) 72% 62% / 0.12), transparent); }

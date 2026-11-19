@@ -20,6 +20,7 @@ import { hrefFor, NAV, navActive, type Route } from "./routes.js";
 export function Sidebar({
   route,
   status,
+  down,
   inboxCount,
   busy,
   onSearch,
@@ -34,6 +35,8 @@ export function Sidebar({
 }: {
   route: Route;
   status: Status | null;
+  /** KOS has stopped answering this tab: the status above is from before. */
+  down: boolean;
   /** (KOS's face is read from context; see @kos/kit's Face.tsx.) */
   /** Everything waiting on the owner, for the badge beside Inbox. */
   inboxCount: number;
@@ -81,8 +84,9 @@ export function Sidebar({
   useDismiss(open, () => setOpen(false), { away: false, scroll: false, resize: false, escape: "dialog" });
 
   const failing = status?.unhealthy ?? 0;
-  const healthClass = status?.halted ? "health--halted" : failing > 0 ? "health--bad" : "health--ok";
-  const healthText = status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "Running";
+  // A status read before KOS stopped answering says nothing about now.
+  const healthClass = down ? "health--bad" : status?.halted ? "health--halted" : failing > 0 ? "health--bad" : "health--ok";
+  const healthText = down ? "Can't reach KOS" : status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "Running";
   const model = status?.routes?.["reasoning"];
 
   return (

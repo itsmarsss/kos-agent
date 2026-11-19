@@ -52,6 +52,8 @@ import { WidgetPage } from "./WidgetPage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { Refreshes } from "./refreshes.js";
+import { HostBanner } from "./HostBanner.js";
+import { useReach } from "./reach.js";
 import { agoWords } from "./schedulewords.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
@@ -76,6 +78,8 @@ export function App(): React.ReactElement {
     parseRoute(window.location.hash),
   );
   const [status, setStatus] = useState<Status | null>(null);
+  // Whether KOS is answering this tab, and whether the page is from an earlier boot.
+  const reach = useReach();
   /** Where the owner's theme choices here stood when the status shown was asked for. */
   const statusStamp = useRef(0);
   // The page's own scrolling, the main column's on most pages, under the overlay thumb the chats and settings panes have.
@@ -682,6 +686,7 @@ export function App(): React.ReactElement {
       <Sidebar
         route={route}
         status={status}
+        down={reach.down}
         inboxCount={inbox ? inbox.approvals.length + inbox.decisions.length + inbox.failures.length + inbox.suggestions.length : approvals.length}
         busy={busy}
         onSearch={() => setPaletteOpen(true)}
@@ -703,6 +708,7 @@ export function App(): React.ReactElement {
         onToggleKill={() => void toggleKill()}
       />
       <main className="ops">
+        <HostBanner reach={reach} />
         <AnimatePresence>
           {toast && (
             <m.div
