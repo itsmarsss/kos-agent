@@ -85,6 +85,18 @@ export function drawnFromText(file: Pick<FileContent, "path" | "text">): boolean
   return file.text !== undefined && (isSvgPath(file.path) || /\.json$/i.test(file.path));
 }
 
+/** A file the window cannot draw, with the way to get at it. */
+function Unshown({ path, why }: { path: string; why: string }): ReactElement {
+  return (
+    <div className="preview-hint preview-unshown">
+      <p className="hint">{why}</p>
+      <button type="button" className="btn btn--sm" onClick={() => void api.downloadFile(path).catch(() => {})}>
+        Download
+      </button>
+    </div>
+  );
+}
+
 /** The file's contents, shown for what they are; `raw` is the text as it is on disk, for a file drawn from its text. */
 export function FileBody({ file, raw = false }: { file: FileContent; raw?: boolean }): ReactElement {
   // A document, a workbook or a deck is drawn as itself; its words are a Raw away.
@@ -94,9 +106,9 @@ export function FileBody({ file, raw = false }: { file: FileContent; raw?: boole
   if (file.omitted === "binary") {
     if (previewable(file.path)) return <ImageView path={file.path} />;
     if (isPdfPath(file.path)) return <Signed url={pdfViewUrl(file.path)} renew={false}>{(src) => <iframe className="preview-frame" src={src} title={file.path.split("/").pop() ?? file.path} />}</Signed>;
-    return <p className="hint preview-hint">Binary file. Download it, or open the workspace folder.</p>;
+    return <Unshown path={file.path} why="This kind of file can't be shown here." />;
   }
-  if (file.omitted === "too-large") return <p className="hint preview-hint">Too large to show here. Download it instead.</p>;
+  if (file.omitted === "too-large") return <Unshown path={file.path} why="Too large to show here." />;
   if (file.text === undefined) return <p className="hint preview-hint">Nothing to show.</p>;
   if (!raw && isSvgPath(file.path)) return <img className="files-image files-image--svg" src={svgDataUrl(file.text)} alt={file.path.split("/").pop() ?? file.path} />;
   const text = !raw && /\.json$/i.test(file.path) ? prettyJson(file.text) : file.text;

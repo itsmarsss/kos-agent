@@ -6778,6 +6778,8 @@ a.health {
 .preview-body { flex: 1; min-height: 12rem; overflow: auto; display: flex; align-items: flex-start; justify-content: center; }
 .preview-body--image { align-items: center; background: var(--bg); }
 .preview-body .files-image { max-width: 100%; max-height: calc(100vh - 8rem); object-fit: contain; border-radius: 0; }
+.preview-unshown { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; }
+.preview-unshown .hint { margin: 0; }
 /* An SVG may say no size of its own; it is drawn at a size that reads. */
 .preview-body .files-image--svg { width: min(100%, 32rem); height: auto; }
 .preview-hint { margin: 2rem; }
