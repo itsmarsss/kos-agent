@@ -3258,7 +3258,7 @@ export class Kernel {
 
       case "halt":
         if (!owner) return { reply: "Only the owner throws the kill switch." };
-        if (!CONTROL_SURFACES.has(channel)) return { reply: controlElsewhere("Throwing the kill switch") };
+        // Halting is the safe direction: from every owner surface, a text included, so a phone alone can stop KOS.
         this.killSwitch.halt();
         return { reply: "Halted: nothing runs, and every chat is back in Ask, until `/resume`." };
 

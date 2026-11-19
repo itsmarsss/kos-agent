@@ -87,8 +87,8 @@ export interface DecisionsDeps {
 export const DECIDING_SURFACES: ReadonlySet<string> = new Set(["dashboard", "chrome", "mac", "phone", "cli"]);
 
 /**
- * The surfaces that may throw or lift the kill switch, run a job now, or
- * put a chat in Auto: those a secret's ask is decided on, and Discord,
+ * The surfaces that may lift the kill switch, run a job now, or put a chat
+ * in Auto (throwing the kill switch is the safe direction, open to all): those a secret's ask is decided on, and Discord,
  * where the sender is the owner's account as Discord proves it. A text
  * message (SMS, iMessage) is the easiest to pass off as the owner's, so
  * neither is listed, and nor is any surface added later until it is.

@@ -65,14 +65,15 @@ describe("commands every surface runs", () => {
     expect(kernel.chatMode(chat.id).mode).toBe("ask");
   });
 
-  it("never throws or lifts the kill switch, or runs a job, from a text message", async () => {
+  it("halts from a text message, but never lifts the kill switch or runs a job from one", async () => {
     const chat = kernel.conversations.create({ userId: owner(), title: "Overnight" });
+    for (const channel of ["sms", "imessage"]) expect(await run("/run Morning brief", chat.id, channel), channel).toMatch(/^Running a job now is never done/);
     for (const channel of ["sms", "imessage"]) {
-      expect(await run("/halt", chat.id, channel), channel).toMatch(/^Throwing the kill switch is never done/);
-      expect(await run("/run Morning brief", chat.id, channel), channel).toMatch(/^Running a job now is never done/);
+      expect(await run("/halt", chat.id, channel), channel).toMatch(/^Halted/);
+      expect(kernel.killSwitch.halted).toBe(true);
+      kernel.killSwitch.resume();
     }
-    expect(kernel.killSwitch.halted).toBe(false);
-    await run("/halt", chat.id);
+    await run("/halt", chat.id, "sms");
     for (const channel of ["sms", "imessage"]) expect(await run("/resume", chat.id, channel), channel).toMatch(/^Lifting the kill switch is never done/);
     expect(kernel.killSwitch.halted).toBe(true);
     expect(await run("/resume", chat.id, "dashboard")).toMatch(/^Resumed/);
