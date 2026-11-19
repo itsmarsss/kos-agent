@@ -104,24 +104,35 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   the ones approved; each frame around the field must be drawn and in
   view; and the field (`inpage.fillable`, in KOS's own world) must be an
   input of a type the secret fits (a password only into `type=password`, a
-  card number only where its autocomplete or label says so), at least 8 by
-  8, not see-through, in view and on top at its middle, enabled and
-  writable. Then it is focused, selected and the value inserted as typing,
-  and checked to hold it by a yes or no from KOS's world, never read back.
+  card number, a key or a note only where its autocomplete or label says
+  so), at least 8 by 8, not see-through, in view and on top at its middle,
+  enabled and writable, and not in a form sent by GET. The value is set on
+  that node itself, through the native setter and the events typing
+  raises, so it cannot land wherever the keyboard is. Only a page that
+  throws that away gets real typing, and then only while the field has the
+  keyboard before and after (`document.hasFocus()` and the frame's focused
+  element); a page that moves it is refused as `focus`. Either way it is
+  checked to hold the value by a yes or no from KOS's world, never read
+  back.
   A field in a frame of another process (most payment frames on the web)
   is out of reach: the fill says so, and the owner takes the tab. Nothing
   thrown holds the value.
 - **A tainted page.** Once a secret is in (a password, a card's number,
   expiry or CVC, a token, a note; not a username, a name or an address),
   the page is tainted until its document changes: its secret fields read
-  as `(hidden)` in the index and the outline, every place the page echoes a
-  filled value (its text, its title, a dialog) reads as `(hidden)` too,
-  `browser.eval` is refused, and so are Meta or Ctrl with c, x or a while a
-  secret field has the keyboard and typing or filling into one. Every
-  picture of it (what the model is shown, an approval's, a kept frame)
-  is taken with the secret fields' text made unseeable and every echo of a
-  value painted over (a CSS highlight, `kos-secret`), one picture at a
-  time, and put back after; a page that cannot be masked is not pictured.
+  as `(hidden)` in the index and the outline; `browser.eval` is refused,
+  and so are Meta or Ctrl with c, x or a while a secret field has the
+  keyboard, typing or filling into one, and any target but an @ref (a CSS
+  or text selector, a look's or a read's scope, a wait for words or a
+  selector), which could find the value by guessing at it. The values
+  themselves are kept for the tab's life: every place any later page of it
+  echoes one (its text, its title, its address, a dialog) reads as
+  `(hidden)`, and every picture of the tab (what the model is shown, an
+  approval's, a kept frame) is taken with every text box, textarea and
+  editable element of every frame KOS can reach, open shadow roots
+  included, made unseeable, and every echo of a value in text painted over
+  (a CSS highlight, `kos-secret`), one picture at a time, then put back; a
+  page that cannot be masked is not pictured.
   The owner's own screencast of the tab is not masked.
 
 ## Watching and taking over

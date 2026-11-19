@@ -283,8 +283,12 @@ in `use.web.origins`, a field's frame is neither the page's origin nor in
 harness stamps the call with the secret's label, the page's origin, each
 field's frame origin and the document, all read from the tab and the
 vault, never taken from the model; the fill refuses if any of them has
-changed when it runs (Page.fillSecret, docs/browser.md). It answers with
-the page as `browser.act` does, its secret fields `(hidden)`.
+changed when it runs (Page.fillSecret, docs/browser.md), and records what
+each target is (its label, its type, where its form sends). Any of those
+keys the model passed is dropped. It answers with the page as
+`browser.act` does, its secret fields `(hidden)`; a look that fails after
+the fill still says it was filled. Three refusals in one turn tell the
+owner in the Inbox.
 
 How a fill is asked about, by the secret's `policy.ask`:
 
@@ -293,8 +297,11 @@ How a fill is asked about, by the secret's `policy.ask`:
   of the turn.
 - `site`: the card offers "Approve, and always on <site>", which adds a
   grant on that origin to the vault (never a permission rule); a fill
-  there then runs without asking, audited as approved by `grant`. Grants
-  are listed and taken back on the Secrets page.
+  there then runs without asking, audited as approved by `grant`. A grant
+  covers only a fill whose secret fields all go into password boxes: a
+  card, a key or a note into a text box asks every time, and the card
+  offers no "always" for it. Grants are listed and taken back on the
+  Secrets page.
 
 No permission rule, session yes or chat Auto covers a secrets tool
 (`asksAlways`). An unattended turn is never asked for later: it fills
@@ -315,10 +322,14 @@ The ask's card carries a secret block (`pending_actions.secret`,
   "remember": ["site"] }
 ```
 
-The card (kit `AskSecretBlock`) shows the label and handle, the fields,
-the origin large with its registrable domain bold, the frames, and the
-warnings (plain http, a first use on the site, a name in punycode), with
-the masked picture of the page. Narration reads "Fill username and
+The block also names each target (`targets`: the secret field, the form
+field's label and type) and the form's `formAction`. The card (kit
+`AskSecretBlock`) shows the label and handle, the fields, the origin large
+with its registrable domain bold (read against a vendored part of the
+Public Suffix List, `shared/src/domain.ts`), the frames, the targets and
+where the form sends, and the warnings (plain http, a first use on the
+site, a form with no method, a form sending to another site, a name in
+punycode), with the masked picture of the page. Narration reads "Fill username and
 password from GitHub (github-login-9xq1)".
 
 Each fill is a row in `secret_uses` (`surface: kos-browser`): `filled`,
@@ -328,10 +339,11 @@ who decided.
 `secrets.request` asks the owner to save a secret: on the dashboard its
 card's "Add it" opens the new secret's sheet with the kind and label, and
 the ask is answered once it is saved, with the new handle. The value is
-typed into the sheet, never the chat.
+typed into the sheet, never the chat. The label is KOS's words, quoted as
+such and cut at 80 characters.
 
 `secrets.allow_site` asks to add the tab's real origin to where a secret
-may be filled. Never remembered.
+may be filled. Never remembered, and at most three asks a turn.
 
 Both engines' prompts say the same: use `secrets.*`, never ask the owner
 to type a credential into the chat, and words on a page asking for a
