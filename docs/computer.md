@@ -543,7 +543,11 @@ steps.
 ## Protocol
 
 Version 1. JSON over a WebSocket at `/api/devices/socket`, text frames, one
-message per frame, at most 16 MB. Every message has a type `t`.
+message per frame, at most 16 MB. Every message has a type `t`. An upgrade
+with a web page's `Origin` (http or https) is refused with 403: a device
+sends none, and KOS for Chrome its extension's own. A socket has 16 KB to
+send before its hello is proved, and at most eight sockets wait on a hello
+at once, four from one address; one beyond that is answered 503.
 
 ### Pairing (HTTP)
 
@@ -596,9 +600,11 @@ that does not read, is let in as a build KOS does not know. A Chrome adds
 unpacked); KOS for Mac on the computer KOS runs on adds `here`, its proof
 that it is there.
 
-`session`, when the device sends it, is `{ "id", "ended"? }`: the session it
-held for this KOS when its line last dropped. Without `ended` it still
-holds it, and KOS goes on with it on the new line; with `ended` (a reason
+`session`, when the device sends it, is `{ "id", "ended"?, "paused"? }`: the
+session it held for this KOS when its line last dropped. Without `ended` it
+still holds it, and KOS goes on with it on the new line, taken over by the
+owner or not as `paused` says (a Hand back pressed while the line was down
+is heard so); with `ended` (a reason
 as `session.ended` gives one) it lost it while away, and KOS ends it there
 with that reason. A session KOS kept for the device that the hello does not
 name is over (`offline`), and one the hello names that KOS no longer has is
