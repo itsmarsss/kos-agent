@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import { UNCHANGED, WAIT_BUDGET_MS, doneText, pause, runActions, type ActThen, type RunAdapter } from "@kos/shared";
 
-import type { Page } from "./page.js";
+import type { FieldSpot, FillExpect, Page } from "./page.js";
 import { WAIT_FOR_MS, parseStep, type Step } from "./steps.js";
 
 /**
@@ -311,6 +311,44 @@ export async function evaluate(tab: Tab, code: string): Promise<string> {
       return fenced(await tab.page.evaluate(code));
     } finally {
       await tab.page.release();
+    }
+  });
+}
+
+/** Where the elements refs name are, as a secret's ask is judged by: each ref's page origin, frame origin and document. */
+export async function fieldSpots(tab: Tab, refs: string[]): Promise<FieldSpot[]> {
+  return tab.page.run(async () => {
+    await tab.page.ready();
+    try {
+      const out: FieldSpot[] = [];
+      for (const ref of refs) out.push(await tab.page.fieldSpot(ref));
+      return out;
+    } finally {
+      await tab.page.release();
+    }
+  });
+}
+
+/** One secret for one field: the ref, the value, and what must hold for it to go in. */
+export interface SecretFill {
+  ref: string;
+  value: string;
+  expect: FillExpect;
+}
+
+/**
+ * Secrets into fields, in order (see Page.fillSecret), then the page as
+ * `then` says. The first refused stops the rest; those before it are in.
+ */
+export async function fillSecrets(tab: Tab, fills: SecretFill[], then: Then, options: SeeOptions = {}): Promise<Seen> {
+  const page = tab.page;
+  return page.run(async () => {
+    await page.ready();
+    try {
+      for (const fill of fills) await page.fillSecret(fill.ref, fill.value, fill.expect);
+      return await seeAfter(tab, then, undefined, options);
+    } finally {
+      await page.release();
     }
   });
 }

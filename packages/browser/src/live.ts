@@ -639,6 +639,12 @@ export class BrowserLive {
    */
   async capture(tab: string, maxEdge = 900): Promise<string | undefined> {
     if (!this.targets.has(tab)) return undefined;
+    // A page a secret was filled into is pictured masked, or not at all.
+    const page = this.pages.get(tab);
+    return page ? page.masked(() => this.shoot(tab, maxEdge)).catch(() => undefined) : this.shoot(tab, maxEdge);
+  }
+
+  private async shoot(tab: string, maxEdge: number): Promise<string | undefined> {
     const sessionId = await this.sessionFor(tab);
     const metrics: Record<string, unknown> = await this.cdp.send("Page.getLayoutMetrics", {}, sessionId).catch(() => ({}));
     const size = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as Record<string, unknown>;
