@@ -1804,7 +1804,8 @@ select {
 }
 .btn:hover:not(:disabled) { background: color-mix(in srgb, var(--line) 70%, transparent); border-color: var(--line-strong); }
 .btn:active:not(:disabled) { transform: scale(0.97); }
-.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* One ring for every button, the chat head's too (it drew the browser's own 1 px one). */
+.btn:focus-visible, .head-act:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .btn:disabled { opacity: 0.45; cursor: default; }
 .btn--primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
 .btn--primary:hover:not(:disabled) { background: var(--accent-lit); border-color: transparent; }

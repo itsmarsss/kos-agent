@@ -52,12 +52,35 @@ export const ASK_SETTLE_MS = 500;
 /** How long the line saying a press was let go stays. */
 const HELD_CUE_MS = 1600;
 
+/**
+ * Where the focus goes once a decided card has gone: the next ask's Approve,
+ * else whatever the surface marked as next (`data-after-ask`, the chat's
+ * composer), so a keyboard does not fall back to the top of the page. Left
+ * alone when something else has the focus already.
+ */
+function handFocusOn(): void {
+  requestAnimationFrame(() => {
+    const held = document.activeElement;
+    if (held && held !== document.body && held.isConnected) return;
+    const next = document.querySelector<HTMLElement>(".kos-ask .kos-ask-actions .btn--primary:not(:disabled)") ?? document.querySelector<HTMLElement>("[data-after-ask]");
+    next?.focus({ preventScroll: true });
+  });
+}
+
 export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false, onDecide, labels, noRemember = false, compact = false, bare = false, meta, extra, children }: AskCardProps): ReactElement {
   const [pressed, setPressed] = useState<"yes" | "always" | "no" | null>(null);
   useEffect(() => {
     if (!busy) setPressed(null);
   }, [busy]);
   const box = useRef<HTMLElement>(null);
+  // Decided from the keyboard (the focus on the card): when it goes, the focus goes on rather than to the page.
+  const handOn = useRef(false);
+  useEffect(
+    () => () => {
+      if (handOn.current) handFocusOn();
+    },
+    [],
+  );
   // A card just arrived, just moved or just changed is not decided by a press meant for what was there.
   const steady = useSteadyPress(box, ASK_SETTLE_MS, `${tool}\n${JSON.stringify(view)}`);
   // A press let go because the card had just moved, said so for a moment beside the buttons.
@@ -75,6 +98,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       return;
     }
     setPressed(which);
+    handOn.current = box.current?.contains(document.activeElement) === true;
     if (which === "no") onDecide(false);
     else if (which === "always") onDecide(true, true);
     else onDecide(true);
@@ -121,7 +145,10 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       onKeyDown={onKeyDown}
     >
       <div className="kos-ask-head">
-        <span className="kos-ask-who">{asker ? `${asker} asks` : "KOS asks"}</span>
+        {/* Who asks, in a line: a long chat title is cut, and whole in its tooltip. */}
+        <Tooltip tip={asker ? `${asker} asks` : "KOS asks"}>
+          <span className="kos-ask-who">{asker ? `${asker} asks` : "KOS asks"}</span>
+        </Tooltip>
         {expiresAt !== undefined && <Countdown until={expiresAt} />}
       </div>
       {/* With steps, they are what is approved: the title says only what they act on, quieter. */}
@@ -149,12 +176,19 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       {args !== undefined && args !== "" && <AskDetails tool={tool} args={args} />}
       {meta && <p className="kos-ask-meta">{meta}</p>}
       {tooLong && <p className="kos-ask-meta">Too long to show here in full. Open it in the dashboard's Inbox to approve it.</p>}
+      {/* In the order they are seen and tabbed through: Deny, the remembered yes, then Approve, last. */}
       <div className="kos-ask-actions">
-        {!tooLong && (
-          <button type="button" className={`btn btn--primary${size}`} disabled={busy} title="Approve (Enter)" onClick={() => decide("yes")}>
-            {working("yes", labels?.yes ?? "Approve")}
-          </button>
+        {/* Why there is no remembered yes, beside the buttons where it would have been. */}
+        {!always && !noRemember && view.alwaysNote && <span className="kos-ask-note">{view.alwaysNote}</span>}
+        {held && (
+          <span className="kos-ask-held" role="status">
+            This card just moved. Press again.
+          </span>
         )}
+        {extra}
+        <button type="button" className={`btn${size}`} disabled={busy} title="Deny (Esc)" onClick={() => decide("no")}>
+          {working("no", labels?.no ?? "Deny")}
+        </button>
         {always && (
           <button type="button" className={`btn${size}`} disabled={busy} onClick={() => decide("always")}>
             {busy && pressed === "always" ? (
@@ -166,17 +200,11 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
             )}
           </button>
         )}
-        <button type="button" className={`btn${size}`} disabled={busy} title="Deny (Esc)" onClick={() => decide("no")}>
-          {working("no", labels?.no ?? "Deny")}
-        </button>
-        {extra}
-        {held && (
-          <span className="kos-ask-held" role="status">
-            This card just moved. Press again.
-          </span>
+        {!tooLong && (
+          <button type="button" className={`btn btn--primary${size}`} disabled={busy} title="Approve (Enter)" onClick={() => decide("yes")}>
+            {working("yes", labels?.yes ?? "Approve")}
+          </button>
         )}
-        {/* Why there is no remembered yes, beside the buttons where it would have been. */}
-        {!always && !noRemember && view.alwaysNote && <span className="kos-ask-note">{view.alwaysNote}</span>}
       </div>
     </section>
   );

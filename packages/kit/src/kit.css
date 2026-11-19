@@ -533,7 +533,8 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .kos-ask--bare { padding: 0; border: 0; background: transparent; }
 .kos-ask--bare:focus-visible { outline-offset: 4px; border-radius: var(--r-xs); }
 .kos-ask-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.kos-ask-who { color: var(--warn); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Who asks, in sentence case at the small size (uppercase is for section titles): one line, cut, whole in its tooltip. */
+.kos-ask-who { min-width: 0; color: var(--warn); font-size: var(--text-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kos-ask-title { margin: 0; color: var(--text); font-size: var(--text-md); font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .kos-ask-place { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.35; min-width: 0; }
 .kos-ask-place > span { overflow-wrap: anywhere; }
@@ -565,7 +566,8 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .kos-ask-held { align-self: center; color: var(--warn); font-size: var(--text-sm); animation: kos-ask-held 160ms ease-out; }
 @keyframes kos-ask-held { from { opacity: 0; } to { opacity: 1; } }
 .kos-ask-tip { display: block; max-width: 18rem; text-align: left; font-size: var(--text-sm); font-weight: 400; line-height: 1.45; }
-.kos-ask-actions { display: flex; flex-flow: row-reverse wrap; justify-content: flex-start; gap: 6px; margin-top: 6px; }
+/* Deny, the remembered yes, Approve: in the order of the markup, so the eye and Tab read them alike, at the right. */
+.kos-ask-actions { display: flex; flex-flow: row wrap; justify-content: flex-end; gap: 6px; margin-top: 6px; }
 .kos-ask-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding-block: 0; white-space: nowrap; }
 .kos-ask--compact .kos-ask-actions .btn { height: 28px; }
 .kos-ask--compact .kos-ask-title { font-size: var(--text-base); }
@@ -573,7 +575,7 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 @keyframes ask-spin { to { transform: rotate(360deg); } }
 /* Narrow, the buttons stand one to a row under the words, Approve first. */
 @container (max-width: 420px) {
-  .kos-ask-actions { flex-direction: column; }
+  .kos-ask-actions { flex-direction: column-reverse; }
   .kos-ask-note { margin-right: 0; }
   .kos-ask-actions .btn { width: 100%; height: 40px; }
   .kos-ask--compact .kos-ask-actions .btn { height: 34px; }
