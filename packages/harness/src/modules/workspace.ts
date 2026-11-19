@@ -256,7 +256,7 @@ export function serverFor(
 ): McpServerConfig {
   const command = module.manifest.command;
   if (!command) throw new Error(`${module.manifest.name} is a blueprint: it has no server to run`);
-  const { file, args } = options.jail
+  const { file, args, release } = options.jail
     ? jailedProgram(command, module.manifest.args ?? [], {
         workspaceRoot: options.workspaceRoot,
         hidden: [...RESERVED, ".env"].map((name) => join(options.workspaceRoot, name)),
@@ -273,6 +273,8 @@ export function serverFor(
     ...(module.manifest.tools ? { tools: module.manifest.tools } : {}),
     // A blueprint's server is for its instances; a plain module says its own.
     ...(projectsFor(module, options.instances ?? []).length ? { projects: projectsFor(module, options.instances ?? []) } : {}),
+    // What jailing it put in place (a stand-in for a settings file not there), kept until the server is dropped.
+    ...(release ? { release } : {}),
   };
 }
 

@@ -70,3 +70,30 @@ describe("the container", () => {
     expect(dockerfile).toMatch(/^ENTRYPOINT \["\/usr\/bin\/tini", "--"\]$/m);
   });
 });
+
+describe("a run whose jail fails to come undone", () => {
+  it("still settles, with the failure in its result", async () => {
+    const run = await runCaptured(
+      {
+        file: "/bin/sh",
+        args: ["-c", "echo hi"],
+        release: () => {
+          throw new Error("walk blew up");
+        },
+      },
+      { cwd: "/", env: { PATH: "/usr/bin:/bin" }, timeoutMs: 10_000, maxOutput: 1000 },
+    );
+    expect(run.stdout.trim()).toBe("hi");
+    expect(run.releaseFailed).toBe("walk blew up");
+    expect(run.stderr).toContain("walk blew up");
+  });
+
+  it("names planted control it could not take away, loudly", async () => {
+    const run = await runCaptured(
+      { file: "/bin/sh", args: ["-c", "true"], release: () => ({ quarantined: [], quarantineFailed: ["n/.git"] }) },
+      { cwd: "/", env: { PATH: "/usr/bin:/bin" }, timeoutMs: 10_000, maxOutput: 1000 },
+    );
+    expect(run.quarantineFailed).toEqual(["n/.git"]);
+    expect(run.stderr).toMatch(/could not be removed \(n\/\.git\)/);
+  });
+});

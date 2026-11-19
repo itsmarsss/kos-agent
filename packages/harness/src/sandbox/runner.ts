@@ -11,7 +11,7 @@ import { DB_FILENAME } from "../store/workspace.js";
 import { snapshotDatabase } from "./snapshot.js";
 
 /** Where the jail comes from: the platform's sandbox, or the container the host runs in. Tests name it. */
-export type SkillJail = Pick<JailOptions, "contained" | "platform" | "homes">;
+export type SkillJail = Pick<JailOptions, "contained" | "platform" | "homes" | "bubblewrap">;
 
 export interface SandboxOptions {
   /** Absolute workspace root; the entry path is jailed against it. */

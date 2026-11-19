@@ -21,8 +21,8 @@ describe("what a spawned skill inherits", () => {
 
   /** In a skill's own folder, which is where a skill runs from. */
   const ENTRY = "skills/r/reporter.js";
-  /** The platform's sandbox on macOS; elsewhere the test stands in for the container, which is the jail there. */
-  const jail = { contained: process.platform !== "darwin" };
+  /** The platform's sandbox on macOS; elsewhere the test stands in for the container, which is the jail there, bubblewrap or not. */
+  const jail = process.platform === "darwin" ? { contained: false } : { contained: true, bubblewrap: false as const };
 
   /** A skill that reports the environment it was handed. */
   const REPORTER = `

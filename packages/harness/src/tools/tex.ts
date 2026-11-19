@@ -8,7 +8,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { runCaptured, stopOf } from "../sandbox/capture.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
-import { isContained, jailedProgram } from "../sandbox/jail.js";
+import { isContained, jailedProgram, ownJail } from "../sandbox/jail.js";
 import { placeFor, reachOutside } from "./home.js";
 
 
@@ -40,6 +40,8 @@ export interface TexModuleOptions {
   cache?: string;
   platform?: NodeJS.Platform;
   contained?: boolean;
+  /** The bwrap that jails it on Linux, or false for none: found when not given. */
+  bubblewrap?: string | false;
 }
 
 /** Long enough for a first run, which fetches the bundle and builds the format. */
@@ -72,7 +74,7 @@ function pagesOf(log: string): number | undefined {
 export function createTexModule(options: TexModuleOptions = {}): KosModule {
   const timeoutSeconds = options.timeoutSeconds ?? TEX_TIMEOUT_SECONDS;
   const contained = options.contained ?? isContained();
-  const confined = !contained && (options.platform ?? process.platform) === "darwin";
+  const confined = !contained && ownJail(options.platform, options.bubblewrap);
   return {
     manifest: {
       name: "tex",
@@ -125,6 +127,7 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
               services: BUNDLE_SERVICES,
               contained,
               ...(options.platform ? { platform: options.platform } : {}),
+              ...(options.bubblewrap !== undefined ? { bubblewrap: options.bubblewrap } : {}),
             });
             const run = await runCaptured(command, { cwd: dirname(source), env, timeoutMs: seconds * 1000, maxOutput: MAX_LOG, ...stopOf(turnStop.getStore()) });
             const said = `${run.stdout}\n${run.stderr}`;

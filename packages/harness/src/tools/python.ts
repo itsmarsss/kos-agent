@@ -12,7 +12,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
-import { isContained, jailedProgram } from "../sandbox/jail.js";
+import { isContained, jailedProgram, ownJail } from "../sandbox/jail.js";
 import { homeDirs, placeFor } from "./home.js";
 
 /**
@@ -21,11 +21,11 @@ import { homeDirs, placeFor } from "./home.js";
  * The shell asks before anything that runs code, which is right for a shell
  * and wrong for a sum: worked in the head it can be wrong, and a file written
  * and then run is two calls and an approval for one line of arithmetic. This
- * runs at once because of what it cannot do. On macOS the jail gives it no
- * network, the workspace to read but not to write, a fresh folder of its own
- * to write in, and neither the owner's home nor KOS's own files to see. In
- * the container nothing narrower than the container holds it, so there it
- * asks, as the shell does.
+ * runs at once because of what it cannot do. On macOS, and on Linux with
+ * bubblewrap, the jail gives it no network, the workspace to read but not
+ * to write, a fresh folder of its own to write in, and neither the owner's
+ * home nor KOS's own files to see. In the container nothing narrower than
+ * the container holds it, so there it asks, as the shell does.
  */
 
 export interface PythonModuleOptions {
@@ -37,6 +37,8 @@ export interface PythonModuleOptions {
   python?: string;
   platform?: NodeJS.Platform;
   contained?: boolean;
+  /** The bwrap that jails it on Linux, or false for none: found when not given. */
+  bubblewrap?: string | false;
 }
 
 export const PYTHON_TIMEOUT_SECONDS = 30;
@@ -138,7 +140,7 @@ export function createPythonModule(options: PythonModuleOptions = {}): KosModule
   const timeoutSeconds = options.timeoutSeconds ?? PYTHON_TIMEOUT_SECONDS;
   const maxOutput = options.maxOutput ?? PYTHON_MAX_OUTPUT;
   const contained = options.contained ?? isContained();
-  const confined = !contained && (options.platform ?? process.platform) === "darwin";
+  const confined = !contained && ownJail(options.platform, options.bubblewrap);
   let interpreter: Interpreter | undefined;
   return {
     manifest: {
@@ -203,6 +205,7 @@ export function createPythonModule(options: PythonModuleOptions = {}): KosModule
               sealed: true,
               contained,
               ...(options.platform ? { platform: options.platform } : {}),
+              ...(options.bubblewrap !== undefined ? { bubblewrap: options.bubblewrap } : {}),
             });
             const run = await runCaptured(command, {
               cwd,
