@@ -24,6 +24,24 @@ describe("DaemonStore", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("adds the approval columns to a table from before, so its daemons wait to be approved again", () => {
+    const old = Workspace.open(mkdtempSync(join(root, "old-")));
+    try {
+      old.db.exec(`CREATE TABLE daemons (id INTEGER PRIMARY KEY, project TEXT NOT NULL, name TEXT NOT NULL, runtime TEXT NOT NULL,
+        entry TEXT NOT NULL, args TEXT NOT NULL DEFAULT '[]', port INTEGER, enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, UNIQUE (project, name))`);
+      old.db.prepare("INSERT INTO daemons (project, name, runtime, entry, created_at, updated_at) VALUES ('app', 'api', 'node', 'a.js', 0, 0)").run();
+      const upgraded = new DaemonStore(old.db);
+      expect(upgraded.find("app", "api")).toMatchObject({ network: "local", codeHash: null, enabled: true });
+      expect(upgraded.approve(1, "abc")).toMatchObject({ codeHash: "abc", enabled: true, network: "local" });
+      // The network changes only with an approval that names it.
+      expect(upgraded.approve(1, "abd", "open")).toMatchObject({ codeHash: "abd", network: "open" });
+      expect(upgraded.approve(1, "abe")).toMatchObject({ network: "open" });
+    } finally {
+      old.close();
+    }
+  });
+
   it("registers one and finds it by project and name", () => {
     const made = store.create({
       project: "app",

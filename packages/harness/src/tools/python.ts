@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { extname, join } from "node:path";
+import { dirname, extname, join, sep } from "node:path";
 
 import type { ToolImage } from "../models/types.js";
 import { turnStop } from "../kernel/caller.js";
@@ -82,9 +82,35 @@ function runId(now = new Date()): string {
 
 const PICTURE_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg" };
 
-/** The files under a folder, relative to it. */
-function filesUnder(dir: string): string[] {
-  return (readdirSync(dir, { recursive: true }) as string[]).filter((f) => statSync(join(dir, f)).isFile()).sort();
+/**
+ * The regular files under a folder, relative to it. A link is never one:
+ * the program could leave OUT/chart.png pointing at a key outside the
+ * workspace, and the host, which reads these and hands pictures on, would
+ * follow it where the program could not.
+ */
+function filesUnder(dir: string, rel = ""): string[] {
+  // Walked by hand: a recursive readdir descends into a linked folder as if it were one of OUT's own.
+  return readdirSync(join(dir, rel), { withFileTypes: true })
+    .flatMap((entry) => {
+      const path = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) return filesUnder(dir, path);
+      return entry.isFile() ? [path] : [];
+    })
+    .sort();
+}
+
+/** A file under `dir` opened without following a link anywhere on its way, or nothing. */
+function openInside(dir: string, rel: string): number | undefined {
+  const abs = join(dir, rel);
+  // A folder on the way swapped for a link since the listing lands outside OUT, which its real path shows.
+  const real = realpathSync(dirname(abs));
+  const root = realpathSync(dir);
+  if (real !== root && !real.startsWith(`${root}${sep}`)) return undefined;
+  try {
+    return openSync(abs, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    return undefined;
+  }
 }
 
 function picturesOf(dir: string, files: string[]): ToolImage[] {
@@ -92,8 +118,18 @@ function picturesOf(dir: string, files: string[]): ToolImage[] {
   for (const f of files) {
     const mediaType = PICTURE_TYPES[extname(f).toLowerCase()];
     if (!mediaType || pictures.length >= MAX_PICTURES) continue;
-    const bytes = readFileSync(join(dir, f));
-    if (bytes.length <= MAX_PICTURE_BYTES) pictures.push({ mediaType, data: bytes.toString("base64") });
+    const fd = openInside(dir, f);
+    if (fd === undefined) continue;
+    try {
+      // Sized before it is read, from the file that was opened, so a large one is never read at all.
+      const stat = fstatSync(fd);
+      if (!stat.isFile() || stat.size > MAX_PICTURE_BYTES) continue;
+      const bytes = Buffer.alloc(stat.size);
+      const read = readSync(fd, bytes, 0, stat.size, 0);
+      pictures.push({ mediaType, data: bytes.subarray(0, read).toString("base64") });
+    } finally {
+      closeSync(fd);
+    }
   }
   return pictures;
 }

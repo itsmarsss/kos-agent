@@ -1,19 +1,35 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import {
+  adoptUnpinned,
   enabledServers,
   parseModuleManifest,
   parseModuleSettings,
+  pinModule,
   readWorkspaceModules,
+  repinModule,
+  runnableModules,
   scaffoldModule,
   serverFor,
   withBuiltinEnabled,
   withModuleEnabled,
+  type ModuleSettings,
 } from "./workspace.js";
+
+/** Settings with these modules switched on by the owner, as their folders are now. */
+function switchedOn(ws: Workspace, ...names: string[]): ModuleSettings {
+  let settings: ModuleSettings = { enabled: [], disabledBuiltins: [] };
+  const modules = readWorkspaceModules(ws).modules;
+  for (const name of names) {
+    const module = modules.find((m) => m.manifest.name === name);
+    settings = withModuleEnabled(settings, name, true, module ? pinModule(ws, module) : undefined);
+  }
+  return settings;
+}
 
 describe("a module's manifest", () => {
   it("needs a name that is its directory, a description and a command", () => {
@@ -75,14 +91,14 @@ describe("modules in a workspace", () => {
     const { modules, invalid } = readWorkspaceModules(ws);
     expect(invalid).toEqual([]);
     expect(modules[0]?.manifest.blueprint?.type).toBe("budget");
-    expect(enabledServers(ws, ["budget"], false)).toEqual({});
+    expect(enabledServers(ws, switchedOn(ws, "budget"), false)).toEqual({});
   });
 
   it("serves only what the owner switched on, and off is the default", () => {
     scaffoldModule(ws, "one", "One");
     scaffoldModule(ws, "two", "Two");
-    expect(Object.keys(enabledServers(ws, [], false))).toEqual([]);
-    expect(Object.keys(enabledServers(ws, ["two", "ghost"], false))).toEqual(["two"]);
+    expect(Object.keys(enabledServers(ws, { enabled: [], disabledBuiltins: [] }, false))).toEqual([]);
+    expect(Object.keys(enabledServers(ws, switchedOn(ws, "two", "ghost"), false))).toEqual(["two"]);
     expect(parseModuleSettings(undefined)).toEqual({ enabled: [], disabledBuiltins: [] });
     const on = withModuleEnabled({ enabled: [], disabledBuiltins: [] }, "two", true);
     expect(on).toEqual({ enabled: ["two"], disabledBuiltins: [] });
@@ -90,6 +106,66 @@ describe("modules in a workspace", () => {
     const off = withBuiltinEnabled(on, "tasks", false);
     expect(off).toEqual({ enabled: ["two"], disabledBuiltins: ["tasks"] });
     expect(withBuiltinEnabled(off, "tasks", true).disabledBuiltins).toEqual([]);
+  });
+
+  it("runs a module only as the owner switched it on: a changed folder waits, and the floors are the ones they saw", () => {
+    scaffoldModule(ws, "notes", "Notes");
+    const settings = switchedOn(ws, "notes");
+    expect(enabledServers(ws, settings, false)["notes"]).toMatchObject({ command: "node", args: ["server.mjs"], tools: { greet: "safe" } });
+    // The agent rewrites the floors and the program: neither runs.
+    const manifest = join(root, "modules", "notes", "module.json");
+    writeFileSync(manifest, JSON.stringify({ name: "notes", description: "Notes", command: "sh", args: ["-c", "id"], risk: "safe", tools: { greet: "safe", wipe: "safe" } }));
+    const told: string[] = [];
+    expect(enabledServers(ws, settings, false, () => [], (name) => told.push(name))).toEqual({});
+    expect(told).toEqual(["notes"]);
+    expect(runnableModules(ws, settings)).toEqual([]);
+    // Any file in the folder counts, not only the manifest.
+    const fresh = switchedOn(ws, "notes");
+    expect(runnableModules(ws, fresh)).toEqual(["notes"]);
+    writeFileSync(join(root, "modules", "notes", "helper.mjs"), "export {}");
+    expect(runnableModules(ws, fresh)).toEqual([]);
+    // Unpinned, as one switched on before pins were kept: it waits too.
+    expect(runnableModules(ws, { enabled: ["notes"], disabledBuiltins: [] })).toEqual([]);
+    // The pin survives the settings' round trip, and switching off drops it.
+    const again = switchedOn(ws, "notes");
+    expect(parseModuleSettings(JSON.parse(JSON.stringify(again)))).toEqual(again);
+    expect(withModuleEnabled(again, "notes", false)).toEqual({ enabled: [], disabledBuiltins: [] });
+  });
+
+  it("pins a link by its target, leaves data/ out, and adopts what was on before pins", () => {
+    scaffoldModule(ws, "linked", "Linked");
+    const dir = join(root, "modules", "linked");
+    mkdirSync(join(dir, "node_modules"), { recursive: true });
+    symlinkSync("../../../kos.sqlite", join(dir, "node_modules", "dep"));
+    const module = () => readWorkspaceModules(ws).modules.find((m) => m.manifest.name === "linked")!;
+    const pinned = pinModule(ws, module()).hash;
+    // The server's own data is not its code.
+    mkdirSync(join(dir, "data"), { recursive: true });
+    writeFileSync(join(dir, "data", "notes.json"), "[]");
+    expect(pinModule(ws, module()).hash).toBe(pinned);
+    // A link pointed elsewhere is another module.
+    rmSync(join(dir, "node_modules", "dep"));
+    symlinkSync("../../../profile.json", join(dir, "node_modules", "dep"));
+    expect(pinModule(ws, module()).hash).not.toBe(pinned);
+    // Switched on before pins were kept: trusted once as it is, and said.
+    const { settings, adopted } = adoptUnpinned(ws, { enabled: ["linked", "ghost"], disabledBuiltins: [] });
+    expect(adopted).toEqual(["linked"]);
+    expect(runnableModules(ws, settings)).toEqual(["linked"]);
+    expect(adoptUnpinned(ws, settings).adopted).toEqual([]);
+    // The owner's own update keeps one that was on running as it is now; one that was off stays off.
+    writeFileSync(join(dir, "server.mjs"), "// updated");
+    expect(runnableModules(ws, settings)).toEqual([]);
+    expect(runnableModules(ws, repinModule(ws, settings, "linked")!)).toEqual(["linked"]);
+    expect(repinModule(ws, { enabled: [], disabledBuiltins: [] }, "linked")).toBeUndefined();
+  });
+
+  it.runIf(process.platform === "darwin")("jails a module's server away from KOS's own files and its own folder", () => {
+    const mod = { manifest: { name: "m", description: "d", command: "node" }, dir: "modules/m" };
+    const profile = serverFor(mod, { workspaceRoot: "/w", jail: true }).args![1]!;
+    expect(profile).toMatch(/\(deny file-read\* [^\n]*\(subpath "\/w\/kos\.sqlite"\)/);
+    expect(profile).toMatch(/\(deny file-write\* [^\n]*\(subpath "\/w\/kos\.sqlite-wal"\)/);
+    expect(profile).toMatch(/\(deny file-write\* [^\n]*\(subpath "\/w\/modules\/m"\)/);
+    expect(profile).toMatch(/\(allow file-write\* [^\n]*\(subpath "\/w\/modules\/m\/data"\)/);
   });
 
   it("scaffolds a module that reads back valid, and refuses to clobber one", () => {
