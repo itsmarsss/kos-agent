@@ -286,3 +286,77 @@ describe("running what fell due while nothing was listening", () => {
     expect(store.get(created.id)?.lastRunAt).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Missed is a run the schedule really had between the last run and now, in
+ * the profile's timezone. Worked out from the gap between the next two runs,
+ * a schedule that is not evenly spaced (twice a day, weekdays) fired at boot
+ * with nothing missed, and a job ran at the host's 9am, not the owner's.
+ */
+describe("what a schedule really missed, in the profile's timezone", () => {
+  let root: string;
+  let ws: Workspace;
+  let store: CronStore;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-missed-"));
+    ws = Workspace.open(root);
+    store = new CronStore(ws.db);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** How many runs catchUp starts for a job on `schedule` last run at `ranAt`, checked at `now`. */
+  function missed(schedule: string, ranAt: string, now: string, timezone = "UTC"): number {
+    const created = store.create({ name: "j", schedule, type: "actions", actions: [{ tool: "notify", args: {} }], enabled: true });
+    store.markRun(created.id, Date.parse(ranAt));
+    const sched = new CronScheduler(store, async () => undefined, { clock: () => Date.parse(now), timezone: () => timezone, catchUpGapMs: 0 });
+    sched.start();
+    try {
+      return sched.catchUp();
+    } finally {
+      sched.stop();
+      store.delete(created.id);
+    }
+  }
+
+  it("fires nothing for an uneven schedule that missed nothing", () => {
+    // Twice a day, checked at 05:04: the last run was 17:00 yesterday, and nothing came round since.
+    expect(missed("0 9,17 * * *", "2026-11-18T17:00:30Z", "2026-11-19T05:04:00Z")).toBe(0);
+    // A weekday job on a Saturday: Friday's run was the last one due.
+    expect(missed("0 9 * * 1-5", "2026-11-20T09:00:10Z", "2026-11-21T10:00:00Z")).toBe(0);
+  });
+
+  it("fires once for an uneven schedule that did miss a run", () => {
+    expect(missed("0 9,17 * * *", "2026-11-18T09:00:30Z", "2026-11-19T05:04:00Z")).toBe(1);
+    // Thursday's ran, Friday's did not.
+    expect(missed("0 9 * * 1-5", "2026-11-19T09:00:10Z", "2026-11-21T10:00:00Z")).toBe(1);
+  });
+
+  it("counts the owner's 9am, across the spring change", () => {
+    // Los Angeles springs forward on 8 March 2026. Saturday's 9am PST ran; Sunday's 9am PDT is 16:00Z.
+    expect(missed("0 9 * * *", "2026-03-07T17:00:05Z", "2026-03-08T15:30:00Z", "America/Los_Angeles")).toBe(0);
+    expect(missed("0 9 * * *", "2026-03-07T17:00:05Z", "2026-03-08T16:30:00Z", "America/Los_Angeles")).toBe(1);
+  });
+
+  it("counts the owner's 9am, across the autumn change", () => {
+    // Falls back on 1 November 2026: 24.5 hours after Saturday's 9am PDT it is only 8:30 PST, so nothing is missed yet.
+    expect(missed("0 9 * * *", "2026-10-31T16:00:05Z", "2026-11-01T16:30:00Z", "America/Los_Angeles")).toBe(0);
+    expect(missed("0 9 * * *", "2026-10-31T16:00:05Z", "2026-11-01T17:30:00Z", "America/Los_Angeles")).toBe(1);
+  });
+
+  it("schedules a job at the profile's hour, not the host's", () => {
+    const created = store.create({ name: "j", schedule: "0 9 * * *", type: "actions", enabled: true });
+    const sched = new CronScheduler(store, async () => undefined, { timezone: () => "Asia/Kolkata" });
+    sched.start();
+    try {
+      const local = (at: number): string => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
+      expect(sched.nextRuns(created.id, 2).map(local)).toEqual(["09:00", "09:00"]);
+    } finally {
+      sched.stop();
+    }
+  });
+});

@@ -2229,8 +2229,11 @@ export async function handleApiRequest(
       name,
       ...(timezone ? { timezone } : {}),
     };
+    const moved = next.timezone !== kernel.profile.timezone;
     saveProfile(kernel.workspace, next);
     Object.assign(kernel.profile, next);
+    // Every schedule is read in the profile's timezone, so a new one re-registers them all.
+    if (moved) kernel.reloadCron();
     return ok({ profile: next });
   }
 

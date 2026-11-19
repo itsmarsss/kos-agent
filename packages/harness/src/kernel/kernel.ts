@@ -845,6 +845,7 @@ export class Kernel {
       crons: args.crons,
       killSwitch: this.killSwitch,
       selfPromptsPerHour: () => this.behaviour().selfPromptsPerHour,
+      timezone: () => this.profile.timezone,
       enqueue: (work, lane) => this.queue.enqueue(work, lane),
       runs: args.runs,
       health: args.health,
