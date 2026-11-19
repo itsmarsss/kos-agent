@@ -149,3 +149,20 @@ describe("a turn's story in a Discord room", () => {
     expect(edits[0]?.files).toBeUndefined();
   });
 });
+
+describe("times on Discord, which stamps every message itself", () => {
+  it("adds no day or clock line to a story or its answer, only how long steps took", async () => {
+    const { DiscordAdapter } = await import("./discord.js");
+    const adapter = new DiscordAdapter({ token: "t", timezone: "America/Toronto" });
+    const said: string[] = [];
+    const channel = { id: "dm", send: async (p: { content: string }) => (said.push(p.content), { id: `m${said.length}`, edit: async (e: { content: string }) => void said.push(e.content), delete: async () => undefined }) };
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "o", text: "hi", native: { channel, guild: null } });
+    await presence!.update("Looking.\n› Read a · 1.2s\n› Read b · 4s so far");
+    await presence!.complete({ text: "Two files." });
+    const all = said.join("\n");
+    expect(all).not.toMatch(/\b(Today|Yesterday)\b/);
+    expect(all).not.toMatch(/\b\d{1,2}:\d{2}\b/);
+    expect(all).not.toMatch(/<t:\d+:[tTfFdD]>/);
+    expect(said.at(-1)).toBe("Two files.");
+  });
+});
