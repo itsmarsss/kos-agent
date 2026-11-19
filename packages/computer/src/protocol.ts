@@ -99,6 +99,8 @@ export interface Hello extends DeviceState {
 export interface HeldSession {
   id: string;
   ended?: EndReason;
+  /** Whether the owner has it taken over now: a Hand back made while the line was down is heard this way. */
+  paused?: boolean;
 }
 
 export interface Welcome {
@@ -297,7 +299,7 @@ export function readEndReason(v: unknown): EndReason {
 function readHeld(v: unknown): HeldSession | undefined {
   // An id as KOS makes them: anything else is no session KOS gave, and is not echoed into a log or a call.
   if (!isObject(v) || !isString(v.id) || !/^[A-Za-z0-9_-]{1,64}$/.test(v.id)) return undefined;
-  return { id: v.id, ...(v.ended !== undefined ? { ended: readEndReason(v.ended) } : {}) };
+  return { id: v.id, ...(v.ended !== undefined ? { ended: readEndReason(v.ended) } : {}), ...(typeof v.paused === "boolean" ? { paused: v.paused } : {}) };
 }
 
 function readConsent(v: unknown): Consent | undefined {

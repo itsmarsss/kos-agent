@@ -107,4 +107,51 @@ describe("a KOS's line, read in order", () => {
     await vi.waitFor(() => expect(ws.sent.some((f) => JSON.parse(f).id === 1)).toBe(true));
     link.stop();
   });
+
+  /** A link through its handshake on a fake socket, its states kept. */
+  async function welcomed(verified = true): Promise<{ link: Link; ws: FakeSocket; states: string[] }> {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const states: string[] = [];
+    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", onUpdate: () => undefined, hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onState: (s) => void states.push(s), onFace: () => undefined, onTheme: () => undefined });
+    link.start();
+    const ws = FakeSocket.made[0]!;
+    ws.frame({ t: "challenge", protocol: PROTOCOL, nonce: "theirs" });
+    ws.frame({ t: "welcome", name: "KOS", signature: "s" });
+    await vi.waitFor(() => expect(ws.sent.length).toBe(1));
+    await new Promise((r) => setTimeout(r, 0));
+    settle(verified);
+    await vi.waitFor(() => expect(states.at(-1)).toBe(verified ? "online" : "refused"));
+    return { link, ws, states };
+  }
+
+  it("gives up on a line KOS has gone silent on, though its socket says open, and dials again", async () => {
+    // The clock and the pings the test's; the wait to dial again Node's own.
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    const { link, ws, states } = await welcomed();
+    try {
+      // Pongs keep it up.
+      for (let i = 0; i < 3; i++) {
+        vi.advanceTimersByTime(20_000);
+        ws.frame({ t: "pong" });
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      expect(link.online).toBe(true);
+      // Then nothing: offline within two pings and a little, and dialled again.
+      vi.advanceTimersByTime(60_000);
+      expect(link.online).toBe(false);
+      expect(states.at(-1)).toBe("offline");
+      await vi.waitFor(() => expect(FakeSocket.made.length).toBe(2), { timeout: 3_000 });
+    } finally {
+      vi.useRealTimers();
+      link.stop();
+    }
+  });
+
+  it("keeps a host that could not prove it is KOS refused, and out of the minute's round", async () => {
+    const { link, ws, states } = await welcomed(false);
+    ws.onclose!({ code: 1008, reason: "not KOS" });
+    expect(states.at(-1)).toBe("refused");
+    expect(link.distrusted).toBe(true);
+    link.stop();
+  });
 });

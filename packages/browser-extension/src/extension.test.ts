@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { isPrivatePath, kosAddress, parsePairing, socketUrl } from "./address.js";
 import { CallError, deviceProof, fromBase64, hostProof, readFrame, toBase64 } from "./protocol.js";
 import { Link, said, type Hello, type LinkState } from "./link.js";
+import { HandFrames, isChallenge } from "./handframes.js";
 import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { CURSOR } from "./cursorlook.js";
@@ -262,6 +263,22 @@ describe("a session", () => {
     session.dispatching("Input.dispatchMouseEvent", { type: "mousePressed", x: 5, y: 5 }, 100);
     expect(session.isOwners({ type: "pointerdown", x: 5, y: 5 }, 5_000)).toBe(true);
   });
+
+  it("takes a click from a frame it could not place for KOS's when KOS just clicked, and for the owner's when it did not", () => {
+    const session = new Session(info, 0);
+    session.dispatching("Input.dispatchMouseEvent", { type: "mousePressed", x: 300, y: 400 }, 0);
+    expect(session.isOwners({ type: "pointerdown" }, 50)).toBe(false);
+    expect(session.isOwners({ type: "pointerdown" }, 60)).toBe(true);
+  });
+});
+
+describe("a frame KOS's overlay is put in", () => {
+  it("is never a challenge's, whose page looks for the debugger", () => {
+    for (const url of ["https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/x", "https://www.google.com/recaptcha/api2/anchor?k=x", "https://www.recaptcha.net/recaptcha/api2/bframe", "https://newassets.hcaptcha.com/captcha/v1/x/static/hcaptcha.html", "https://client-api.arkoselabs.com/fc/gc/", "https://geo.captcha-delivery.com/captcha/"]) {
+      expect(isChallenge(url), url).toBe(true);
+    }
+    for (const url of ["https://js.stripe.com/v3/elements-inner-card.html", "https://accounts.google.com/gsi/iframe/select", "https://www.google.com/maps/embed", "about:blank", "not a url"]) expect(isChallenge(url), url).toBe(false);
+  });
 });
 
 describe("the look", () => {
@@ -484,7 +501,7 @@ describe("a KOS's line in words", () => {
 describe("each KOS's line, opened once", () => {
   const paired = (device: string): Paired => ({ url: "http://127.0.0.1:4317", device, hostKey: "k", name: "Chrome" });
   const key = {} as CryptoKeyPair;
-  function setup(over: { keysFor?: (id: string) => Promise<CryptoKeyPair | undefined> } = {}) {
+  function setup(over: { keysFor?: (id: string) => Promise<CryptoKeyPair | undefined>; distrusted?: () => boolean } = {}) {
     const held = new Set<string>();
     const states = new Map<string, { state: LinkState; detail?: string }>();
     const made: string[] = [];
@@ -494,7 +511,7 @@ describe("each KOS's line, opened once", () => {
       keysFor: over.keysFor ?? (() => new Promise<CryptoKeyPair>((r) => (reading = () => r(key)))),
       link: (p) => {
         made.push(p.device);
-        return { start: () => void dials.push(p.device) };
+        return { start: () => void dials.push(p.device), get distrusted() { return over.distrusted?.() ?? false; } };
       },
       wanted: (id) => !held.has(id),
       stateOf: (id) => states.get(id)?.state,
@@ -533,6 +550,17 @@ describe("each KOS's line, opened once", () => {
     expect(states.get("dev_broken")).toEqual({ state: "error", detail: "This Chrome could not read its key: the key store did not open" });
     expect(states.get("dev_gone")).toEqual({ state: "unpaired", detail: "This Chrome no longer has the key it paired with. Pair again." });
     expect(made).toEqual(["dev_ok"]);
+  });
+
+  it("leaves a host that could not prove it is KOS to the owner: the minute's round does not dial it", async () => {
+    let distrusted = false;
+    const { lines, dials } = setup({ keysFor: async () => key, distrusted: () => distrusted });
+    await lines.connect(paired("dev_a"));
+    distrusted = true;
+    await lines.connectAll([paired("dev_a")]);
+    expect(dials).toEqual(["dev_a"]);
+    await lines.connectAll([paired("dev_a")], true);
+    expect(dials).toEqual(["dev_a", "dev_a"]);
   });
 
   it("leaves a line KOS no longer takes to the owner: the minute's round skips it, Try now or a changed setting dials it", async () => {
@@ -586,5 +614,37 @@ describe("a line KOS closes", () => {
   it("waits for the owner after KOS does not take its pairing, or speaks another protocol", () => {
     expect(closed(4003, "unknown device: KOS has no device by this id; pair again")).toEqual({ states: [["connecting", undefined], ["unpaired", "Unknown device: KOS has no device by this id; pair again."]], dials: 1 });
     expect(closed(4010, "protocol version: KOS speaks protocol 2; update this app")).toMatchObject({ states: [["connecting", undefined], ["refused", "Protocol version: KOS speaks protocol 2; update this app."]], dials: 1 });
+  });
+});
+
+describe("the frames of another process KOS watches for the owner's hand", () => {
+  /** A tab's frames over a fake debugger: what each session is sent, and where each frame says it is. */
+  function frames(at: Record<string, string>) {
+    const sent: { session?: string; method: string }[] = [];
+    const hands = new HandFrames(async (target, method) => {
+      sent.push({ ...(target.sessionId ? { session: target.sessionId } : {}), method });
+      return method === "Page.getFrameTree" ? { frameTree: { frame: { id: target.sessionId, url: at[target.sessionId ?? ""] ?? "" } } } : {};
+    }, { source: "", world: "kos", binding: "kosOverlay" });
+    const attach = (session: string) => hands.heard(1, undefined, "Target.attachedToTarget", { sessionId: session, targetInfo: { type: "iframe", targetId: session } });
+    const to = (session: string) => sent.filter((s) => s.session === session).map((s) => s.method);
+    return { hands, attach, to };
+  }
+
+  it("turns the Runtime domain and the overlay on only in a frame that is not a challenge's", async () => {
+    const { attach, to } = frames({ pay: "https://js.stripe.com/v3/inner.html", gate: "https://challenges.cloudflare.com/turnstile/if/x" });
+    await attach("pay");
+    await attach("gate");
+    expect(to("pay")).toEqual(["Page.enable", "Page.getFrameTree", "Runtime.enable", "Runtime.addBinding", "Page.addScriptToEvaluateOnNewDocument", "Target.setAutoAttach"]);
+    expect(to("gate")).toEqual(["Page.enable", "Page.getFrameTree", "Target.setAutoAttach"]);
+  });
+
+  it("waits for a blank frame's page, and turns the Runtime domain off in a frame that goes to a challenge", async () => {
+    const { hands, attach, to } = frames({ f: "about:blank" });
+    await attach("f");
+    expect(to("f")).not.toContain("Runtime.enable");
+    await hands.heard(1, "f", "Page.frameNavigated", { frame: { id: "f", url: "https://shop.example/pay" } });
+    expect(to("f")).toContain("Runtime.enable");
+    await hands.heard(1, "f", "Page.frameNavigated", { frame: { id: "f", url: "https://www.google.com/recaptcha/api2/anchor" } });
+    expect(to("f").at(-1)).toBe("Runtime.disable");
   });
 });

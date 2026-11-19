@@ -110,15 +110,22 @@ export class Session {
     }
   }
 
-  /** Whether input the page saw was the owner's: none of KOS's own matches it. */
+  /**
+   * Whether input the page saw was the owner's: none of KOS's own matches it.
+   * KOS's input comes through the debugger as the browser's own, trusted as
+   * the owner's is, so it is told apart by where and when, not by the page's
+   * word. A click or scroll from a frame that could not be placed in the tab
+   * has no point, and is KOS's when KOS did one of that kind a moment before.
+   */
   isOwners(input: PageInput, now: number): boolean {
     this.prune(now);
+    const unplaced = input.type !== "keydown" && (input.x === undefined || input.y === undefined);
     const i = this.echoes.findIndex(
       (e) =>
         e.type === input.type &&
         (input.type === "keydown"
           ? e.key === input.key
-          : e.x !== undefined && e.y !== undefined && input.x !== undefined && input.y !== undefined && Math.abs(e.x - input.x) <= ECHO_SLACK && Math.abs(e.y - input.y) <= ECHO_SLACK),
+          : unplaced || (e.x !== undefined && e.y !== undefined && Math.abs(e.x - input.x!) <= ECHO_SLACK && Math.abs(e.y - input.y!) <= ECHO_SLACK)),
     );
     if (i < 0) return true;
     this.echoes.splice(i, 1);

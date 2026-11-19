@@ -68,6 +68,25 @@ export interface Taint {
 }
 
 /**
+ * What one tab holds of the secrets filled into it, for the tab's life: kept
+ * by whoever outlives its Page (BrowserLive, by tab), so the Page made again
+ * after a detach holds the page as the one before it did.
+ */
+export interface TabSecrets {
+  /** The fields of the document a secret is in now, until it changes. */
+  taint?: Taint;
+  /** Addresses (less their fragment) of documents a secret was filled into: history coming back to one may restore it. */
+  readonly urls: Set<string>;
+  /** Every value filled in the tab: a later page may echo one. */
+  readonly filled: FilledValue[];
+}
+
+/** A tab's secrets before any is filled. */
+export function noSecrets(): TabSecrets {
+  return { urls: new Set(), filled: [] };
+}
+
+/**
  * What a conversation's tabs share about the secrets KOS filled: a popup can
  * read its opener, and any tab may echo what another sent, so every value
  * filled in any of them is masked in all, and while one holds a secret no

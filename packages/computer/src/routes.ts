@@ -25,6 +25,11 @@ const PAIR_PATH = `${PREFIX}/pair`;
 
 /** Sockets beyond this are refused: a page that opens hundreds is not a device. */
 const MAX_SOCKETS = 64;
+/** Sockets not yet through the handshake, in all and from one address: a real device proves itself within a moment. */
+const MAX_UNPROVED = 8;
+const MAX_UNPROVED_PER_ADDRESS = 4;
+/** What a socket may send before its hello is proved: a hello is a few hundred bytes, never a picture. */
+export const PRE_HELLO_BYTES = 16 * 1024;
 const PING_EVERY_MS = 30_000;
 
 const ok = (body: unknown): ApiResponse => ({ status: 200, body });
@@ -59,7 +64,7 @@ export function deviceRoutes(
           // is a device id and KOS's public key.
           const anywhere = { "access-control-allow-origin": "*" };
           try {
-            return { ...ok(hub.pair({ code: body.code, name: body.name, platform: body.platform, publicKey: body.publicKey })), headers: anywhere };
+            return { ...ok(hub.pair({ code: body.code, name: body.name, platform: body.platform, publicKey: body.publicKey }, sourceOf(req))), headers: anywhere };
           } catch (err) {
             if (err instanceof PairError) return { ...bad(err.status, err.message), headers: anywhere };
             throw err;
@@ -128,6 +133,27 @@ export function deviceRoutes(
   };
 }
 
+/** Where a pairing came from, for counting its wrong codes: a browser page's origin, else who sent it. */
+function sourceOf(req: ApiRequest): string {
+  const origin = typeof req.headers?.["origin"] === "string" ? req.headers["origin"] : "";
+  return /^(https?|chrome-extension):\/\/[^/]+$/i.test(origin) ? origin.toLowerCase() : senderOf(req.peer, req.headers ?? {});
+}
+
+/**
+ * Who sent a request: its socket's address, or, from a proxy on loopback,
+ * the last address the proxy added (the one it saw; earlier ones are the
+ * client's to write). A device on this computer, with no proxy between, is
+ * one sender of its own.
+ */
+export function senderOf(peer: string | undefined, headers: Record<string, string | string[] | undefined>): string {
+  const address = (peer ?? "").replace(/^::ffff:/i, "").toLowerCase();
+  if (!isLoopback(address)) return address;
+  if (!isForwarded(headers as IncomingMessage["headers"])) return "loopback";
+  const raw = headers["x-forwarded-for"];
+  const hops = (Array.isArray(raw) ? raw.join(",") : (raw ?? "")).split(",").map((h) => h.trim()).filter(Boolean);
+  return `forwarded:${(hops.at(-1) ?? "").toLowerCase()}`;
+}
+
 /** A ws socket as the hub's link reads one. */
 function asSocket(ws: WebSocket): Socket {
   return {
@@ -173,10 +199,30 @@ export function isLoopback(address: string | undefined): boolean {
   return a === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(a);
 }
 
+/**
+ * An upgrade a page made: a browser always says where the page is from, as
+ * an origin or as `null` (a sandboxed frame, data:, file:), and a device says
+ * none (KOS for Mac and for iPhone) or its extension's own (KOS for Chrome).
+ * WebSockets are not held to the same origin, so without this any page the
+ * owner opens could hold the device socket's places.
+ */
+export function fromWebPage(headers: IncomingMessage["headers"]): boolean {
+  const origin = headers.origin;
+  return origin !== undefined && !/^chrome-extension:\/\/[a-p]{32}$/.test(origin);
+}
+
+const refuse = (socket: Duplex, status: string): void => {
+  socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+  socket.destroy();
+};
+
 export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: DeviceSocketOptions = {}): DeviceSocketServer {
   const { admit, maxPayload = MAX_FRAME_BYTES, maxSockets = MAX_SOCKETS, loopback = true } = options;
   const wss = new WebSocketServer({ noServer: true, maxPayload });
   const alive = new WeakSet<WebSocket>();
+  /** Sockets through the upgrade but not yet the handshake, by who sent them. */
+  const unproved = new Map<WebSocket, string>();
+  const unprovedFrom = (from: string): number => [...unproved.values()].filter((f) => f === from).length;
   // A connection that stops answering pings is a laptop that went to sleep
   // without saying goodbye; dropping it ends its session.
   const pinger = setInterval(() => {
@@ -194,17 +240,39 @@ export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: 
   return {
     upgrade(req, socket, head) {
       if ((req.url ?? "").split("?")[0] !== SOCKET_PATH) return false;
+      if (fromWebPage(req.headers)) {
+        refuse(socket, "403 Forbidden");
+        return true;
+      }
       const hub = hubOf();
-      if (!hub || wss.clients.size >= maxSockets) {
-        socket.write("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
-        socket.destroy();
+      const from = senderOf(req.socket.remoteAddress, req.headers);
+      if (!hub || wss.clients.size >= maxSockets || unproved.size >= MAX_UNPROVED || unprovedFrom(from) >= MAX_UNPROVED_PER_ADDRESS) {
+        refuse(socket, "503 Service Unavailable");
         return true;
       }
       wss.handleUpgrade(req, socket, head, (ws) => {
         alive.add(ws);
+        unproved.set(ws, from);
         ws.on("pong", () => alive.add(ws));
         ws.on("error", () => ws.terminate());
-        hub.accept(asSocket(ws), { ...(admit ? { admit } : {}), local: loopback && isLoopback(req.socket.remoteAddress) && !isForwarded(req.headers) });
+        ws.on("close", () => unproved.delete(ws));
+        // Until the hello is proved, the bytes on the wire are counted as they come, before any frame is put together.
+        // The head the upgrade read is put back on the socket by ws, and heard again as data: counted once, there.
+        let heard = 0;
+        const count = (chunk: Buffer): void => {
+          heard += chunk.length;
+          if (heard > PRE_HELLO_BYTES) ws.terminate();
+        };
+        socket.on("data", count);
+        const link = hub.accept(asSocket(ws), { ...(admit ? { admit } : {}), local: loopback && isLoopback(req.socket.remoteAddress) && !isForwarded(req.headers) });
+        // Heard after the link has read each frame: the one that proves it frees its place and lifts the limit.
+        const proved = (): void => {
+          if (!link.ready) return;
+          unproved.delete(ws);
+          socket.off("data", count);
+          ws.off("message", proved);
+        };
+        ws.on("message", proved);
       });
       return true;
     },

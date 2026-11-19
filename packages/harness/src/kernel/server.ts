@@ -116,6 +116,8 @@ export interface ApiRequest {
   /** Raw URL path including query string for token checks if needed. */
   url?: string;
   headers?: Record<string, string | string[] | undefined>;
+  /** The address of the socket the request came on: the client's, or a proxy's in front of KOS. */
+  peer?: string;
 }
 
 export interface ApiResponse {
@@ -4008,7 +4010,7 @@ export function createDashboardServer(
       }
 
       if (path.startsWith("/api")) {
-        const asked: ApiRequest = { method, path, url: rawUrl, headers: req.headers as Record<string, string | string[] | undefined> };
+        const asked: ApiRequest = { method, path, url: rawUrl, headers: req.headers as Record<string, string | string[] | undefined>, ...(req.socket.remoteAddress ? { peer: req.socket.remoteAddress } : {}) };
         let body: unknown;
         const bodied = method !== "GET" && method !== "HEAD";
         // Unread when its caller may not send one: the route answers it as it would, from its headers.

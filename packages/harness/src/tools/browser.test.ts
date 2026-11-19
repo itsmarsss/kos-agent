@@ -41,7 +41,6 @@ class ScriptedPage implements Session {
       case "Runtime.evaluate": {
         const expression = String(params["expression"]);
         if (expression === "document.readyState") return { result: { value: "complete" } };
-        if (expression.includes("whereAmI")) return { result: { value: { url: this.url, title: this.title } } };
         if (expression.includes("readPage")) return { result: { value: { text: this.text, links: [], matched: 1 } } };
         if (params["replMode"]) return { result: { type: "number", value: 42 } };
         return { result: {} };
@@ -50,6 +49,8 @@ class ScriptedPage implements Session {
       case "Runtime.enable":
         this.page.handle({ method: "Runtime.executionContextCreated", params: { context: { id: 1, uniqueId: "u1", origin: "null", auxData: { isDefault: true, frameId: "F" } } } });
         return {};
+      case "Page.getNavigationHistory":
+        return { currentIndex: 0, entries: [{ id: 1, url: this.url, title: this.title }] };
       case "Accessibility.getFullAXTree":
         return { nodes: structuredClone(this.tree) };
       case "Page.getLayoutMetrics":

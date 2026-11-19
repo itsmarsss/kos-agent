@@ -188,8 +188,12 @@ export class DeviceHub {
     return this.codes.issue();
   }
 
-  /** A device bringing a code and its key. Answers with its id and KOS's key, to pin. */
-  pair(input: { code: unknown; name: unknown; platform: unknown; publicKey: unknown }): { device: string; hostKey: string; protocol: number } {
+  /**
+   * A device bringing a code and its key. Answers with its id and KOS's key,
+   * to pin. `source` is where the request came from (an address, or a page's
+   * origin), against which wrong codes are counted.
+   */
+  pair(input: { code: unknown; name: unknown; platform: unknown; publicKey: unknown }, source?: string): { device: string; hostKey: string; protocol: number } {
     const { code, name, platform, publicKey } = input;
     if (typeof code !== "string" || typeof name !== "string" || typeof platform !== "string" || typeof publicKey !== "string") {
       throw new PairError(400, "code, name, platform and publicKey are required");
@@ -198,7 +202,11 @@ export class DeviceHub {
     if (!publicKeyFromRaw(publicKey)) {
       throw new PairError(400, "publicKey must be a 32-byte Ed25519 key in base64");
     }
-    if (!this.codes.redeem(code)) throw new PairError(403, "that code is wrong or has expired; make a new one in KOS");
+    // A source shut out for its wrong codes learns nothing more, an already paired key included.
+    if (this.codes.shutOut(source)) throw new PairError(403, "that code is wrong or has expired; make a new one in KOS");
+    // Already paired, with a code that is right: the code is kept for the owner to pair it again once it is removed.
+    if (this.deps.store.byKey(publicKey) && this.codes.has(code)) throw new PairError(409, "this device is already paired");
+    if (!this.codes.redeem(code, source)) throw new PairError(403, "that code is wrong or has expired; make a new one in KOS");
     if (this.deps.store.byKey(publicKey)) throw new PairError(409, "this device is already paired");
     const device = this.deps.store.add({ name, platform, publicKey });
     this.changed();
@@ -349,6 +357,8 @@ export class DeviceHub {
     for (const s of [...this.sessions.values()]) {
       if (s.device !== id) continue;
       if (claim?.id === s.id && !claim.ended) {
+        // The owner may have handed it back, or taken it, while the line was down; ready() then wakes whoever waits on it.
+        if (claim.paused !== undefined) s.paused = claim.paused;
         this.log(`devices: session ${s.id} on ${this.named(id)} goes on across the new line`);
         continue;
       }
@@ -439,7 +449,9 @@ export class DeviceHub {
   sessionOf(conversation: string): Session | undefined {
     const session = [...this.sessions.values()].find((s) => s.conversation === conversation);
     if (session && session.until <= this.now()) {
-      this.drop(session, "expired", "its time");
+      this.release(session, "expired", "its time");
+      // Told after the read that found it, so no listener is run inside another's.
+      queueMicrotask(() => this.changed());
       return undefined;
     }
     return session;
@@ -490,6 +502,7 @@ export class DeviceHub {
     const other = [...this.sessions.values()].find((s) => s.device === input.device.id);
     if (other) throw new DeviceError("busy", `${input.device.name} is in use by another chat`);
     if (this.asks.has(input.conversation)) throw new DeviceError("busy", "this chat is already asking the owner for a session");
+    if ([...this.asks.values()].some((a) => a.device === input.device.id)) throw new DeviceError("busy", `${input.device.name} is asking the owner for another chat's session`);
 
     const id = `ses_${randomBytes(9).toString("base64url")}`;
     const minutes = Math.max(1, Math.min(MAX_ASK_MINUTES, Math.round(input.minutes)));
@@ -518,12 +531,21 @@ export class DeviceHub {
       result = await untilStopped(asked, stop.signal, (late) => {
         if (readOf(late)) giveBack();
       });
+    } catch (err) {
+      // Taken down by the kill switch: said as the halt it was, not as a Stop.
+      if (this.deps.halted()) throw new DeviceError("halted", "KOS is halted by the kill switch");
+      throw err;
     } finally {
       input.signal?.removeEventListener("abort", onAbort);
       this.asks.delete(input.conversation);
       this.changed();
     }
     const grant = readOf(result);
+    // The kill switch thrown while the owner was asked: a yes given then opens nothing.
+    if (grant && this.deps.halted()) {
+      giveBack();
+      throw new DeviceError("halted", "KOS is halted by the kill switch");
+    }
     if (!grant) {
       if (result.reason === "unanswered") throw new DeviceError("unanswered", "the owner did not answer the ask on the device in time");
       if (result.reason === "withdrawn") throw new DeviceError("stopped", "the ask was taken down on the device before the owner answered");
@@ -734,8 +756,9 @@ export class DeviceHub {
     return true;
   }
 
-  /** End every session: the kill switch, or the module switched off. */
+  /** End every session and take down every ask: the kill switch, or the module switched off. */
   endAll(reason: EndReason): void {
+    for (const ask of [...this.asks.values()]) ask.withdraw();
     for (const session of [...this.sessions.values()]) this.release(session, reason, "KOS (the kill switch, or computer use going off)");
     this.changed();
   }

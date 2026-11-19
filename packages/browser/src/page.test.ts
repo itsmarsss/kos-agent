@@ -20,6 +20,8 @@ function tab(handlers: Record<string, Handler>): { session: Session; calls: { me
 }
 
 const FRAME = { frameTree: { frame: { id: "F", loaderId: "L", url: "https://shop.example/" } } };
+/** Where the browser says the tab is. */
+const HISTORY = { currentIndex: 0, entries: [{ id: 1, url: "https://shop.example/", title: "Shop" }] };
 /** What the page itself finds to index: nothing, which is enough to see where it was looked from. */
 const NOTHING = { result: [{ name: "kos", value: { value: JSON.stringify({ items: [], total: 0 }) } }] };
 const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
@@ -153,6 +155,7 @@ describe("the time a page is given after typing", () => {
     const quiet = `(${inpage.domQuiet.toString()})(`;
     const { session } = tab({
       "Page.getFrameTree": () => FRAME,
+      "Page.getNavigationHistory": () => HISTORY,
       "Page.createIsolatedWorld": () => ({ executionContextId: 9 }),
       "Runtime.evaluate": (p) => {
         const expression = String(p["expression"]);
@@ -176,6 +179,7 @@ describe("the time a page is given after typing", () => {
     let ticked = false;
     const { session } = tab({
       "Page.getFrameTree": () => FRAME,
+      "Page.getNavigationHistory": () => HISTORY,
       "Page.createIsolatedWorld": () => ({ executionContextId: 9 }),
       "Runtime.evaluate": (p) => {
         const expression = String(p["expression"]);
@@ -328,5 +332,100 @@ describe("a script of KOS's in a page", () => {
     const blank = scripted({ "Page.getFrameTree": () => tree("L", "://") }, [{ frame: "F", origin: "https://bank.example" }], { evalBlocked: blocked });
     await expect(blank.page.evaluate("localStorage.getItem('kept')")).rejects.toThrow(/refused on https:\/\/bank\.example/);
     for (const { calls } of [framed, blank]) expect(calls.some((c) => c.method === "Runtime.evaluate")).toBe(false);
+  });
+});
+
+describe("what the agent is told of the page between its calls", () => {
+  it("counts a dialog a page raises again and again, and keeps few kinds of them", async () => {
+    const { session, calls } = tab({});
+    const page = new Page(session, { gate: async () => true });
+    for (let i = 0; i < 1000; i++) page.handle({ method: "Page.javascriptDialogOpening", params: { type: "alert", message: "again" } });
+    for (let i = 0; i < 100; i++) page.handle({ method: "Page.javascriptDialogOpening", params: { type: "alert", message: `n${i}` } });
+    // Every one is answered, as an open one holds the tab.
+    expect(calls.filter((c) => c.method === "Page.handleJavaScriptDialog")).toHaveLength(1100);
+    // A note of the owner's is kept whatever the page raised.
+    await page.run(async () => undefined);
+    const notes = page.takeNotes();
+    expect(notes.length).toBe(22);
+    expect(notes[0]).toBe('A alert dialog said "again", and was closed. (1,000 times)');
+    expect(notes).toContain("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
+    expect(notes.at(-1)).toBe("81 more dialogs were not kept.");
+    expect(page.takeNotes()).toEqual([]);
+  });
+});
+
+describe("where the tab is", () => {
+  it("is what the browser's history says, not the page's script, and an error when it says nothing", async () => {
+    let said: Record<string, unknown> = HISTORY;
+    const { session, calls } = tab({ "Page.getNavigationHistory": () => said });
+    const page = new Page(session);
+    expect(await page.whereAmI()).toEqual({ url: "https://shop.example/", title: "Shop" });
+    expect(calls.some((c) => c.method === "Runtime.evaluate")).toBe(false);
+    said = {};
+    await expect(page.whereAmI()).rejects.toThrow(/did not say where the tab is/);
+  });
+
+  it("goes back or forward only to a page goto would open", async () => {
+    const entries = [{ id: 1, url: "file:///Users/owner/notes.txt" }, { id: 2, url: "https://shop.example/" }, { id: 3, url: "chrome://settings/" }];
+    const { session, calls } = tab({ "Page.getNavigationHistory": () => ({ currentIndex: 1, entries }) });
+    const page = new Page(session);
+    await expect(page.step({ go: "back" })).rejects.toThrow(/going back is refused: it is not a web page/);
+    await expect(page.step({ go: "forward" })).rejects.toThrow(/going forward is refused/);
+    expect(calls.some((c) => c.method === "Page.navigateToHistoryEntry")).toBe(false);
+  });
+});
+
+describe("a key on a page holding a secret in a frame", () => {
+  /** A page whose secret is in frame C's field 10; where the keyboard is, by frame, is `focus`; a frame not in `worlds` has none of KOS's own. */
+  const holding = (focus: Record<string, { objectId: string; node: number; frameId?: string } | undefined>, worlds = ["F", "C"]) => {
+    const ids = new Map(Object.values(focus).flatMap((f) => (f ? [[f.objectId, f] as const] : [])));
+    const { session, calls } = tab({
+      "Page.getFrameTree": () => FRAME,
+      "Page.createIsolatedWorld": (p) => {
+        const frame = String(p["frameId"]);
+        if (!worlds.includes(frame)) throw Object.assign(new Error("not passed on"), { code: "method" });
+        return { executionContextId: worlds.indexOf(frame) + 1 };
+      },
+      "Runtime.evaluate": (p) => {
+        if (!String(p["expression"]).includes(inpage.focusedHere.toString())) return { result: { value: "complete" } };
+        const at = focus[worlds[Number(p["contextId"]) - 1]!];
+        return { result: at ? { objectId: at.objectId } : {} };
+      },
+      "DOM.describeNode": (p) => {
+        const at = ids.get(String(p["objectId"]));
+        return { node: { backendNodeId: at?.node, ...(at?.frameId ? { frameId: at.frameId } : {}) } };
+      },
+    });
+    const page = new Page(session, { secrets: { taint: { loader: "L", nodes: new Map([[10, "C"]]) }, urls: new Set(), filled: [] } });
+    return { page, calls };
+  };
+  const typed = (calls: { method: string }[]): number => calls.filter((c) => c.method === "Input.dispatchKeyEvent").length;
+
+  it("follows the keyboard down from the main frame: a frame left focused on its field takes no key", async () => {
+    const field = { objectId: "field", node: 10 };
+    const into = holding({ F: { objectId: "frame", node: 5, frameId: "C" }, C: field });
+    await into.page.ready();
+    await expect(into.page.step({ press: "x" })).rejects.toThrow(/is refused/);
+    await expect(into.page.step({ press: "Backspace" })).rejects.toThrow(/is refused/);
+    // The keyboard is on the main page's own field: the frame still says its field is focused, and that is no matter.
+    const away = holding({ F: { objectId: "user", node: 7 }, C: field });
+    await away.page.ready();
+    await away.page.step({ press: "x" });
+    await away.page.step({ press: "Meta+c" });
+    expect(typed(away.calls)).toBeGreaterThan(0);
+  });
+
+  it("refuses only a copy where the keyboard cannot be followed, and lets go of a frame's fields when it goes", async () => {
+    const { page, calls } = holding({ F: { objectId: "frame", node: 5, frameId: "C" } }, ["F"]);
+    await page.ready();
+    await expect(page.step({ press: "Meta+c" })).rejects.toThrow(/is refused/);
+    await page.step({ press: "x" });
+    expect(typed(calls)).toBeGreaterThan(0);
+    // The frame went: the page is held whole, so no copy anywhere, and keys type.
+    const gone = holding({ F: { objectId: "user", node: 7 } });
+    await gone.page.ready();
+    gone.page.handle({ method: "Page.frameDetached", params: { frameId: "C" } });
+    await expect(gone.page.step({ press: "Meta+c" })).rejects.toThrow(/is refused/);
+    await gone.page.step({ press: "Backspace" });
   });
 });

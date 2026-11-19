@@ -98,4 +98,21 @@ describe("the CDP client", () => {
     socket.onerror?.({});
     await expect(dial).rejects.toThrow(/could not reach/);
   });
+
+  it("gives up on a dial the browser never answers, and can dial again", async () => {
+    const sockets: FakeSocket[] = [];
+    const client = new CdpClient(() => {
+      sockets.push(new FakeSocket());
+      return sockets.at(-1)!;
+    });
+    let closes = 0;
+    await expect(client.dial("ws://127.0.0.1:1/x", () => closes++, 20)).rejects.toThrow(/did not answer/);
+    expect(sockets[0]!.closed).toBe(true);
+    expect(client.open).toBe(false);
+    expect(closes).toBe(0);
+    const again = client.dial("ws://127.0.0.1:1/x", () => closes++);
+    sockets[1]!.onopen?.({});
+    await again;
+    expect(client.open).toBe(true);
+  });
 });

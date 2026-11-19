@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, renameSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, extname, join } from "node:path";
 
 /**
  * Where a download goes once it is done.
@@ -57,6 +57,3 @@ export function settleDownload(
   const name = basename(target);
   return { path: `${folder}/${name}`, name };
 }
-
-/** Used by tests and by nothing else: the folder a target path sits in. */
-export const folderOf = dirname;
