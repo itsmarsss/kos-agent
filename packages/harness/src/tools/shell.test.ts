@@ -8,15 +8,15 @@ import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { bubblewrap } from "../sandbox/bwrap.js";
+import { bubblewrap, natTool } from "../sandbox/bwrap.js";
 import { underAuto } from "../kernel/caller.js";
 import { programOf } from "../risk/rules.js";
 import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
 import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
-/** KOS's own jail holds it here: macOS's sandbox, or bubblewrap on Linux. */
-const jailed = onMac || bubblewrap() !== undefined;
+/** KOS's own jail holds it here: macOS's sandbox, or bubblewrap on Linux with a NAT for the runs that use the network. */
+const jailed = onMac || (bubblewrap() !== undefined && natTool() !== undefined);
 
 describe("naming the program a command runs", () => {
   it("is the first word of one plain command", () => {

@@ -315,7 +315,8 @@ own.close();`;
       // Networked, through each NAT there is: the outside, and still not the host's loopback.
       for (const tool of ["pasta", "slirp4netns"] as const) {
         const path = `/usr/bin/${tool}`;
-        if (!trustedProgram(path)) continue;
+        // Where unshare may not make the namespaces, there is no NAT to test: the Linux job allows it, and must find one.
+        if (!natTool() || !trustedProgram(path)) continue;
         const out = await node(script, { nat: { tool, path } });
         expect(out.self, tool).toBe("own");
         expect(out.host, tool).toBe("refused");
