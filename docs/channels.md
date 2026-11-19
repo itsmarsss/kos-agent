@@ -27,8 +27,8 @@ so and nothing runs. `/mode` shows the chat's mode, and sets it as the
 dashboard's chip does, for you only and never Auto while halted;
 `/halt` and `/resume` are the kill switch. Auto, the kill switch and
 `/run` are set from the dashboard, a paired device or Discord, never from
-SMS or iMessage, where a sender is the easiest to pass off as you; the
-same places a secret's use is decided. `/inbox` lists what
+SMS or iMessage, where a sender is the easiest to pass off as you.
+`/inbox` lists what
 waits on you, each ask as its own card with its own buttons, seen by you
 alone. The answer to any of them is shown to you alone. Typed in a bound
 channel or thread, a command acts on that room's chat (`/stop` stops it,
@@ -206,11 +206,15 @@ read; elsewhere it stays a link.
 
 A typed block in KOS's answer (an email or message draft, an event, a
 checklist; see [blocks.md](blocks.md)) is an embed: its fields laid out,
-its body below, Copy (the draft to you alone, as a code block), Send where
-the kind sends and this KOS has a tool for it (your words asking KOS to
-send it, in the chat, so the call asks you as any other would), and a
-link for each `action: open`. Five blocks a message; more stay as words.
-Your own words are shown as you wrote them.
+its body below, Copy (the draft to you alone, as a code block, or as a
+file when it is longer than a message), Send where the kind sends, this
+KOS has a tool for it and only you read the place (your words asking KOS
+to send it, in the chat the block was said in, so the call asks you as
+any other would), and a link for each `action: open`. Five blocks a
+message, and no more than Discord's embed total holds; the rest stay as
+words. The agent's own buttons are placed first, and one Discord would
+refuse is left off and said so under the message. Your own words are
+shown as you wrote them.
 
 A file sent with a message, here or on the dashboard, is kept in the
 workspace as it came: under `uploads/` in the project the chat belongs
