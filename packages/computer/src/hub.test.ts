@@ -295,28 +295,62 @@ describe("a device connecting", () => {
 });
 
 describe("a yes on a secret's ask, where KOS's hand may be", () => {
-  it("is not taken from the device working in that chat, or from anywhere a moment after a device acted", async () => {
-    let now = 1_000_000;
-    const store = new DeviceStore(openDatabase(":memory:"));
-    const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined, beginTimeoutMs: 200, callTimeoutMs: 200, lineGraceMs: 0, now: () => now });
+  const hubAt = (clock: { now: number }): DeviceHub =>
+    new DeviceHub({ store: new DeviceStore(openDatabase(":memory:")), hostKey, halted: () => false, log: () => undefined, beginTimeoutMs: 200, callTimeoutMs: 2_000, lineGraceMs: 0, now: () => clock.now });
+
+  it("is not taken from the Mac working in that chat, or from anywhere a moment after a Mac acted", async () => {
+    const clock = { now: 1_000_000 };
+    const hub = hubAt(clock);
     const mac = await online(hub);
-    const phone = await online(hub, "Phone");
+    const other = await online(hub, "Other Mac");
     await hub.begin({ conversation: "c1", device: hub.find("studio")!, task: "sign in", requester: "r", minutes: 15 });
-    // The Mac KOS works on in this chat: never, acted or not; another chat's ask, only once it has not acted for a moment.
+    // The Mac KOS works on in this chat: never, acted or not; another device, only once no Mac has acted for a moment.
     expect(hub.handsOn(mac.id, "c1")).toMatch(/the one KOS is working on in this chat/);
-    expect(hub.handsOn(phone.id, "c1")).toBeUndefined();
+    expect(hub.handsOn(other.id, "c1")).toBeUndefined();
     expect(hub.handsOn(undefined, "c1")).toBeUndefined();
     // A look is not an action.
     await hub.act("c1", "screen.capture", {});
     expect(hub.handsOn(undefined, "c1")).toBeUndefined();
     await hub.act("c1", "pointer.click", { x: 5, y: 6 });
-    expect(hub.handsOn(mac.id, "c2")).toMatch(/acted for KOS a moment ago/);
-    expect(hub.handsOn(undefined, "c2")).toMatch(/A paired device acted for KOS a moment ago/);
-    expect(hub.handsOn(phone.id, "c2")).toBeUndefined();
-    now += HANDS_OFF_MS;
+    expect(hub.handsOn(mac.id, "c2")).toMatch(/acting for KOS, or did a moment ago/);
+    expect(hub.handsOn(undefined, "c2")).toMatch(/A paired computer is acting for KOS/);
+    // Another Mac's screen is out of this one's reach.
+    expect(hub.handsOn(other.id, "c2")).toBeUndefined();
+    clock.now += HANDS_OFF_MS;
     expect(hub.handsOn(mac.id, "c2")).toBeUndefined();
     expect(hub.handsOn(undefined, "c2")).toBeUndefined();
     expect(hub.handsOn(mac.id, "c1")).toMatch(/the one KOS is working on/);
+  });
+
+  it("is not taken while the Mac's click is still on its way, however long its reply takes", async () => {
+    const clock = { now: 1_000_000 };
+    const hub = hubAt(clock);
+    const mac = await online(hub);
+    await hub.begin({ conversation: "c1", device: hub.find("studio")!, task: "sign in", requester: "r", minutes: 15 });
+    mac.answers.delete("pointer.click");
+    const clicking = hub.act("c1", "pointer.click", { x: 5, y: 6 });
+    await settle();
+    clock.now += 60_000;
+    expect(hub.handsOn(undefined, "c2")).toMatch(/A paired computer is acting for KOS/);
+    mac.answer("pointer.click", { cursor: { x: 5, y: 6 } });
+    await clicking;
+    // Stamped as it ended: still a moment after.
+    expect(hub.handsOn(undefined, "c2")).toMatch(/acting for KOS, or did a moment ago/);
+    clock.now += HANDS_OFF_MS;
+    expect(hub.handsOn(undefined, "c2")).toBeUndefined();
+  });
+
+  it("is taken from a Chrome's panel for a fill in its own session: a Chrome's page work is not a hand", async () => {
+    const clock = { now: 1_000_000 };
+    const hub = hubAt(clock);
+    const chrome = await chromeOnline(hub);
+    await hub.begin({ conversation: "c1", device: hub.find("chrome")!, task: "sign in", requester: "r", minutes: 15 });
+    chrome.answers.set("cdp.send", () => ({ ok: true, result: {} }));
+    chrome.answers.set("secret.picture", () => ({ ok: true, result: {} }));
+    await hub.act("c1", "cdp.send", { tab: 1, method: "Input.dispatchMouseEvent", params: {} });
+    await hub.act("c1", "secret.picture", { tab: 1 });
+    expect(hub.handsOn(chrome.id, "c1")).toBeUndefined();
+    expect(hub.handsOn(undefined, "c1")).toBeUndefined();
   });
 });
 

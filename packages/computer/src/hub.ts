@@ -143,8 +143,10 @@ export class DeviceHub {
   private readonly refusalsLogged = new Map<string, number>();
   /** Devices whose line dropped with a session on them: the session ends when the wait runs out, unless they come back holding it. */
   private readonly graces = new Map<string, ReturnType<typeof setTimeout>>();
-  /** When each device last finished an action for KOS (a click, a key, a scroll), by its id. */
+  /** When each computer last began or finished an action for KOS (a click, a key, a scroll), by its id. */
   private readonly acted = new Map<string, number>();
+  /** Actions each computer is carrying out for KOS now, by its id: a yes from its screen meanwhile may be one of them. */
+  private readonly acting = new Map<string, number>();
 
   constructor(private readonly deps: HubDeps) {
     this.codes = new PairingCodes(this.now);
@@ -612,6 +614,9 @@ export class DeviceHub {
       this.drop(session, "offline", "its line being down when KOS acted");
       throw new DeviceError("offline", "the device went offline");
     }
+    // Only a computer's hand is the system's own pointer and keys, which can press an Approve anywhere on its screen.
+    const hand = !LOOKS.has(method) && kindOf(link.device!) === "computer";
+    if (hand) this.handBegins(session.device);
     try {
       const result = await link.call(method, { ...params, session: session.id }, timeoutMs ?? this.deps.callTimeoutMs ?? CALL_TIMEOUT_MS);
       if (method === "screen.capture" && params["region"] === undefined) session.scrolled = false;
@@ -621,28 +626,49 @@ export class DeviceHub {
       if (err instanceof DeviceError && err.code === "paused") session.paused = true;
       throw err;
     } finally {
-      if (!LOOKS.has(method)) this.acted.set(session.device, this.now());
+      if (hand) this.handEnds(session.device);
     }
+  }
+
+  private handBegins(device: string): void {
+    this.acting.set(device, (this.acting.get(device) ?? 0) + 1);
+    this.acted.set(device, this.now());
+  }
+
+  private handEnds(device: string): void {
+    const left = (this.acting.get(device) ?? 1) - 1;
+    if (left > 0) this.acting.set(device, left);
+    else this.acting.delete(device);
+    this.acted.set(device, this.now());
+  }
+
+  /** Whether a computer's hand is at work for KOS now or was a moment ago. */
+  private handBusy(device: string, now: number): boolean {
+    const at = this.acted.get(device);
+    return (this.acting.get(device) ?? 0) > 0 || (at !== undefined && now - at < HANDS_OFF_MS);
   }
 
   /**
    * Why a yes from `device` on an ask that places a secret in `conversation`
-   * may be KOS's own hand, if it may: the device holds that chat's live
-   * session, or did something for KOS a moment ago. A device that is not one
-   * of these (the dashboard, the CLI) is asked about any device acting a
-   * moment ago, since KOS's hand on a screen can reach the dashboard too.
+   * may be KOS's own hand, if it may. Only a computer (KOS for Mac) has one:
+   * its pointer and keys are the system's, and reach any window on its
+   * screen. A yes from a computer is refused while it holds that chat's
+   * session, or is acting for KOS or did a moment ago. A yes from anywhere
+   * else (the dashboard, a Chrome's panel, a phone) is refused while any
+   * computer is, since its hand can reach a browser on its screen. A Chrome's
+   * own calls are KOS's page work, not a pointer, and never count.
    */
   handsOn(device: string | undefined, conversation: string | null): string | undefined {
     const now = this.now();
-    if (device !== undefined && this.links.has(device)) {
+    const from = device === undefined ? undefined : this.links.get(device)?.device;
+    if (device !== undefined && from && kindOf(from) === "computer") {
       if (conversation !== null && this.sessionOf(conversation)?.device === device) {
         return "This device is the one KOS is working on in this chat, so a yes from it could be KOS's own click. Decide on the dashboard, or on another device.";
       }
-      const at = this.acted.get(device);
-      return at !== undefined && now - at < HANDS_OFF_MS ? "This device acted for KOS a moment ago, so a yes from it could be KOS's own. Wait a few seconds and decide again." : undefined;
+      return this.handBusy(device, now) ? "This device is acting for KOS, or did a moment ago, so a yes from it could be KOS's own. Wait a few seconds and decide again." : undefined;
     }
-    const recent = [...this.acted.values()].some((at) => now - at < HANDS_OFF_MS);
-    return recent ? "A paired device acted for KOS a moment ago, so this yes could be KOS's own click. Wait a few seconds and decide again." : undefined;
+    const busy = [...new Set([...this.acted.keys(), ...this.acting.keys()])].some((d) => this.handBusy(d, now));
+    return busy ? "A paired computer is acting for KOS, or did a moment ago, so this yes could be KOS's own click. Wait a few seconds and decide again." : undefined;
   }
 
   /**
