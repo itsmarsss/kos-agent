@@ -43,7 +43,7 @@ enum AskCases {
     ("code", .init(
       id: "109", tool: "secrets.fill", title: "Fill a one-time code you type on this card",
       args: #"{"secret":"code","fields":[{"field":"code","target":"@e7"}],"intent":"finish signing in to the bank","origin":"https://bank.example.com"}"#,
-      place: "In KOS's browser on bank.example.com", risk: "Puts a saved secret into a page on https://bank.example.com",
+      place: "In KOS's browser on bank.example.com", risk: "Puts a one-time code into a page on https://bank.example.com",
       alwaysNote: "Secrets always ask", asker: "Bank", expires: expires,
       secret: .init(handle: "code", label: "One-time code", fields: [], origin: "https://bank.example.com", code: true))),
     ("probe", .init(
