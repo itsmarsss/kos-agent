@@ -122,8 +122,9 @@ the named job, and nothing else.
 
 **Supervises daemons.** Programs it spawns are restarted with backoff.
 
-**Extends itself.** Skills are sandbox-tested in a child process against a
-throwaway database copy, then promoted if safe or queued for your approval.
+**Extends itself.** Skills are sandbox-tested in a jailed child process
+against a throwaway database copy, with no network, and promoted only when
+you say yes to their files; any change after that and they ask again.
 Modules it writes do not run until you switch them on.
 
 **Uses your computer, when you let it.** Pair a Mac running KOS for Mac
