@@ -28,14 +28,43 @@ export function statePath(workspace: string, home = homedir()): string {
   return join(home, ".kos", "run", `${key}.json`);
 }
 
-export function readDaemonState(workspace: string, home = homedir()): DaemonState | null {
-  const path = statePath(workspace, home);
+/**
+ * Where a host from before ~/.kos/run kept its state: in the workspace, and
+ * a copy in ~/.kos. Read once, so the first stop after an upgrade still finds
+ * the running host; a workspace file is one approved programs could write,
+ * so what it names is trusted only after verifyHost or isKosHostProcess, as
+ * any state is.
+ */
+export function legacyStatePaths(workspace: string, home = homedir()): string[] {
+  return [join(resolve(workspace), ".kos", "daemon.json"), join(home, ".kos", "daemon.json")];
+}
+
+function readState(path: string): DaemonState | null {
   if (!existsSync(path)) return null;
   try {
     return JSON.parse(readFileSync(path, "utf8")) as DaemonState;
   } catch {
     return null;
   }
+}
+
+export function readDaemonState(workspace: string, home = homedir()): DaemonState | null {
+  const current = readState(statePath(workspace, home));
+  if (current) return current;
+  const [inWorkspace, global] = legacyStatePaths(workspace, home) as [string, string];
+  const legacy = readState(inWorkspace);
+  if (legacy) return legacy;
+  // The global copy was the last host started anywhere: only this workspace's is this workspace's.
+  const last = readState(global);
+  return last && resolve(last.workspace) === resolve(workspace) ? last : null;
+}
+
+/** The legacy files, once a host keeps its state where it now lives: the global copy only when it is this workspace's. */
+function clearLegacy(workspace: string, home: string): void {
+  const [inWorkspace, global] = legacyStatePaths(workspace, home) as [string, string];
+  if (existsSync(inWorkspace)) unlinkSync(inWorkspace);
+  const last = readState(global);
+  if (existsSync(global) && (!last || resolve(last.workspace) === resolve(workspace))) unlinkSync(global);
 }
 
 /** Written 0600 in a 0700 folder: the owner's alone. */
@@ -46,11 +75,13 @@ export function writeDaemonState(workspace: string, state: DaemonState, home = h
   chmodSync(dir, 0o700);
   writeFileSync(path, JSON.stringify(state, null, 2), { mode: 0o600 });
   chmodSync(path, 0o600);
+  clearLegacy(workspace, home);
 }
 
 export function clearDaemonState(workspace: string, home = homedir()): void {
   const path = statePath(workspace, home);
   if (existsSync(path)) unlinkSync(path);
+  clearLegacy(workspace, home);
 }
 
 /** True if pid looks alive (signal 0). */

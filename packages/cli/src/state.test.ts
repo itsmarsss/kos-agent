@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { clearDaemonState, isKosHostProcess, readDaemonState, statePath, verifyHost, writeDaemonState, type DaemonState } from "./state.js";
+import { clearDaemonState, isKosHostProcess, legacyStatePaths, readDaemonState, statePath, verifyHost, writeDaemonState, type DaemonState } from "./state.js";
 
 describe("daemon state", () => {
   let home: string;
@@ -26,6 +26,30 @@ describe("daemon state", () => {
     expect(readDaemonState("/other", home)).toBeNull();
     clearDaemonState("/w", home);
     expect(readDaemonState("/w", home)).toBeNull();
+  });
+
+  it("finds a host from before ~/.kos/run once, and lets the legacy files go when the new state is written", () => {
+    const ws = join(home, "ws");
+    const [inWorkspace, global] = legacyStatePaths(ws, home) as [string, string];
+    mkdirSync(join(ws, ".kos"), { recursive: true });
+    mkdirSync(join(home, ".kos"), { recursive: true });
+    const old = { ...state, workspace: ws };
+    writeFileSync(inWorkspace, JSON.stringify(old));
+    writeFileSync(global, JSON.stringify(old));
+    expect(readDaemonState(ws, home)).toEqual(old);
+    writeDaemonState(ws, { ...old, pid: 43 }, home);
+    expect(existsSync(inWorkspace)).toBe(false);
+    expect(existsSync(global)).toBe(false);
+    expect(readDaemonState(ws, home)?.pid).toBe(43);
+  });
+
+  it("takes the legacy global copy only for its own workspace, and leaves another's", () => {
+    const [, global] = legacyStatePaths("/w", home) as [string, string];
+    mkdirSync(join(home, ".kos"), { recursive: true });
+    writeFileSync(global, JSON.stringify({ ...state, workspace: "/elsewhere" }));
+    expect(readDaemonState("/w", home)).toBeNull();
+    clearDaemonState("/w", home);
+    expect(existsSync(global)).toBe(true);
   });
 });
 

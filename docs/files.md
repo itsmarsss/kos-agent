@@ -6,7 +6,8 @@ Every path is workspace-relative and goes through the jail
 (`resolvePath`): `..`, a symbolic link anywhere on the way, or a path out
 of the workspace is refused with a 400. Writes also refuse the
 workspace's own files (`.kos`, `kos.sqlite`, `profile.json`, `mcp.json`,
-`daemon.json`, `locks`) and its top-level folders.
+`locks`, and the name `daemon.json`, kept reserved though the host's state
+now lives in `~/.kos/run/`, outside the workspace) and its top-level folders.
 
 ## Office views
 
