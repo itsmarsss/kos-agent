@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { RESERVED } from "../kernel/files.js";
@@ -134,27 +134,47 @@ export interface ModuleSettings {
   pins?: Record<string, ModulePin>;
 }
 
+/** A module's own writable folder, `modules/<name>/data`: what its server keeps, never part of its hash. */
+export const MODULE_DATA_DIR = "data";
+
+/** Each file's content hash, kept while its size and modification time stand, so a large node_modules is read once. */
+const fileHashes = new Map<string, { size: number; mtimeMs: number; hash: string }>();
+
+function fileHash(abs: string): string {
+  const st = lstatSync(abs);
+  const known = fileHashes.get(abs);
+  if (known && known.size === st.size && known.mtimeMs === st.mtimeMs) return known.hash;
+  const hash = createHash("sha256").update(readFileSync(abs)).digest("hex");
+  fileHashes.set(abs, { size: st.size, mtimeMs: st.mtimeMs, hash });
+  return hash;
+}
+
 /**
- * The hash of everything in a module's folder but its .git: every path and
- * every byte, so a file added, removed or changed is a different module. A
- * link is refused rather than followed, since what it names can change
- * without the folder changing.
+ * The hash of a module's folder: every path, every file's bytes and every
+ * link's target as it is written, so anything added, removed or changed is
+ * a different module. Left out: .git, which runs nothing, and data/, which
+ * the module's own server writes. A link is hashed as its target's name,
+ * never followed: pnpm's node_modules are links, and what one names outside
+ * the folder is the jail's to guard.
  */
 export function moduleHash(ws: Workspace, module: WorkspaceModule): string {
   const hash = createHash("sha256");
-  const walk = (rel: string): void => {
+  const walk = (rel: string, top: boolean): void => {
     for (const entry of readdirSync(ws.resolve(rel), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
       const path = `${rel}/${entry.name}`;
+      const abs = join(ws.root, path);
       if (entry.isDirectory()) {
-        if (entry.name !== ".git") walk(path);
+        if (entry.name !== ".git" && !(top && entry.name === MODULE_DATA_DIR)) walk(path, false);
+      } else if (entry.isSymbolicLink()) {
+        hash.update(`link\0${path}\0${readlinkSync(abs)}\0`);
       } else if (entry.isFile()) {
-        hash.update(`${path}\0${readFileSync(ws.resolve(path)).toString("base64")}\0`);
+        hash.update(`file\0${path}\0${fileHash(abs)}\0`);
       } else {
-        throw new Error(`${path} is not a plain file or folder`);
+        throw new Error(`${path} is not a plain file, folder or link`);
       }
     }
   };
-  walk(module.dir);
+  walk(module.dir, true);
   return hash.digest("hex");
 }
 
@@ -172,6 +192,27 @@ export function standingPin(ws: Workspace, module: WorkspaceModule, settings: Mo
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Pins for the modules that are on with none: switched on before pins were
+ * kept. Trusted as they are now, once, on the first boot that keeps pins;
+ * the names come back to be told to the owner and audited.
+ */
+export function adoptUnpinned(ws: Workspace, settings: ModuleSettings): { settings: ModuleSettings; adopted: string[] } {
+  let next = settings;
+  const adopted: string[] = [];
+  for (const module of readWorkspaceModules(ws).modules) {
+    const name = module.manifest.name;
+    if (!settings.enabled.includes(name) || settings.pins?.[name]) continue;
+    try {
+      next = withModuleEnabled(next, name, true, pinModule(ws, module));
+      adopted.push(name);
+    } catch {
+      // A folder that cannot be pinned stays off until the owner switches it on.
+    }
+  }
+  return { settings: next, adopted };
 }
 
 /** The modules that are on and unchanged since the owner switched them on: the ones that run. */
@@ -229,7 +270,8 @@ export function withBuiltinEnabled(current: ModuleSettings, name: string, enable
  * run from its own directory, jailed to the workspace unless the host is
  * the jail already, and floored as the manifest says. The jail keeps it
  * from reading or writing KOS's own state, database and settings (its
- * trust tables among them), and from rewriting its own folder.
+ * trust tables among them), and from rewriting its own folder but data/,
+ * which is its own to keep things in and which its hash leaves out.
  */
 export function serverFor(
   module: WorkspaceModule,
@@ -242,6 +284,7 @@ export function serverFor(
         workspaceRoot: options.workspaceRoot,
         hidden: [...RESERVED, ".env"].map((name) => join(options.workspaceRoot, name)),
         readOnly: [...RESERVED, ".env", module.dir].map((name) => join(options.workspaceRoot, name)),
+        writableWithin: [join(options.workspaceRoot, module.dir, MODULE_DATA_DIR)],
       })
     : { file: command, args: module.manifest.args ?? [] };
   return {

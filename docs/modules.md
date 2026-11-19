@@ -34,7 +34,9 @@ runs until you switch it on, and then only as the folder was when you did:
 KOS keeps its hash and its manifest, runs it with the floors you saw, and
 shows it off again if anything in the folder changes, until you switch it
 on again. Its server cannot read or write KOS's database, state or
-settings, or write its own folder.
+settings, or write its own folder except `data/`, which is its own to keep
+things in and is left out of the hash, as `.git` is. A link in the folder
+(pnpm's `node_modules` are links) is pinned by the target it names.
 
 **A blueprint.** A project template: the schema (as the migrator's own list
 of changes), the pages and the jobs, with the project's slug replaced by

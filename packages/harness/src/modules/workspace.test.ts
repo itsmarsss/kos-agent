@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import {
+  adoptUnpinned,
   enabledServers,
   parseModuleManifest,
   parseModuleSettings,
@@ -130,11 +131,26 @@ describe("modules in a workspace", () => {
     expect(withModuleEnabled(again, "notes", false)).toEqual({ enabled: [], disabledBuiltins: [] });
   });
 
-  it("refuses to pin a module folder holding a link", () => {
+  it("pins a link by its target, leaves data/ out, and adopts what was on before pins", () => {
     scaffoldModule(ws, "linked", "Linked");
-    symlinkSync(join(root, "kos.sqlite"), join(root, "modules", "linked", "db"));
-    const module = readWorkspaceModules(ws).modules.find((m) => m.manifest.name === "linked")!;
-    expect(() => pinModule(ws, module)).toThrow(/not a plain file/);
+    const dir = join(root, "modules", "linked");
+    mkdirSync(join(dir, "node_modules"), { recursive: true });
+    symlinkSync("../../../kos.sqlite", join(dir, "node_modules", "dep"));
+    const module = () => readWorkspaceModules(ws).modules.find((m) => m.manifest.name === "linked")!;
+    const pinned = pinModule(ws, module()).hash;
+    // The server's own data is not its code.
+    mkdirSync(join(dir, "data"), { recursive: true });
+    writeFileSync(join(dir, "data", "notes.json"), "[]");
+    expect(pinModule(ws, module()).hash).toBe(pinned);
+    // A link pointed elsewhere is another module.
+    rmSync(join(dir, "node_modules", "dep"));
+    symlinkSync("../../../profile.json", join(dir, "node_modules", "dep"));
+    expect(pinModule(ws, module()).hash).not.toBe(pinned);
+    // Switched on before pins were kept: trusted once as it is, and said.
+    const { settings, adopted } = adoptUnpinned(ws, { enabled: ["linked", "ghost"], disabledBuiltins: [] });
+    expect(adopted).toEqual(["linked"]);
+    expect(runnableModules(ws, settings)).toEqual(["linked"]);
+    expect(adoptUnpinned(ws, settings).adopted).toEqual([]);
   });
 
   it.runIf(process.platform === "darwin")("jails a module's server away from KOS's own files and its own folder", () => {
@@ -143,6 +159,7 @@ describe("modules in a workspace", () => {
     expect(profile).toMatch(/\(deny file-read\* [^\n]*\(subpath "\/w\/kos\.sqlite"\)/);
     expect(profile).toMatch(/\(deny file-write\* [^\n]*\(subpath "\/w\/kos\.sqlite-wal"\)/);
     expect(profile).toMatch(/\(deny file-write\* [^\n]*\(subpath "\/w\/modules\/m"\)/);
+    expect(profile).toMatch(/\(allow file-write\* [^\n]*\(subpath "\/w\/modules\/m\/data"\)/);
   });
 
   it("scaffolds a module that reads back valid, and refuses to clobber one", () => {
