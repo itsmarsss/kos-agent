@@ -63,6 +63,23 @@ describe("a turn on the SDK engine", () => {
     expect(heard.heard).toEqual({ mark: "m1", words: [{ text: "and the third" }] });
   });
 
+  it("runs the turn on the owner's reasoning model when the engine can run it, and on its own default otherwise", async () => {
+    let asked: SdkChatOptions | undefined;
+    sdk.run = async (o) => {
+      asked = o;
+      return answer([], "Done.");
+    };
+    // Nothing chosen: the engine's own default, not a model pinned from KOS's table.
+    await turn("hello");
+    expect(asked?.model).toBeUndefined();
+    expect(asked?.effort).toBeUndefined();
+    kernel.applyModelSettings({ reasoning: { model: "claude-opus-5-5", effort: "max" } });
+    kernel.settings.set("models", { reasoning: { model: "claude-opus-5-5", effort: "max" } });
+    await turn("hello again");
+    expect(asked?.model).toBe("claude-opus-5-5");
+    expect(asked?.effort).toBe("max");
+  });
+
   it("keeps each call's own time, where it landed, through the write at the turn's end", async () => {
     const landed = Date.now() - 60_000;
     sdk.run = async (o) => {

@@ -151,7 +151,9 @@ export interface SdkChatOptions {
   system: string;
   tools: ToolBox;
   cwd: string;
+  /** The turn's model and effort; unset, the engine's own defaults. */
   model?: string;
+  effort?: Effort;
   /** Each query's model round trips. */
   maxTurns?: number;
   /** The turn's round trips across every query it carries on in; `maxTurns` unless given. */
@@ -576,6 +578,7 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
         maxTurns: Math.min(budget, ceiling - used),
         includePartialMessages: true,
         ...(options.model ? { model: options.model } : {}),
+        ...(options.effort ? { effort: options.effort } : {}),
         ...(split.agent
           ? {
               agents: {

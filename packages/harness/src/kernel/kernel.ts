@@ -111,7 +111,7 @@ import { SpendStore } from "../ops/spend.js";
 import { BuildRegistry } from "../builds/registry.js";
 import { sitesBaseUrl } from "../sites/server.js";
 import { PendingMessages, type PendingFlags, type PendingMessage } from "./pending.js";
-import { applyModelSettings, type ModelSettings } from "../models/settings.js";
+import { applyModelSettings, MODEL_SETTINGS_KEY, parseModelSettings, type ModelSettings } from "../models/settings.js";
 import { SettingsStore } from "../store/settings.js";
 import { ModuleLoader, type KosModule, type LoadReport } from "../modules/loader.js";
 import { AuditLog } from "../ops/audit.js";
@@ -155,7 +155,7 @@ import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
-import { SdkOneShot, sdkModelFor, type SdkSpent } from "../chat/sdkname.js";
+import { SDK_PROVIDER, SdkOneShot, sdkModelFor, sdkTurnModel, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
 import { Decisions, type DecisionResult, type DecisionSurface } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
@@ -1516,6 +1516,7 @@ export class Kernel {
             system,
             tools,
             cwd: this.workspace.root,
+            ...sdkTurnModel(this.inference.routeFor?.("reasoning"), parseModelSettings(this.settings.get(MODEL_SETTINGS_KEY)).reasoning),
             maxTurns: this.behaviour().maxSteps,
             // The owner's own turn on a screen (one they dispatched included) carries on in fresh queries up to its
             // own budget; every other turn (a schedule, a guest, a dispatch or handoff from another chat) stops where
@@ -1980,7 +1981,7 @@ export class Kernel {
   private sdkScreen(): { model: string; effort?: Effort } | undefined {
     const route = this.screenRoute();
     if (!route) return undefined;
-    const spec = route.provider === "anthropic" ? route.spec : SCREEN_SUGGESTION.spec;
+    const spec = route.provider === SDK_PROVIDER ? route.spec : SCREEN_SUGGESTION.spec;
     return { model: spec.model, ...(spec.effort ? { effort: spec.effort } : {}) };
   }
 

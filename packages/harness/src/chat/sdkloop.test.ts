@@ -128,6 +128,18 @@ describe("a turn on the SDK", () => {
     expect(options["disallowedTools"]).toContain("Bash");
   });
 
+  it("asks the engine for the turn's model and effort when given them, and leaves its defaults when not", async () => {
+    run.queries = [];
+    run.script = steps(1, "notify");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["notify"], () => ({ content: "ok" })), cwd: process.cwd(), model: "claude-opus-5-5", effort: "max" });
+    expect(run.queries[0]!.options).toMatchObject({ model: "claude-opus-5-5", effort: "max" });
+    run.queries = [];
+    run.script = steps(1, "notify");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["notify"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(run.queries[0]!.options["model"]).toBeUndefined();
+    expect(run.queries[0]!.options["effort"]).toBeUndefined();
+  });
+
   it("writes no transcript to disk, in the workspace or the owner's home", async () => {
     run.queries = [];
     run.script = steps(1, "notify");
