@@ -1117,6 +1117,10 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
  * a time. The whole text went every time, up to 40,000 characters, into a
  * turn that often needed its title.
  */
+/** The most of a page's title and address chrome.page says. */
+const TITLE_MAX = 300;
+const URL_MAX = 2_000;
+
 export function pageText(page: Record<string, unknown>, from?: number): string {
   const text = typeof page["text"] === "string" ? page["text"] : "";
   const selection = typeof page["selection"] === "string" ? page["selection"].trim() : "";
@@ -1126,9 +1130,10 @@ export function pageText(page: Record<string, unknown>, from?: number): string {
   const part = text.slice(start, start + size);
   const left = text.length - (start + part.length);
   const more = left > 0 ? `\n\n(${left.toLocaleString("en-US")} more characters; chrome.page with from: ${start + part.length} reads on)` : "";
+  // The title and address are the page's to set too: fenced with the rest, the title cut to a line's length.
+  const title = String(page["title"] ?? "").replace(/\s+/g, " ").trim().slice(0, TITLE_MAX) || "(untitled)";
   const head = [
-    `${String(page["title"] ?? "") || "(untitled)"}`,
-    String(page["url"] ?? ""),
+    fenced(`${title}\n${String(page["url"] ?? "").slice(0, URL_MAX)}`),
     ...(from === undefined && selection ? ["", "The owner selected:", fenced(selection)] : []),
     ...(from === undefined && headings.length ? ["", "Headings:", fenced(headings.map((h) => `- ${h.replace(/\s+/g, " ").trim().slice(0, 120)}`).join("\n"))] : []),
     "",

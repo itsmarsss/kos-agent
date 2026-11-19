@@ -1140,7 +1140,7 @@ describe("a Chrome's side panel", () => {
     chrome.event("chat.send", { text: "what is this" });
     await flush();
     expect(panel.deviceOf("chrome:owner")).toBe(chrome.id);
-    expect(await tools.get("chrome.page")!({})).toMatch(/^Shop\nhttps:\/\/shop\.example\/\n\nThe owner selected:\n\[page content \w+: [^\]]+\]\nBlue mug\n.*\nasked for chrome:owner\n/s);
+    expect(await tools.get("chrome.page")!({})).toMatch(/^\[page content \w+: [^\]]+\]\nShop\nhttps:\/\/shop\.example\/\n\[end of page content \w+\]\n\nThe owner selected:\n\[page content \w+: [^\]]+\]\nBlue mug\n.*\nasked for chrome:owner\n/s);
     callFrom("project:budget");
     await expect(tools.get("chrome.page")!({})).rejects.toThrow(/not the owner's Chrome side panel/);
   });
