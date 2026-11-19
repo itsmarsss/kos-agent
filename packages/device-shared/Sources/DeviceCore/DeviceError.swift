@@ -17,6 +17,8 @@ public enum ErrorCode: String, Codable, Sendable {
   case field
   /// A field KOS typed a secret into is in the way: focused and not found for a picture, or asked to copy or type.
   case secretField = "secret_field"
+  /// keys.secret: stopped after part of the secret went in; the message says how much.
+  case partial
 }
 
 /// A call refused: the code KOS reads and the sentence the owner reads.
