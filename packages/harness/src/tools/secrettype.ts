@@ -4,7 +4,7 @@ import { SECRET_FIELDS, secretFieldWords, summarizeAction, type AskSecret, type 
 import { approvedAs, caller, guestOrigin, isAttended, turn } from "../kernel/caller.js";
 import type { ModuleContext } from "../modules/loader.js";
 import type { SecretUseInput, SecretUses } from "../ops/secretuses.js";
-import { appGrant, originAllowed } from "../secrets/records.js";
+import { appGrant, isBrowserApp, originAllowed } from "../secrets/records.js";
 import type { SecretMeta, Vault } from "../secrets/vault.js";
 
 /**
@@ -29,8 +29,12 @@ export interface MacField {
   window?: string;
   label?: string;
   placeholder?: string;
-  /** The page's origin, for a field on a page in a browser. */
+  /** True for a field on a web page, its origin read or not. */
+  page?: boolean;
+  /** The page's origin, for a field on a page whose every frame is on http or https. */
   origin?: string;
+  /** The origins of the frames between that page and the field, outermost first, the page's own left out. */
+  frames?: string[];
 }
 
 export interface MacFocus {
@@ -47,6 +51,12 @@ export interface MacSecretParams {
   apps: string[];
   expect: { role: string; secure: boolean; window?: string };
   origin?: string;
+  frames?: string[];
+}
+
+/** What the Mac said of a secret it typed: whether the field grew by as much, when it would say. */
+export interface MacTyped {
+  landed?: boolean;
 }
 
 /** The calling chat's Mac, as secrets.type needs it. A refusal is an error with the device's `code`. */
@@ -54,26 +64,30 @@ export interface SecretsMac {
   /** The chat's session on a Mac, or why it has none. */
   session(chat: string): { id: string; device: { id: string; name: string } } | string;
   focus(chat: string): Promise<MacFocus>;
-  /** Resolves once typed; the Mac answers nothing more. `step` is the line its bar shows, as the chat says it. */
-  type(chat: string, params: MacSecretParams, step: string): Promise<void>;
+  /** Resolves once typed. `step` is the line its bar shows, as the chat says it. */
+  type(chat: string, params: MacSecretParams, step: string): Promise<MacTyped>;
 }
 
 export interface SecretTypeDeps {
   vault: () => Vault | undefined;
   uses: Pick<SecretUses, "record" | "list">;
   mac: SecretsMac;
-  /** A word to the owner's Inbox: a turn refused a secret again and again. */
+  /** A word to the owner's Inbox: a turn refused a secret again and again, or one typed only part of the way. */
   tellOwner?: (text: string) => void;
+  /** KOS's own addresses (host, or host:port): its dashboard, where no secret is typed. */
+  ownHosts?: () => readonly string[];
 }
 
 export const SECRET_TYPE = "secrets.type";
+/** The Mac stopped after part of a secret went in. */
+const PARTIAL = "partial";
 const SURFACE = "mac";
 /** Yes-for-this-turn grants kept, at most; the oldest turn's go first. */
 const TURNS_KEPT = 50;
 /** Refused types in one turn before the owner is told. */
 const REFUSALS_TOLD = 3;
 /** The keys only the harness sets: anything the model passed under them is dropped. */
-const STAMPED = ["label", "app", "target", "origin", "session", "device", "deviceId"];
+const STAMPED = ["label", "app", "target", "origin", "frames", "session", "device", "deviceId"];
 
 /** A secret's field as secrets.type names it, and the kind of field it goes into. Billing goes by secrets.fill alone. */
 const SLOTS: Record<string, SecretSlot> = {
@@ -118,6 +132,36 @@ const covered = (slot: SecretSlot, field: Pick<MacField, "secure"> | undefined):
 
 const fieldWords = (f: Pick<MacField, "secure">): string => (f.secure ? "password field" : "text field");
 
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
+
+function parsed(address: string): URL | undefined {
+  try {
+    return new URL(address);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether an origin is KOS's own dashboard, where approvals are decided:
+ * one of its own hosts (any port when the host names none), or any loopback
+ * name on the port of one of them.
+ */
+export function isKosOrigin(origin: string, hosts: readonly string[]): boolean {
+  const url = parsed(origin);
+  if (!url) return false;
+  const port = url.port || (url.protocol === "https:" ? "443" : "80");
+  return hosts.some((host) => {
+    const own = parsed(`http://${host}`);
+    if (!own) return false;
+    if (own.hostname === url.hostname && (!own.port || own.port === port)) return true;
+    return own.port !== "" && own.port === port && LOOPBACK.has(url.hostname);
+  });
+}
+
+/** The frames' origins as said, in order, for comparing two readings of one field. */
+const framesOf = (f: Pick<MacField, "frames"> | undefined): string => JSON.stringify(f?.frames ?? []);
+
 /** A refusal for the model, recorded as a use when it is about a secret. */
 class Refusal extends Error {
   constructor(
@@ -157,6 +201,11 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
     return vault;
   };
   const metaOf = (input: Record<string, unknown>): SecretMeta | undefined => deps.vault()?.get(str(input, "secret")?.toLowerCase() ?? "");
+  /** A browser's grant stands only on a page's origin, never for the app as a whole. */
+  const grantStands = (input: Record<string, unknown>): boolean => {
+    const bundle = (input["app"] as { bundle?: unknown } | undefined)?.bundle;
+    return typeof bundle === "string" && (str(input, "origin") !== undefined || !isBrowserApp(bundle));
+  };
   const grantKey = (input: Record<string, unknown>): string | undefined => {
     const bundle = (input["app"] as { bundle?: unknown } | undefined)?.bundle;
     return typeof bundle === "string" ? appGrant(bundle, str(input, "origin")) : undefined;
@@ -240,8 +289,21 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
       refuse("field", `The field with focus in ${app!.name} shows what is typed; a password goes only into a password field.`, { deviceId, app: app!.bundle });
     }
     const origin = target!.origin;
+    const at = { deviceId, app: app!.bundle };
+    if (!origin && (target!.page === true || isBrowserApp(app!.bundle))) {
+      refuse("origin", `The field in ${app!.name} is on a page whose address KOS for Mac could not read, or that is not on http or https; no secret is typed there.`, at);
+    }
+    const own = deps.ownHosts?.() ?? [];
+    for (const page of [origin, ...(target!.frames ?? [])]) {
+      if (page && isKosOrigin(page, own)) refuse("origin", `The page in ${app!.name} is KOS's own dashboard (${page}); no secret is typed there.`, { ...at, origin: page });
+    }
     if (origin && !originAllowed(origin, meta.use.web.origins)) {
-      refuse("origin", `The page in ${app!.name} is on ${origin}, where ${meta.label} is not allowed${meta.use.web.origins.length ? `; it is for ${meta.use.web.origins.join(", ")}` : ""}.`, { deviceId, app: app!.bundle, origin });
+      refuse("origin", `The page in ${app!.name} is on ${origin}, where ${meta.label} is not allowed${meta.use.web.origins.length ? `; it is for ${meta.use.web.origins.join(", ")}` : ""}.`, { ...at, origin });
+    }
+    for (const frame of target!.frames ?? []) {
+      if (!originAllowed(frame, meta.use.web.frames)) {
+        refuse("origin", `The field in ${app!.name} is in a frame on ${frame}, where ${meta.label} is not allowed${meta.use.web.frames.length ? `; its frames are ${meta.use.web.frames.join(", ")}` : ""}. The owner adds payment frames on the Secrets page.`, { ...at, ...(origin ? { origin } : {}) });
+      }
     }
     if (!isAttended() && !(grantedIn(meta, appGrant(app!.bundle, origin)) && covered(parsed.slot, target))) {
       refuse("unattended", `${meta.label} needs the owner present: an unattended turn types it only where the owner said always.`, { deviceId, app: app!.bundle });
@@ -283,14 +345,15 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
       const stamped = stampedTarget(input);
       if ((input["app"] as { bundle?: unknown } | undefined)?.bundle !== app.bundle) changed(`another app came to the front (${app.name})`);
       if (!stamped || stamped.role !== target.role || stamped.secure !== target.secure || (stamped.window ?? null) !== (target.window ?? null)) changed("another field has focus");
-      if ((str(input, "origin") ?? null) !== (target.origin ?? null)) changed("the page changed");
+      if ((str(input, "origin") ?? null) !== (target.origin ?? null) || framesOf(stamped) !== framesOf(target)) changed("the page changed");
       const value = valueOf(vaultNow(), meta.handle, field);
       if (!value) {
         record(meta, "refused:empty", extra);
         throw new Error(`${meta.label} has no ${secretFieldWords(field)} saved; nothing was typed.`);
       }
+      let typed: MacTyped;
       try {
-        await deps.mac.type(chat, {
+        typed = await deps.mac.type(chat, {
           approved: session.id,
           text: value,
           field: slot,
@@ -298,14 +361,23 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
           apps: meta.use.apps,
           expect: { role: target.role, secure: target.secure, ...(target.window !== undefined ? { window: target.window } : {}) },
           ...(target.origin ? { origin: target.origin } : {}),
+          ...(target.frames?.length ? { frames: target.frames } : {}),
         }, summarizeAction(SECRET_TYPE, input));
       } catch (err) {
         const code = (err as { code?: string }).code;
+        if (code === PARTIAL && err instanceof Error) {
+          // Part of it went in: the field holds part of a secret, which the owner clears.
+          record(meta, PARTIAL, extra);
+          deps.tellOwner?.(`KOS typed only part of ${meta.label} (${meta.handle}) into ${app.name} on ${session.device.name}: ${err.message} Clear that field before anything else is done there.`);
+          throw new Error(`Typed only part of it: ${err.message} The owner was told. Do not submit the form; stop and say so.`);
+        }
         record(meta, code ? `refused:${code}` : "failed", extra);
         // The Mac's words never hold a value; anything else is said in general.
         throw new Error(code && err instanceof Error ? `Not typed: ${err.message}` : `Typing ${meta.label} failed. Look at the screen before trying again.`);
       }
       record(meta, "filled", extra);
+      // The field's length, never its value, did not grow by what was typed: keys were lost, or the app changed them.
+      const lost = typed.landed === false ? " The field's length did not grow by what was typed: keys may have been lost. Look at the field before submitting, and ask the owner if it looks wrong." : "";
       if (meta.policy.ask === "turn") {
         const id = turn.getStore();
         if (id) {
@@ -317,7 +389,8 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
       }
       return (
         `Typed ${secretFieldWords(field)} from ${meta.label} (${meta.handle}) into the ${fieldWords(target)} in ${app.name} on ${session.device.name}. ` +
-        "It is blacked out in pictures; copying from it and typing into it again are refused for the rest of the session. Submit with Return or the form's button, then look."
+        "It is blacked out in pictures; copying from it and typing into it again are refused for the rest of the session. Submit with Return or the form's button, then look." +
+        lost
       );
     },
     {
@@ -346,6 +419,7 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
           app: focus.app,
           target: focus.field,
           ...(focus.field.origin ? { origin: focus.field.origin } : {}),
+          ...(focus.field.frames?.length ? { frames: focus.field.frames } : {}),
           session: session.id,
           device: session.device.name,
           deviceId: session.device.id,
@@ -359,7 +433,7 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
         const meta = metaOf(input);
         const key = grantKey(input);
         const slot = SLOTS[str(input, "field")?.toLowerCase() ?? ""];
-        if (!meta || !key || !slot) return false;
+        if (!meta || !key || !slot || !grantStands(input)) return false;
         // A grant covers a secret only into a password field: a card or a key into a text field asks.
         if (grantedIn(meta, key) && covered(slot, stampedTarget(input))) return true;
         const id = turn.getStore();
@@ -384,7 +458,7 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
           kind: meta.kind,
           fields: [field.split(".")[0] as SecretFieldName],
           ...(origin ? { origin } : {}),
-          frameOrigins: [],
+          frameOrigins: target.frames ?? [],
           surface: SURFACE,
           ...(str(input, "device") ? { device: str(input, "device")! } : {}),
           hint: meta.hint,
@@ -399,7 +473,7 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
         const vault = deps.vault();
         const meta = metaOf(input);
         const key = grantKey(input);
-        if (!vault || !meta || !key || meta.policy.ask !== "site") return false;
+        if (!vault || !meta || !key || meta.policy.ask !== "site" || !grantStands(input)) return false;
         vault.addGrant(meta.handle, key);
         return true;
       },

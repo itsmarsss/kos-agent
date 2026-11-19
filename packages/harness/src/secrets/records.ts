@@ -145,11 +145,40 @@ export function appGrant(bundle: string, origin?: string): string {
   return `app:${bundle}${origin ? `@${origin}` : ""}`;
 }
 
-/** Whether a grant's key may be kept for a secret used as `use` says: a site it may be filled on, or an app it may be typed into (on a site it may be filled on). */
+/** The bundle ids of web browsers on a Mac, by prefix: a web app shim of one (com.google.Chrome.app.*) is a page too. */
+const BROWSERS = [
+  "com.apple.Safari",
+  "com.apple.SafariTechnologyPreview",
+  "com.google.Chrome",
+  "org.chromium.",
+  "org.mozilla.",
+  "com.microsoft.edgemac",
+  "com.brave.Browser",
+  "company.thebrowser.",
+  "com.operasoftware.",
+  "com.vivaldi.",
+  "com.kagi.kagimacOS",
+  "app.zen-browser.",
+  "org.torproject.",
+  "com.duckduckgo.macos.browser",
+  "net.waterfox.",
+];
+
+/** Whether a Mac app is a web browser, whose fields are on pages: a secret goes there only on an origin it may be filled on. */
+export function isBrowserApp(bundle: string): boolean {
+  return BROWSERS.some((b) => (b.endsWith(".") ? bundle.startsWith(b) : bundle === b || bundle.startsWith(`${b}.`)));
+}
+
+/**
+ * Whether a grant's key may be kept for a secret used as `use` says: a site
+ * it may be filled on, or an app it may be typed into, on a site it may be
+ * filled on for a browser (a browser's grant never stands without one).
+ */
 export function grantAllowed(key: string, use: SecretUse): boolean {
   const app = /^app:([^@]+)(?:@(.+))?$/.exec(key);
   if (!app) return originAllowed(key, use.web.origins);
-  return use.apps.includes(app[1]!) && (app[2] === undefined || originAllowed(app[2], use.web.origins));
+  if (app[2] === undefined) return use.apps.includes(app[1]!) && !isBrowserApp(app[1]!);
+  return use.apps.includes(app[1]!) && originAllowed(app[2], use.web.origins);
 }
 
 /** Whether `origin` is one of `allowed`, an entry `https://*.example.com` covering its subdomains. */

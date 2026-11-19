@@ -131,7 +131,8 @@ export type ErrorCode =
   | "target"
   | "origin"
   | "field"
-  | "secret_field";
+  | "secret_field"
+  | "partial";
 
 export interface Reply {
   t: "reply";

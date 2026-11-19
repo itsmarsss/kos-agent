@@ -11,12 +11,12 @@ import { ModuleLoader, toolRegistryContext, type KosModule } from "../modules/lo
 import { ApprovalQueue } from "../ops/approvals.js";
 import { AuditLog } from "../ops/audit.js";
 import { SecretUses } from "../ops/secretuses.js";
-import { appGrant } from "../secrets/records.js";
+import { appGrant, isBrowserApp } from "../secrets/records.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Vault } from "../secrets/vault.js";
 import { Workspace } from "../store/workspace.js";
 import { createSecretsModule } from "./secrets.js";
-import { registerSecretType, type MacFocus, type MacSecretParams } from "./secrettype.js";
+import { isKosOrigin, registerSecretType, type MacFocus, type MacSecretParams } from "./secrettype.js";
 
 /**
  * secrets.type over a real vault and the guarded path, with a stand-in Mac
@@ -43,7 +43,8 @@ describe("secrets.type", () => {
   let login: string;
   let card: string;
   /** The Mac as the stand-in is now: its session, what is in front and in focus, and what it was asked to type. */
-  let mac: { session: { id: string; device: { id: string; name: string } } | string; focus: MacFocus; typed: MacSecretParams[]; refuse?: Error };
+  let mac: { session: { id: string; device: { id: string; name: string } } | string; focus: MacFocus; typed: MacSecretParams[]; refuse?: Error; landed?: boolean };
+  let handsOn: string | undefined;
   let told: string[];
   let rules: unknown[];
 
@@ -61,6 +62,7 @@ describe("secrets.type", () => {
     uses = new SecretUses(ws.db);
     told = [];
     rules = [];
+    handsOn = undefined;
     mac = { session: { id: "s1", device: { id: "dev_mac", name: "Studio MacBook" } }, focus: { app: SAFARI, field: PASSWORD_FIELD }, typed: [] };
     const onMac: KosModule = {
       manifest: { name: "mac-standin", version: "1.0.0", provides: [{ kind: "tool", name: "secrets.type", version: "1.0.0" }] },
@@ -69,12 +71,14 @@ describe("secrets.type", () => {
           vault: () => secrets.attached(),
           uses,
           tellOwner: (text) => void told.push(text),
+          ownHosts: () => ["0.0.0.0:4317", "kos.example.ts.net"],
           mac: {
             session: () => mac.session,
             focus: async () => structuredClone(mac.focus),
             type: async (_chat, params) => {
               if (mac.refuse) throw mac.refuse;
               mac.typed.push(params);
+              return mac.landed === undefined ? {} : { landed: mac.landed };
             },
           },
         });
@@ -82,7 +86,7 @@ describe("secrets.type", () => {
     };
     registry = new ToolRegistry();
     await new ModuleLoader(toolRegistryContext(registry)).load([
-      createSecretsModule({ vault: () => secrets.attached(), uses, browser: { unready: () => "none", url: () => undefined, spots: async () => [], fill: async () => ({ text: "", images: [] }) }, onDecided: (l) => approvals.onDecided(l) }),
+      createSecretsModule({ vault: () => secrets.attached(), uses, browser: { unready: () => "none", where: () => ({ surface: "kos-browser" }), url: () => undefined, spots: async () => [], fill: async () => ({ text: "", images: [] }) }, onDecided: (l) => approvals.onDecided(l) }),
       onMac,
     ]);
   });
@@ -107,6 +111,7 @@ describe("secrets.type", () => {
       inConversation: (_id, work) => work(),
       onToolRan: () => undefined,
       handleMessage: async () => ({ reply: "" }),
+      handsOn: () => handsOn,
     });
   const decide = async (yes: boolean, remember = false): Promise<void> => {
     await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
@@ -247,5 +252,82 @@ describe("secrets.type", () => {
     expect(done.content).toMatch(/Not typed: Focus moved to another field/);
     expect(done.content).not.toContain(PASSWORD);
     expect(uses.list(login)[0]?.outcome).toBe("refused:field");
+  });
+
+  it("never types on a page whose address the Mac could not read, nor in a browser without one", async () => {
+    mac.focus = { app: SAFARI, field: { role: "AXTextField", secure: true, window: "Sign in", page: true } };
+    expect((await guarded().execute("secrets.type", typePassword())).content).toMatch(/on a page whose address KOS for Mac could not read/);
+    // A browser's field with no page said is refused all the same.
+    mac.focus = { app: SAFARI, field: { role: "AXTextField", secure: true, window: "Sign in" } };
+    expect((await guarded().execute("secrets.type", typePassword())).content).toMatch(/on a page whose address KOS for Mac could not read/);
+    // An app's own field (GitHub Desktop) needs none; on a page in it, it does.
+    const desktop = { name: "GitHub Desktop", bundle: "com.github.GitHubClient" };
+    mac.focus = { app: desktop, field: { role: "AXTextField", secure: true, window: "Sign in", page: true } };
+    expect((await guarded().execute("secrets.type", typePassword())).content).toMatch(/could not read/);
+    mac.focus = { app: desktop, field: { role: "AXTextField", secure: true, window: "Sign in" } };
+    void guarded().execute("secrets.type", typePassword());
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    expect(mac.typed).toHaveLength(0);
+  });
+
+  it("never types on KOS's own dashboard, by any loopback name on its port or its own host", async () => {
+    vault.update(login, { use: { web: { origins: [SITE, "http://localhost:4317", "https://kos.example.ts.net"] }, apps: [SAFARI.bundle] } });
+    for (const origin of ["http://localhost:4317", "http://127.0.0.1:4317", "https://kos.example.ts.net"]) {
+      mac.focus = { app: SAFARI, field: { ...PASSWORD_FIELD, origin } };
+      expect((await guarded().execute("secrets.type", typePassword())).content).toMatch(/is KOS's own dashboard/);
+    }
+    expect(isKosOrigin("http://localhost:3000", ["0.0.0.0:4317"])).toBe(false);
+    expect(isKosOrigin("https://github.com", ["0.0.0.0:4317", "kos.example.ts.net"])).toBe(false);
+    expect(approvals.pending()).toHaveLength(0);
+  });
+
+  it("checks every frame between the page and the field against the secret's frames, and asks with them", async () => {
+    mac.focus = { app: SAFARI, field: { ...PASSWORD_FIELD, frames: ["https://js.stripe.com"] } };
+    expect((await guarded().execute("secrets.type", typePassword())).content).toMatch(/in a frame on https:\/\/js\.stripe\.com, where GitHub is not allowed/);
+    vault.update(login, { use: { web: { origins: [SITE], frames: ["https://js.stripe.com"] }, apps: [SAFARI.bundle] } });
+    const running = guarded().execute("secrets.type", typePassword());
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    expect(approvals.pending()[0]!.secret?.frameOrigins).toEqual(["https://js.stripe.com"]);
+    await decide(true);
+    expect((await running).isError).toBe(false);
+    expect(mac.typed[0]).toMatchObject({ origin: SITE, frames: ["https://js.stripe.com"] });
+  });
+
+  it("never keeps a browser's grant without a page", () => {
+    vault.update(login, { policy: { ask: "site" } });
+    expect(() => vault.addGrant(login, appGrant(SAFARI.bundle))).toThrow();
+    vault.addGrant(login, appGrant("com.github.GitHubClient"));
+    expect(isBrowserApp("com.google.Chrome.beta") && isBrowserApp("com.google.Chrome.app.abc") && isBrowserApp("org.mozilla.firefox")).toBe(true);
+    expect(isBrowserApp("com.github.GitHubClient") || isBrowserApp("com.google.Chromecast")).toBe(false);
+  });
+
+  it("says a secret typed part of the way, and tells the owner to clear the field", async () => {
+    mac.refuse = Object.assign(new Error("Typed 3 of 18 characters, then stopped: Focus moved to another field. The field holds part of the secret; the owner should clear it."), { code: "partial" });
+    const running = guarded().execute("secrets.type", typePassword());
+    await decide(true);
+    const done = await running;
+    expect(done.content).toMatch(/Typed only part of it: Typed 3 of 18 characters/);
+    expect(done.content).not.toContain(PASSWORD);
+    expect(uses.list(login)[0]?.outcome).toBe("partial");
+    expect(told).toEqual([expect.stringMatching(/KOS typed only part of GitHub .* into Safari on Studio MacBook: Typed 3 of 18/)]);
+  });
+
+  it("says when the field did not grow by what was typed", async () => {
+    mac.landed = false;
+    const running = guarded().execute("secrets.type", typePassword());
+    await decide(true);
+    expect((await running).content).toMatch(/keys may have been lost/);
+  });
+
+  it("is not approved from where KOS's own hand may be, and the ask waits", async () => {
+    const running = guarded().execute("secrets.type", typePassword());
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    const ask = approvals.pending()[0]!;
+    handsOn = "This device is the one KOS is working on in this chat.";
+    expect(await decisions().approve(ask.id, "owner", { surface: "mac", device: "dev_mac" })).toMatchObject({ ok: false, message: expect.stringMatching(/not approved: This device is the one KOS is working on/) });
+    expect(approvals.get(ask.id)?.status).toBe("pending");
+    handsOn = undefined;
+    expect(await decisions().approve(ask.id, "owner", { surface: "phone", device: "dev_phone" })).toMatchObject({ ok: true });
+    expect((await running).isError).toBe(false);
   });
 });

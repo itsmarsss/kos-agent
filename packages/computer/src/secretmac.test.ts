@@ -10,6 +10,7 @@ import { OwnerChrome } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
 import { rawPublicKey } from "./keys.js";
+import { typingTimeout } from "./secretmac.js";
 import { DeviceStore } from "./store.js";
 import { computerModule } from "./tools.js";
 
@@ -184,5 +185,14 @@ describe("secrets.type among the computer tools", () => {
     expect(bare.has("computer.act") && !bare.has("secrets.type")).toBe(true);
     hub.remove(fake.id);
     expect(tools.size).toBe(0);
+  });
+});
+
+describe("the Mac's time to type a secret", () => {
+  it("grows with the value, a character at a time, up to a cap", () => {
+    expect(typingTimeout("x".repeat(20))).toBe(16_200);
+    expect(typingTimeout("x".repeat(1_000))).toBe(75_000);
+    expect(typingTimeout("x".repeat(4_000))).toBe(255_000);
+    expect(typingTimeout("x".repeat(10_000))).toBe(300_000);
   });
 });

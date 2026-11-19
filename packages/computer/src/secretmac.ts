@@ -1,4 +1,4 @@
-import { turnStop, type MacField, type MacFocus, type SecretsMac } from "@kos/harness";
+import { turnStop, type MacField, type MacFocus, type MacTyped, type SecretsMac } from "@kos/harness";
 
 import type { DeviceHub } from "./hub.js";
 import { DeviceError } from "./link.js";
@@ -30,9 +30,22 @@ export function macSecrets(hub: DeviceHub): SecretsMac {
     async type(chat, params, step) {
       // The step on the Mac's bar and in its menu, as computer.act's are: never the value.
       hub.tellStatus(chat, { step });
-      await hub.act(chat, "keys.secret", { ...params }, undefined, turnStop.getStore());
+      const result = await hub.act(chat, "keys.secret", { ...params }, typingTimeout(params.text), turnStop.getStore());
+      return typedOf(result);
     },
   };
+}
+
+/** How long the Mac is given to type a value: it types one character at a time, checking the field before each. */
+export function typingTimeout(text: string): number {
+  return Math.min(BASE_MS + text.length * PER_UNIT_MS, MAX_MS);
+}
+const BASE_MS = 15_000;
+const PER_UNIT_MS = 60;
+const MAX_MS = 300_000;
+
+function typedOf(result: Record<string, unknown>): MacTyped {
+  return typeof result["landed"] === "boolean" ? { landed: result["landed"] } : {};
 }
 
 /** keys.focus's answer, read as far as it holds. */
@@ -49,7 +62,11 @@ function focusOf(result: Record<string, unknown>): MacFocus {
           ...(typeof field["window"] === "string" ? { window: field["window"] } : {}),
           ...(text(field["label"]) ? { label: text(field["label"])! } : {}),
           ...(text(field["placeholder"]) ? { placeholder: text(field["placeholder"])! } : {}),
+          ...(field["page"] === true ? { page: true } : {}),
           ...(text(field["origin"]) ? { origin: text(field["origin"])! } : {}),
+          ...(Array.isArray(field["frames"]) && field["frames"].every((f) => typeof f === "string") && field["frames"].length
+            ? { frames: field["frames"] as string[] }
+            : {}),
         }
       : undefined;
   return {

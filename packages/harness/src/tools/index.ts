@@ -27,7 +27,7 @@ export {
 } from "./search.js";
 export { systemsModule } from "./systems.js";
 export type { BrowserElsewhere, PageSpot, TabInfo } from "./browser.js";
-export { registerSecretType, SECRET_TYPE, type MacField, type MacFocus, type MacSecretParams, type SecretsMac, type SecretTypeDeps } from "./secrettype.js";
+export { registerSecretType, SECRET_TYPE, type MacField, type MacFocus, type MacSecretParams, type MacTyped, type SecretsMac, type SecretTypeDeps } from "./secrettype.js";
 export { tasksModule } from "./tasks.js";
 export { exportModule, toCsv, toMarkdown } from "./export.js";
 export { createShellModule, runShell, type ShellResult } from "./shell.js";
