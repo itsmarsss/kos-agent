@@ -1,16 +1,18 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { projectTable, slugify } from "../systems/identifiers.js";
+import { reachesAll } from "../kernel/caretaker.js";
 import { maintains, reachable } from "./fence.js";
 import { reachOf } from "./sql.js";
 
 /**
  * First-party multi-instance tasks module. Blueprint = this module; each
  * "list" is a project instance with a namespaced `items` table. Tools are
- * instance-parameterized via project slug, and fenced as the sql tool is:
- * a list is changed and read by its own project's chats, the turn that made
- * it, and Maintenance. A new list is made at the root, never from inside
- * another project, a blob or a guest's words.
+ * instance-parameterized via project slug, and fenced: a list is changed
+ * and read by its own project's chats, the turn that made it, Maintenance,
+ * and the root (its chats, Discord DMs and its schedules), which reaches
+ * every chat and blob as well. Another project's chats, a blob and a
+ * guest's words reach none but their own. A new list is made at the root.
  */
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -62,10 +64,10 @@ function ensureInstanceSchema(
   });
 }
 
-/** Whether this chat may read and change the list: its own project's, made this turn, or Maintenance's. */
+/** Whether this chat may read and change the list: its own project's, made this turn, Maintenance's or the root's. */
 function inReach(ctx: ModuleContext, slug: string): boolean {
   const reach = reachOf(ctx);
-  return maintains(reach) || reachable(reach).includes(slug);
+  return maintains(reach) || reachable(reach).includes(slug) || (reachesAll(reach.project, reach.guest) && !reach.blob);
 }
 
 function refuseOutsideReach(ctx: ModuleContext, slug: string): void {

@@ -115,9 +115,9 @@ describe("tasksModule", () => {
   it("reaches a list only from its own chats, the turn that made it, or Maintenance", async () => {
     await registry.execute("tasks.create_list", { name: "Errands", withPage: false });
     await registry.execute("tasks.add", { instance: "errands", title: "buy milk" });
-    // A later turn at the root reaches no project, as the sql tool's does.
+    // A later turn at the root still reaches it: the root reaches every list.
     made = [];
-    expect((await registry.execute("tasks.list", { instance: "errands" })).isError).toBe(true);
+    expect(JSON.parse((await registry.execute("tasks.list", { instance: "errands" })).content)).toHaveLength(1);
 
     manifest.createProject({ name: "Other", type: "notes" });
     const other = await chatIn("other");
@@ -137,5 +137,22 @@ describe("tasksModule", () => {
     const items = JSON.parse((await own.execute("tasks.list", { instance: "errands" })).content) as { title: string }[];
     expect(items.map((i) => i.title)).toEqual(["buy milk"]);
     expect((await (await chatIn("maintenance")).execute("tasks.list", { instance: "errands" })).isError).toBe(false);
+  });
+
+  it("lets a later root turn and a root schedule add to and tick off a list", async () => {
+    await registry.execute("tasks.create_list", { name: "Groceries", withPage: false });
+    made = [];
+    // Another day, at the root: nothing made this turn.
+    expect((await registry.execute("tasks.add", { instance: "groceries", title: "milk" })).isError).toBe(false);
+    // A root schedule's thread: no project, no blob, no guest.
+    const cron = new ToolRegistry();
+    const ctx = toolRegistryContext(cron, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), manifest, migrator, pages, callerConversation: () => "cron:7" });
+    await new ModuleLoader(ctx).load([tasksModule]);
+    const [item] = JSON.parse((await cron.execute("tasks.list", { instance: "groceries" })).content) as { id: number }[];
+    expect((await cron.execute("tasks.complete", { instance: "groceries", id: item!.id })).isError).toBe(false);
+    // A blob at the root is still held to its own.
+    const blob = new ToolRegistry();
+    await new ModuleLoader(toolRegistryContext(blob, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), manifest, migrator, pages, callerBlob: () => ({ name: "helper", id: "b1" }) })).load([tasksModule]);
+    expect((await blob.execute("tasks.list", { instance: "groceries" })).isError).toBe(true);
   });
 });
