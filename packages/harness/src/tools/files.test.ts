@@ -61,8 +61,48 @@ describe("filesModule", () => {
       expect(res.content).toContain("is KOS's own");
     }
     expect(readFileSync(join(root, "mcp.json"), "utf8")).toBe('{"servers":{}}');
-    expect((await registry.execute("files.read", { path: "mcp.json" })).content).toBe('{"servers":{}}');
+    expect((await registry.execute("files.read", { path: "mcp.json" })).isError).toBe(true);
     expect((await registry.execute("files.write", { path: "sites/mcp.json", content: "{}" })).isError).toBe(false);
+  });
+
+  it("never reads KOS's database, its journals, settings or locks, however they are spelled", async () => {
+    ws.db.exec("CREATE TABLE secret_rows (v TEXT)");
+    ws.db.prepare("INSERT INTO secret_rows (v) VALUES (?)").run("trust-table-row");
+    writeFileSync(join(root, "mcp.json"), '{"servers":{}}');
+    writeFileSync(join(root, "profile.json"), "{}");
+    writeFileSync(join(root, "daemon.json"), "{}");
+    mkdirSync(join(root, "locks"), { recursive: true });
+    writeFileSync(join(root, "locks", "a.lock"), "x");
+    for (const [tool, input] of [
+      ["files.read", { path: "kos.sqlite" }],
+      ["files.read", { path: "kos.sqlite", offset: 0, limit: 4096 }],
+      ["files.read", { path: "KOS.sqlite" }],
+      ["files.read", { path: "workspace:kos.sqlite-wal" }],
+      ["files.read", { path: "./kos.sqlite-shm" }],
+      ["files.read", { path: "mcp.json" }],
+      ["files.read", { path: "profile.json" }],
+      ["files.read", { path: "daemon.json" }],
+      ["files.read", { path: "locks/a.lock" }],
+      ["files.ls", { path: "locks" }],
+      ["files.cp", { from: "kos.sqlite", to: "scratch/db.txt" }],
+    ] as const) {
+      const res = await registry.execute(tool, input);
+      expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);
+      expect(res.content).toContain("is KOS's own");
+    }
+    expect(existsSync(join(root, "scratch", "db.txt"))).toBe(false);
+  });
+
+  it("lets Maintenance read KOS's database, never .kos", async () => {
+    const maintained = new ToolRegistry();
+    const ctx = toolRegistryContext(maintained, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => "maintenance" });
+    await new ModuleLoader(ctx).load([filesModule]);
+    writeFileSync(join(root, "mcp.json"), '{"servers":{}}');
+    mkdirSync(join(root, ".kos"), { recursive: true });
+    writeFileSync(join(root, ".kos", "x.json"), "{}");
+    expect((await maintained.execute("files.read", { path: "mcp.json" })).content).toBe('{"servers":{}}');
+    expect((await maintained.execute("files.read", { path: "kos.sqlite", limit: 16 })).isError).toBe(false);
+    expect((await maintained.execute("files.read", { path: ".kos/x.json" })).isError).toBe(true);
   });
 
   it("never writes git's own control, whose settings name programs a git read runs", async () => {

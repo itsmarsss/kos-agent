@@ -17,7 +17,9 @@ const LOCAL = 0x04034b50;
 const CENTRAL = 0x02014b50;
 const END = 0x06054b50;
 /** Past this an entry is left out: a document's text is never this large, and a bomb is. */
-const ENTRY_MAX = 64 * 1024 * 1024;
+export const ZIP_ENTRY_MAX = 64 * 1024 * 1024;
+/** What an archive may inflate to, all told: a large deck's pictures, not a bomb's gigabytes. */
+export const ZIP_TOTAL_MAX = 160 * 1024 * 1024;
 
 /** Enough of the file's head to know it is a zip. */
 export function isZip(bytes: Uint8Array): boolean {
@@ -40,12 +42,14 @@ export interface ZipLimits {
 export class ZipTooLarge extends Error {}
 
 /** The entries by name, each decompressed; a folder entry carries no bytes and is left out. */
-export function readZip(bytes: Uint8Array, { entryMax = ENTRY_MAX, totalMax = Infinity, oversize = "skip", only }: ZipLimits = {}): Map<string, Buffer> {
+export function readZip(bytes: Uint8Array, { entryMax = ZIP_ENTRY_MAX, totalMax = ZIP_TOTAL_MAX, oversize = "skip", only }: ZipLimits = {}): Map<string, Buffer> {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const end = endRecord(buf);
   const count = buf.readUInt16LE(end + 10);
   let at = buf.readUInt32LE(end + 16);
   const out = new Map<string, Buffer>();
+  /** Each local header a name has pointed at: a directory naming one twice multiplies its bytes for nothing. */
+  const headers = new Set<number>();
   let total = 0;
   for (let n = 0; n < count; n += 1) {
     if (at + 46 > buf.length || buf.readUInt32LE(at) !== CENTRAL) throw new Error("not a zip: the central directory is broken");
@@ -68,11 +72,13 @@ export function readZip(bytes: Uint8Array, { entryMax = ENTRY_MAX, totalMax = In
     // What the directory says is checked before anything is inflated, and each inflation is held to what is left.
     if (total + size > totalMax) throw new ZipTooLarge(`it inflates past ${Math.round(totalMax / 1024 / 1024)} MB`);
     if (local + 30 > buf.length || buf.readUInt32LE(local) !== LOCAL) throw new Error(`not a zip: ${name} has no local header`);
+    if (headers.has(local)) throw new ZipTooLarge(`its directory names one entry's bytes twice (${name})`);
+    headers.add(local);
     const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
     const data = buf.subarray(start, start + compressed);
     let entry: Buffer;
     if (method === 0) entry = Buffer.from(data);
-    else if (method === 8) entry = inflate(data, name, Math.min(entryMax, Number.isFinite(totalMax) ? Math.max(1, totalMax - total) : entryMax));
+    else if (method === 8) entry = inflate(data, name, Math.min(entryMax, Math.max(1, totalMax - total)));
     else throw new Error(`${name} is compressed a way this reader does not know (method ${method})`);
     // The sizes the directory gives can lie; what was inflated cannot.
     total += entry.length;

@@ -346,6 +346,8 @@ export interface PermissionRule {
   scope: string | null;
   project: string | null;
   createdAt: number;
+  /** False for a rule an older build kept that no call can match any more. */
+  matches: boolean;
 }
 
 /** A computer paired with KOS for Mac, as the device routes tell of it. */

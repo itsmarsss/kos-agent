@@ -1,9 +1,11 @@
 import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { guestOrigin, turnStop, underAuto } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
 import { foldName, RESERVED } from "../kernel/files.js";
+import { BACKUP_GIT_DIR, DB_SNAPSHOT } from "../ops/backup.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { CONTAINED_BEYOND_AUTO, destructiveCommand } from "../risk/beyondauto.js";
@@ -12,7 +14,7 @@ import { shellBeyondAuto } from "../risk/shellauto.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
 import { GIT_CONTROL_WRITES, GIT_INFO_ATTRIBUTES, gitGlobalConfig, gitHeldOn, gitHoldEnv } from "../sandbox/githold.js";
-import { isContained, jailedCommand, type JailOptions } from "../sandbox/jail.js";
+import { isContained, jailedCommand, kosSecretFiles, type JailOptions } from "../sandbox/jail.js";
 import { outsideScratch } from "./files.js";
 import { homeDirs, INTO_ANOTHER, placeFor, reachOutside, writeScope } from "./home.js";
 
@@ -41,11 +43,15 @@ export const SHELL_MAX_OUTPUT = 20_000;
 
 /** The workspace database named on a command line: the shell's road around the sql fence. */
 export function namesDatabase(command: string): boolean {
-  return /kos\.sqlite/i.test(foldName(command));
+  return /kos\.(snapshot\.)?sqlite/i.test(foldName(command));
 }
 
-/** KOS's database and its journals, which a command run for anyone but Maintenance cannot read at all. */
-const DATABASE_FILES = ["kos.sqlite", "kos.sqlite-wal", "kos.sqlite-shm"];
+/**
+ * KOS's database, its journals and the snapshot's copy of it, and the backup
+ * repo whose objects hold every older copy: what a command run for anyone
+ * but Maintenance cannot read at all.
+ */
+const DATABASE_FILES = ["kos.sqlite", "kos.sqlite-wal", "kos.sqlite-shm", DB_SNAPSHOT, `${DB_SNAPSHOT}.part`, BACKUP_GIT_DIR];
 
 /** Said to a chat that reached for the database with the shell, instead of asking the owner. */
 export const DATABASE_REFUSED =
@@ -65,7 +71,27 @@ export function namesHarnessConfig(command: string): boolean {
 
 /** Said to a chat that reached for the harness's settings with the shell. */
 export const CONFIG_REFUSED =
-  "mcp.json, profile.json and daemon.json are KOS's own settings, which the shell does not touch: read one with files.read. The owner changes them from the dashboard or the kos command.";
+  "mcp.json, profile.json and daemon.json are KOS's own settings, which no tool reads or writes. The owner changes them from the dashboard or the kos command.";
+
+/**
+ * What a command in the container may not name, until its tools run as a
+ * user of their own: /proc, whose environ files hold the env the container
+ * was started with (provider keys, the vault key, the dashboard token), and
+ * KOS's own home, its keys and the vault, which the one user shares.
+ */
+export function namesContainerSecret(command: string, secrets: readonly string[] = [homedir(), ...kosSecretFiles()]): boolean {
+  const folded = foldName(command);
+  const named = (path: string): boolean => new RegExp(`(^|[^\\w.-])${escapeRegex(foldName(path.replace(/\/+$/, "")))}(?![\\w.-])`).test(folded);
+  return ["/proc", ...secrets].some(named);
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Said to a chat whose command in the container named /proc, KOS's home or the vault. */
+export const CONTAINER_SECRET_REFUSED =
+  "In the container a command does not read /proc, KOS's home folder or the secrets vault: they hold the keys KOS was started with. Work in the workspace.";
 
 /** The workspace's own top-level entries no command may write; .kos stays writable, as the shell's TMPDIR is inside it. */
 const UNWRITTEN = [...RESERVED].filter((name) => name !== ".kos");
@@ -219,7 +245,10 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           name: "shell.run",
           description:
             "Run a shell command inside the workspace: git, pnpm, a build, a program. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job, and python.run for a calculation or a short Python script, which runs at once without asking; use this for programs. " +
-            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking, offline and unable to write; anything that writes, runs code or reaches the network asks the owner first. To see a project's packages, read package.json with files.read; pnpm and yarn ask. Output is capped; long runs time out. " +
+            (contained
+              ? "Every command asks the owner first, even one that only reads: nothing narrower than the container holds it. "
+              : "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking, offline and unable to write; anything that writes, runs code or reaches the network asks the owner first. ") +
+            "To see a project's packages, read package.json with files.read; pnpm and yarn ask. Output is capped; long runs time out. " +
             `In a project's or a blob's chat it writes only in your own folder and scratch/; writes: "${WIDE_WRITES}" lets it write anywhere in the workspace, which the owner is asked for by name. ` +
             "kos.sqlite, KOS's own database, is refused here, not asked about: jobs, chats, tasks, blobs and memory are read through cron.list, chats.list, tasks.list, blobs.list and memory.recall.",
           inputSchema: {
@@ -269,7 +298,8 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           floor: "risky",
           // In the container nothing narrower than the container holds a project's command to its folder, and the card says so.
           why: () => (isContained() && writeScope(ws, ctx) ? "a command that may write anywhere in the workspace: only the container holds it" : "a command that may write"),
-          relax: (input) => typeof input["command"] === "string" && readOnly(input["command"]) !== undefined,
+          // In the container a read-only line has no jail narrower than the container, so it asks as any line does.
+          relax: (input) => !contained && typeof input["command"] === "string" && readOnly(input["command"]) !== undefined,
           // Writing the whole workspace is its own ask, beyond Auto; run somewhere outside the turn's own folder, the card says where.
           reach: (input) => (wide(input) && writeScope(ws, ctx) ? { why: "may write anywhere in the workspace", beyondAuto: INTO_ANOTHER } : cwdReach(input)),
           // What a chat's Auto runs unasked: only a line of reading and building programs (risk/shellauto.ts).
@@ -303,6 +333,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           refuse: (input) => {
             if (typeof input["command"] !== "string") return false;
             if (namesHarnessConfig(input["command"])) return CONFIG_REFUSED;
+            if (contained && namesContainerSecret(input["command"])) return CONTAINER_SECRET_REFUSED;
             return namesDatabase(input["command"]) && (ctx.services?.callerProject?.() !== MAINTENANCE.slug || guestOrigin() !== undefined) ? DATABASE_REFUSED : false;
           },
         },

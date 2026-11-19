@@ -250,7 +250,7 @@ export function readImage(ws: Workspace, requestPath: unknown): RawFile {
  */
 
 /** Top-level names the file manager leaves alone: the workspace's own state. Compare with isReserved, never by hand. */
-export const RESERVED = new Set([".kos", "kos.sqlite", "kos.sqlite-shm", "kos.sqlite-wal", "profile.json", "mcp.json", "daemon.json", "locks"]);
+export const RESERVED = new Set([".kos", "kos.sqlite", "kos.sqlite-shm", "kos.sqlite-wal", "kos.snapshot.sqlite", "kos.snapshot.sqlite.part", "profile.json", "mcp.json", "daemon.json", "locks"]);
 
 /**
  * A name folded as APFS compares names: compatibility-normalized (NFKC, so

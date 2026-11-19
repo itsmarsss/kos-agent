@@ -180,7 +180,9 @@ export function alwaysWords(scope: string | null, names?: ActionNames): string {
     case "site":
       return `Always allow on ${what}`;
     case "dir":
-      return what ? `Always allow in ${what}` : "Always allow in the workspace";
+      return `Always allow in ${what}`;
+    case "file":
+      return `Always allow on ${what}`;
     case "host":
       return `Always allow for ${what}`;
     case "cmd":
@@ -216,7 +218,10 @@ export function alwaysTip(rule: AskRule, names?: ActionNames): string {
         keeps = `clicking, typing and going to pages on ${what} in KOS's browser stop asking${project}. Running script in the page still asks.`;
         break;
       case "dir":
-        keeps = `${calls} in ${what || "the workspace"} and the folders under it stops asking${project}.`;
+        keeps = `${calls} in ${what} and the folders under it stops asking${project}.`;
+        break;
+      case "file":
+        keeps = `${calls} on ${what}, that file alone, stops asking${project}.`;
         break;
       case "host":
         keeps = `${calls} to ${what} stops asking${project}.`;

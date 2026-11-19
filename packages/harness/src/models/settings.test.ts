@@ -74,6 +74,20 @@ describe("applyModelSettings", () => {
     expect(r.routeFor("reasoning").spec.effort).toBe(before);
   });
 
+  it("keeps the default route, and says so, for a saved choice whose provider is gone", () => {
+    // A route saved on the owner's own endpoint, the endpoint since removed: the host must still start.
+    const r = router();
+    const before = r.routeFor("cheap");
+    const warnings = applyModelSettings(r, { cheap: { provider: "custom", model: "local-7b" }, screen: { provider: "custom", model: "local-vl" }, reasoning: { model: "gpt-5.5" } });
+    expect(r.routeFor("cheap")).toEqual(before);
+    expect(r.routeFor("screen")).toEqual(r.routeFor("reasoning"));
+    expect(r.routeFor("reasoning").spec.model).toBe("gpt-5.5");
+    expect(warnings).toEqual([
+      'cheap: the saved model local-7b is on provider "custom", which is not set up; the default route answers instead',
+      'screen: the saved model local-vl is on provider "custom", which is not set up; the default route answers instead',
+    ]);
+  });
+
   it("does nothing when there is nothing saved", () => {
     const r = router();
     const before = r.routeFor("reasoning");
