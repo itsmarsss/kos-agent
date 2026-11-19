@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentFaces, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, overlayScroll, StatusDot } from "@kos/kit";
+import { clockWords, momentWords, timeCard } from "@kos/shared";
 
 import {
   type FailingJob,
@@ -59,19 +60,13 @@ import { agoWords } from "./schedulewords.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
-/** "in 25m", "in 3h", "tomorrow 9:00am": when a job fires next, at a glance. */
+/** "in 25m", "in 3h, 9:00 AM", "Tomorrow 9:00 AM": when a job fires next, at a glance, on the reader's clock. */
 function whenNext(at: number): string {
   const diff = at - Date.now();
-  const d = new Date(at);
-  const hm = `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}${d.getHours() < 12 ? "am" : "pm"}`;
   if (diff < 60_000) return "any moment";
   if (diff < 3_600_000) return `in ${Math.round(diff / 60_000)}m`;
-  if (diff < 12 * 3_600_000) return `in ${Math.round(diff / 3_600_000)}h, ${hm}`;
-  if (d.toDateString() === new Date().toDateString()) return `today ${hm}`;
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (d.toDateString() === tomorrow.toDateString()) return `tomorrow ${hm}`;
-  return `${d.toLocaleDateString(undefined, { weekday: "short" })} ${hm}`;
+  if (diff < 12 * 3_600_000) return `in ${Math.round(diff / 3_600_000)}h, ${clockWords(at)}`;
+  return momentWords(at);
 }
 
 export function App(): React.ReactElement {
@@ -1127,6 +1122,8 @@ export function App(): React.ReactElement {
         tools={activity}
         runs={runs}
         crons={crons}
+        conversations={conversations}
+        projects={projects}
         onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
         onOpenRun={(r) => setInspect({ kind: "run", data: r })}
         onFix={(row) => void startFix(row)}
@@ -1160,7 +1157,7 @@ export function App(): React.ReactElement {
       .sort((a, b) => rank(a).localeCompare(rank(b)));
     return shell(
       <ListPage
-        title="Schedule"
+        title="Runs"
         tabs={<RunsTabs current="crons" />}
         subtitle="Jobs KOS runs on its own. Click a row to edit it."
         rows={rows}
@@ -1228,7 +1225,7 @@ export function App(): React.ReactElement {
             searchText: () => "",
             render: (c) =>
               c.enabled && c.nextRunAt ? (
-                <span className={`sched-when${c.nextRunAt - Date.now() < 3_600_000 ? " sched-when--soon" : ""}`} title={new Date(c.nextRunAt).toLocaleString()}>
+                <span className={`sched-when${c.nextRunAt - Date.now() < 3_600_000 ? " sched-when--soon" : ""}`} title={timeCard(c.nextRunAt / 1000).join(" ")}>
                   {whenNext(c.nextRunAt)}
                 </span>
               ) : (
