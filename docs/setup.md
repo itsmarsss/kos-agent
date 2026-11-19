@@ -101,13 +101,16 @@ shell, Python and TeX tools ("this needs a jail: install bubblewrap
   Expect `bubblewrap 0.8.0` or later, then `jailed`. "setting up uid map:
   Permission denied" or "No permissions to create new namespace" means
   unprivileged user namespaces are held back. Ubuntu 23.10 and later do it
-  with AppArmor. The narrow fix lets bwrap alone make them, with a profile
-  of its own:
+  with AppArmor. The narrow fix lets bwrap, and unshare (which makes a
+  networked command's own namespaces), alone make them, each with a
+  profile of its own:
 
   ```bash
-  printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n' \
-    | sudo tee /etc/apparmor.d/bwrap
-  sudo apparmor_parser -r /etc/apparmor.d/bwrap
+  for p in bwrap unshare; do
+    printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile kos-%s /usr/bin/%s flags=(unconfined) {\n  userns,\n}\n' "$p" "$p" \
+      | sudo tee /etc/apparmor.d/kos-$p
+    sudo apparmor_parser -r /etc/apparmor.d/kos-$p
+  done
   ```
 
   (pasta's own profile ships with the passt package.) Only if that is not
