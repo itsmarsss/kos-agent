@@ -223,7 +223,7 @@ export function InboxDecided({
               className="list-search inbox-decided-search"
               type="search"
               aria-label="Search what was decided"
-              placeholder="Search decided…"
+              placeholder="Search decided"
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);

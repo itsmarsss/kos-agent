@@ -370,7 +370,7 @@ function LogTab({ titles }: { titles: Map<string, string> }): ReactElement {
   }, [query]);
   return (
     <Group title="Log" shown={false} blurb="Every message in and out, kept. Searched by words and by meaning at once; shadowed means out of a thread's context, still here.">
-      <input className="list-search mem-search" placeholder="Search what was said…" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <input className="list-search mem-search" placeholder="Search the log" aria-label="Search the log" value={query} onChange={(e) => setQuery(e.target.value)} />
       {events.length === 0 && <p className="hint">{query ? "Nothing matches." : "Nothing said yet."}</p>}
       {events.map((e) => (
         <div key={e.id} className={`mem-event ${e.shadowed ? "is-shadowed" : ""}`}>

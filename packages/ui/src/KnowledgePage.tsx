@@ -273,7 +273,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
         <div className="know-bar">
           <label className="know-search">
             <SearchIcon size={14} title="" />
-            <input type="search" value={query} placeholder="Search claims…" aria-label="Search claims" onChange={(e) => setQuery(e.target.value)} />
+            <input type="search" value={query} placeholder="Search claims" aria-label="Search claims" onChange={(e) => setQuery(e.target.value)} />
           </label>
           {only && (
             <Tag title="The claims a turn was given from memory" remove={{ label: "Show every claim", onRemove: showAll }}>
