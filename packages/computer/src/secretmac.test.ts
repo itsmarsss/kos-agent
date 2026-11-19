@@ -190,9 +190,9 @@ describe("secrets.type among the computer tools", () => {
 
 describe("the Mac's time to type a secret", () => {
   it("grows with the value, a character at a time, up to a cap", () => {
-    expect(typingTimeout("x".repeat(20))).toBe(16_200);
-    expect(typingTimeout("x".repeat(1_000))).toBe(75_000);
-    expect(typingTimeout("x".repeat(4_000))).toBe(255_000);
-    expect(typingTimeout("x".repeat(10_000))).toBe(300_000);
+    expect(typingTimeout("x".repeat(20))).toBe(18_000);
+    expect(typingTimeout("x".repeat(1_000))).toBe(165_000);
+    expect(typingTimeout("x".repeat(4_000))).toBe(600_000);
+    expect(typingTimeout("x".repeat(10_000))).toBe(600_000);
   });
 });

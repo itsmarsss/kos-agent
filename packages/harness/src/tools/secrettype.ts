@@ -81,6 +81,8 @@ export interface SecretTypeDeps {
 export const SECRET_TYPE = "secrets.type";
 /** The Mac stopped after part of a secret went in. */
 const PARTIAL = "partial";
+/** KOS stopped waiting for the Mac to finish typing. */
+const TIMEOUT = "timeout";
 const SURFACE = "mac";
 /** Yes-for-this-turn grants kept, at most; the oldest turn's go first. */
 const TURNS_KEPT = 50;
@@ -365,6 +367,12 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
         }, summarizeAction(SECRET_TYPE, input));
       } catch (err) {
         const code = (err as { code?: string }).code;
+        if (code === TIMEOUT) {
+          // The Mac may still be typing, or have stopped part of the way: whatever the field holds, the owner looks.
+          record(meta, "failed", extra);
+          deps.tellOwner?.(`KOS's typing of ${meta.label} (${meta.handle}) into ${app.name} on ${session.device.name} did not finish in time, so part of it may be in the field. Look at it, and clear it if it is wrong.`);
+          throw new Error("Not known to be typed: the Mac did not finish in time, and part of it may be in the field. The owner was told. Do not submit the form; stop and say so.");
+        }
         if (code === PARTIAL && err instanceof Error) {
           // Part of it went in: the field holds part of a secret, which the owner clears.
           record(meta, PARTIAL, extra);

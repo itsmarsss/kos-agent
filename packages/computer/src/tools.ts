@@ -254,7 +254,8 @@ function describe(capture: Capture, region: boolean): string {
   const where = region
     ? `A closer look, ${capture.width}x${capture.height}. Keep using the full screen's coordinates to act.`
     : `The screen, ${capture.width}x${capture.height}.`;
-  return `${where} Pointer at (${Math.round(capture.cursor.x)}, ${Math.round(capture.cursor.y)}).${app}`;
+  const masked = capture.pageMasked ? " The page in front is blacked out: a field KOS typed a secret into was hidden by it. It shows again once the page moves on." : "";
+  return `${where} Pointer at (${Math.round(capture.cursor.x)}, ${Math.round(capture.cursor.y)}).${app}${masked}`;
 }
 
 function readCapture(result: Record<string, unknown>): Capture {
@@ -270,6 +271,7 @@ function readCapture(result: Record<string, unknown>): Capture {
     height: result.height,
     cursor: { x: Number(cursor.x ?? 0), y: Number(cursor.y ?? 0) },
     ...(app && typeof app.name === "string" ? { app: { name: app.name, ...(typeof app.bundle === "string" ? { bundle: app.bundle } : {}) } } : {}),
+    ...(result.pageMasked === true ? { pageMasked: true } : {}),
   };
 }
 

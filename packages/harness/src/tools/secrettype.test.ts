@@ -330,4 +330,22 @@ describe("secrets.type", () => {
     expect(await decisions().approve(ask.id, "owner", { surface: "phone", device: "dev_phone" })).toMatchObject({ ok: true });
     expect((await running).isError).toBe(false);
   });
+
+  it("is never approved by a typed /approve, even on a paired device's chat", async () => {
+    void guarded().execute("secrets.type", typePassword());
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    const ask = approvals.pending()[0]!;
+    for (const surface of ["mac", "phone", "chrome"] as const) {
+      expect(await decisions().approve(ask.id, "owner", { surface, typed: true })).toMatchObject({ ok: false, message: expect.stringMatching(/never a typed \/approve/) });
+    }
+    expect(approvals.get(ask.id)?.status).toBe("pending");
+  });
+
+  it("tells the owner when the Mac did not finish typing in time", async () => {
+    mac.refuse = Object.assign(new Error("the device did not answer keys.secret in time"), { code: "timeout" });
+    const running = guarded().execute("secrets.type", typePassword());
+    await decide(true);
+    expect((await running).content).toMatch(/did not finish in time, and part of it may be in the field/);
+    expect(told).toEqual([expect.stringMatching(/did not finish in time/)]);
+  });
 });

@@ -248,6 +248,8 @@ export interface Capture {
   height: number;
   cursor: Point;
   app?: { name: string; bundle?: string };
+  /** A web page is blacked out whole: a field KOS typed a secret into was hidden by it, until it moves on. */
+  pageMasked?: boolean;
 }
 
 /** The bytes a device signs to prove its key: KOS's nonce, bound to the device's id. */

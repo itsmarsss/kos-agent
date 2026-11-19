@@ -36,13 +36,13 @@ export function macSecrets(hub: DeviceHub): SecretsMac {
   };
 }
 
-/** How long the Mac is given to type a value: it types one character at a time, checking the field before each. */
+/** How long the Mac is given to type a value: it types one character at a time, checking the field before each, every check read anew after the last. */
 export function typingTimeout(text: string): number {
   return Math.min(BASE_MS + text.length * PER_UNIT_MS, MAX_MS);
 }
 const BASE_MS = 15_000;
-const PER_UNIT_MS = 60;
-const MAX_MS = 300_000;
+const PER_UNIT_MS = 150;
+const MAX_MS = 600_000;
 
 function typedOf(result: Record<string, unknown>): MacTyped {
   return typeof result["landed"] === "boolean" ? { landed: result["landed"] } : {};
