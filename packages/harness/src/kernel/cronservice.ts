@@ -28,6 +28,8 @@ export interface CronServiceDeps {
   crons: CronStore;
   killSwitch: KillSwitch;
   selfPromptsPerHour: () => number;
+  /** The profile's timezone: every schedule is read in it. */
+  timezone: () => string;
   /**
    * Run in a lane. A job runs in its own thread's lane, so two jobs run at
    * once and a job never waits on a chat, but a job cannot overlap a message
@@ -66,6 +68,7 @@ export class CronService {
       {
         killSwitch: this.deps.killSwitch,
         maxSelfPromptsPerHour: () => this.deps.selfPromptsPerHour(),
+        timezone: () => this.deps.timezone(),
       },
     );
     this.scheduler.start();

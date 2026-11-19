@@ -22,6 +22,7 @@ describe("CronService", () => {
       crons,
       killSwitch: { halted: false },
       selfPromptsPerHour: () => 10,
+      timezone: () => "UTC",
       enqueue: (work) => work(),
       runs: {
         start: (kind, ref) => { log.push(`start:${kind}:${ref}`); return 7; },

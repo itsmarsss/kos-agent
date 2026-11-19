@@ -1,7 +1,11 @@
-import { execFile } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { execFile, execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
+
+import Database from "better-sqlite3";
+
+import type { Db } from "../store/db.js";
 
 const exec = promisify(execFile);
 
@@ -21,6 +25,15 @@ export interface BackupAuthor {
  * separate from the source tree, so the whole system backs up by committing one
  * folder. Rollback restores files from a snapshot (the DB-file restore the
  * migrate primitive relies on instead of reverse DDL).
+ *
+ * The database is committed as a copy, never as itself: kos.sqlite is live
+ * and in WAL mode, so the file, its -wal and its -shm read at three moments
+ * are a torn database. Each snapshot first takes a copy through SQLite's
+ * backup API into DB_SNAPSHOT, which is what history holds. A restore checks
+ * that copy out; with the host stopped, it replaces kos.sqlite, and the old
+ * -wal and -shm are deleted, not kept beside it. The workspace's .kos folder
+ * (logs, caches, scratch, the host's own state) is never committed: a restore
+ * needs nothing in it.
  */
 /** How deep to look for nested repos. Sites live two or three down. */
 const SCAN_DEPTH = 5;
@@ -34,25 +47,74 @@ const MARKER = "# kos: folders with their own git repo";
  * they were kept outside the workspace. A project's own .claude settings
  * stay in.
  */
-const UNKEPT = ["**/.claude/projects/", "**/.claude/todos/", "**/.claude/statsig/", ".claude.json"];
+const UNKEPT = ["**/.claude/projects/", "**/.claude/todos/", "**/.claude/statsig/", ".claude.json", "/kos.sqlite", "/kos.sqlite-wal", "/kos.sqlite-shm", "/kos.sqlite-journal", "/kos.snapshot.sqlite.part", "/kos.snapshot.sqlite-wal", "/kos.snapshot.sqlite-shm", "/kos.snapshot.sqlite-journal", "/.kos/"];
 
 /** A tracked path under one of those. */
-const UNKEPT_PATH = /(^|\/)(\.claude\/(projects|todos|statsig)\/|\.claude\.json$)/;
+const UNKEPT_PATH = /(^|\/)(\.claude\/(projects|todos|statsig)\/|\.claude\.json$)|^kos\.sqlite(-wal|-shm|-journal)?$|^kos\.snapshot\.sqlite(\.part|-wal|-shm|-journal)$|^\.kos\//;
+
+/** The backup repo's git dir, from the workspace's root: inside .kos, hidden from every jailed program. */
+export const BACKUP_GIT_DIR = ".kos/backup.git";
+
+/** The database as a snapshot keeps it: a consistent copy, at the workspace's root. */
+export const DB_SNAPSHOT = "kos.snapshot.sqlite";
 
 export class WorkspaceBackup {
   constructor(
     private readonly root: string,
     private readonly author: BackupAuthor = { name: "KOS", email: "kos@local" },
+    /** The live database, copied into DB_SNAPSHOT before each commit. */
+    private readonly db?: Pick<Db, "backup">,
   ) {}
 
-  private git(args: string[]): Promise<{ stdout: string; stderr: string }> {
-    return exec("git", args, { cwd: this.root });
+  /** The database copied whole through SQLite's backup API, then moved into place, so a snapshot never holds half of one. */
+  private async copyDb(): Promise<void> {
+    if (!this.db) return;
+    const part = join(this.root, `${DB_SNAPSHOT}.part`);
+    rmSync(part, { force: true });
+    await this.db.backup(part);
+    // Out of WAL mode, so the copy is one file: opened later, it grows no -wal or -shm beside it.
+    const copy = new Database(part);
+    try {
+      copy.pragma("journal_mode = DELETE");
+    } finally {
+      copy.close();
+    }
+    renameSync(part, join(this.root, DB_SNAPSHOT));
   }
 
-  /** Initialize the workspace git repo if it does not exist yet. */
+  /** Where the backup repo's own files are: under .kos, which no jailed program reads. */
+  private get gitDir(): string {
+    return join(this.root, BACKUP_GIT_DIR);
+  }
+
+  private git(args: string[]): Promise<{ stdout: string; stderr: string }> {
+    return exec("git", [`--git-dir=${this.gitDir}`, `--work-tree=${this.root}`, ...args], { cwd: this.root });
+  }
+
+  /**
+   * Move a backup repo an older KOS kept at the workspace's root, .git, to
+   * BACKUP_GIT_DIR. At the root, its objects (every old copy of the
+   * database) were readable by any program a chat ran, and every folder in
+   * the workspace sat inside it, so a chat's `git commit` in a project wrote
+   * into the backup's history. core.worktree keeps it pointed at the root.
+   */
+  moveLegacyRepo(): void {
+    const legacy = join(this.root, ".git");
+    if (!existsSync(legacy) || existsSync(this.gitDir) || !statSync(legacy).isDirectory()) return;
+    mkdirSync(dirname(this.gitDir), { recursive: true });
+    renameSync(legacy, this.gitDir);
+    execFileSync("git", [`--git-dir=${this.gitDir}`, "config", "core.worktree", this.root]);
+  }
+
+  /** Initialize the workspace's backup repo if it does not exist yet, moving an older one into place first. */
   async ensureRepo(): Promise<void> {
-    if (!existsSync(join(this.root, ".git"))) {
-      await this.git(["init", "-q"]);
+    this.moveLegacyRepo();
+    if (!existsSync(this.gitDir)) {
+      mkdirSync(dirname(this.gitDir), { recursive: true });
+      await exec("git", ["init", "-q", `--separate-git-dir=${this.gitDir}`, this.root]);
+      // init leaves a .git file at the root naming the repo; the repo is found by its path alone.
+      rmSync(join(this.root, ".git"), { force: true });
+      await this.git(["config", "core.worktree", this.root]);
     }
   }
 
@@ -77,7 +139,7 @@ export class WorkspaceBackup {
       }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        if (entry.name === "node_modules") continue;
+        if (entry.name === "node_modules" || (dir === this.root && entry.name === ".kos")) continue;
         const full = join(dir, entry.name);
         if (entry.name === ".git") continue;
         if (existsSync(join(full, ".git"))) {
@@ -102,7 +164,7 @@ export class WorkspaceBackup {
    */
   private syncExcludes(): string[] {
     const nested = this.nestedRepos();
-    const path = join(this.root, ".git", "info", "exclude");
+    const path = join(this.gitDir, "info", "exclude");
     const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
     const kept = existing
       .split("\n")
@@ -148,6 +210,7 @@ export class WorkspaceBackup {
     // Before add, because a folder that gained its own repo since the last
     // snapshot is exactly the case that used to break this.
     this.syncExcludes();
+    await this.copyDb();
     await this.untrackUnkept();
     await this.git(["add", "-A"]);
     const { stdout: status } = await this.git(["status", "--porcelain"]);
@@ -182,7 +245,7 @@ export class WorkspaceBackup {
       });
   }
 
-  /** Restore tracked files from a snapshot into the working tree. */
+  /** Restore tracked files from a snapshot into the working tree: the database as DB_SNAPSHOT, for a stopped host to put in place. */
   async restore(sha: string): Promise<void> {
     await this.git(["checkout", sha, "--", "."]);
   }

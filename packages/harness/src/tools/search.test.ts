@@ -57,6 +57,25 @@ describe("search module", () => {
     return registry;
   }
 
+  it.each([["ripgrep", rgPath], ["the scan", "/nonexistent/rg"]] as const)("reads none of KOS's own files through %s: the database, its snapshot, the backup repo", async (_how, path) => {
+    if (!path) return;
+    const secret = "needle-in-the-database";
+    writeFileSync(join(root, "kos.snapshot.sqlite"), `SQLite format 3 ${secret}`);
+    mkdirSync(join(root, ".kos", "backup.git"), { recursive: true });
+    writeFileSync(join(root, ".kos", "backup.git", "config"), secret);
+    writeFileSync(join(root, ".kos", "daemon.log"), secret);
+    writeFileSync(join(root, "notes.txt"), secret);
+    const registry = await load(createSearchModule({ rgPath: path }));
+    const all = await registry.execute("search.grep", { pattern: secret, path: "workspace:" });
+    expect(all.content).toContain("notes.txt");
+    expect(all.content).not.toMatch(/kos\.snapshot|backup\.git|daemon\.log/);
+    for (const target of ["workspace:kos.snapshot.sqlite", "workspace:.kos", "workspace:.kos/backup.git", "workspace:kos.sqlite"]) {
+      const one = await registry.execute("search.grep", { pattern: secret, path: target });
+      expect(one.isError, target).toBe(true);
+      expect(one.content, target).toMatch(/KOS's own/);
+    }
+  });
+
   it.skipIf(!rgPath)("greps literal text and reports line numbers", async () => {
     writeFileSync(join(ws.root, "notes.txt"), "alpha\nbeta needle\ngamma\n");
     const registry = await load(createSearchModule({ rgPath }));

@@ -1,5 +1,6 @@
 import { foldName, placePath, type FileHome } from "@kos/shared";
 
+import type { AuditEntry } from "./audit.js";
 import type { Db } from "../store/db.js";
 import { hostOf, isSqlWrite, programOf, writtenTables } from "../risk/rules.js";
 import { parseMentions } from "../kernel/mentions.js";
@@ -23,11 +24,32 @@ import { parseTarget } from "../tools/notify.js";
 export interface PermissionRule {
   id: number;
   tool: string;
-  /** `dir:<prefix>`, `host:<name>`, `table:<name>`, or null for tool-wide. */
+  /** `dir:<prefix>`, `file:<root-level file>`, `host:<name>`, `table:<name>`, or null for tool-wide. */
   scope: string | null;
   /** The project slug it applies in, or null for everywhere. */
   project: string | null;
   createdAt: number;
+  /** False for a rule kept by an older build that no call can match any more: shown so in Settings. */
+  matches: boolean;
+}
+
+/** A directory scope as calls are named: no leading ./ or /, no trailing /. */
+function cleanDir(path: string): string {
+  return path.replace(/^(\.?\/)+/, "").replace(/\/+$/, "");
+}
+
+/**
+ * Whether any call could match a kept rule. A rule for the workspace's root
+ * (`dir:`), a directory spelled as calls never name one (`dir:./x`), or a
+ * yes to skills.commit, which asks every time, matches nothing.
+ */
+export function ruleMatches(rule: { tool: string; scope: string | null }): boolean {
+  if (rule.tool === "skills.commit") return false;
+  if (rule.scope?.startsWith("dir:")) {
+    const dir = rule.scope.slice(4);
+    return dir !== "" && cleanDir(dir) === dir;
+  }
+  return true;
 }
 
 const SCHEMA = `
@@ -135,8 +157,13 @@ export function scopeOf(tool: string, input: Record<string, unknown>, context?: 
     return browser.site ? `${browser.yours ? "your-chrome" : "site"}:${browser.site}` : undefined;
   }
   if (tool.startsWith("files.")) {
-    const path = typeof input["path"] === "string" ? input["path"] : typeof input["from"] === "string" ? input["from"] : "";
-    return `dir:${parentDir(placed(path, context))}`;
+    const raw = typeof input["path"] === "string" ? input["path"] : typeof input["from"] === "string" ? input["from"] : "";
+    const path = placed(raw, context).replace(/\\/g, "/").replace(/^(\.?\/)+/, "").replace(/\/+$/, "");
+    // The workspace's root names no rule: a yes there would cover every path in it.
+    if (path === "" || path === ".") return undefined;
+    // A file at the root is kept to itself, never to the root it sits in.
+    const dir = parentDir(path);
+    return dir ? `dir:${dir}` : `file:${path}`;
   }
   if (tool === "http.fetch") {
     const host = typeof input["url"] === "string" ? hostOf(input["url"]) : undefined;
@@ -195,7 +222,8 @@ export function scopeCovers(rule: string | null, call: string | null): boolean {
   if (rule.startsWith("dir:") && call.startsWith("dir:")) {
     const r = rule.slice(4);
     const c = call.slice(4);
-    return c === r || (r === "" ? true : c.startsWith(`${r}/`));
+    // An empty directory is the root, which no rule covers: one kept by an older build matches nothing.
+    return r !== "" && (c === r || c.startsWith(`${r}/`));
   }
   return rule === call;
 }
@@ -217,7 +245,30 @@ export class PermissionStore {
         project: string | null;
         created_at: number;
       }[]
-    ).map((r) => ({ id: r.id, tool: r.tool, scope: r.scope, project: r.project, createdAt: r.created_at }));
+    ).map((r) => ({ id: r.id, tool: r.tool, scope: r.scope, project: r.project, createdAt: r.created_at, matches: ruleMatches(r) }));
+  }
+
+  /**
+   * Bring rules an older build kept to what calls now match: a rule for the
+   * workspace's root (`dir:`) covered every path and now covers none, so it
+   * goes; `dir:./x` and `dir:/x` are spelled `dir:x`, or go when that rule is
+   * already kept. Each change is on the audit record. Run at every boot, it
+   * changes nothing once done. Returns how many rules changed.
+   */
+  migrateScopes(audit: { record: (entry: AuditEntry) => unknown }): number {
+    const rules = this.list().filter((r) => r.scope?.startsWith("dir:") && !r.matches);
+    return this.db.transaction(() => {
+      for (const rule of rules) {
+        const dir = cleanDir(rule.scope!.slice(4));
+        const to = `dir:${dir}`;
+        const kept = this.list().some((r) => r.id !== rule.id && r.tool === rule.tool && r.project === rule.project && r.scope === to);
+        const result = dir === "" ? "removed: a rule for the workspace's root matches nothing" : kept ? `removed: the same rule is kept as ${to}` : `rescoped to ${to}`;
+        if (dir === "" || kept) this.db.prepare(`DELETE FROM permission_rules WHERE id = ?`).run(rule.id);
+        else this.db.prepare(`UPDATE permission_rules SET scope = ? WHERE id = ?`).run(to, rule.id);
+        audit.record({ tool: "permissions.migrate", args: { id: rule.id, tool: rule.tool, scope: rule.scope, project: rule.project }, result, isError: false });
+      }
+      return rules.length;
+    })();
   }
 
   /** Remember a decision. The same rule twice is one rule. */
@@ -229,7 +280,7 @@ export class PermissionStore {
     const info = this.db
       .prepare(`INSERT INTO permission_rules (tool, scope, project, created_at) VALUES (?, ?, ?, ?)`)
       .run(rule.tool, rule.scope, rule.project, this.now());
-    return { id: Number(info.lastInsertRowid), ...rule, createdAt: this.now() };
+    return { id: Number(info.lastInsertRowid), ...rule, createdAt: this.now(), matches: ruleMatches(rule) };
   }
 
   revoke(id: number): boolean {
