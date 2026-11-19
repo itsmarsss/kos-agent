@@ -7239,13 +7239,12 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .artifact-notes p { margin: 0; max-width: 72ch; text-wrap: pretty; }
 .artifact-notes-none { color: var(--muted); }
 .artifact-frame[data-layout="sheet"], .artifact-skeleton--sheet { height: calc(100dvh - var(--artifact-top) - 4rem); min-height: 22rem; }
-.artifact-ask { padding: 0.8rem 1rem; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: var(--r-md); background: var(--panel); }
 .artifact-ask p { margin: 0 0 0.4rem; }
-.artifact-ask blockquote { margin: 0 0 0.6rem; padding: 0.4rem 0.7rem; border-left: 2px solid var(--accent); color: var(--text); white-space: pre-wrap; }
+.artifact-ask blockquote { margin: 0 0 0.6rem; padding: 0.4rem 0.7rem; border-left: 2px solid var(--accent); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto; }
 .artifact-error { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
 /* An older widget page in the Artifacts viewer: what it is, and a way to have KOS convert it. */
 .artifact-older { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; border: 1px solid var(--line); background: var(--panel); }
-.artifact-ask-acts { display: flex; gap: 0.5rem; }
+.artifact-ask-acts { display: flex; gap: 0.5rem; justify-content: flex-end; }
 .page-history { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.4rem; }
 /* Full screen (presenting a deck): the frame takes the whole screen, nothing around it. */
 /* A page or a doc full screen scrolls in the full-screen box, still as one. */
@@ -8141,3 +8140,8 @@ img.ov-shape { object-fit: fill; }
   .secret-billing { grid-template-columns: 1fr; }
   .secret-billing > :nth-child(-n + 2) { grid-column: auto; }
 }
+
+/* The token prompt: the one thing a tab without KOS's token can see. */
+.token-gate { min-height: 100dvh; display: grid; place-items: center; padding-inline: 16px; background: var(--bg); }
+.token-gate__card { width: min(30rem, 100%); display: grid; gap: 0.75rem; }
+.token-gate__title { margin: 0; font-size: 1.25rem; }

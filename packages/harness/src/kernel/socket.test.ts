@@ -10,7 +10,8 @@ import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel } from "./kernel.js";
 import { createDashboardServer } from "./server.js";
-import { createDashboardSocket, frameMessage, type DashboardSocket } from "./socket.js";
+import { signUrl } from "./signedurl.js";
+import { SOCKET_PATH, createDashboardSocket, frameMessage, type DashboardSocket } from "./socket.js";
 
 /**
  * The dashboard's one live connection: it lets in the dashboard's own page
@@ -87,10 +88,17 @@ describe("the dashboard's socket", () => {
     const origin = `http://${base.slice("ws://".length)}`;
     await expect(connect({ origin })).rejects.toThrow(/403/);
     await expect(connect({ origin, "x-kos-token": "s3cret" })).resolves.toBeDefined();
-    // A browser's socket sends no headers of its own: the token in the address does as well.
-    const ws = new WebSocket(`${base}/api/socket?token=s3cret`, { headers: { origin } });
-    await expect(new Promise<void>((done, fail) => (ws.once("open", () => done()), ws.once("error", fail)))).resolves.toBeUndefined();
-    ws.close();
+    // A browser's socket sends no headers of its own: it opens with a ticket, and never with the token in its address.
+    const opened = (path: string): Promise<void> => {
+      const ws = new WebSocket(`${base}${path}`, { headers: { origin } });
+      return new Promise<void>((done, fail) => (ws.once("open", () => (ws.close(), done())), ws.once("error", fail)));
+    };
+    await expect(opened("/api/socket?token=s3cret")).rejects.toThrow(/403/);
+    const ticket = signUrl(SOCKET_PATH, "s3cret")!.url;
+    await expect(opened(ticket)).resolves.toBeUndefined();
+    // Spent on the connection it opened.
+    await expect(opened(ticket)).rejects.toThrow(/403/);
+    await expect(opened(signUrl(SOCKET_PATH, "other")!.url)).rejects.toThrow(/403/);
   });
 
   it("lets a window without this boot's key watch, but not put its hand on the browser", async () => {

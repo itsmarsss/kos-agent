@@ -51,4 +51,12 @@ describe("the dashboard's static files", () => {
     // Any other route is still the app.
     expect(await (await fetch(`${base}/projects/x`)).text()).toContain("<title>KOS</title>");
   });
+
+  it("tells the browser never to frame the dashboard, the page and its files alike", async () => {
+    for (const path of ["/", "/inbox", "/page-lib/charts.js", "/page-lib/react.js"]) {
+      const res = await fetch(`${base}${path}`);
+      expect(res.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
+      expect(res.headers.get("x-frame-options")).toBe("DENY");
+    }
+  });
 });
