@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
 import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
+import { momentWords } from "@kos/shared";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
@@ -115,9 +116,6 @@ function Group({ title, blurb, children }: { title: string; blurb?: string; chil
   );
 }
 
-function when(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 
 /** What the question is, in the owner's terms rather than memory's. */
 const HEADLINE: Record<ReviewItem["kind"], string> = {
@@ -312,7 +310,7 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
                   })}
                 </span>
                 <span className="mem-settled-how">{item.resolution}</span>
-                {item.resolvedAt ? <time className="mem-settled-when">{when(item.resolvedAt)}</time> : null}
+                {item.resolvedAt ? <time className="mem-settled-when">{momentWords(item.resolvedAt)}</time> : null}
               </li>
             ))}
           </ul>
@@ -384,7 +382,7 @@ function LogTab({ titles }: { titles: Map<string, string> }): ReactElement {
                 {titles.get(e.conversationId) ?? "a deleted chat"}
               </a>
             )}
-            <span className="ops-muted">{when(e.ts)}</span>
+            <span className="ops-muted">{momentWords(e.ts)}</span>
           </div>
           <div className="mem-event-text">{e.text.length > 400 ? `${e.text.slice(0, 400)}…` : e.text}</div>
         </div>
@@ -422,7 +420,7 @@ function JobsTab(): ReactElement {
                 <strong>{j.label}</strong> <span className="ops-mono ops-muted">{j.name}</span>
                 <Pill tone={job.enabled ? "ok" : "muted"}>{job.enabled ? "On schedule" : "Off"}</Pill>
               </div>
-              <div className="hint">{j.what} · {job.schedule} · {job.task ?? "reasoning"} route{job.lastRunAt ? ` · last ran ${when(job.lastRunAt)}` : " · never run"}</div>
+              <div className="hint">{j.what} · {job.schedule} · {job.task ?? "reasoning"} route{job.lastRunAt ? ` · last ran ${momentWords(job.lastRunAt)}` : " · never run"}</div>
               {said[job.id] && <div className="mem-job-said">{said[job.id]}</div>}
             </div>
             <div className="mem-actions">
@@ -465,7 +463,7 @@ function CallersTab(): ReactElement {
         <div key={c.id} className="mem-row mem-row--split">
           <div>
             <strong>{c.name}</strong>
-            <div className="hint">reads {c.readTags.length ? c.readTags.join(", ") : "nothing global"}{c.writeGlobal ? " · may write global" : ""}{c.lastSeenAt ? ` · last seen ${when(c.lastSeenAt)}` : " · never used"}</div>
+            <div className="hint">reads {c.readTags.length ? c.readTags.join(", ") : "nothing global"}{c.writeGlobal ? " · may write global" : ""}{c.lastSeenAt ? ` · last seen ${momentWords(c.lastSeenAt)}` : " · never used"}</div>
           </div>
           <button type="button" className="btn btn--sm btn--danger" onClick={() => void api.revokeCaller(c.id).then(load, load)}>Revoke</button>
         </div>

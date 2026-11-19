@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
-import { hexOfHsl, hueOfHex, summarizeAction } from "@kos/shared";
+import { hexOfHsl, hueOfHex, momentWords, summarizeAction } from "@kos/shared";
 import { Card, ease, Field, lookOf, Pill, spring, Tag } from "@kos/kit";
 
 import type {
@@ -44,7 +44,7 @@ function ago(ts?: number | null): string {
 function fmtTime(ts?: number | null): string {
   if (ts == null) return "—";
   try {
-    return new Date(ts).toLocaleString();
+    return momentWords(ts);
   } catch {
     return String(ts);
   }

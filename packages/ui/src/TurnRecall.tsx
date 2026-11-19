@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, 
 import { createPortal } from "react-dom";
 
 import { CloseIcon, Count, Empty, IconButton, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useFocusTrap, useOverlayScroll } from "@kos/kit";
+import { timeCard } from "@kos/shared";
 
 import type { TurnRecall as Recall } from "./api.js";
 import { useEdgeFade } from "./edgefade.js";
@@ -403,7 +404,7 @@ function MomentHead({ moment }: { moment: Moment }): ReactElement {
       {/* A moment whose time was lost says nothing of when rather than "Invalid Date". */}
       {Number.isFinite(when.getTime()) && (
         <span className="recall-tags">
-          <time className="recall-when" dateTime={when.toISOString()} title={when.toLocaleString()}>
+          <time className="recall-when" dateTime={when.toISOString()} title={timeCard(moment.ts / 1000).join(" ")}>
             {agoWords(moment.ts)}
           </time>
         </span>

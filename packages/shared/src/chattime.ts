@@ -10,6 +10,8 @@
  * own 12- or 24-hour clock.
  */
 
+import { relativeWords, timeCard, type TimeStyle } from "./time.js";
+
 /** A pause this long or longer between two messages puts the time over the second. */
 export const GAP_MS = 15 * 60_000;
 
@@ -120,6 +122,33 @@ export function momentWords(ms: number, now = Date.now(), locale?: string, timeZ
     new Intl.DateTimeFormat(locale, { ...zoned(timeZone), month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }),
   );
   return `${date.format(new Date(ms))}, ${clock}`;
+}
+
+/**
+ * A time token's moment as a reader's surface draws it, in their locale and
+ * on their clock: the clock alone for `t`, `momentWords` for the default,
+ * the date in the locale's words for `d` and `D`, the hover card's words for
+ * `F`, and "in 3 hours" for `R`. `formatTime` is the same for a surface that
+ * has no reader to ask (a text message, a log).
+ */
+export function readerTime(seconds: number, style: TimeStyle, now = Date.now(), locale?: string, timeZone?: string): string {
+  const ms = seconds * 1000;
+  switch (style) {
+    case "R":
+      return relativeWords(seconds, now);
+    case "t":
+      return clockWords(ms, locale, timeZone);
+    case "T":
+      return kept(`clock-s|${locale ?? ""}|${timeZone ?? ""}`, () => new Intl.DateTimeFormat(locale, { ...zoned(timeZone), timeStyle: "medium" })).format(new Date(ms));
+    case "d":
+      return kept(`date-s|${locale ?? ""}|${timeZone ?? ""}`, () => new Intl.DateTimeFormat(locale, { ...zoned(timeZone), dateStyle: "short" })).format(new Date(ms));
+    case "D":
+      return kept(`date-l|${locale ?? ""}|${timeZone ?? ""}`, () => new Intl.DateTimeFormat(locale, { ...zoned(timeZone), dateStyle: "long" })).format(new Date(ms));
+    case "F":
+      return timeCard(seconds, locale, timeZone).join(" ");
+    default:
+      return momentWords(ms, now, locale, timeZone);
+  }
 }
 
 /** What a mark says: the day's words, or the time after a pause. */
