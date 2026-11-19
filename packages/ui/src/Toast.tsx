@@ -40,9 +40,9 @@ export function Toast({ note }: { note: ToastNote | null }): ReactElement {
           key={note.text}
           className={`ops-toast ops-toast--${note.kind}`}
           role={note.kind === "err" ? "alert" : "status"}
-          initial={{ opacity: 0, y: 10, x: "-50%", scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
-          exit={{ opacity: 0, y: 6, x: "-50%", scale: 0.98 }}
+          initial={{ opacity: 0, y: 10, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 6, scale: 0.98 }}
           transition={spring}
         >
           <span className="ops-toast-icon" aria-hidden="true">

@@ -579,14 +579,18 @@ select {
 .ops-toast {
   position: fixed;
   bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
-  left: 50%;
+  /* Centred by its margins, not by half the window: shrunk to fit beside 50%, it wrapped on a phone. */
+  left: 1rem;
+  right: 1rem;
+  width: fit-content;
+  margin-inline: auto;
   z-index: 90;
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  max-width: min(28rem, calc(100vw - 2rem));
+  max-width: 28rem;
   padding: 0.45rem 0.95rem 0.45rem 0.55rem;
-  border-radius: 999px;
+  border-radius: 1.1rem;
   border: 1px solid var(--line-strong);
   background: color-mix(in srgb, var(--panel-2) 90%, transparent);
   backdrop-filter: blur(12px);
