@@ -57,7 +57,10 @@ function decodeFrame(data: ArrayBuffer): FrameMessage | null {
  * headers, and the token itself never goes into an address.
  */
 export async function socketPath(): Promise<string> {
-  if (dashboardToken()) return (await signedUrl("/api/socket")).url;
+  return dashboardToken() ? (await signedUrl("/api/socket")).url : keyedPath();
+}
+
+function keyedPath(): string {
   const key = document.querySelector('meta[name="kos-write"]')?.getAttribute("content");
   return key ? `/api/socket?key=${encodeURIComponent(key)}` : "/api/socket";
 }
@@ -102,6 +105,8 @@ class KosSocket {
 
   private open(): void {
     if (this.ws || this.opening || this.reconnect !== undefined) return;
+    // With no token there is no ticket to wait for.
+    if (!dashboardToken()) return this.connect(keyedPath());
     this.opening = true;
     void socketPath().then(
       (path) => {
