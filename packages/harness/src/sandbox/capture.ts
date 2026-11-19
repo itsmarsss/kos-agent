@@ -34,6 +34,7 @@ export function stopOf(signal: AbortSignal | undefined): { signal?: AbortSignal 
  *
  * It leads a process group of its own, and ending it ends the group: a shell
  * killed alone left the `sleep` it had started running on behind it.
+ * Whatever jailing it put in place is released when it ends.
  */
 export function runCaptured(command: JailedCommand, opts: CaptureOptions): Promise<CapturedRun> {
   return new Promise((resolve, reject) => {
@@ -76,6 +77,7 @@ export function runCaptured(command: JailedCommand, opts: CaptureOptions): Promi
     else opts.signal?.addEventListener("abort", onStop, { once: true });
     const settle = (): void => {
       clearTimeout(timer);
+      command.release?.();
       opts.signal?.removeEventListener("abort", onStop);
     };
     child.on("error", (err) => {

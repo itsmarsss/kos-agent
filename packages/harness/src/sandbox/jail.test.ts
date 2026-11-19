@@ -170,12 +170,12 @@ own.close();`,
     }
   });
 
-  it("uses the sandbox on macOS, the container when in one, and refuses elsewhere", () => {
+  it("uses the sandbox on macOS, the container when in one, and refuses elsewhere without bubblewrap", () => {
     const mac = jailedCommand("ls", { workspaceRoot: "/w", homes: [], platform: "darwin", contained: false });
     expect(mac.file).toBe("/usr/bin/sandbox-exec");
     expect(mac.args.slice(-3)).toEqual(["/bin/sh", "-c", "ls"]);
-    const inside = jailedCommand("ls", { workspaceRoot: "/w", platform: "linux", contained: true });
+    const inside = jailedCommand("ls", { workspaceRoot: "/w", platform: "linux", bubblewrap: false, contained: true });
     expect(inside).toEqual({ file: "/bin/sh", args: ["-c", "ls"] });
-    expect(() => jailedCommand("ls", { workspaceRoot: "/w", platform: "linux", contained: false })).toThrow(/jail/);
+    expect(() => jailedCommand("ls", { workspaceRoot: "/w", platform: "linux", bubblewrap: false, contained: false })).toThrow(/jail/);
   });
 });
