@@ -38,11 +38,14 @@ public enum ChatTimes {
     let when = date > now && date.timeIntervalSince(now) < ahead ? now : date
     let ago = calendar.dateComponents([.day], from: calendar.startOfDay(for: when), to: calendar.startOfDay(for: now)).day ?? 0
     if ago == 0 || ago == 1 {
+      // Relative formatting reads the system clock, not `now`: word a day that many days before the real today.
+      let real = Date()
+      let stand = calendar.date(byAdding: .day, value: -ago, to: real) ?? real
       return formatter("relative", calendar: calendar, locale: locale) {
         $0.dateStyle = .medium
         $0.timeStyle = .none
         $0.doesRelativeDateFormatting = true
-      }.string(from: when)
+      }.string(from: stand)
     }
     let template = ago > 1 && ago < 7 ? "EEEMMMd" : "EEEMMMdy"
     return formatter(template, calendar: calendar, locale: locale) { $0.setLocalizedDateFormatFromTemplate(template) }.string(from: when)
