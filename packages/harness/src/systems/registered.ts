@@ -20,8 +20,8 @@ export function registeredTables(db: Db, slug: string): Set<string> {
   for (const { spec_json } of rows) {
     const spec = JSON.parse(spec_json) as { op: string; table?: string; from?: string; to?: string };
     if (spec.op === "create_table" && spec.table) made.add(projectTable(slug, spec.table));
-    if (spec.op === "rename_table" && spec.from && spec.to) {
-      made.delete(projectTable(slug, spec.from));
+    // A rename carries over only a table the project had: renaming another's never made it its own.
+    if (spec.op === "rename_table" && spec.from && spec.to && made.delete(projectTable(slug, spec.from))) {
       made.add(projectTable(slug, spec.to));
     }
   }

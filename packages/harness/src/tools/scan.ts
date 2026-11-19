@@ -28,6 +28,8 @@ const SKIP_DIRS = new Set([
   "coverage",
   "out",
   ".git",
+  // KOS's own state: logs, caches, the backup repo with every older copy of the database.
+  ".kos",
 ]);
 
 /**

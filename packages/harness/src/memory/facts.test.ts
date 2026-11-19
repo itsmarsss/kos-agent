@@ -44,6 +44,19 @@ describe("FactsStore", () => {
     expect(facts.standing("u1", ["global"], 2).map((f) => f.key)).toEqual(["allergy", "units"]);
   });
 
+  it("reads nothing from an empty scope list: a guest with no project is told none of the owner's claims", () => {
+    facts.upsert("u1", { key: "employer", value: "Works at Acme.", kind: "fact", pinned: true });
+    facts.upsert("u1", { key: "diet", value: "The owner is vegetarian.", kind: "preference", trust: "owner" });
+    facts.upsert("u1", { key: "plan", value: "The plan is to move in May.", kind: "fact" });
+    expect(facts.all("u1", [])).toEqual([]);
+    expect(facts.pinned("u1", [])).toEqual([]);
+    expect(facts.standing("u1", [], 8, { within: true })).toEqual([]);
+    expect(facts.search("u1", "what is the plan", 10, { scopes: [] })).toEqual([]);
+    expect(facts.search("u1", "", 10, { scopes: [] })).toEqual([]);
+    // No list at all is still every scope.
+    expect(facts.all("u1").map((f) => f.key).sort()).toEqual(["diet", "employer", "plan"]);
+  });
+
   it("inserts and reads a fact", () => {
     facts.upsert("u1", { key: "timezone", value: "UTC", kind: "fact" });
     expect(facts.get("u1", "timezone")).toMatchObject({

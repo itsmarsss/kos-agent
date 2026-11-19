@@ -1,4 +1,4 @@
-import { isZip, readZip, ZipTooLarge } from "../zip.js";
+import { isZip, readZip, ZIP_ENTRY_MAX, ZIP_TOTAL_MAX, ZipTooLarge } from "../zip.js";
 import { docxToView } from "./docx.js";
 import type { OfficeView, ViewFormat } from "@kos/shared";
 import { pptxToView } from "./pptx.js";
@@ -28,9 +28,6 @@ export function viewFormatOf(name: string): ViewFormat | undefined {
 /** Formats read by macOS's textutil, where the host has it. */
 export const TEXTUTIL_FORMATS = new Set<ViewFormat>(["doc", "rtf", "odt"]);
 
-/** What a zip-based file may inflate to, all told: a large deck's pictures, not a bomb's gigabytes. */
-export const ZIP_TOTAL_MAX = 160 * 1024 * 1024;
-const ZIP_ENTRY_MAX = 64 * 1024 * 1024;
 
 export type ConvertRequest = { op: "convert"; bytes: Uint8Array; format: ViewFormat } | { op: "sanitize"; html: string; format: ViewFormat };
 
