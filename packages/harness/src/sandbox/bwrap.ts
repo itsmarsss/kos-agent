@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { gitControls, plantedControls, quarantine } from "./gitwatch.js";
-import type { JailedCommand, JailOptions } from "./jail.js";
+import { gitControls, plantedControls, quarantine, stuckUnder } from "./gitwatch.js";
+import type { JailedCommand, JailOptions, Released } from "./jail.js";
 import type { JailNat, JailPlan } from "./jailrun.js";
 import { holdPlaces, type Place } from "./placeholder.js";
 import { seccompFilter } from "./seccomp.js";
@@ -165,7 +165,12 @@ export function natTool(): JailNat | undefined {
     const pasta = findTrusted("pasta");
     const slirp = findTrusted("slirp4netns");
     if (pasta) candidates.push({ tool: "pasta", path: pasta });
-    if (slirp) candidates.push({ tool: "slirp4netns", path: slirp });
+    if (slirp) {
+      // Its own sandbox and seccomp filter, where this build has them.
+      const help = spawnSync(slirp, ["--help"], { encoding: "utf8", timeout: 5000 }).stdout ?? "";
+      const hardening = ["--enable-sandbox", "--enable-seccomp"].filter((flag) => help.includes(flag));
+      candidates.push({ tool: "slirp4netns", path: slirp, ...(hardening.length ? { hardening } : {}) });
+    }
     const probe = (candidate: JailNat): boolean => {
       const ws = realpathSync(mkdtempSync(join(tmpdir(), "kos-nat-")));
       try {
@@ -228,7 +233,7 @@ function unlinked(path: string): boolean {
 }
 
 /** Walk the trees, not following links; visit says whether to go into a folder. */
-function walk(roots: string[], visit: (path: string, dir: boolean) => boolean): void {
+function walk(roots: string[], visit: (path: string, dir: boolean) => boolean, limit: number): void {
   let seen = 0;
   const stack = [...roots];
   for (let dir = stack.pop(); dir !== undefined; dir = stack.pop()) {
@@ -239,7 +244,7 @@ function walk(roots: string[], visit: (path: string, dir: boolean) => boolean): 
       continue;
     }
     for (const entry of entries) {
-      if (++seen > WALK_LIMIT) throw new Error(`too many files to jail here (over ${WALK_LIMIT}): narrow the folder the command runs for`);
+      if (++seen > limit) throw new Error(`too many files to jail here (over ${limit}): narrow the folder the command runs for`);
       if (entry.isSymbolicLink()) continue;
       const path = join(dir, entry.name);
       const isDir = entry.isDirectory();
@@ -260,6 +265,8 @@ interface Mount {
 
 export interface BwrapOptions extends JailOptions {
   secretFiles: string[];
+  /** The entries a walk may look at before the run; the tests make it small. */
+  walkLimit?: number;
 }
 
 /**
@@ -282,7 +289,11 @@ export function bwrapCommand(bwrap: string, file: string, args: string[], option
   const list = (paths: string[] | undefined): string[] => (paths ?? []).map(rebase).filter(honest);
 
   const writes = options.writes ? list(options.writes) : undefined;
-  const hidden = list(options.hidden);
+  // A hidden path reached through a link is refused, as a read-only one is: the cover would land where the link points.
+  const hidden = (options.hidden ?? []).map(rebase);
+  for (const path of hidden) {
+    if ((inWs(path) && !unlinked(path)) || kindOf(path) === "link") throw new Error(`${path} is reached through a link, which this jail cannot hide`);
+  }
   const reads = (options.reads ?? []).map((p) => resolve(p));
   const writableWithin = list(options.writableWithin);
   const secrets = options.secretFiles.map((p) => resolve(p));
@@ -353,7 +364,7 @@ export function bwrapCommand(bwrap: string, file: string, args: string[], option
           }
         }
         return true;
-      });
+      }, options.walkLimit ?? WALK_LIMIT);
     }
 
     // Every folder between a writable root and what is held, pinned to itself: a folder that is a mount cannot be renamed.
@@ -382,6 +393,7 @@ export function bwrapCommand(bwrap: string, file: string, args: string[], option
     const prlimit = findTrusted("prlimit");
     const mkfifo = findTrusted("mkfifo") ?? "/usr/bin/mkfifo";
     const unshare = findTrusted("unshare") ?? "/usr/bin/unshare";
+    const ip = findTrusted("ip") ?? "/usr/sbin/ip";
     const { dir, seccomp } = scratch();
     const plan: JailPlan = {
       bwrap,
@@ -392,6 +404,7 @@ export function bwrapCommand(bwrap: string, file: string, args: string[], option
       networked,
       mkfifo,
       unshare,
+      ip,
       ...(via ? { nat: via } : {}),
       ...(prlimit ? { prlimit } : {}),
       command: [file, ...args],
@@ -399,13 +412,17 @@ export function bwrapCommand(bwrap: string, file: string, args: string[], option
 
     // A run nobody approved has git's control watched: what it plants is moved out before anyone's git runs it.
     const watched = unwritable.length ? rwRoots : [];
-    const before = watched.length ? gitControls(watched, WALK_LIMIT) : undefined;
+    const stuck = stuckUnder(watched);
+    if (stuck) throw new Error(`${stuck} holds git control a command nobody approved planted, which could not be removed: the owner must delete it before such a command runs there again`);
+    const before = watched.length ? gitControls(watched, options.walkLimit ?? WALK_LIMIT) : undefined;
     let ended = false;
-    const done = (): string[] => {
-      if (ended) return [];
+    const done = (): Released => {
+      if (ended) return { quarantined: [], quarantineFailed: [] };
       ended = true;
       try {
-        return before ? quarantine(ws, plantedControls(before, gitControls(watched, WALK_LIMIT))) : [];
+        // Not capped after the run: one that made the tree too big to walk must not get past its quarantine that way.
+        const taken = before ? quarantine(ws, plantedControls(before, gitControls(watched, Infinity))) : { moved: [], failed: [] };
+        return { quarantined: taken.moved, quarantineFailed: taken.failed };
       } finally {
         release();
       }
