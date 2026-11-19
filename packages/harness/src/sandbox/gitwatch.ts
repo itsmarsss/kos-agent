@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 
@@ -89,27 +89,127 @@ export function plantedControls(before: Controls, after: Controls): string[] {
   return planted.filter((p) => !planted.some((q) => q !== p && under(p, q)));
 }
 
-/** Move what was planted into the workspace's quarantine, with a note; the paths moved, from the workspace. */
-export function quarantine(ws: string, planted: string[]): string[] {
-  if (!planted.length) return [];
+/** What a quarantine did: the paths moved or removed, and those it could not take away, from the workspace. */
+export interface Quarantined {
+  moved: string[];
+  failed: string[];
+}
+
+/** Planted control that could not be taken away: no unapproved run goes into its repository again while it stands. */
+const stuck = new Set<string>();
+
+/** The repository a control path belongs to: the folder holding its .git. */
+function repoOf(path: string): string {
+  const at = path.lastIndexOf("/.git");
+  return at > 0 ? path.slice(0, at) : dirname(path);
+}
+
+/** A tree an unapproved run would write in that still holds control a quarantine could not take away. */
+export function stuckUnder(roots: string[]): string | undefined {
+  for (const path of [...stuck]) {
+    if (!lstatOf(path)) {
+      stuck.delete(path);
+      continue;
+    }
+    const repo = repoOf(path);
+    if (roots.some((root) => under(repo, root) || under(root, repo))) return path;
+  }
+  return undefined;
+}
+
+function lstatOf(path: string): ReturnType<typeof lstatSync> | undefined {
+  try {
+    return lstatSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Give a folder back its owner's rwx without following a link to it: the run may have locked it with chmod. */
+function unlock(dir: string): void {
+  try {
+    const fd = openSync(dir, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY);
+    try {
+      fchmodSync(fd, (fstatSync(fd).mode & 0o7777) | 0o700);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    // Not a folder, or not there: nothing to unlock.
+  }
+}
+
+/** Unlock every folder in a tree, outermost first, following no link. */
+function unlockTree(path: string): void {
+  if (!lstatOf(path)?.isDirectory()) return;
+  unlock(path);
+  let entries;
+  try {
+    entries = readdirSync(path, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) if (entry.isDirectory()) unlockTree(join(path, entry.name));
+}
+
+/** Move one planted path out; failing that, remove it; say which, or that it is stuck there. */
+function takeAway(path: string, dest: string): "moved" | "removed" | "gone" | "stuck" {
+  const move = (): NodeJS.ErrnoException | undefined => {
+    try {
+      mkdirSync(dirname(dest), { recursive: true });
+      renameSync(path, dest);
+      return undefined;
+    } catch (err) {
+      return err as NodeJS.ErrnoException;
+    }
+  };
+  let err = move();
+  if (!err) return "moved";
+  if (err.code === "ENOENT" && !lstatOf(path)) return "gone";
+  // Locked by the run (chmod 555), or on another disk: unlocked and tried again, then removed outright.
+  unlock(dirname(path));
+  unlock(path);
+  err = move();
+  if (!err) return "moved";
+  unlockTree(path);
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    // Reported below, if it is still there.
+  }
+  return lstatOf(path) ? "stuck" : "removed";
+}
+
+/**
+ * Move what was planted into the workspace's quarantine, with a note. What
+ * cannot be moved is removed; what cannot be removed either is reported,
+ * and no unapproved run goes into its tree again while it stands.
+ */
+export function quarantine(ws: string, planted: string[]): Quarantined {
+  const done: Quarantined = { moved: [], failed: [] };
+  if (!planted.length) return done;
   const stamp = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(3).toString("hex")}`;
   const folder = join(ws, ".kos", "quarantine", stamp);
-  const moved: string[] = [];
+  const removed: string[] = [];
   for (const path of planted) {
     const rel = under(path, ws) ? relative(ws, path) : basename(path);
-    try {
-      mkdirSync(dirname(join(folder, rel)), { recursive: true });
-      renameSync(path, join(folder, rel));
-      moved.push(rel);
-    } catch {
-      // Gone already; nothing left to run.
+    const how = takeAway(path, join(folder, rel));
+    if (how === "moved") done.moved.push(rel);
+    else if (how === "removed") {
+      done.moved.push(rel);
+      removed.push(rel);
+    } else if (how === "stuck") {
+      done.failed.push(rel);
+      stuck.add(path);
     }
   }
-  if (moved.length) {
+  if (done.moved.length) {
+    mkdirSync(folder, { recursive: true });
     writeFileSync(
       join(folder, "NOTE.txt"),
-      `A command run without the owner's approval made or changed git's own control (config, hooks and the like), which can name a program for git to run. It was moved here from the workspace:\n\n${moved.join("\n")}\n`,
+      `A command run without the owner's approval made or changed git's own control (config, hooks and the like), which can name a program for git to run. It was moved here from the workspace${removed.length ? " (what could not be moved was deleted: " + removed.join(", ") + ")" : ""}:\n\n${done.moved.join("\n")}\n`,
     );
   }
-  return moved;
+  if (done.failed.length) console.error(`[jail] planted git control could not be taken away; unapproved runs there are refused until the owner removes it: ${done.failed.join(", ")}`);
+  return done;
 }
