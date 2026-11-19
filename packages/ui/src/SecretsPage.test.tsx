@@ -168,6 +168,29 @@ describe("the Secrets page", () => {
     expect(pw.value).toBe("");
   });
 
+  it("keeps a new value typed through a refused save, so the retry sends it and not unchanged", async () => {
+    let refuse = true;
+    serve("ready", {
+      "PATCH /api/secrets/github-login-9xq1": () => {
+        if (refuse) throw new Error("400");
+        return login;
+      },
+    });
+    render(<SecretsPage />);
+    fireEvent.click(await screen.findByText("GitHub"));
+    const pw = (await screen.findByLabelText(/^Password/)) as HTMLInputElement;
+    fireEvent.change(pw, { target: { value: "n3w-pass" } });
+    fireEvent.click(screen.getByText("Save"));
+    expect(await screen.findByText("refused")).toBeTruthy();
+    expect(pw.value).toBe("n3w-pass");
+    refuse = false;
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(2));
+    const retry = calls.filter((c) => c.method === "PATCH")[1]!.body as { values: unknown };
+    expect(retry.values).toEqual({ password: "n3w-pass" });
+    await waitFor(() => expect(pw.value).toBe(""));
+  });
+
   it("saves an API key's hosts with bearer, as its chips show", async () => {
     serve("ready", { "POST /api/secrets": () => ({ handle: "openai-x1y2" }) });
     render(<SecretsPage />);

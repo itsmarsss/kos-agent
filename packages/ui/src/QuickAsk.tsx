@@ -9,6 +9,7 @@ import {
 
 import { CloseIcon, Empty, IconButton, Markdown, OpenIcon, PinIcon, SendIcon, UnpinIcon, WorkingDots } from "@kos/kit";
 import { api } from "./api.js";
+import { composerKeyDown } from "./composer.js";
 import { EDGES, clampBox, cornerBox, readBox as readStoredBox, resizedBox, saveBox as saveStoredBox, type Box, type Edge, type MinSize } from "./floatbox.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
@@ -353,10 +354,8 @@ export function QuickAsk({
           placeholder={attachedTo ? "Ask about this chat…" : "Ask KOS…"}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              e.currentTarget.form?.requestSubmit();
-            }
+            const form = e.currentTarget.form;
+            composerKeyDown(e, () => form?.requestSubmit());
           }}
         />
         {/* One size whether idle or busy: a label that changed width made

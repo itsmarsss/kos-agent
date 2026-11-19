@@ -47,9 +47,18 @@ serves and into a file only you can read (0600, `KOS_WRITE_KEY_FILE`),
 which the kos CLI and the dev server's proxy read and every jailed program
 is denied; it is never in the environment. In the container, where the
 agent's programs share loopback with KOS, there is no key: every change
-needs `KOS_DASHBOARD_TOKEN`. Enter it once in the dashboard's Settings,
-Network, Dashboard token: the tab keeps it in session storage (gone when it
-closes, never on disk) and sends it as `x-kos-token` with every request. Every route answers only to KOS's own names
+needs `KOS_DASHBOARD_TOKEN`. A tab without it is asked for it before the
+dashboard draws (and again whenever KOS answers 401); it is also in
+Settings, Network, Dashboard token. The tab keeps it in session storage
+(gone when it closes, never on disk) and sends it as `x-kos-token` with
+every request. What the browser fetches by itself (an image, a player, a
+framed PDF) goes by an address KOS signs for the holder through
+`/api/sign`, so the token never goes into a URL: only those routes are
+signed, a picture's for 15 minutes (signed again before it lapses or when
+it fails), a player's or a PDF's for 6 hours, and the socket's ticket for a
+minute and one connection. The
+dashboard's page and files are sent with `frame-ancestors 'none'` and
+`X-Frame-Options: DENY`, so no other page can frame it. Every route answers only to KOS's own names
 (localhost, the bound host, `KOS_PUBLIC_URL`'s, the Wi-Fi host) or an
 address, so a page whose name was rebound onto this machine is refused.
 

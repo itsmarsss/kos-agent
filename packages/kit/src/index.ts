@@ -34,14 +34,15 @@ export {
 export { KindMark, Markdown, MentionNames, RefChip, RefLinks } from "./Markdown.js";
 export { BlockActions, KosBlockView, type BlockText } from "./KosBlock.js";
 export { Field, Req, type FieldProps } from "./Field.js";
-export { checkOrigin, hintWords, masksText, OriginList, PAYMENT_FRAMES, SecretField, takeSecretValues, type OriginListProps, type OriginMode, type SecretFieldProps } from "./Secrets.js";
+export { checkOrigin, hintWords, masksText, OriginList, PAYMENT_FRAMES, SecretField, clearSecretValues, readSecretValues, takeSecretValues, type OriginListProps, type OriginMode, type SecretFieldProps } from "./Secrets.js";
 export { Tex } from "./Tex.js";
 export { MessageTime, TAPPED_MS, TimeCard, TimeLine, Timed, useTimeReveal, useToday, type TimeRevealProps } from "./ChatTime.js";
 export { Tooltip, type TooltipAnchorProps, type TooltipProps } from "./Tooltip.js";
 export { Countdown, QuoteLine, quoteSource, Card, Chips, Collapse, Count, Empty, type CardProps, type ChipOption, DrawerRow, Elapsed, formatElapsed, IconButton, IconLink, Pill, PictureViewer, Section, Skeleton, StatusDot, StepPicture, StepTime, Switch, Tag, WorkingDots, type DotState, type IconButtonProps, type Tone } from "./kit.js";
-export { AskCard, AskDetails, AskSecretBlock, AskStepList, type AskCardProps } from "./AskCard.js";
+export { ASK_SETTLE_MS, AskCard, AskDetails, AskSecretBlock, AskStepList, type AskCardProps } from "./AskCard.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";
 export { isModeKey, ModeChip } from "./ModeChip.js";
 export { useFocusTrap } from "./useFocusTrap.js";
+export { useSteadyPress } from "./useSteadyPress.js";
 export { overlayScroll, useOverlayScroll } from "./OverlayScroll.js";
 export * from "./icons.js";

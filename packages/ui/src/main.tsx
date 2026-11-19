@@ -5,6 +5,7 @@ import { domMax, LazyMotion, MotionConfig } from "motion/react";
 import { App } from "./App.js";
 import { AudienceWindow } from "./AudienceWindow.js";
 import { audienceRoute } from "./presentlink.js";
+import { TokenGate } from "./TokenGate.js";
 import { applyDensity, applyTheme, followOtherTabs, readDensity, readTheme } from "./theme.js";
 // The kit's pieces first, so the dashboard's own sheet says where a piece differs in its place; KaTeX's for typeset maths.
 import "@kos/kit/kit.css";
@@ -19,8 +20,11 @@ followOtherTabs();
 
 // A deck's audience window is the dashboard's own page, drawn alone: no shell, no nav, the slide.
 const audience = audienceRoute(window.location.hash);
+// Framed by another page, the dashboard draws nothing to press: the server's frame-ancestors is the guard, this the fallback.
+const framed = window.top !== window.self;
 const root = document.getElementById("root");
-if (root) {
+if (framed && root) root.textContent = "KOS does not open inside another page.";
+else if (root) {
   createRoot(root).render(
     <StrictMode>
       {/*
@@ -35,7 +39,7 @@ if (root) {
       */}
       <LazyMotion features={domMax} strict>
         <MotionConfig reducedMotion="user">
-          {audience ? <AudienceWindow {...audience} /> : <App />}
+          <TokenGate>{audience ? <AudienceWindow {...audience} /> : <App />}</TokenGate>
         </MotionConfig>
       </LazyMotion>
     </StrictMode>,
