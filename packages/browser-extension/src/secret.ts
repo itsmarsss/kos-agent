@@ -138,6 +138,18 @@ export function marked(taint: TabTaint | undefined, loader: string, url: string,
   return next;
 }
 
+/**
+ * The taint once its document moved to `url` by itself (pushState, a
+ * fragment): the document keeps its secret at the new address, and history
+ * keeps both, so a step back or forward to either holds again. Undefined
+ * when nothing changes: another document's move, or an address it has.
+ */
+export function movedWithin(taint: TabTaint | undefined, loader: string, url: string): TabTaint | undefined {
+  const key = urlKey(url);
+  if (!taint || !loader || taint.loader !== loader || !key || taint.urls.includes(key)) return undefined;
+  return { ...taint, urls: [...taint.urls, key] };
+}
+
 /** Where taints are kept in session storage, by tab. */
 export const TAINTS_KEY = "taints";
 

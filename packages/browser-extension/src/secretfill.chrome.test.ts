@@ -376,6 +376,28 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     expect(await send("Runtime.evaluate", step)).toMatchObject({ ok: true });
   });
 
+  it("holds an address the page moved to by itself, come back to by history or afresh", async () => {
+    const send = (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => call("cdp.send", { tab, method, params });
+    const step = { expression: "1 + 1", replMode: true, returnByValue: true };
+    await cdp("Page.navigate", { url: `${base}/login?again` });
+    await until(async () => (await read().catch(() => undefined))?.byId.has("pw") === true);
+    expect(await fill("pw", PASSWORD, "password")).toMatchObject({ ok: true });
+    const page = await devtools.attach((u) => u.endsWith("/login?again"));
+    await devtools.evaluate(page, "history.pushState({}, '', '/moved')");
+    await until(async () => JSON.stringify(await cdp("Page.getNavigationHistory")).includes("/moved"));
+    await cdp("Page.navigate", { url: `${base}/other` });
+    expect(await send("Runtime.evaluate", step)).toMatchObject({ ok: true });
+    const history = (await cdp("Page.getNavigationHistory")) as { currentIndex: number; entries: { id: number; url: string }[] };
+    const moved = history.entries.find((e) => e.url.endsWith("/moved"))!;
+    await cdp("Page.navigateToHistoryEntry", { entryId: moved.id });
+    await until(async () => JSON.stringify(await cdp("Page.getFrameTree")).includes("/moved"));
+    expect(await send("Runtime.evaluate", step)).toMatchObject({ error: expect.objectContaining({ code: "tainted" }) });
+    await cdp("Page.navigate", { url: `${base}/other` });
+    await cdp("Page.navigate", { url: `${base}/moved` });
+    expect(await send("Runtime.evaluate", step)).toMatchObject({ error: expect.objectContaining({ code: "tainted" }) });
+    await cdp("Page.navigate", { url: `${base}/other` });
+  });
+
   it("sends KOS, its log, its storage and its pages no value", async () => {
     const canaries = [PASSWORD, CARD, CARD.slice(-8)];
     const log = JSON.stringify(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "log" })`));

@@ -2,7 +2,7 @@ import { isSecretSlot, type SecretSlot } from "@kos/browser";
 import { describe, expect, it } from "vitest";
 
 import { withoutFieldText } from "./relay.js";
-import { SLOTS, heldNow, heldRefusal, hiddenValues, isSecret, marked, readMasks, readPut, readTaints, typesText, type TabTaint } from "./secret.js";
+import { SLOTS, heldNow, heldRefusal, hiddenValues, isSecret, marked, movedWithin, readMasks, readPut, readTaints, typesText, type TabTaint } from "./secret.js";
 
 /**
  * What the extension reads of a secret's fill, and what it holds a tab to
@@ -53,6 +53,17 @@ describe("a tab a secret was filled into", () => {
     const two = marked(taint, "L1", "https://github.com/login", { frame: "F", node: 42 });
     expect(two.nodes).toHaveLength(2);
     expect(marked(two, "L4", "https://github.com/2fa", field)).toEqual({ loader: "L4", nodes: [field], urls: ["https://github.com/login", "https://github.com/2fa"] });
+  });
+
+  it("keeps each address its document moves to by itself, and no other document's", () => {
+    const taint = marked(undefined, "L1", "https://github.com/login", field);
+    const moved = movedWithin(taint, "L1", "https://github.com/login/2fa#code");
+    expect(moved?.urls).toEqual(["https://github.com/login", "https://github.com/login/2fa"]);
+    // Come back to the new address as a new document: held as a page the secret was in.
+    expect(heldNow(moved, "L9", "https://github.com/login/2fa")).toEqual({ nodes: [] });
+    expect(movedWithin(moved, "L1", "https://github.com/login/2fa")).toBeUndefined();
+    expect(movedWithin(taint, "L2", "https://github.com/elsewhere")).toBeUndefined();
+    expect(movedWithin(undefined, "L1", "https://github.com/login/2fa")).toBeUndefined();
   });
 
   it("is kept in session storage as it was, anything else dropped", () => {

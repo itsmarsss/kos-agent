@@ -15,7 +15,7 @@ import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { changesPage, checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
-import { FILLED_PAGE, TAINTS_KEY, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type TabTaint } from "./secret.js";
+import { FILLED_PAGE, TAINTS_KEY, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type TabTaint } from "./secret.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
 import { FolderWait, ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
@@ -1332,7 +1332,14 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   // A route the page changed to itself (pushState): the main frame's moves the tab's address, and is passed on; a frame's within it is not.
   if (method === "Page.navigatedWithinDocument") {
     if (p["frameId"] !== mainFrames.get(tab)) return;
-    if (typeof p["url"] === "string") tabUrls.set(tab, p["url"]);
+    if (typeof p["url"] === "string") {
+      tabUrls.set(tab, p["url"]);
+      const moved = movedWithin(taints.get(tab), loaders.get(tab) ?? "", p["url"]);
+      if (moved) {
+        taints.set(tab, moved);
+        void saveTaints();
+      }
+    }
   }
   if (fromHidden(tab, p)) return;
   const open = openRequests.get(tab) ?? new Set<string>();
