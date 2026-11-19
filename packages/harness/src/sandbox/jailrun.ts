@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type StdioOptions } from "node:child_process";
 import { closeSync, constants, mkdtempSync, openSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { constants as os } from "node:os";
+import { networkInterfaces, constants as os } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -24,6 +24,15 @@ import { join } from "node:path";
 export interface JailNat {
   tool: "pasta" | "slirp4netns";
   path: string;
+  /** Options this build of the tool takes to hold itself in: slirp4netns's own sandbox and seccomp. */
+  hardening?: string[];
+}
+
+/** What the outside half of a networked run hands the inside: the owner's ids, and the host's own addresses to refuse. */
+interface Inside {
+  uid: number;
+  gid: number;
+  hostAddresses: string[];
 }
 
 export interface JailPlan {
@@ -43,6 +52,8 @@ export interface JailPlan {
   mkfifo: string;
   /** unshare, which makes a networked run's own namespaces. */
   unshare: string;
+  /** ip, which refuses the host's own addresses inside a networked run's namespace. */
+  ip: string;
   /** prlimit, to cap what the run can take; absent where there is none. */
   prlimit?: string;
   command: string[];
@@ -105,7 +116,7 @@ async function startNat(nat: JailNat, pid: number, scratch: string): Promise<() 
       }
     };
   }
-  const slirp = spawn(nat.path, ["--configure", "--mtu=65520", "--disable-host-loopback", "--ready-fd=3", "--exit-fd=4", `--userns-path=/proc/${pid}/ns/user`, String(pid), "tap0"], {
+  const slirp = spawn(nat.path, ["--configure", "--mtu=65520", "--disable-host-loopback", ...(nat.hardening ?? []), "--ready-fd=3", "--exit-fd=4", `--userns-path=/proc/${pid}/ns/user`, String(pid), "tap0"], {
     stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
   });
   let said = "";
@@ -127,13 +138,36 @@ async function startNat(nat: JailNat, pid: number, scratch: string): Promise<() 
   };
 }
 
-/** Map a process's new user namespace to the owner's own ids, one to one, with no setgroups. */
-function mapIds(pid: number): void {
-  const uid = process.getuid?.() ?? 0;
-  const gid = process.getgid?.() ?? 0;
+/**
+ * Map a process's new user namespace with the owner as its root, with no
+ * setgroups: root there may route its own network (refusing the host's
+ * addresses), and bwrap inside gives the run back the owner's own ids.
+ */
+function mapIds(pid: number, inside: Inside): void {
   writeFileSync(`/proc/${pid}/setgroups`, "deny");
-  writeFileSync(`/proc/${pid}/uid_map`, `${uid} ${uid} 1\n`);
-  writeFileSync(`/proc/${pid}/gid_map`, `${gid} ${gid} 1\n`);
+  writeFileSync(`/proc/${pid}/uid_map`, `0 ${inside.uid} 1\n`);
+  writeFileSync(`/proc/${pid}/gid_map`, `0 ${inside.gid} 1\n`);
+}
+
+/**
+ * The host's own addresses but loopback and link-local: a NAT carries a
+ * connection to one of them back to the host, where KOS's Wi-Fi listener,
+ * or its API bound to every address, would answer.
+ */
+function hostAddresses(): string[] {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter((a): a is NonNullable<typeof a> => !!a && !a.internal && !/^(fe80:|169\.254\.)/i.test(a.address))
+    .map((a) => a.address);
+}
+
+/** Inside the run's namespace: every host address refused by route, or the run is not let through. */
+function refuseHost(ip: string, addresses: string[]): void {
+  for (const address of addresses) {
+    const v6 = address.includes(":");
+    const run = spawnSync(ip, [...(v6 ? ["-6"] : []), "route", "add", "prohibit", `${address}/${v6 ? 128 : 32}`], { encoding: "utf8", timeout: 5000 });
+    if (run.status !== 0) throw new Error(`could not refuse the host's address ${address} inside the run's network: ${run.stderr?.trim() || run.status}`);
+  }
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
@@ -172,11 +206,12 @@ async function networked(plan: JailPlan & { nat: JailNat }): Promise<number> {
   try {
     const gate = join(scratch, "gate");
     if (spawnSync(plan.mkfifo, ["-m", "600", gate], { stdio: "ignore", timeout: 5000 }).status !== 0) throw new Error("could not make the gate a networked run waits on");
-    const inner = spawn(plan.unshare, ["--user", "--net", "--", process.execPath, ...process.execArgv, process.argv[1]!, "--inner", gate, JSON.stringify(plan)], { stdio: "inherit" });
+    const inside: Inside = { uid: process.getuid?.() ?? 0, gid: process.getgid?.() ?? 0, hostAddresses: hostAddresses() };
+    const inner = spawn(plan.unshare, ["--user", "--net", "--", process.execPath, ...process.execArgv, process.argv[1]!, "--inner", gate, JSON.stringify(plan), JSON.stringify(inside)], { stdio: "inherit" });
     const ended = supervise(inner);
     try {
       await unshared(inner.pid!);
-      mapIds(inner.pid!);
+      mapIds(inner.pid!, inside);
       // Now and then the NAT is refused the namespaces while they settle; the run waits, so it is tried again.
       for (let tries = 1; !stopNat; tries++) {
         try {
@@ -201,7 +236,7 @@ async function networked(plan: JailPlan & { nat: JailNat }): Promise<number> {
 }
 
 /** bwrap itself: every source opened exactly and handed over by descriptor, the filter too. */
-async function jailed(plan: JailPlan): Promise<number> {
+async function jailed(plan: JailPlan, inside?: Inside): Promise<number> {
   const scratch = mkdtempSync(join(plan.scratch, "run-"));
   const fds: number[] = [];
   try {
@@ -216,6 +251,11 @@ async function jailed(plan: JailPlan): Promise<number> {
       fds.push(openExact(resolv, false));
       // The network is the run's own namespace, which this helper is already in.
       args.push("--share-net", "--ro-bind-fd", String(at(fds.length - 1)), "/etc/resolv.conf");
+      // Root of the run's own namespace here, so the run is given back the owner's ids.
+      if (inside) {
+        refuseHost(plan.ip, inside.hostAddresses);
+        args.push("--uid", String(inside.uid), "--gid", String(inside.gid));
+      }
     }
     const stdio: StdioOptions = ["inherit", "inherit", "inherit", ...fds];
     const [file, ...rest] = plan.prlimit ? [plan.prlimit, ...LIMITS, plan.bwrap] : [plan.bwrap];
@@ -234,9 +274,14 @@ export async function runPlan(plan: JailPlan): Promise<number> {
 }
 
 if (process.argv[1] && /jailrun\.[jt]s$/.test(process.argv[1])) {
-  const [first, gate, inner] = process.argv.slice(2);
+  const [first, gate, inner, inside] = process.argv.slice(2);
   // Inside a networked run's namespaces: through the gate once the NAT is up, then into bwrap.
-  const run = first === "--inner" && gate && inner ? (readFileSync(gate), jailed(JSON.parse(inner) as JailPlan)) : first ? runPlan(JSON.parse(first) as JailPlan) : undefined;
+  const run =
+    first === "--inner" && gate && inner && inside
+      ? (readFileSync(gate), jailed(JSON.parse(inner) as JailPlan, JSON.parse(inside) as Inside))
+      : first
+        ? runPlan(JSON.parse(first) as JailPlan)
+        : undefined;
   run?.then(
     (code) => process.exit(code),
     (err: Error) => fail(err.message),

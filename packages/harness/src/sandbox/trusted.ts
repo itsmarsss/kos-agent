@@ -35,5 +35,5 @@ export function trustedProgram(path: string): boolean {
 
 /** The first trusted program of that name in the system's own folders, /usr/bin first. */
 export function findTrusted(name: string): string | undefined {
-  return ["/usr/bin", "/usr/local/bin", "/bin"].map((dir) => `${dir}/${name}`).find(trustedProgram);
+  return ["/usr/bin", "/usr/local/bin", "/bin", "/usr/sbin", "/sbin"].map((dir) => `${dir}/${name}`).find(trustedProgram);
 }
