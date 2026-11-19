@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { BootBox, StillStartingError, portClaim, restartArgs, startSurface, stopWithin, whenUp } from "./lifecycle.js";
+import { BootBox, StillStartingError, backoffMs, portClaim, restartArgs, retryableLogin, startSurface, stopWithin, whenUp } from "./lifecycle.js";
 
 describe("portClaim", () => {
   let claimed: Server | undefined;
@@ -64,11 +64,28 @@ describe("startSurface", () => {
     const seen: [string, string, boolean, string | null][] = [];
     const lines: string[] = [];
     const deps = { health: { observe: (k: string, l: string, ok: boolean, e: string | null) => seen.push([k, l, ok, e]) }, log: (l: string) => lines.push(l) };
-    expect(await startSurface("Discord", () => Promise.reject(new Error("An invalid token was provided.")), deps)).toBe(false);
+    const refused = new Error("An invalid token was provided.");
+    expect(await startSurface("Discord", () => Promise.reject(refused), deps)).toEqual({ started: false, error: refused });
     expect(seen[0]).toEqual(["surface:discord", "Discord", false, "did not start: An invalid token was provided."]);
     expect(lines[0]).toMatch(/^Discord: not started \(An invalid token was provided\.\)/);
-    expect(await startSurface("Discord", async () => undefined, deps)).toBe(true);
+    expect(await startSurface("Discord", async () => undefined, deps)).toEqual({ started: true });
     expect(seen[1]).toEqual(["surface:discord", "Discord", true, null]);
+  });
+});
+
+describe("a Discord login that failed", () => {
+  it("is tried again when the network failed it, never when the credentials did", () => {
+    const coded = Object.assign(new Error("getaddrinfo ENOTFOUND discord.com"), { code: "ENOTFOUND" });
+    expect(retryableLogin(coded)).toBe(true);
+    expect(retryableLogin(new Error("Connect Timeout Error"))).toBe(true);
+    expect(retryableLogin(new Error("read ECONNRESET"))).toBe(true);
+    expect(retryableLogin(new Error("An invalid token was provided."))).toBe(false);
+    expect(retryableLogin(new Error("Used disallowed intents"))).toBe(false);
+    expect(retryableLogin(new Error("something else"))).toBe(false);
+  });
+
+  it("waits longer each time, up to 15 minutes", () => {
+    expect([0, 1, 2, 10].map(backoffMs)).toEqual([30_000, 60_000, 120_000, 900_000]);
   });
 });
 

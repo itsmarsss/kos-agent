@@ -114,6 +114,9 @@ export interface SurfaceHealth {
   observe(key: string, label: string, ok: boolean, error: string | null): unknown;
 }
 
+/** How a surface's start went: started, or the error it failed with. */
+export type SurfaceStart = { started: true } | { started: false; error: unknown };
+
 /**
  * Start one surface on its own: one that fails (a reset bot token, a
  * webhook refused) is logged and marked unhealthy with why, and the host
@@ -123,18 +126,34 @@ export async function startSurface(
   name: string,
   start: () => Promise<void>,
   deps: { health: SurfaceHealth; log: (line: string) => void },
-): Promise<boolean> {
+): Promise<SurfaceStart> {
   const key = `surface:${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   try {
     await start();
     deps.health.observe(key, name, true, null);
-    return true;
-  } catch (err) {
-    const why = err instanceof Error ? err.message : String(err);
-    deps.log(`${name}: not started (${why}); everything else runs. Fix it and restart KOS.`);
+    return { started: true };
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    deps.log(`${name}: not started (${why}); everything else runs.`);
     deps.health.observe(key, name, false, `did not start: ${why}`);
-    return false;
+    return { started: false, error };
   }
+}
+
+/** A login refused for who it is (a reset token, an intent switched off): trying again cannot help. */
+const AUTH = /token|intent|unauthori[sz]ed|forbidden|\b(401|403|4004|4014)\b/i;
+/** A login that did not reach Discord, or Discord not answering: worth trying again. */
+const NETWORK = /enotfound|eai_again|econn(reset|refused|aborted)|etimedout|enetunreach|ehostunreach|socket hang up|fetch failed|timed? ?out|network|\b(429|5\d\d)\b/i;
+
+/** Whether a failed login is the network's (try again) rather than the credentials' (do not). */
+export function retryableLogin(error: unknown): boolean {
+  const text = error instanceof Error ? `${error.message} ${(error as { code?: unknown }).code ?? ""}` : String(error);
+  return NETWORK.test(text) && !AUTH.test(text);
+}
+
+/** The wait before the next try: 30 s, doubling, at most 15 min. */
+export function backoffMs(attempt: number): number {
+  return Math.min(30_000 * 2 ** attempt, 15 * 60_000);
 }
 
 /** How long a host has to shut down before it exits anyway. */

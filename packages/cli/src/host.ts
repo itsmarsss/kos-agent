@@ -67,7 +67,7 @@ import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 import { PortTakenError, portTakenMessage } from "./porttaken.js";
 import { bindRefusal } from "./bind.js";
-import { BootBox, portClaim, restartArgs, startSurface, stopWithin, whenUp } from "./lifecycle.js";
+import { BootBox, backoffMs, portClaim, restartArgs, retryableLogin, startSurface, stopWithin, whenUp } from "./lifecycle.js";
 import { rotateOwnLog } from "./logrotate.js";
 import { logPath } from "./service.js";
 
@@ -949,8 +949,11 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
    * What did not stop in time is named in the log, and the host exits anyway.
    */
   let stopping: Promise<string[]> | undefined;
+  /** The next try of a Discord login the network failed, while one waits. */
+  let discordRetry: NodeJS.Timeout | undefined;
   const stop = (): Promise<string[]> =>
     (stopping ??= (async () => {
+      clearTimeout(discordRetry);
       clearDaemonState(options.rootDir);
       live.close();
       for (const listening of [claim.server, siteServer]) {
@@ -1334,7 +1337,29 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       setInterval(() => void wear(), 5 * 60_000).unref();
     }
   };
-  if (wantDiscord && creds) await startSurface("Discord", () => startDiscord(creds), surfaceDeps);
+  /*
+   * A login the network failed (a filter, DNS, Discord down) is tried again,
+   * waiting longer each time; one refused for its token or intents is not,
+   * since trying again cannot mend it.
+   */
+  const discordUp = async (creds: NonNullable<ReturnType<typeof discordCreds>>, attempt: number): Promise<void> => {
+    const result = await startSurface("Discord", () => startDiscord(creds), surfaceDeps);
+    if (result.started) {
+      // Logged in while the host was going down: let it go too.
+      if (stopping) await runtime?.stop().catch(() => undefined);
+      return;
+    }
+    if (stopping) return;
+    if (!retryableLogin(result.error)) {
+      console.error("Discord: fix the token or intents, then restart KOS");
+      return;
+    }
+    const wait = backoffMs(attempt);
+    console.error(`Discord: trying again in ${Math.round(wait / 1_000)}s`);
+    discordRetry = setTimeout(() => void discordUp(creds, attempt + 1), wait);
+    discordRetry.unref();
+  };
+  if (wantDiscord && creds) await discordUp(creds, 0);
   else if (wantDiscord) console.log("Discord: skipped (set DISCORD_TOKEN + KOS_OWNER_DISCORD to enable)");
   else console.log("Discord: off (--no-discord; serve implies it, serve --discord turns it on)");
 

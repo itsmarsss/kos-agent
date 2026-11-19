@@ -568,7 +568,9 @@ machine needs `KOS_BROWSER_PORT`.
 - `Discord: not started (...)` in the log, and Discord listed as failing
   on the dashboard's health: a token or intent error means the token was
   reset (copy it again) or Message Content Intent is off in the portal.
-  Fix it, then `kos restart`: a login that failed is not retried.
+  Fix it, then `kos restart`: a login refused for its token or intents is
+  not tried again. One the network failed is, after 30 s, then doubling up
+  to 15 min (`Discord: trying again in ...`).
 - Timeouts, `ENOTFOUND` or `ECONNRESET` for discord.com or
   gateway.discord.gg: a network filter (a school, office or DNS filter, a
   firewall) blocks Discord. Check with `curl -sI https://discord.com/api/v10/gateway`;
