@@ -4,7 +4,7 @@ import { CdpClient, type CdpEvent, type CdpSocket } from "./cdp.js";
 import type { ChromeHost, ChromeLaunch, ChromeState } from "./chrome.js";
 import { keptSessionCookies, type CdpCookie } from "./cookies.js";
 import { PICTURE } from "./hands.js";
-import { Page, type PageLimits } from "./page.js";
+import { Page, type PageLimits, type PageShot } from "./page.js";
 import type { FilledValue, Kin } from "./taint.js";
 
 /**
@@ -825,10 +825,11 @@ export class BrowserLive {
     if (!this.targets.has(tab)) return undefined;
     // A tab whose conversation filled a secret anywhere is pictured masked, or not at all.
     const page = await this.page(tab);
-    return page.masked(() => this.shoot(tab, maxEdge)).catch(() => undefined);
+    return page.masked((format) => this.shoot(tab, maxEdge, format), PICTURE.quality).catch(() => undefined);
   }
 
-  private async shoot(tab: string, maxEdge: number): Promise<string | undefined> {
+  /** The tab's viewport, its longer side at most `maxEdge`: as a JPEG, or as a PNG for a picture to be painted over first. */
+  private async shoot(tab: string, maxEdge: number, format: "png" | "jpeg"): Promise<PageShot | undefined> {
     const sessionId = await this.sessionFor(tab);
     const metrics: Record<string, unknown> = await this.cdp.send("Page.getLayoutMetrics", {}, sessionId).catch(() => ({}));
     const size = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as Record<string, unknown>;
@@ -836,9 +837,9 @@ export class BrowserLive {
     const height = typeof size["clientHeight"] === "number" ? size["clientHeight"] : 0;
     const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
     const shot: Record<string, unknown> = await this.cdp
-      .send("Page.captureScreenshot", { format: "jpeg", quality: PICTURE.quality, ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }, sessionId)
+      .send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: PICTURE.quality } : {}), ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }, sessionId)
       .catch(() => ({}));
-    return typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined;
+    return typeof shot["data"] === "string" && shot["data"] ? { data: shot["data"], width, height } : undefined;
   }
 
   /** The host of the page a conversation's tab is on, if it has one. */

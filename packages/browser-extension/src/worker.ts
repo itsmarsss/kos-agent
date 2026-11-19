@@ -15,7 +15,7 @@ import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { changesPage, checkCommand, forwarded, isInput, isWebPage, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
-import { FILLED_PAGE, TAINTS_KEY, editsField, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type TabTaint } from "./secret.js";
+import { FILLED_PAGE, TAINTS_KEY, editsField, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type Shot, type TabTaint } from "./secret.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
 import { FolderWait, ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
@@ -1136,24 +1136,25 @@ const framing = new Map<number, Promise<string | undefined>>();
 /** Pictures being taken, by tab: the cursor is whole again once the last is in. */
 const picturing = new Map<number, number>();
 
-/** Masked pictures under way, by tab, in turn: two at once would each put back what the other masked, mid-shot. */
+/** Masked pictures under way, by tab, in turn: each measures the page on both sides of its picture. */
 const masking = new Map<number, Promise<unknown>>();
 
 /**
  * A picture of the tab with KOS's cursor down to its arrow, whose halo and
  * tag would cover what KOS reads. A tab a secret was filled into, or one
- * KOS sent `masks` for, is masked first (secret.ts maskedShot) and taken
- * afresh, never from a frame Chrome drew before the masking.
+ * KOS sent `masks` for, is taken afresh between two measurings of the page
+ * and painted over here (secret.ts maskedShot), never from a frame Chrome
+ * drew before the first.
  */
 async function picture(tab: number, args: Record<string, unknown>, masks?: Record<string, string[]>): Promise<Record<string, unknown>> {
   picturing.set(tab, (picturing.get(tab) ?? 0) + 1);
   await toOverlays(tab, "window.__kos && window.__kos.capturing(true)", 100, true);
   try {
     const held = heldOn(tab);
-    if (!held && !masks) return await pictureOf(tab, args, false);
-    const next = (masking.get(tab) ?? Promise.resolve()).then(() => maskedShot(sendTo(tab), held, masks, () => pictureOf(tab, args, true)));
+    if (!held && !masks) return await pictureOf(tab, args);
+    const next = (masking.get(tab) ?? Promise.resolve()).then(() => maskedShot(sendTo(tab), held !== undefined, masks, () => rawShot(tab), (shot, boxesIn) => painted(shot, boxesIn, args)));
     masking.set(tab, next.catch(() => undefined));
-    return await next;
+    return { data: await next };
   } finally {
     const left = (picturing.get(tab) ?? 1) - 1;
     if (left > 0) picturing.set(tab, left);
@@ -1164,11 +1165,11 @@ async function picture(tab: number, args: Record<string, unknown>, masks?: Recor
   }
 }
 
-async function pictureOf(tab: number, args: Record<string, unknown>, fresh: boolean): Promise<Record<string, unknown>> {
+async function pictureOf(tab: number, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const format = args["format"] === "png" ? "png" : "jpeg";
   const quality = typeof args["quality"] === "number" ? Math.min(100, Math.max(1, Math.round(args["quality"]))) : 80;
   const edge = typeof args["maxEdge"] === "number" && args["maxEdge"] > 0 ? Math.round(args["maxEdge"]) : 0;
-  if (!fresh && format === "jpeg" && edge && (await onScreen(tab))) {
+  if (format === "jpeg" && edge && (await onScreen(tab))) {
     const data = await frameOf(tab, quality, edge);
     if (data) return { data };
   }
@@ -1186,6 +1187,30 @@ async function pictureOf(tab: number, args: Record<string, unknown>, fresh: bool
   image.close();
   const blob = await canvas.convertToBlob({ type: `image/${format}`, quality: quality / 100 });
   return { data: toBase64(new Uint8Array(await blob.arrayBuffer())) };
+}
+
+/** The tab as it is drawn now, without loss, for a picture to be painted over. */
+async function rawShot(tab: number): Promise<Shot> {
+  const shot = (await chrome.debugger.sendCommand({ tabId: tab }, "Page.captureScreenshot", { format: "png" })) as { data?: string } | undefined;
+  return { data: shot?.data ?? "", format: "png" };
+}
+
+/** A picture with each box `boxesIn` gives for its size painted black, made as small and in the format KOS asked for. */
+async function painted(shot: Shot, boxesIn: (image: { width: number; height: number }) => number[], args: Record<string, unknown>): Promise<string> {
+  const format = args["format"] === "png" ? "png" : "jpeg";
+  const quality = typeof args["quality"] === "number" ? Math.min(100, Math.max(1, Math.round(args["quality"]))) : 80;
+  const edge = typeof args["maxEdge"] === "number" && args["maxEdge"] > 0 ? Math.round(args["maxEdge"]) : 0;
+  const image = await createImageBitmap(new Blob([fromBase64(shot.data)], { type: `image/${shot.format}` }));
+  const scale = edge ? Math.min(1, edge / Math.max(image.width, image.height)) : 1;
+  const canvas = new OffscreenCanvas(Math.max(1, Math.round(image.width * scale)), Math.max(1, Math.round(image.height * scale)));
+  const g = canvas.getContext("2d")!;
+  g.drawImage(image, 0, 0, canvas.width, canvas.height);
+  image.close();
+  const boxes = boxesIn({ width: canvas.width, height: canvas.height });
+  g.fillStyle = "#000";
+  for (let i = 0; i + 3 < boxes.length; i += 4) g.fillRect(boxes[i]!, boxes[i + 1]!, boxes[i + 2]!, boxes[i + 3]!);
+  const blob = await canvas.convertToBlob({ type: `image/${format}`, quality: quality / 100 });
+  return toBase64(new Uint8Array(await blob.arrayBuffer()));
 }
 
 /** Whether the tab is drawn: in front in its window, and its window not hidden or folded away. */

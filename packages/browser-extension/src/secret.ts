@@ -1,5 +1,5 @@
-import { fillable, frameShown, hasKeyboard, holds, isFocused, maskField, maskRoot, putValue, selectAll, unmaskAll } from "@kos/browser/inpage";
-
+import { boxesOf, domTree, frameTree, pixelBoxes, steadyShot, type Send } from "@kos/browser/boxes";
+import { fillable, frameShown, hasKeyboard, holds, isFocused, putValue, selectAll } from "@kos/browser/inpage";
 import { copyKey } from "@kos/browser/keys";
 
 import { CallError } from "./protocol.js";
@@ -18,15 +18,16 @@ import { CallError } from "./protocol.js";
  * did, nothing more. The value is held for the call alone.
  *
  * Until the document changes the tab is held to the field: no script step
- * (browser.eval), no copying, cutting or selecting all, no drag, and no
- * typing into a marked field; every picture of it has the marked fields
- * made unseeable, and KOS may send the patterns of the values a page may
- * echo for them to be painted over too (secret.picture).
+ * (browser.eval), no copying, cutting, selecting all or pasting, no drag, and no
+ * typing or editing in a marked field; every picture of it has every text
+ * box painted over, and KOS may send the patterns of the values a page may
+ * echo for them to be painted over too (secret.picture), the page itself
+ * never changed for it.
  */
 
 /** The world the extension's own checks and fills run in: neither the page's nor KOS's hands', so KOS's commands cannot reach it (relay.ts Worlds). */
 export const SECRET_WORLD = "kos-secret";
-/** The objects a fill or a mask makes, let go of together. */
+/** The objects a fill makes, let go of together. */
 const GROUP = "kos-secret";
 
 /** Where a secret may go in a form (SecretSlot in packages/browser/src/taint.ts, which a test holds this to). */
@@ -255,41 +256,7 @@ export const FILLED_PAGE =
   "a secret was filled into this page, so a script in it, copying, cutting, selecting all or pasting, dragging, and typing or editing in a filled field are refused until a new page loads";
 
 /** A command to the tab's debugger. */
-export type Send = (method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>;
-
-type Frames = Map<string, { origin: string; parent?: string; loader: string }>;
-
-/** The tab's frames as Chrome holds them, with the main frame's id. */
-async function frameTree(send: Send): Promise<{ main: string; frames: Frames }> {
-  type Tree = { frame?: { id?: string; parentId?: string; securityOrigin?: string; loaderId?: string }; childFrames?: Tree[] };
-  const frames: Frames = new Map();
-  const walk = (t: Tree | undefined, parent?: string): void => {
-    const id = t?.frame?.id;
-    if (!id) return;
-    frames.set(id, { origin: t.frame?.securityOrigin ?? "", loader: t.frame?.loaderId ?? "", ...(parent ? { parent } : {}) });
-    for (const child of t.childFrames ?? []) walk(child, id);
-  };
-  const tree = (await send("Page.getFrameTree"))["frameTree"] as Tree | undefined;
-  walk(tree);
-  return { main: tree?.frame?.id ?? "", frames };
-}
-
-type DomNode = { backendNodeId?: number; nodeType?: number; frameId?: string; children?: DomNode[]; shadowRoots?: DomNode[]; contentDocument?: DomNode };
-
-/** The page's documents and shadow roots, open and closed, by the frame each is in, from Chrome's own tree. */
-async function domTree(send: Send, main: string): Promise<{ frameOf: Map<number, string>; roots: Map<string, number[]> }> {
-  const frameOf = new Map<number, string>();
-  const roots = new Map<string, number[]>();
-  const walk = (n: DomNode | undefined, frame: string): void => {
-    if (!n) return;
-    if (n.backendNodeId !== undefined) frameOf.set(n.backendNodeId, frame);
-    if ((n.nodeType === 9 || n.nodeType === 11) && n.backendNodeId !== undefined) roots.set(frame, [...(roots.get(frame) ?? []), n.backendNodeId]);
-    for (const child of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) walk(child, frame);
-    if (n.contentDocument && n.frameId) walk(n.contentDocument, n.frameId);
-  };
-  walk((await send("DOM.getDocument", { depth: -1, pierce: true }))["root"] as DomNode | undefined, main);
-  return { frameOf, roots };
-}
+export type { Send };
 
 /** A world of the extension's own in a frame; undefined where Chrome makes none (a frame of another process). */
 async function worldIn(send: Send, frame: string): Promise<number | undefined> {
@@ -301,7 +268,7 @@ async function worldIn(send: Send, frame: string): Promise<number | undefined> {
 type PageFn = (this: Element, ...args: never[]) => unknown;
 
 /** A page-side function run on an element in a world of the extension's, its answer by value; undefined when the element is gone. */
-async function callOn<T>(send: Send, world: number, node: number, fn: PageFn | ((this: Document | ShadowRoot, ...args: never[]) => unknown), args: unknown[] = []): Promise<{ value: T } | undefined> {
+async function callOn<T>(send: Send, world: number, node: number, fn: PageFn, args: unknown[] = []): Promise<{ value: T } | undefined> {
   const resolved = await send("DOM.resolveNode", { backendNodeId: node, executionContextId: world, objectGroup: GROUP }).catch(() => undefined);
   const objectId = (resolved?.["object"] as { objectId?: string } | undefined)?.objectId;
   if (!objectId) return undefined;
@@ -408,17 +375,26 @@ export async function focusedOn(send: Send, nodes: readonly Marked[]): Promise<b
   }
 }
 
+/** A picture as the tab's debugger gives it: base64, and its format. */
+export interface Shot {
+  data: string;
+  format: "png" | "jpeg";
+}
+
+/** Paints each box (x, y, width, height, in its pixels, which `boxesIn` gives for its size) black on a picture, in the same format. */
+export type Paint = (shot: Shot, boxesIn: (image: { width: number; height: number }) => number[]) => Promise<string>;
+
 /**
- * A picture of a tab that may show a secret, taken by `shoot` with the
- * marked fields made unseeable (or, on a page a secret was in come back
- * to, every text box of its main frame), and, where KOS sent `masks`, every
- * text box of each frame given its origin's patterns unseeable and each
- * place the page echoes one painted over (inpage.maskRoot): a frame on no
- * web origin (about:blank) is given the page's. Put back afterwards. Throws
- * when it cannot mask, so no picture is taken rather than one that shows a
- * secret.
+ * A picture of a tab that may show a secret, taken by `shoot`, with the
+ * page never changed (packages/browser/src/boxes.ts): on a tab `held` to a
+ * secret, every text box of every frame the extension reaches; and where
+ * KOS sent `masks`, in each frame given its origin's patterns (an
+ * about:blank one by the page's), its text boxes and every place the page
+ * echoes one; all measured in a world of the extension's own on both sides
+ * of the picture, and painted over on it by `paint`. Throws when it cannot
+ * mask, so no picture is taken rather than one that shows a secret.
  */
-export async function maskedShot<T>(send: Send, held: { nodes: Marked[] } | undefined, masks: Record<string, string[]> | undefined, shoot: () => Promise<T>): Promise<T> {
+export async function maskedShot(send: Send, held: boolean, masks: Record<string, string[]> | undefined, shoot: () => Promise<Shot>, paint: Paint): Promise<string> {
   const worlds = new Map<string, number>();
   const world = async (frame: string): Promise<number | undefined> => {
     if (!worlds.has(frame)) {
@@ -427,42 +403,12 @@ export async function maskedShot<T>(send: Send, held: { nodes: Marked[] } | unde
     }
     return worlds.get(frame);
   };
-  const unmasked = (): Error => new CallError("cdp", "the page could not be masked, so it is not pictured");
   try {
-    const { main, frames } = await frameTree(send);
-    const needsRoots = masks !== undefined || (held !== undefined && held.nodes.length === 0);
-    const { roots } = needsRoots ? await domTree(send, main) : { roots: new Map<string, number[]>() };
-    if (masks) {
-      const top = frames.get(main)?.origin ?? "";
-      for (const [frame, frameRoots] of roots) {
-        const origin = frames.get(frame)?.origin ?? "";
-        const patterns = masks[/^https?:/.test(origin) ? origin : top];
-        if (!patterns) continue;
-        const id = await world(frame);
-        if (id === undefined) {
-          if (frame === main) throw unmasked();
-          continue;
-        }
-        for (const root of frameRoots) if (!(await callOn(send, id, root, maskRoot, [patterns]))) throw unmasked();
-      }
-    }
-    if (held && held.nodes.length === 0) {
-      const id = await world(main);
-      const mainRoots = roots.get(main) ?? [];
-      if (id === undefined || mainRoots.length === 0) throw unmasked();
-      for (const root of mainRoots) if (!(await callOn(send, id, root, maskRoot, [[]]))) throw unmasked();
-    }
-    for (const { frame, node } of held?.nodes ?? []) {
-      const id = await world(frame);
-      if (id === undefined) throw unmasked();
-      // A field gone from the page holds nothing to show.
-      await callOn(send, id, node, maskField);
-    }
-    return await shoot();
+    const measure = (): ReturnType<typeof boxesOf> => boxesOf(send, world, held, (origin) => masks?.[origin] ?? []);
+    const { shot, boxes } = await steadyShot(measure, shoot);
+    if (!shot.data) throw new Error("no picture");
+    return boxes ? await paint(shot, (image) => pixelBoxes(boxes, image)) : shot.data;
   } catch (err) {
-    throw err instanceof CallError ? err : unmasked();
-  } finally {
-    for (const id of worlds.values()) await send("Runtime.callFunctionOn", { functionDeclaration: unmaskAll.toString(), executionContextId: id }).catch(() => undefined);
-    await send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined);
+    throw err instanceof CallError ? err : new CallError("cdp", "the page could not be masked, so it is not pictured");
   }
 }

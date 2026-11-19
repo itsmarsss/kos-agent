@@ -51,6 +51,26 @@ const PAGE = (payOrigin: string): string => `<!doctype html><meta charset=utf-8>
 const back = (v) => [...v].reverse().join('');
 document.getElementById('pw').addEventListener('input', (e) => { document.getElementById('echo').textContent = back(e.target.value); document.title = 'typed ' + back(e.target.value); console.log('typed', e.target.value); });
 </script>`;
+/**
+ * A page that watches itself for any sign of a picture's masking, started
+ * by watch(): every mutation of its tree, and every change, polled, to its
+ * highlights, its style sheets, its elements' style attributes and the
+ * computed styles of its field and its echo, each kept in seen. It echoes
+ * the password as typed, in magenta, beside a guess of its own.
+ */
+const ORACLE_PAGE = `<!doctype html><meta charset=utf-8><title>Oracle</title><style>input{font-size:28px;width:380px;height:44px;display:block;color:#ff00ff}</style>
+<input id=pw type=password><div style="font-size:40px">guess-one <span id=echo style="color:#ff00ff"></span></div>
+<script>window.seen = [];
+const echo = document.getElementById('echo');
+const pw = document.getElementById('pw');
+pw.addEventListener('input', (e) => { echo.textContent = e.target.value; });
+window.watch = () => {
+  const note = (what) => window.seen.push(what);
+  new MutationObserver((ms) => ms.forEach((m) => note(m.target.nodeName + ' ' + m.type + ':' + (m.attributeName || '')))).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  const look = () => JSON.stringify([CSS.highlights.size, document.styleSheets.length, [...document.querySelectorAll('*')].map((el) => el.getAttribute('style')).join('|'), ...[pw, echo].flatMap((el) => { const c = getComputedStyle(el); return [c.color, c.webkitTextSecurity, c.textShadow]; })]);
+  let last = look();
+  setInterval(() => { const now = look(); if (now !== last) { note('style:' + now); last = now; } }, 1);
+};</script>`;
 const CARD_PAGE = `<!doctype html><meta charset=utf-8><input id=num autocomplete=cc-number style="font-size:24px;color:#ff00ff">`;
 /** A page a service worker of its own runs, claimed as soon as it is in. */
 const SW_PAGE = `<!doctype html><meta charset=utf-8><title>Worker</title><input id=wpw type=password style="font-size:24px">
@@ -212,6 +232,7 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
         return;
       }
       if (req.url === "/other") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Other</title><p>Other");
+      if (req.url === "/oracle") return void res.writeHead(200, { "content-type": "text/html" }).end(ORACLE_PAGE);
       res.writeHead(200, { "content-type": "text/html" }).end(PAGE(payBase));
     });
     sockets = new WebSocketServer({ server: site, path: "/api/devices/socket" });
@@ -369,6 +390,27 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     const page = await devtools.attach((u) => u.endsWith("/login"));
     expect(await devtools.evaluate(page, "document.getElementById('pw').getAttribute('style')")).toBeNull();
     expect(await devtools.evaluate(page, "CSS.highlights.has('kos-secret')")).toBe(false);
+  });
+
+  it("masks a picture with nothing a page can see: no mutation, style or highlight while it is taken", async () => {
+    await cdp("Page.navigate", { url: `${base}/oracle` });
+    await until(async () => (await read().catch(() => undefined))?.byId.has("pw") === true);
+    expect(await fill("pw", PASSWORD, "password")).toMatchObject({ ok: true });
+    const page = await devtools.attach((u) => u.endsWith("/oracle"));
+    await devtools.evaluate(page, "window.watch()");
+    await new Promise((r) => setTimeout(r, 50));
+    const raw = ((await devtools.send("Page.captureScreenshot", { format: "jpeg", quality: 90 }, page)) as { data: string }).data;
+    const held = (await cdp("Page.captureScreenshot", { format: "jpeg", quality: 90 }))["data"] as string;
+    const masks = { [base]: echoPatterns([{ text: PASSWORD, digits: false }], 1) };
+    const echoed = ((await call("secret.picture", { tab, format: "jpeg", quality: 90, masks }))["result"] as { data: string }).data;
+    await new Promise((r) => setTimeout(r, 50));
+    // KOS's cursor hides its halo for every picture, masked or not, which tells the page nothing of a secret; nothing else changed.
+    const seen = JSON.parse(String(await devtools.evaluate(page, "JSON.stringify(window.seen)"))) as string[];
+    expect(seen.filter((m) => m !== "KOS-OVERLAY attributes:data-capture")).toEqual([]);
+    expect(await pixels(raw, "magenta")).toBeGreaterThan(200);
+    // A held tab: every text box painted over; the echo only where KOS sends its pattern.
+    expect(await pixels(held, "magenta")).toBeGreaterThan(200);
+    expect(await pixels(echoed, "magenta")).toBe(0);
   });
 
   it("refuses a page a service worker runs, which KOS clears nowhere in the owner's Chrome", async () => {

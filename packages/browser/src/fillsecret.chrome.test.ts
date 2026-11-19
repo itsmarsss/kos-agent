@@ -25,6 +25,24 @@ const TOKEN = "tok-Canary-55h2m";
 /** A password a page's address would carry only encoded. */
 const SYMBOLS = `Sym &=+%/?#"<>' x!`;
 
+/**
+ * A page's own watch for a picture's masking, started by watch(): every
+ * mutation of its tree, in its shadow roots too, and every change, polled,
+ * to its highlights, its style sheets, its elements' style attributes and
+ * the computed styles of its field and its echo. Each is kept in seen.
+ */
+const ORACLE = `window.seen = [];
+const echo = document.getElementById('echo');
+const pw = document.getElementById('pw');
+pw.addEventListener('input', (e) => { echo.textContent = e.target.value; });
+window.watch = () => {
+  const note = (what) => window.seen.push(what);
+  new MutationObserver((ms) => ms.forEach((m) => note(m.type + ':' + (m.attributeName || '')))).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  const look = () => JSON.stringify([CSS.highlights.size, document.styleSheets.length, [...document.querySelectorAll('*')].map((el) => el.getAttribute('style')).join('|'), ...[pw, echo].flatMap((el) => { const c = getComputedStyle(el); return [c.color, c.webkitTextSecurity, c.textShadow]; })]);
+  let last = look();
+  setInterval(() => { const now = look(); if (now !== last) { note('style:' + now); last = now; } }, 1);
+};`;
+
 const page = (title: string, body: string): string =>
   `<!doctype html><meta charset=utf-8><title>${title}</title><style>input{color:${MAGENTA};font-size:28px;width:360px;height:44px;display:block;margin:6px}</style>${body}`;
 
@@ -114,6 +132,8 @@ ${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTru
 document.getElementById('pw').addEventListener('input', (e) => { const v = e.target.value; inner.getElementById('deep').value = v; inner.getElementById('said').textContent = v; document.getElementById('opt').textContent = v; document.getElementById('svgtext').textContent = v; document.getElementById('before').dataset.v = v; });</script>`,
         ),
       );
+    // A page that watches itself for any sign of a picture's masking: a change to its tree, its attributes, its styles or its highlights.
+    if (req.url === "/oracle") return html(page("Oracle", `<label>Password <input id=pw type=password></label><div style="font-size:40px">guess-one <span id=echo style="color:${MAGENTA}"></span></div><script>${ORACLE}</script>`));
     if (req.url?.startsWith("/echo")) return html(page("Echo", `<p>You sent ${decodeURIComponent(req.url.split("=")[1] ?? "")}</p>`));
     html(login());
   };
@@ -447,6 +467,19 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     expect(await peek("document.querySelectorAll('[data-kos-masked]').length")).toBe(0);
     await visit(tab, [`${base}/next`], { then: "none" });
     expect(await magentaIn(raw)).toBeGreaterThan(1000);
+    expect(await magentaIn(masked!)).toBeLessThan(20);
+  });
+
+  it("masks a picture with nothing a page can see: no mutation, style or highlight while it is taken", async () => {
+    await fillPassword("/oracle");
+    await peek("window.watch()");
+    await new Promise((r) => setTimeout(r, 50));
+    const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
+    const masked = await tab.capture(1000);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await peek("JSON.stringify(window.seen)")).toBe("[]");
+    await visit(tab, [`${base}/next`], { then: "none" });
+    expect(await magentaIn(raw)).toBeGreaterThan(200);
     expect(await magentaIn(masked!)).toBeLessThan(20);
   });
 

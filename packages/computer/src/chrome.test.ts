@@ -391,6 +391,21 @@ describe("a saved secret in the owner's Chrome", () => {
     expect(await chrome.picture("c1", 1024)).toBeUndefined();
   });
 
+  it("sends a filled value's pattern only to frames on the origins it was filled on", async () => {
+    const { chrome, fake } = await started({ secrets: { saved: () => [], savedFor: () => [], evalBlocked: () => undefined } });
+    const filled = (chrome as unknown as { held: Map<string, { filled: { text: string; digits: boolean; origins?: string[] }[] }> }).held.get("c1")!.filled;
+    filled.push({ text: "4242424242424242", digits: true, origins: ["https://pay.example"] });
+    fake.answers.set("cdp.send", (p) =>
+      p["method"] === "Page.getFrameTree"
+        ? { ok: true, result: { frameTree: { frame: { id: "F", securityOrigin: "https://shop.example" }, childFrames: [{ frame: { id: "G", securityOrigin: "https://pay.example" } }, { frame: { id: "H", securityOrigin: "https://ads.example" } }] } } }
+        : { ok: true, result: {} },
+    );
+    fake.answers.set("secret.picture", () => ({ ok: true, result: { data: "SU1H" } }));
+    expect(await chrome.picture("c1", 1024)).toBe("SU1H");
+    const asked = fake.calls.find((c) => c.method === "secret.picture")!.params as { masks: Record<string, string[]> };
+    expect(Object.keys(asked.masks)).toEqual(["https://pay.example"]);
+  });
+
   it("pictures a page of no credential site as it always has", async () => {
     const { chrome, fake } = await started();
     fake.answers.set("cdp.send", (p) =>

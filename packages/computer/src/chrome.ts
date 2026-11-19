@@ -363,8 +363,8 @@ export class OwnerChrome implements BrowserElsewhere {
 
   /**
    * The patterns a picture of the tab is masked by, for each origin among
-   * its frames: the values filled in the conversation's tabs and the saved
-   * ones for that origin's site, never another site's (Page.masked does the
+   * its frames: the values filled in the conversation's tabs on that origin
+   * and the saved ones for its site, never another's (Page.masked does the
    * same in KOS's own browser). Undefined when there is nothing to mask;
    * null when the frames could not be read, so nothing is pictured.
    */
@@ -384,7 +384,9 @@ export class OwnerChrome implements BrowserElsewhere {
     walk(tree);
     const masks: Record<string, string[]> = {};
     for (const origin of origins) {
-      const values = [...filled, ...(secrets?.savedFor([origin]) ?? []).filter((v) => !filled.some((f) => f.text === v.text))];
+      // A value filled is found only on the origins it was filled on: no other frame is sent a pattern it could learn it by.
+      const here = filled.filter((v) => !v.origins || v.origins.includes(origin));
+      const values = [...here, ...(secrets?.savedFor([origin]) ?? []).filter((v) => !here.some((f) => f.text === v.text))];
       const patterns = echoPatterns(values, 1);
       if (patterns.length) masks[origin] = patterns;
     }
