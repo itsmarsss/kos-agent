@@ -239,7 +239,7 @@ describe.runIf(bubblewrap() !== undefined)("the bubblewrap jail on Linux", { tim
     await new Promise<void>((done) => host.listen(0, "127.0.0.1", done));
     const port = (host.address() as { port: number }).port;
     const script = `import { createServer } from "node:http";
-const tryFetch = (url) => fetch(url, { signal: AbortSignal.timeout(3000) }).then((r) => r.text(), () => "refused");
+const tryFetch = (url) => fetch(url, { signal: AbortSignal.timeout(3000) }).then((r) => r.text().then((t) => t.slice(0, 40)), () => "refused");
 const own = createServer((_q, r) => r.end("own"));
 await new Promise((done) => own.listen(0, "127.0.0.1", done));
 console.log(JSON.stringify({ self: await tryFetch("http://127.0.0.1:" + own.address().port + "/"), host: await tryFetch("http://127.0.0.1:${port}/"), world: await tryFetch("http://1.1.1.1/") }));
