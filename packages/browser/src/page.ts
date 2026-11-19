@@ -298,6 +298,8 @@ export class Page {
   private objects = { loader: "", ids: new Map<number, string>() };
   /** The secrets filled into this page, until its document changes. */
   private taint: Taint | undefined;
+  /** Masked pictures under way, in turn. */
+  private pictures: Promise<unknown> = Promise.resolve();
 
   private readonly limits: PageLimits;
   private readonly now: () => number;
@@ -684,7 +686,15 @@ export class Page {
    * none is pictured as it is. Throws when it cannot mask, so no picture is
    * taken rather than one that shows a secret.
    */
-  async masked<T>(shoot: () => Promise<T>): Promise<T> {
+  masked<T>(shoot: () => Promise<T>): Promise<T> {
+    if (!this.tainted()) return shoot();
+    // One at a time: two pictures at once would each put back what the other masked, mid-shot.
+    const next = this.pictures.then(() => this.maskedNow(shoot));
+    this.pictures = next.catch(() => undefined);
+    return next;
+  }
+
+  private async maskedNow<T>(shoot: () => Promise<T>): Promise<T> {
     const taint = this.tainted();
     if (!taint) return shoot();
     const undo: (() => Promise<unknown>)[] = [];

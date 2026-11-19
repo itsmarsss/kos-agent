@@ -449,7 +449,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       vault: () => secrets.attached(),
       uses: secretUses,
       browser: {
-        unready: () => kernelRef?.secretFillUnready() ?? "KOS is still starting",
+        unready: () => (kernelRef ? kernelRef.secretFillUnready() : "KOS is still starting"),
         url: () => kernelRef?.browserUrl(),
         spots: (refs) => (kernelRef ? kernelRef.secretSpots(refs) : Promise.reject(new Error("not booted"))),
         fill: (fills, then) => (kernelRef ? kernelRef.fillSecretsHere(fills, then) : Promise.reject(new Error("not booted"))),
