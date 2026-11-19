@@ -348,6 +348,19 @@ describe("what a schedule really missed, in the profile's timezone", () => {
     expect(missed("0 9 * * *", "2026-10-31T16:00:05Z", "2026-11-01T17:30:00Z", "America/Los_Angeles")).toBe(1);
   });
 
+  it("misses nothing at a time the spring change skips, and the next real one counts", () => {
+    // 02:30 does not happen in Los Angeles on 8 March 2026: the clocks go from 02:00 to 03:00.
+    expect(missed("30 2 * * *", "2026-03-07T10:30:05Z", "2026-03-08T19:00:00Z", "America/Los_Angeles")).toBe(0);
+    expect(missed("30 2 * * *", "2026-03-07T10:30:05Z", "2026-03-09T19:00:00Z", "America/Los_Angeles")).toBe(1);
+  });
+
+  it("counts a time the autumn change repeats once, so it is not caught up twice", () => {
+    // 01:30 happens twice on 1 November 2026: 08:30Z in PDT, then 09:30Z in PST. The first ran.
+    expect(missed("30 1 * * *", "2026-11-01T08:30:05Z", "2026-11-01T09:45:00Z", "America/Los_Angeles")).toBe(0);
+    // Down through both, it is one missed run, not two.
+    expect(missed("30 1 * * *", "2026-10-31T08:30:05Z", "2026-11-01T09:45:00Z", "America/Los_Angeles")).toBe(1);
+  });
+
   it("schedules a job at the profile's hour, not the host's", () => {
     const created = store.create({ name: "j", schedule: "0 9 * * *", type: "actions", enabled: true });
     const sched = new CronScheduler(store, async () => undefined, { timezone: () => "Asia/Kolkata" });
