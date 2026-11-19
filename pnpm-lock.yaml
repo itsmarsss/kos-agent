@@ -29,9 +29,22 @@ importers:
       '@kos/shared':
         specifier: workspace:*
         version: link:../shared
+      jpeg-js:
+        specifier: ^0.4.4
+        version: 0.4.4
+      pngjs:
+        specifier: ^7.0.0
+        version: 7.0.0
+    devDependencies:
+      '@types/pngjs':
+        specifier: ^6.0.5
+        version: 6.0.5
 
   packages/browser-extension:
     devDependencies:
+      '@kos/browser':
+        specifier: workspace:*
+        version: link:../browser
       '@kos/computer':
         specifier: workspace:*
         version: link:../computer

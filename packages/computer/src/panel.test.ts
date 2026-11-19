@@ -998,6 +998,16 @@ describe("a Chrome's side panel", () => {
     expect(chrome.calls.at(-1)?.params).toEqual({ current: "", choices: [], error: "no such model" });
   });
 
+  it("asks a secret's fill in the panel beside it with the secret's block, and an always only on the site", async () => {
+    const { panel, pair, setChat } = setup();
+    const chrome = pair();
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    const secret = { handle: "github-login-9xq1", label: "GitHub", kind: "login" as const, fields: ["password" as const], origin: "https://github.com", frameOrigins: [], surface: "chrome" as const, device: "Chrome on macOS", warnings: [], remember: ["site" as const] };
+    await panel.requestApproval("owner", { id: "21", text: "x", tool: "secrets.fill", args: { secret: secret.handle, fields: [{ field: "password", target: "@e4" }], origin: secret.origin }, secret, asker: { name: "Chrome", conversationId: "chrome:owner" } });
+    const approval = chrome.calls.filter((c) => c.method === "chat.ask").at(-1)?.params["approval"] as Record<string, unknown>;
+    expect(approval).toMatchObject({ id: "21", tool: "secrets.fill", secret, always: "Approve, and always on github.com" });
+  });
+
   it("asks in the panel only for the panel's chat, and takes the decision back", async () => {
     const { panel, pair, setChat } = setup();
     const chrome = pair();

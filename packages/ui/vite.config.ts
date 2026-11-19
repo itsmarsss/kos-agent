@@ -47,9 +47,9 @@ export default defineConfig({
           proxy.on("proxyReqWs", (proxyReq, req) => {
             if (!fromDashboard(req)) return;
             proxyReq.setHeader("origin", new URL(apiTarget).origin);
-            // The socket takes the key in its address; the dev page has none, so it goes on here.
+            // The socket takes the key in its address; the dev page has none, so it goes on here. A ticket ends its address, and needs no key.
             const key = writeKey();
-            if (key && !proxyReq.path.includes("key=")) proxyReq.path += `${proxyReq.path.includes("?") ? "&" : "?"}key=${encodeURIComponent(key)}`;
+            if (key && !proxyReq.path.includes("key=") && !proxyReq.path.includes("kos_sig=")) proxyReq.path += `${proxyReq.path.includes("?") ? "&" : "?"}key=${encodeURIComponent(key)}`;
           }),
       },
       // A change from another site is refused, by its origin: through the proxy the dashboard's is the API's own too.

@@ -118,7 +118,12 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   back.
   A field in a frame of another process (most payment frames on the web)
   is out of reach: the fill says so, and the owner takes the tab. Nothing
-  thrown holds the value.
+  thrown holds the value. A Page made with `putSecret` (the owner's
+  Chrome, through KOS for Chrome) hands the value to it after these
+  checks instead of setting it itself: the extension checks again on its
+  side, puts it in and sees that the field holds it
+  (docs/browser-extension.md, Saved secrets). The page is tainted the
+  same way either way.
 - **A tainted page.** Once a secret is in (a password, a card's number,
   expiry or CVC, a token, a note; not a username, a name or an address),
   the page is tainted until its document changes: its secret fields read
@@ -152,18 +157,24 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   as typed, percent encoded in either case of hex (as an address or a
   form carries it, a space as `+`) or JSON escaped. Every picture of
   those tabs (what the model is shown, an approval's, a kept frame) is
-  taken with every root of every frame KOS can reach masked (the
-  documents and every shadow root, closed ones too, listed from the
-  browser's own tree and each run in KOS's world): text boxes, textareas,
-  editable elements and selects made unseeable, placeholders not drawn,
-  every echo of a value in text painted over (a CSS highlight,
-  `kos-secret`), SVG text holding one not drawn, and no `::before` or
-  `::after` on an element whose attributes hold one; one picture at a
-  time, then put back. A page that cannot be masked is not pictured.
-  Whenever a page is masked at all (it may show a value filled in the
-  conversation or a saved one for its site), every text box on it is
-  blanked in the picture, not only those that hold a value: a box's
-  value is not read to decide.
+  painted over where it may show a secret, the page itself never
+  changed: a restyle, an attribute or a highlight is seen by the page's
+  script, which could plant guesses and learn which matched. In KOS's
+  world in every frame it can reach, every root (the documents and every
+  shadow root, closed ones too, listed from the browser's own tree) is
+  measured (`boxes.ts`, `inpage.secretBoxes`): text boxes, textareas,
+  editing hosts and selects, every echo of a value in text, SVG text
+  holding one, and an element whose attributes hold one that draws a
+  `::before` or `::after`. A child frame's boxes are placed where its
+  element is drawn. The page is measured on both sides of the picture,
+  taken again if it moved and not at all if it keeps moving, and the
+  boxes are painted black on the PNG in the host (`paint.ts`), sent as a
+  JPEG. A frame is sent the patterns of only the values filled on its
+  origin (the page's and the field's frame's at the fill) and the saved
+  ones for its site. A page that cannot be measured is not pictured.
+  On a tab holding a secret, and in any frame given a pattern, every text
+  box is painted over, not only those that hold a value: a box's value is
+  not read to decide.
   The owner's own screencast of the tab is not masked.
 
 ## Watching and taking over
@@ -173,7 +184,10 @@ over its one WebSocket (`/api/socket`), each frame as bytes rather than
 text; a frame that cannot go out at once is dropped, not queued, so what
 is on screen is never behind. The socket lets in the dashboard's own page
 only (a WebSocket is not held to the same-origin rule, so the origin is
-checked), and the dashboard's token when it has one.
+checked), and, when KOS has a dashboard token, a tab holding it: a
+browser's socket sends no headers, so the tab opens it with a one-time
+ticket from `/api/sign`, good for a minute, and the token never goes into
+its address.
 
 Taking over holds the tab: the owner's input is the only input on it, and
 an agent's next call on it, or its next step, waits until the owner lets

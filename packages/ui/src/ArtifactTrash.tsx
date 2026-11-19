@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 import type { ArtifactSummary } from "./api.js";
 import { deleteWords, type ArtifactOps } from "./ArtifactManage.js";
 import { ConfirmButton } from "./kit.js";
+import { Signed } from "./signed.js";
 
 /**
  * The trash as a list: what each one is, whose it was and when it went, with
@@ -34,7 +35,7 @@ export function TrashList({
           <button type="button" className="trash-row-open" onClick={() => onOpen(a.id)}>
             <span className="trash-thumb" aria-hidden="true">
               {a.capturedAt ? (
-                <img src={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`} alt="" loading="lazy" />
+                <Signed url={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`}>{(src, again) => <img src={src} alt="" loading="lazy" onError={again} />}</Signed>
               ) : (
                 <NavIcon name={a.artifactKind} />
               )}

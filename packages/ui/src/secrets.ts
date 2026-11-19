@@ -6,7 +6,7 @@
 
 import type { SecretBilling, SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUse, SecretUseRow, SecretValues, VaultStatus } from "@kos/shared";
 
-import { changeHeaders, readError, tokenHeaders } from "./api.js";
+import { changeHeaders, kosFetch, readError } from "./api.js";
 
 export interface SecretDraft {
   label: string;
@@ -33,9 +33,9 @@ export function refusal(err: unknown): string {
 }
 
 async function call<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await kosFetch(path, {
     method,
-    headers: method === "GET" ? tokenHeaders() : changeHeaders(),
+    ...(method === "GET" ? {} : { headers: changeHeaders() }),
     cache: "no-store",
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
