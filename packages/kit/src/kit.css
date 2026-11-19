@@ -257,7 +257,10 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .kblock-steps { counter-reset: kblock-step; }
 .kblock-steps li { display: flex; gap: 0.55rem; counter-increment: kblock-step; overflow-wrap: anywhere; }
 .kblock-steps li::before { content: counter(kblock-step); flex: none; display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; margin-top: 0.05em; border-radius: 50%; background: var(--panel-2); color: var(--muted); font-size: var(--text-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
-/* LaTeX, typeset. A wide formula scrolls on its own rather than widening the bubble. */
+/* LaTeX, typeset. A wide formula scrolls on its own rather than widening the bubble.
+   A formula paints only inside its own box: a negative kern or a raised box cannot reach the message around it. */
+.md-math { display: inline-block; max-width: 100%; overflow: hidden; contain: paint; vertical-align: middle; }
+.md-math--display { display: block; }
 .md-math .katex { font-size: 1.05em; }
 .md-math-block { margin: 0 0 0.5rem; overflow-x: auto; overflow-y: hidden; }
 .md .katex-display { margin: 0.35rem 0; overflow-x: auto; overflow-y: hidden; }
@@ -557,6 +560,8 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .kos-ask-meta { margin: 0; color: var(--faint); font-size: var(--text-sm); }
 .kos-ask-meta button { font-size: inherit; }
 .kos-ask-note { align-self: center; margin-right: auto; color: var(--faint); font-size: var(--text-sm); }
+.kos-ask-held { align-self: center; color: var(--warn); font-size: var(--text-sm); animation: kos-ask-held 160ms ease-out; }
+@keyframes kos-ask-held { from { opacity: 0; } to { opacity: 1; } }
 .kos-ask-tip { display: block; max-width: 18rem; text-align: left; font-size: var(--text-sm); font-weight: 400; line-height: 1.45; }
 .kos-ask-actions { display: flex; flex-flow: row-reverse wrap; justify-content: flex-start; gap: 6px; margin-top: 6px; }
 .kos-ask-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding-block: 0; white-space: nowrap; }

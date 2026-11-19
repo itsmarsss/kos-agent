@@ -44,6 +44,14 @@ describe("Markdown", () => {
     expect(container.querySelector("code")?.textContent).toBe("$y$");
   });
 
+  it("caps a formula's sizes, so it cannot draw a giant box over the page", async () => {
+    const { container } = render(<Markdown text={"Look $\\rule{200em}{200em}$ here"} />);
+    await waitFor(() => expect(container.querySelector(".katex")).not.toBeNull());
+    const drawn = container.querySelector(".md-math .katex-html")!;
+    expect(drawn.innerHTML).not.toContain("200em");
+    expect(drawn.querySelector<HTMLElement>(".rule")?.style.borderTopWidth).toBe("10em");
+  });
+
   it("never lets a formula carry markup or a link", async () => {
     const { container } = render(<Markdown text={"$\\href{javascript:alert(1)}{x} <img src=x onerror=alert(1)>$"} />);
     await waitFor(() => expect(container.querySelector(".katex, .katex-error")).not.toBeNull());

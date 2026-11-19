@@ -184,7 +184,10 @@ over its one WebSocket (`/api/socket`), each frame as bytes rather than
 text; a frame that cannot go out at once is dropped, not queued, so what
 is on screen is never behind. The socket lets in the dashboard's own page
 only (a WebSocket is not held to the same-origin rule, so the origin is
-checked), and the dashboard's token when it has one.
+checked), and, when KOS has a dashboard token, a tab holding it: a
+browser's socket sends no headers, so the tab opens it with a one-time
+ticket from `/api/sign`, good for a minute, and the token never goes into
+its address.
 
 Taking over holds the tab: the owner's input is the only input on it, and
 an agent's next call on it, or its next step, waits until the owner lets

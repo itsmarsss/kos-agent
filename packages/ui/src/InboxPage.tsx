@@ -10,6 +10,7 @@ import { PageHead } from "./PageHead.js";
 import { PendingAsk } from "./PendingAsk.js";
 import { agoWords as ago } from "./schedulewords.js";
 import { ActivityDot, fixLabel } from "./StatusDot.js";
+import { Signed } from "./signed.js";
 
 /**
  * Everything waiting on you, with the buttons to clear it.
@@ -110,7 +111,7 @@ export function InboxPage({
                     ) : undefined
                   }
                 >
-                  {a.picture && <StepPicture src={`/api/approvals/${a.id}/picture`} alt="The page this would act on" caption={a.title ?? a.summary ?? a.tool} />}
+                  {a.picture && <Signed url={`/api/approvals/${a.id}/picture`}>{(src) => <StepPicture src={src} alt="The page this would act on" caption={a.title ?? a.summary ?? a.tool} />}</Signed>}
                 </PendingAsk>
               </li>
             ))}
