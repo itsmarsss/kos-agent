@@ -1155,6 +1155,30 @@ describe("handleApiRequest", () => {
     expect(kernel.killSwitch.halted).toBe(true);
   });
 
+  it("lets a browser fetch by an address signed for the token holder, and only that address", async () => {
+    const opts = { token: "secret" };
+    const holder = { authorization: "Bearer secret" };
+    const get = (url: string, headers: Record<string, string> = {}) =>
+      handleApiRequest(kernel, { method: "GET", path: url.split("?")[0]!, url, headers }, opts);
+    const picture = "/api/approvals/1/picture";
+    expect((await get(`/api/sign?url=${encodeURIComponent(picture)}`)).status).toBe(401);
+    const signed = await get(`/api/sign?url=${encodeURIComponent(picture)}`, holder);
+    const { url, expiresAt } = signed.body as { url: string; expiresAt: number };
+    expect(url).toMatch(/^\/api\/approvals\/1\/picture\?kos_sig=/);
+    expect(expiresAt).toBeGreaterThan(Date.now());
+    expect(url).not.toContain("secret");
+    // Past the token check: whatever the route says of a missing picture, it is not a 401.
+    expect((await get(url)).status).not.toBe(401);
+    expect((await get(url.replace("/1/", "/2/"))).status).toBe(401);
+    // Only the routes the dashboard points an element at are signed.
+    for (const other of ["/api/status", "/api/secrets", "/api/sign?url=/api/frames/f", "https://evil.example/"]) {
+      expect((await get(`/api/sign?url=${encodeURIComponent(other)}`, holder)).status).toBe(400);
+    }
+    // And only reads go by one.
+    const post = await handleApiRequest(kernel, { method: "POST", path: "/api/approvals/1/picture", url, body: {} }, opts);
+    expect(post.status).toBe(401);
+  });
+
   it("reports per-widget query errors instead of empty data", async () => {
     const project = kernel.manifest.createProject({ name: "Broken", type: "x" });
     kernel.pages.write(project.slug, {

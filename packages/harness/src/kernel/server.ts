@@ -23,6 +23,7 @@ import { ArtifactTrashed, EditConflict, type PageStore } from "../systems/pages.
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
+import { signUrl, signedUrlValid, signingTtl } from "./signedurl.js";
 import { MAINTENANCE } from "./caretaker.js";
 import { HOST_KEYS } from "../channels/hostkeys.js";
 import {
@@ -710,7 +711,7 @@ export async function handleApiRequest(
 
   // A configured token guards every route. Reads leak workspace state just as
   // surely as writes change it. With no token the server is loopback-only.
-  if (options.token && !authorized(req, options.token)) {
+  if (options.token && !authorized(req, options.token) && !signedRead(req, options.token)) {
     return { status: 401, body: { error: "unauthorized" } };
   }
 
@@ -720,6 +721,13 @@ export async function handleApiRequest(
   if (refusedChange) return { status: 403, body: { error: refusedChange } };
 
   if (extension) return (await extension.handle(req)) ?? notFound;
+
+  // An address for a browser to fetch by itself (an image, a player, a framed PDF), signed for a holder of the token.
+  if (method === "GET" && path === SIGN_ROUTE) {
+    const url = queryParams(req.url).get("url") ?? "";
+    if (signingTtl(url) === undefined) return { status: 400, body: { error: "only a file, a picture, a thumbnail or the socket is signed" } };
+    return ok(options.token ? signUrl(url, options.token) : { url, expiresAt: null });
+  }
 
   if (method === "GET" && path === "/api/health") {
     return ok({
@@ -3340,6 +3348,14 @@ export function sameSecret(given: string | undefined, secret: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** The route that signs an address; it is never itself signed, so a signed address cannot sign another. */
+const SIGN_ROUTE = "/api/sign";
+
+/** A read by an address KOS signed for a holder of the token, on a route that takes one (signedurl.ts). */
+function signedRead(req: ApiRequest, token: string): boolean {
+  return (req.method === "GET" || req.method === "HEAD") && req.url !== undefined && signedUrlValid(req.url, token);
+}
+
 /** Whether a request carries the dashboard's token, as a bearer or as x-kos-token. */
 export function authorized(req: ApiRequest, token: string): boolean {
   const headers = req.headers ?? {};
@@ -3536,7 +3552,7 @@ export function mayReadBody(kernel: Kernel, req: ApiRequest, options: DashboardS
   if (crossSiteWrite(req, options.allowedOrigins)) return false;
   // A change without its proof is answered from its headers, its body never read.
   if (changeRefusal(req, options)) return false;
-  return !options.token || authorized(req, options.token);
+  return !options.token || authorized(req, options.token) || signedRead(req, options.token);
 }
 
 /** A request's bytes, refused (BodyTooLarge) past `max`, by what it says it carries and then by what it sends. */
@@ -3825,6 +3841,16 @@ export function withWriteKey(html: string, key: string): string {
   return html.includes("</head>") ? html.replace("</head>", `${meta}</head>`) : `${meta}${html}`;
 }
 
+/**
+ * Every dashboard file says it is never to be framed: a page that framed the
+ * dashboard could lay it under its own button and have the owner press
+ * Approve. KOS's own frames are srcdoc and the PDF route, which say their own.
+ */
+const NO_FRAMING: Readonly<Record<string, string>> = {
+  "content-security-policy": "frame-ancestors 'none'",
+  "x-frame-options": "DENY",
+};
+
 function tryStatic(
   staticDir: string,
   urlPath: string,
@@ -3846,7 +3872,7 @@ function tryStatic(
     // A page library is a script a page's frame runs; the app in its place
     // would run as one, so a missing one is missing.
     if (rel.split(/[/\\]/)[0] === "page-lib") {
-      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8", ...NO_FRAMING });
       res.end("not found");
       return true;
     }
@@ -3862,6 +3888,7 @@ function tryStatic(
   // The page itself carries this boot's write key, and is never kept: a cached one would hold a dead key.
   const page = writeKey !== undefined && file === join(root, "index.html");
   res.writeHead(200, {
+    ...NO_FRAMING,
     "content-type": type,
     "cache-control": page ? "no-store" : fingerprinted
       ? "public, max-age=31536000, immutable"

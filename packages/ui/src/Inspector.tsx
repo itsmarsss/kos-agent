@@ -17,6 +17,7 @@ import { ConfirmButton } from "./kit.js";
 import { markInk } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
+import { agoWords } from "./schedulewords.js";
 
 export type InspectTarget =
   | { kind: "tool"; data: AuditRecord }
@@ -37,13 +38,7 @@ function prettyJson(raw: string): string {
  * ago"; the exact time is kept on hover for when it matters.
  */
 function ago(ts?: number | null): string {
-  if (ts == null) return "—";
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  if (s < 2592000) return `${Math.floor(s / 86400)}d ago`;
-  return fmtTime(ts);
+  return ts == null ? "—" : agoWords(ts);
 }
 
 function fmtTime(ts?: number | null): string {

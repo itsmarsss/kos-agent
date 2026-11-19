@@ -3,6 +3,7 @@ import type { PageSpec } from "@kos/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CUSTOM_HTML_CSP } from "./CustomHtml.js";
 import { PageRenderer } from "./PageRenderer.js";
 import type { Row } from "./types.js";
 import { widgetRenderer } from "./widgets.js";
@@ -165,6 +166,19 @@ describe("chart widget", () => {
     expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
     expect(frame.getAttribute("srcdoc")).toContain("<canvas id=g>");
     expect((frame as HTMLIFrameElement).style.height).toBe("480px");
+  });
+
+  it("gives custom_html no network: the page policy and no WebRTC, before the widget's markup", () => {
+    const { container } = render(
+      <PageRenderer spec={{ id: "p", title: "P", widgets: [{ type: "custom_html", html: "<script src='https://x.example/y.js'></script>" }] }} data={{}} />,
+    );
+    const doc = container.querySelector("iframe")!.getAttribute("srcdoc")!;
+    const policy = `<meta http-equiv="Content-Security-Policy" content="${CUSTOM_HTML_CSP}">`;
+    expect(CUSTOM_HTML_CSP).toContain("default-src 'none'");
+    expect(CUSTOM_HTML_CSP).toContain("connect-src 'none'");
+    expect(doc.indexOf(policy)).toBeGreaterThan(-1);
+    expect(doc.indexOf(policy)).toBeLessThan(doc.indexOf("<script>(function(){var d=Object.defineProperty"));
+    expect(doc.indexOf("RTCPeerConnection")).toBeLessThan(doc.indexOf("x.example"));
   });
 
   it("repairs a closing tag the model escaped as if it were in a JS string", () => {

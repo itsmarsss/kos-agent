@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ASK_SETTLE_MS } from "@kos/kit";
+
 import { api, type DecidedAction, type InboxData, type PendingAction } from "./api.js";
 import { InboxPage } from "./InboxPage.js";
 
@@ -48,6 +50,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** The card has sat on screen long enough for a press to be meant for it (AskCard waits ASK_SETTLE_MS). */
+function settle(): void {
+  const later = Date.now() + ASK_SETTLE_MS;
+  vi.spyOn(Date, "now").mockReturnValue(later);
+}
+
 function page(data: InboxData | null, onDecide = vi.fn(), highlight?: number) {
   return (
     <InboxPage
@@ -72,6 +80,7 @@ describe("the Inbox", () => {
     expect(headings[0]).toMatch(/^Tool approvals/);
     expect(headings.at(-1)).toMatch(/^Decided/);
     const asks = screen.getByRole("heading", { name: /Tool approvals/ }).closest("section")!;
+    settle();
     fireEvent.click(within(asks).getByRole("button", { name: "Approve" }));
     expect(onDecide).toHaveBeenCalledWith(900, true);
     await waitFor(() => expect(document.querySelectorAll(".inbox-decided-line")).toHaveLength(5));

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 
-import { Chips, Countdown, Empty, Field, hintWords, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, takeSecretValues, type Tone } from "@kos/kit";
+import { Chips, Countdown, Empty, Field, hintWords, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
 
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
@@ -139,8 +139,10 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
       setError("Give it a label.");
       return;
     }
-    // Read from the fields and cleared at once: the values live only in the request below.
-    const values = valuesOf(takeSecretValues(e.currentTarget));
+    // Read from the fields, never into state, and cleared once saved: a refused save leaves them typed for the retry,
+    // where clearing them first made an edit's retry save "unchanged" and report the old password rotated.
+    const form = e.currentTarget;
+    const values = valuesOf(readSecretValues(form));
     // An API key's hosts go with the way it is sent; the chips show bearer until another is chosen, so bearer is what is saved.
     const sent: SecretUse = kind === "apikey" && use.http.hosts.length && !use.http.as ? { ...use, http: { ...use.http, as: "bearer" } } : use;
     setSaving(true);
@@ -153,9 +155,12 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
           use: sent,
           policy: { ...policy, grants: summary?.policy.grants ?? [] },
         });
+        clearSecretValues(form);
         onSaved(saved);
       } else {
-        onSaved(await secretsApi.create({ label: label.trim(), kind, values, use: sent, policy: { ...policy, grants: [] } }));
+        const created = await secretsApi.create({ label: label.trim(), kind, values, use: sent, policy: { ...policy, grants: [] } });
+        clearSecretValues(form);
+        onSaved(created);
       }
     } catch (err) {
       setError(refusal(err));
