@@ -127,6 +127,8 @@ describe("this boot's write key", () => {
     });
     expect(answer.status).toBe(403);
     expect(JSON.parse(answer.body).error).toMatch(/From a terminal, use the kos CLI, or send the key in ~\/\.kos\/write\.key/);
+    // Marked, so the dashboard renews its key and goes again rather than show these words.
+    expect(JSON.parse(answer.body).code).toBe("write-key");
   });
 
   it("in the container serves no key and takes only the token", async () => {

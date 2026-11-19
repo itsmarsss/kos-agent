@@ -63,22 +63,21 @@ export function InboxPage({
       <PageHead
         title="Inbox"
         subtitle={
-          total === 0
-            ? "Nothing is waiting on you."
-            : `${total} ${total === 1 ? "thing" : "things"} KOS cannot settle on its own.`
+          // Empty, the box below says so; a line here too said it twice.
+          total === 0 ? undefined : `${total} ${total === 1 ? "thing" : "things"} KOS cannot settle on its own.`
         }
       />
 
       {data && total === 0 && (
-        <Empty title="All clear." className="inbox-clear">
-          Tool calls that need a yes, memory questions the tidy job could not settle, and jobs failing now will show up here.
+        <Empty title="Nothing is waiting on you." className="inbox-clear">
+          Tool calls that need a yes, memory questions Tidy could not settle, and jobs failing now will show up here.
         </Empty>
       )}
 
       {approvals.length > 0 && (
         <section className="inbox-group inbox-group--asks">
           <h2 className="inbox-group-title">
-            Tool approvals <Count n={approvals.length} />
+            Approvals <Count n={approvals.length} />
           </h2>
           <PictureGallery>
           <ul className="panel-list inbox-box">

@@ -1,3 +1,5 @@
+import { clockWords } from "@kos/shared";
+
 import type { DayTotal, HourCount } from "./api.js";
 
 /**
@@ -61,12 +63,9 @@ export function dayLabel(day: string): string {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short" });
 }
 
-/** "2:05pm", for when a run is due. */
+/** "2:05 PM" (or "14:05"), on the reader's clock, as every list writes a time. */
 export function clockLabel(ms: number): string {
-  const d = new Date(ms);
-  const h = d.getHours();
-  const twelve = h % 12 === 0 ? 12 : h % 12;
-  return `${twelve}:${String(d.getMinutes()).padStart(2, "0")}${h < 12 ? "am" : "pm"}`;
+  return clockWords(ms);
 }
 
 /** Shorten a label so it fits a node with no room to wrap. */

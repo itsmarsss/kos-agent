@@ -1,8 +1,10 @@
+import { momentWords } from "@kos/shared";
+
 import type { DirEntry } from "../api.js";
 
 /**
  * The file manager's rules, apart from drawing them: how a folder sorts,
- * what a kind is called, how sizes and dates are said, and how selection
+ * what a kind is called, how dates are said, and how selection
  * moves under the pointer and the keys, the way Finder does it.
  */
 
@@ -59,30 +61,9 @@ export function sortEntries<T extends DirEntry>(entries: T[], sort: Sort): T[] {
   });
 }
 
-/** A size as Finder says one: in thousands, the way a disk is sold. */
-export function sizeWords(bytes: number): string {
-  if (bytes < 1000) return `${bytes} byte${bytes === 1 ? "" : "s"}`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let n = bytes / 1000;
-  let unit = 0;
-  while (n >= 1000 && unit < units.length - 1) {
-    n /= 1000;
-    unit++;
-  }
-  return `${n < 10 ? n.toFixed(1).replace(/\.0$/, "") : Math.round(n)} ${units[unit]}`;
-}
-
-/** A date as Finder says one: "Today at 3:42 PM", "Yesterday at 9:01 AM", else the date. */
+/** A date as every list on the dashboard says one ("9:05 AM", "Yesterday 9:05 AM", "Mar 3, 9:05 AM"), or nothing for none. */
 export function dateWords(ms: number, now = Date.now()): string {
-  if (!ms) return "";
-  const at = new Date(ms);
-  const time = at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  const day = (d: Date): number => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const days = Math.round((day(new Date(now)) - day(at)) / 86_400_000);
-  if (days === 0) return `Today at ${time}`;
-  if (days === 1) return `Yesterday at ${time}`;
-  const date = at.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(at.getFullYear() === new Date(now).getFullYear() ? {} : { year: "numeric" }) });
-  return `${date} at ${time}`;
+  return ms ? momentWords(ms, now) : "";
 }
 
 export function parentOf(path: string): string {

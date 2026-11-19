@@ -1,9 +1,11 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { bytesWords } from "@kos/shared";
+
 import { api, type FileInfo } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { Thumb } from "../FileThumb.js";
-import { dateWords, kindOf, sizeWords } from "./model.js";
+import { dateWords, kindOf } from "./model.js";
 
 /**
  * One thing's picture and facts: kind, size, where, when it was made and
@@ -44,7 +46,7 @@ export function FileFacts({ path, version, rootName = "Workspace", compact = fal
   const facts: [string, string][] = info
     ? [
         ["Kind", kindOf(info)],
-        ...(info.kind === "file" ? [["Size", `${sizeWords(info.size)}${info.size >= 1000 ? ` (${info.size.toLocaleString()} bytes)` : ""}`] as [string, string]] : []),
+        ...(info.kind === "file" ? [["Size", `${bytesWords(info.size)}${info.size >= 1000 ? ` (${info.size.toLocaleString()} bytes)` : ""}`] as [string, string]] : []),
         ...(info.items !== undefined ? [["Items", String(info.items)] as [string, string]] : []),
         ...(info.width && info.height ? [["Dimensions", `${info.width} × ${info.height}`] as [string, string]] : []),
         ...(info.pages !== undefined ? [[info.pagesUnit === "slides" ? "Slides" : info.pagesUnit === "sheets" ? "Sheets" : "Pages", String(info.pages)] as [string, string]] : []),

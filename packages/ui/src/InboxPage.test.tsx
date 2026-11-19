@@ -77,9 +77,9 @@ describe("the Inbox", () => {
     const onDecide = vi.fn();
     render(page(inbox(), onDecide));
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings[0]).toMatch(/^Tool approvals/);
+    expect(headings[0]).toMatch(/^Approvals/);
     expect(headings.at(-1)).toMatch(/^Decided/);
-    const asks = screen.getByRole("heading", { name: /Tool approvals/ }).closest("section")!;
+    const asks = screen.getByRole("heading", { name: /^Approvals/ }).closest("section")!;
     settle();
     fireEvent.click(within(asks).getByRole("button", { name: "Approve" }));
     expect(onDecide).toHaveBeenCalledWith(900, true);
@@ -125,7 +125,8 @@ describe("the Inbox", () => {
 
   it("says when nothing is waiting", async () => {
     render(page(inbox({ approvals: [], decided: { total: 0, latest: null } })));
-    expect(screen.getByText("All clear.")).toBeTruthy();
+    // Once: the box says it, the head adds no second line.
+    expect(screen.getAllByText("Nothing is waiting on you.")).toHaveLength(1);
     await act(async () => {});
   });
 });

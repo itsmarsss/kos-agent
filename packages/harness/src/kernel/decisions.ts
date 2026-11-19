@@ -44,6 +44,13 @@ export interface DecisionResult {
   reply?: string;
   /** Asked to remember: whether a rule was kept. */
   remembered?: boolean;
+  /**
+   * False when the decision stood but the chat that asked could not carry
+   * on from it (a model with no key, say), with why: said apart from the
+   * decision, so a surface does not read a failure as plain success.
+   */
+  resumed?: false;
+  resumeError?: string;
 }
 
 export interface DecisionsDeps {
@@ -261,12 +268,14 @@ export class Decisions {
       return done({ ok: true, message: `${result.content} ${this.stillWaiting(waiting)}`, isError: result.isError });
     }
     let reply: string | undefined;
+    let stuck: string | undefined;
     try {
       reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: by, origin: "system" })).reply;
     } catch (err) {
-      reply = `Approved @approval:${id} but resume failed: ${err instanceof Error ? err.message : String(err)}`;
+      stuck = err instanceof Error ? err.message : String(err);
+      reply = `Approved @approval:${id} but resume failed: ${stuck}`;
     }
-    return done({ ok: true, message: result.content, isError: result.isError, ...(reply !== undefined ? { reply } : {}) });
+    return done({ ok: true, message: result.content, isError: result.isError, ...(reply !== undefined ? { reply } : {}), ...(stuck !== undefined ? { resumed: false as const, resumeError: stuck } : {}) });
   }
 
   async deny(id: number, decidedBy?: string): Promise<DecisionResult> {
@@ -286,11 +295,13 @@ export class Decisions {
       return { ok: true, message: `Denied @approval:${id}. ${this.stillWaiting(waiting)}` };
     }
     let reply: string | undefined;
+    let stuck: string | undefined;
     try {
       reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: decidedBy ?? d.ownerId, origin: "system" })).reply;
-    } catch {
+    } catch (err) {
+      stuck = err instanceof Error ? err.message : String(err);
       reply = `Denied @approval:${id}.`;
     }
-    return { ok: true, message: `denied @approval:${id}`, ...(reply !== undefined ? { reply } : {}) };
+    return { ok: true, message: `denied @approval:${id}`, ...(reply !== undefined ? { reply } : {}), ...(stuck !== undefined ? { resumed: false as const, resumeError: stuck } : {}) };
   }
 }

@@ -99,4 +99,13 @@ describe("the Projects page", () => {
     expect(screen.getByText("No projects yet")).toBeTruthy();
     expect(screen.getByRole("button", { name: "New project" })).toBeTruthy();
   });
+
+  it("keeps Maintenance out of the owner's count and cards, in a group of KOS's own", () => {
+    show({ projects: [...PROJECTS, { slug: "maintenance", name: "Maintenance", type: "system", status: "active", lastTouchedAt: now }] });
+    const own = screen.getByRole("region", { name: "KOS's own" });
+    expect(within(own).getByRole("link", { name: "Maintenance" })).toBeTruthy();
+    expect(order().at(-1)).toBe("Maintenance");
+    expect(document.querySelector(".list-title .count")?.textContent).toBe("3");
+  });
 });
+

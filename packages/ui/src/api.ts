@@ -1,6 +1,8 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { AskSecret, ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
+import type { AskSecret, CallOutcome, ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
+
+import { missed, reached, StalePage, Unreached, wentStale } from "./reach.js";
 
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
@@ -624,6 +626,8 @@ export type ChatEvent =
       quote?: { text: string; from: string };
       /** When it was written to the chat, epoch milliseconds; absent for one kept before messages kept their time. */
       at?: number;
+      /** This tab's own: the owner's message did not reach KOS, and why. Never from the server. */
+      unsent?: string;
     }
   | {
       kind: "tool";
@@ -634,6 +638,8 @@ export type ChatEvent =
       isError?: boolean;
       /** Set when the call is waiting on approval rather than having run. */
       pendingId?: string;
+      /** How a held call ended (denied, lapsed, approved), from its result or the decision that followed; absent while undecided. */
+      outcome?: CallOutcome;
       /** A picture of what this step saw (a browser tab, a computer's screen), at /api/frames/:id. */
       frameId?: number;
       /** When it began, epoch ms, for a call still running. */
@@ -656,6 +662,8 @@ export interface DirEntry {
   kind: "dir" | "file";
   size: number;
   modifiedAt: number;
+  /** One of the workspace's own files (kos.sqlite, profile.json): listed, never renamed, moved or trashed. */
+  reserved?: true;
 }
 
 export interface FileContent {
@@ -752,8 +760,10 @@ export interface TurnRecall {
 }
 
 export interface ContextUseDetail {
-  /** Characters of history retained right now. */
+  /** Characters of history retained right now, each picture at its allowance rather than its bytes. */
   historyChars: number;
+  /** Pictures in that history, counted apart; absent from a KOS before they were. */
+  pictures?: number;
   /** Budget it is trimmed to. */
   maxChars: number;
   exchanges: number;
@@ -1093,11 +1103,82 @@ export function onUnauthorized(listener: () => void): () => void {
   };
 }
 
-/** Every request the dashboard makes: with the token this tab holds, and a 401 told to the token prompt. */
+/**
+ * Every request the dashboard makes: with the token this tab holds, and a
+ * 401 told to the token prompt. Each one tells `reach` whether KOS answered,
+ * and one that never arrived throws `Unreached` rather than the browser's
+ * "Failed to fetch". A change refused for an old write key (KOS restarted
+ * under this tab) renews the key from the page KOS serves now and goes
+ * again, once; past that the page is stale and says so.
+ */
 export async function kosFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(path, { ...init, headers: { ...tokenHeaders(), ...(init.headers as Record<string, string> | undefined) } });
+  const change = (init.method ?? "GET").toUpperCase() !== "GET";
+  const send = async (headers: Record<string, string> | undefined): Promise<Response> => {
+    try {
+      const res = await fetch(path, { ...init, headers: { ...tokenHeaders(), ...headers } });
+      reached();
+      return res;
+    } catch (err) {
+      // An abort is the caller's own; only a request that never got there is a miss.
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      missed(change);
+      throw new Unreached();
+    }
+  };
+  const given = init.headers as Record<string, string> | undefined;
+  let res = await send(given);
+  if (change && given?.[WRITE_HEADER] !== undefined && (await refusedForKey(res))) {
+    const key = await renewWriteKey();
+    if (key === undefined) {
+      wentStale();
+      throw new StalePage();
+    }
+    res = await send({ ...given, [WRITE_HEADER]: key });
+    if (await refusedForKey(res)) {
+      wentStale();
+      throw new StalePage();
+    }
+  }
   if (res.status === 401) for (const listener of lockouts) listener();
   return res;
+}
+
+const WRITE_HEADER = "x-kos-write";
+const WRITE_META = 'meta[name="kos-write"]';
+
+/** Whether KOS refused a change for its write key, read from a copy so the caller can still read the body. */
+async function refusedForKey(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  try {
+    const body = (await res.clone().json()) as { code?: unknown };
+    return body.code === "write-key";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * This boot's write key, read from the page KOS serves now, the way the tab
+ * got its first one, and kept in this page's meta so the socket and every
+ * later change use it too. Nothing when KOS cannot be read or sends none.
+ */
+export async function renewWriteKey(): Promise<string | undefined> {
+  try {
+    const res = await fetch("/", { cache: "no-store", headers: tokenHeaders() });
+    if (!res.ok) return undefined;
+    const key = /<meta name="kos-write" content="([^"]+)">/.exec(await res.text())?.[1];
+    if (!key) return undefined;
+    let meta = document.querySelector(WRITE_META);
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.setAttribute("name", "kos-write");
+      document.head.append(meta);
+    }
+    meta.setAttribute("content", key);
+    return key;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -1128,8 +1209,8 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
  * rather than from any program on the machine.
  */
 export function changeHeaders(): Record<string, string> {
-  const key = typeof document === "undefined" ? null : document.querySelector('meta[name="kos-write"]')?.getAttribute("content");
-  return { "content-type": "application/json", ...(key ? { "x-kos-write": key } : {}), ...tokenHeaders() };
+  const key = typeof document === "undefined" ? null : document.querySelector(WRITE_META)?.getAttribute("content");
+  return { "content-type": "application/json", ...(key ? { [WRITE_HEADER]: key } : {}), ...tokenHeaders() };
 }
 
 /** Where this tab keeps the dashboard token the owner entered: for the tab's life, never on disk. */
@@ -1678,7 +1759,7 @@ export const api = {
     post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
   /** Approve; with remember, the same shape stops asking. */
   approve: (id: number, remember = false) =>
-    post<{ ok: boolean; message: string; reply?: string; remembered?: boolean }>("/api/approve", {
+    post<{ ok: boolean; message: string; reply?: string; remembered?: boolean; resumed?: false; resumeError?: string }>("/api/approve", {
       id,
       ...(remember ? { remember: true } : {}),
     }),
@@ -1696,7 +1777,7 @@ export const api = {
   permissions: () => get<{ rules: PermissionRule[] }>("/api/permissions"),
   revokePermission: (id: number) => post<{ id: number; revoked: boolean }>("/api/permissions/revoke", { id }),
   deny: (id: number) =>
-    post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
+    post<{ ok: boolean; message: string; reply?: string; resumed?: false; resumeError?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
   message: (text: string, sessionId?: string, attachments?: Attachment[]) =>
     post<{

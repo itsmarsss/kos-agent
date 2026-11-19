@@ -1,6 +1,11 @@
 import { useEffect, useRef, type DragEvent, type MouseEvent, type ReactElement } from "react";
 
+import { Tooltip } from "@kos/kit";
+
 import type { DirEntry } from "../api.js";
+
+/** What a row of KOS's own (kos.sqlite, profile.json) says when pointed at. */
+export const RESERVED_TIP = "KOS keeps its own records here, so it can't be renamed, moved or trashed.";
 
 /**
  * What every view of a folder shares: how a row answers the pointer, how
@@ -20,7 +25,7 @@ export interface RowHandlers {
   menu: (e: MouseEvent, entry: DirEntry) => void;
   /** The new name, or null to leave it as it was. */
   renamed: (entry: DirEntry, name: string | null) => void;
-  drag: (entry: DirEntry) => { draggable: true; onDragStart: (e: DragEvent) => void; onDragEnd: () => void };
+  drag: (entry: DirEntry) => { draggable: boolean; onDragStart: (e: DragEvent) => void; onDragEnd: () => void };
   /** A folder that takes a drop: a row dragged from here, or files from the desktop. */
   drop: (dir: string) => { onDragOver: (e: DragEvent) => void; onDragLeave: (e: DragEvent) => void; onDrop: (e: DragEvent) => void };
 }
@@ -29,6 +34,7 @@ export interface RowHandlers {
 export function rowProps(entry: DirEntry, h: RowHandlers): {
   "aria-selected": boolean;
   "data-path": string;
+  "data-reserved"?: true;
   onMouseDown: (e: MouseEvent) => void;
   onDoubleClick: () => void;
   onContextMenu: (e: MouseEvent) => void;
@@ -36,6 +42,7 @@ export function rowProps(entry: DirEntry, h: RowHandlers): {
   return {
     "aria-selected": h.selected.has(entry.path),
     "data-path": entry.path,
+    ...(entry.reserved ? { "data-reserved": true as const } : {}),
     onMouseDown: (e) => {
       if (e.button === 0) h.press(e, entry);
     },
@@ -56,6 +63,13 @@ export function EntryName({ entry, h, className = "finder-name" }: { entry: DirE
     el.setSelectionRange(0, dot > 0 ? dot : el.value.length);
   }, [editing, entry.kind]);
   if (!editing) {
+    if (entry.reserved) {
+      return (
+        <Tooltip tip={RESERVED_TIP}>
+          <span className={className}>{entry.name}</span>
+        </Tooltip>
+      );
+    }
     return (
       <span className={className} title={entry.name}>
         {entry.name}

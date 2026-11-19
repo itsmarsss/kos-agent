@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AuditRecord, RunRecord } from "./api.js";
-import { dayLabel, merge } from "./HistoryPage.js";
+import { dayLabel, merge, runKind } from "./HistoryPage.js";
 
 const DAY = 86_400_000;
 
@@ -79,5 +79,13 @@ describe("day labels", () => {
     const elevenPmYesterday = new Date(2026, 7, 31, 23, 0, 0).getTime();
     expect(dayLabel(oneAm, oneAm)).toBe("Today");
     expect(dayLabel(elevenPmYesterday, oneAm)).toBe("Yesterday");
+  });
+});
+
+describe("run kinds", () => {
+  it("names a run's kind as the owner would, never the table's word", () => {
+    expect(runKind("chat")).toBe("turn");
+    expect(runKind("cron")).toBe("job");
+    expect(runKind("memory.facts")).toBe("memory");
   });
 });

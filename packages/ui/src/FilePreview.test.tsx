@@ -124,6 +124,22 @@ describe("the file preview", () => {
     expect(screen.queryByRole("button", { name: "Raw" })).toBeNull();
   });
 
+  it("draws an SVG as a picture that runs nothing, and lays JSON out, each with its text under Raw", async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><circle r="4"/></svg>';
+    vi.spyOn(api, "file").mockResolvedValue({ path: "art/logo.svg", size: svg.length, modifiedAt: 0, text: svg, language: "xml" });
+    render(<FilePreview path="art/logo.svg" onClose={() => {}} />);
+    const img = await screen.findByRole("img", { name: "logo.svg" });
+    expect(img.getAttribute("src")).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(document.querySelector(".preview-pre")?.textContent).toBe(svg);
+    cleanup();
+    vi.spyOn(api, "file").mockResolvedValue({ path: "config.json", size: 13, modifiedAt: 0, text: '{"a":1,"b":[2]}', language: "json" });
+    render(<FilePreview path="config.json" onClose={() => {}} />);
+    await waitFor(() => expect(document.querySelector(".preview-pre")?.textContent).toBe('{\n  "a": 1,\n  "b": [\n    2\n  ]\n}'));
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(document.querySelector(".preview-pre")?.textContent).toBe('{"a":1,"b":[2]}');
+  });
+
   it("shows nothing when no file is open", () => {
     render(<FilePreview path={null} onClose={() => {}} />);
     expect(screen.queryByRole("dialog")).toBeNull();

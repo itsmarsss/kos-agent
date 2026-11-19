@@ -22,7 +22,7 @@ describe("the queued mark", () => {
 });
 
 describe("the activity dot", () => {
-  it("is blue working, yellow waiting on you, red broken, green unread and grey read", () => {
+  it("is blue working, yellow waiting on you, red broken, accent unread and grey read", () => {
     render(<ActivityDot activity="working" />);
     expect(screen.getByRole("img", { name: "working" }).className).toContain("status-dot--working");
     cleanup();

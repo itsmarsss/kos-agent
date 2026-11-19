@@ -23,8 +23,9 @@ describe("Markdown", () => {
     expect(out).toContain(">in 3 hours</time>");
     expect(out).toContain('<p class="md-sub">Source: the calendar</p>');
     // A time as written is read in this browser's zone, so its clock reads back as written.
-    expect(html("<t:2026-10-19T07:30:t>")).toContain(">07:30</time>");
-    expect(html("<t:2026-10-19T07:30:D>")).toContain(">19 October 2026</time>");
+    // In the reader's own locale too: the clock as every list writes one.
+    expect(html("<t:2026-10-19T07:30:t>")).toMatch(/>0?7:30(\s?[AaPp]\.?[Mm]\.?)?<\/time>/);
+    expect(html("<t:2026-10-19T07:30:D>")).toMatch(/>[^<]*(19 October|October 19)[^<]*2026<\/time>/);
     // One that does not parse stays as typed, and code is never a token.
     expect(html("at <t:never:R>")).toContain("at &lt;t:never:R&gt;");
     expect(html("`<t:1:t>`")).toContain("<code>&lt;t:1:t&gt;</code>");

@@ -1,4 +1,6 @@
-import { AUTO_DECIDER, summarizeAction, type ChatMode } from "@kos/shared";
+import { APPROVED_PREFIX, AUTO_DECIDER, DENIED_PREFIX, LAPSED_PREFIX, summarizeAction, type ChatMode } from "@kos/shared";
+
+export { isUndone } from "@kos/shared";
 
 import type { ToolBox } from "../agent/loop.js";
 import type { ToolExecution, ToolRegistry } from "../agent/registry.js";
@@ -155,33 +157,23 @@ export interface GuardedToolsDeps {
 export const QUEUED_PREFIX = "queued for approval (pending #";
 
 /**
- * What the model is told of an ask that came to nothing: plain and final.
+ * The result for an ask the owner denied, or that lapsed unanswered: what
+ * the model is told of an ask that came to nothing, plain and final.
  *
  * It read "not approved (pending #1)", and with "pending" in the result the
  * model told the owner the delete was still waiting on them, a moment after
- * they had said no. Nothing here names an id to wait on.
+ * they had said no. Nothing here names an id to wait on. The prefixes are
+ * `@kos/shared`'s, so a surface reads the outcome from the same words.
  */
-export const DENIED_PREFIX = "The owner denied this: ";
-/** The same for an ask nobody answered within the wait. */
-export const LAPSED_PREFIX = "No answer in time; it was not done: ";
-/** How a refusal read before, still in older transcripts. */
-const OLD_DENIED_PREFIX = "not approved (pending #";
-
-/** The result for an ask the owner denied, or that lapsed unanswered. */
 export function undoneResult(decision: "denied" | "expired", what: string): string {
   return decision === "denied"
     ? `${DENIED_PREFIX}${what}. It was not done. Do not retry or ask again in this turn unless they say so. Tell them in one line that you did not do it.`
     : `${LAPSED_PREFIX}${what}. Do not retry it in this turn. Tell the owner in one line that you did not do it.`;
 }
 
-/** Whether a result is an ask that came to nothing, in today's words or the old ones. */
-export function isUndone(result: string): boolean {
-  return [DENIED_PREFIX, LAPSED_PREFIX, OLD_DENIED_PREFIX].some((prefix) => result.startsWith(prefix));
-}
-
 /** An approved call's own result, said to be approved so the model reports it rather than waiting on it. */
 export function approvedResult(result: ToolExecution): ToolExecution {
-  const head = result.isError ? "The owner approved this; it ran and failed:" : "The owner approved this, and it ran:";
+  const head = result.isError ? `${APPROVED_PREFIX}; it ran and failed:` : `${APPROVED_PREFIX}, and it ran:`;
   return { ...result, content: `${head}\n${result.content}` };
 }
 

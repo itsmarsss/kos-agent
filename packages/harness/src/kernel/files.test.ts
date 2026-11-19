@@ -34,6 +34,15 @@ describe("workspace file browsing", () => {
     expect(entries.some((e) => e.name === "projects" && e.kind === "dir")).toBe(true);
   });
 
+  it("marks the workspace's own files at the root, and nothing deeper", () => {
+    mkdirSync(join(ws.root, "projects", "budget", "nested"), { recursive: true });
+    writeFileSync(join(ws.root, "projects", "budget", "profile.json"), "{}");
+    const root = listDirectory(ws, ".");
+    expect(root.find((e) => e.name === "kos.sqlite")?.reserved).toBe(true);
+    expect(root.find((e) => e.name === "notes.md")?.reserved).toBeUndefined();
+    expect(listDirectory(ws, "projects/budget").find((e) => e.name === "profile.json")?.reserved).toBeUndefined();
+  });
+
   it("descends with a workspace-relative path", () => {
     const entries = listDirectory(ws, "projects/budget");
     expect(entries.map((e) => e.path)).toContain("projects/budget/spec.json");
@@ -188,10 +197,10 @@ describe("managing files by hand", () => {
 
   it("leaves the workspace's own files and the root alone, and stays in the jail", () => {
     expect(() => trashEntry(ws, ".")).toThrow(/workspace itself/);
-    expect(() => trashEntry(ws, "mcp.json")).toThrow(/workspace's own/);
+    expect(() => trashEntry(ws, "mcp.json")).toThrow(/KOS keeps its own records/);
     expect(() => trashEntry(ws, "projects")).toThrow(/layout/);
     expect(() => renameEntry(ws, "projects", "stuff")).toThrow(/layout/);
-    expect(() => renameEntry(ws, "projects/budget/spec.json", "kos.sqlite")).toThrow(/workspace's own/);
+    expect(() => renameEntry(ws, "projects/budget/spec.json", "kos.sqlite")).toThrow(/KOS keeps its own records/);
     expect(() => renameEntry(ws, "projects/budget/spec.json", "../outside.json")).toThrow();
   });
 
@@ -199,12 +208,12 @@ describe("managing files by hand", () => {
     writeFileSync(join(ws.root, "kos.sqlite-wal"), "");
     mkdirSync(join(ws.root, ".kos", "trash"), { recursive: true });
     for (const path of ["./kos.sqlite", "./KOS.sqlite-wal", "kos.sqlite/", ".//kos.sqlite", "./.kos/evil", ".kos/x", "./.kos/trash/", "./mcp.json"]) {
-      expect(() => trashEntry(ws, path), path).toThrow(/workspace's own/);
-      expect(() => renameEntry(ws, path, "projects/budget/x"), path).toThrow(/workspace's own/);
-      expect(() => renameEntry(ws, "projects/budget/spec.json", path), path).toThrow(/workspace's own/);
-      expect(() => copyEntry(ws, path), path).toThrow(/workspace's own/);
-      expect(() => copyEntry(ws, "projects/budget/spec.json", path), path).toThrow(/workspace's own/);
-      expect(() => makeDir(ws, `${path}/sub`), path).toThrow(/workspace's own/);
+      expect(() => trashEntry(ws, path), path).toThrow(/KOS keeps its own records/);
+      expect(() => renameEntry(ws, path, "projects/budget/x"), path).toThrow(/KOS keeps its own records/);
+      expect(() => renameEntry(ws, "projects/budget/spec.json", path), path).toThrow(/KOS keeps its own records/);
+      expect(() => copyEntry(ws, path), path).toThrow(/KOS keeps its own records/);
+      expect(() => copyEntry(ws, "projects/budget/spec.json", path), path).toThrow(/KOS keeps its own records/);
+      expect(() => makeDir(ws, `${path}/sub`), path).toThrow(/KOS keeps its own records/);
     }
     for (const path of ["./projects", "projects/", "./projects/", "projects/./", "./notes.md"]) {
       expect(() => trashEntry(ws, path), path).toThrow(/layout/);
@@ -232,9 +241,9 @@ describe("managing files by hand", () => {
     for (const path of [".ko\u017f/x", "kos.\u017fqlite-wal", "pro\ufb01le.json", "lock\u017f", "KOS.SQLITE", "Pro\uFB01le.JSON", ".\uFF4Bos/x"]) {
       expect(foldName(path.split("/")[0]!), path).toMatch(/^(\.kos|kos\.sqlite(-wal)?|profile\.json|locks)$/);
       expect(isReserved(ws.root, path), path).toBe(true);
-      expect(() => trashEntry(ws, path), path).toThrow(/workspace's own/);
-      expect(() => renameEntry(ws, "projects/budget/spec.json", path), path).toThrow(/workspace's own/);
-      expect(() => makeDir(ws, `${path}/sub`), path).toThrow(/workspace's own/);
+      expect(() => trashEntry(ws, path), path).toThrow(/KOS keeps its own records/);
+      expect(() => renameEntry(ws, "projects/budget/spec.json", path), path).toThrow(/KOS keeps its own records/);
+      expect(() => makeDir(ws, `${path}/sub`), path).toThrow(/KOS keeps its own records/);
     }
     expect(isReserved(ws.root, "projects/kos.sqlite")).toBe(false);
   });

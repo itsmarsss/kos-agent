@@ -73,7 +73,7 @@ describe("ModeChip", () => {
     render(<ModeChip mode={{ mode: "ask" }} onChange={told} />);
     fireEvent.click(screen.getByRole("button", { name: "Mode options" }));
     const menu = screen.getByRole("menu");
-    expect(menu.textContent).toContain("Auto never covers");
+    expect(menu.textContent).toContain("What Auto never does");
     expect(menu.textContent).toContain("Purchases and payments");
     expect(menu.textContent).toContain("A device's own ask for a session");
     // Sessions are Auto's; in Ask the switch waits.
