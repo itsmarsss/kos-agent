@@ -1160,19 +1160,23 @@ describe("handleApiRequest", () => {
     const holder = { authorization: "Bearer secret" };
     const get = (url: string, headers: Record<string, string> = {}) =>
       handleApiRequest(kernel, { method: "GET", path: url.split("?")[0]!, url, headers }, opts);
-    expect((await get("/api/sign?url=%2Fapi%2Fstatus")).status).toBe(401);
-    const signed = await get("/api/sign?url=%2Fapi%2Fstatus", holder);
-    const url = (signed.body as { url: string }).url;
-    expect(url).toMatch(/^\/api\/status\?kos_sig=/);
+    const picture = "/api/approvals/1/picture";
+    expect((await get(`/api/sign?url=${encodeURIComponent(picture)}`)).status).toBe(401);
+    const signed = await get(`/api/sign?url=${encodeURIComponent(picture)}`, holder);
+    const { url, expiresAt } = signed.body as { url: string; expiresAt: number };
+    expect(url).toMatch(/^\/api\/approvals\/1\/picture\?kos_sig=/);
+    expect(expiresAt).toBeGreaterThan(Date.now());
     expect(url).not.toContain("secret");
-    expect((await get(url)).status).toBe(200);
-    expect((await get(url.replace("/api/status", "/api/tools"))).status).toBe(401);
-    // A signed address does not sign another, and only reads go by one.
-    const signer = (await get(`/api/sign?url=${encodeURIComponent("/api/sign?url=/api/tools")}`, holder));
-    expect(signer.status).toBe(400);
-    const post = await handleApiRequest(kernel, { method: "POST", path: "/api/kill", url: url.replace("/api/status", "/api/kill"), body: { halted: true } }, opts);
+    // Past the token check: whatever the route says of a missing picture, it is not a 401.
+    expect((await get(url)).status).not.toBe(401);
+    expect((await get(url.replace("/1/", "/2/"))).status).toBe(401);
+    // Only the routes the dashboard points an element at are signed.
+    for (const other of ["/api/status", "/api/secrets", "/api/sign?url=/api/frames/f", "https://evil.example/"]) {
+      expect((await get(`/api/sign?url=${encodeURIComponent(other)}`, holder)).status).toBe(400);
+    }
+    // And only reads go by one.
+    const post = await handleApiRequest(kernel, { method: "POST", path: "/api/approvals/1/picture", url, body: {} }, opts);
     expect(post.status).toBe(401);
-    expect((await get("/api/sign?url=https%3A%2F%2Fevil.example%2F", holder)).status).toBe(400);
   });
 
   it("reports per-widget query errors instead of empty data", async () => {

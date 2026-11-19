@@ -1103,9 +1103,15 @@ export async function kosFetch(path: string, init: RequestInit = {}): Promise<Re
  * a framed PDF), which sends no headers: as it is with no token held, else
  * signed by KOS for a few minutes, so the token never goes into a URL.
  */
-export async function signedUrl(url: string): Promise<string> {
-  if (!dashboardToken()) return url;
-  return (await get<{ url: string }>(`/api/sign?url=${encodeURIComponent(url)}`)).url;
+export async function signedUrl(url: string): Promise<SignedUrl> {
+  if (!dashboardToken()) return { url, expiresAt: null };
+  return get<SignedUrl>(`/api/sign?url=${encodeURIComponent(url)}`);
+}
+
+/** An address as signed, and when it lapses (epoch ms; null for one that never does, with no token held). */
+export interface SignedUrl {
+  url: string;
+  expiresAt: number | null;
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {

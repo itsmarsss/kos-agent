@@ -23,7 +23,7 @@ import { ArtifactTrashed, EditConflict, type PageStore } from "../systems/pages.
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
-import { signUrl, signedUrlValid } from "./signedurl.js";
+import { signUrl, signedUrlValid, signingTtl } from "./signedurl.js";
 import { MAINTENANCE } from "./caretaker.js";
 import { HOST_KEYS } from "../channels/hostkeys.js";
 import {
@@ -725,8 +725,8 @@ export async function handleApiRequest(
   // An address for a browser to fetch by itself (an image, a player, a framed PDF), signed for a holder of the token.
   if (method === "GET" && path === SIGN_ROUTE) {
     const url = queryParams(req.url).get("url") ?? "";
-    if (!url.startsWith("/api/") || url.startsWith(SIGN_ROUTE)) return { status: 400, body: { error: "url must be a KOS address under /api/" } };
-    return ok({ url: options.token ? signUrl(url, options.token) : url });
+    if (signingTtl(url) === undefined) return { status: 400, body: { error: "only a file, a picture, a thumbnail or the socket is signed" } };
+    return ok(options.token ? signUrl(url, options.token) : { url, expiresAt: null });
   }
 
   if (method === "GET" && path === "/api/health") {
@@ -3348,12 +3348,12 @@ export function sameSecret(given: string | undefined, secret: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** The route that signs an address; a signed address cannot itself be used to sign another. */
+/** The route that signs an address; it is never itself signed, so a signed address cannot sign another. */
 const SIGN_ROUTE = "/api/sign";
 
-/** A read by an address KOS signed for a holder of the token (signedurl.ts). */
+/** A read by an address KOS signed for a holder of the token, on a route that takes one (signedurl.ts). */
 function signedRead(req: ApiRequest, token: string): boolean {
-  return (req.method === "GET" || req.method === "HEAD") && req.path !== SIGN_ROUTE && req.url !== undefined && signedUrlValid(req.url, token);
+  return (req.method === "GET" || req.method === "HEAD") && req.url !== undefined && signedUrlValid(req.url, token);
 }
 
 /** Whether a request carries the dashboard's token, as a bearer or as x-kos-token. */

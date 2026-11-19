@@ -10,7 +10,7 @@ export function useSignedUrl(url: string): string | undefined {
     if (!held) return;
     let live = true;
     void signedUrl(url).then(
-      (got) => live && setSigned({ of: url, url: got }),
+      (got) => live && setSigned({ of: url, url: got.url }),
       // Refused or unreachable: nothing to point at, and the token prompt says why.
       () => undefined,
     );

@@ -10,7 +10,7 @@ beforeEach(() => {
   kos = vi.fn(async (path: string) => {
     if (path.startsWith("/api/sign?")) {
       const url = new URLSearchParams(path.slice(path.indexOf("?") + 1)).get("url")!;
-      return new Response(JSON.stringify({ url: `${url}&kos_sig=1.abc` }), { status: 200 });
+      return new Response(JSON.stringify({ url: `${url}&kos_sig=1.abc`, expiresAt: Date.now() + 900_000 }), { status: 200 });
     }
     return new Response("x", { status: 200, headers: { "content-disposition": 'attachment; filename="a.pdf"' } });
   });
