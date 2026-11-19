@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -150,22 +150,34 @@ export function bubblewrap(): string | undefined {
   return found || undefined;
 }
 
-let ownNamespaces: boolean | undefined;
+let nat: JailNat | false | undefined;
 
 /**
  * The NAT a networked run is given its own network through: pasta, else
- * slirp4netns; undefined without either, or where unshare may not make the
- * run's namespaces for it to serve (AppArmor holds user namespaces back
- * from programs it has no profile for).
+ * slirp4netns, whichever is there and, tried once with a run of nothing,
+ * works. Neither works where AppArmor holds back the user namespaces a
+ * networked run nests bwrap's in (docs/setup.md).
  */
 export function natTool(): JailNat | undefined {
-  const unshare = findTrusted("unshare");
-  ownNamespaces ??= !!unshare && spawnSync(unshare, ["--user", "--net", "true"], { stdio: "ignore", timeout: 5000 }).status === 0;
-  if (!ownNamespaces) return undefined;
-  const pasta = findTrusted("pasta");
-  if (pasta) return { tool: "pasta", path: pasta };
-  const slirp = findTrusted("slirp4netns");
-  return slirp ? { tool: "slirp4netns", path: slirp } : undefined;
+  if (nat === undefined) {
+    const bwrap = bubblewrap();
+    const candidates: JailNat[] = [];
+    const pasta = findTrusted("pasta");
+    const slirp = findTrusted("slirp4netns");
+    if (pasta) candidates.push({ tool: "pasta", path: pasta });
+    if (slirp) candidates.push({ tool: "slirp4netns", path: slirp });
+    const probe = (candidate: JailNat): boolean => {
+      const ws = realpathSync(mkdtempSync(join(tmpdir(), "kos-nat-")));
+      try {
+        const run = bwrapCommand(bwrap!, "/bin/sh", ["-c", "exit 0"], { workspaceRoot: ws, network: true, nat: candidate, secretFiles: [] });
+        return spawnSync(run.file, run.args, { stdio: "ignore", timeout: 15_000, env: { PATH: "/usr/bin:/bin" } }).status === 0;
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    };
+    nat = (bwrap && candidates.find(probe)) || false;
+  }
+  return nat || undefined;
 }
 
 let privateDir: string | undefined;
@@ -366,7 +378,7 @@ export function bwrapCommand(bwrap: string, file: string, args: string[], option
     if (isAbsolute(file) && !bound.some((root) => under(file, root)) && !SYSTEM.some((root) => under(file, root))) prefix.push("--ro-bind-try", file, file);
 
     const networked = options.network !== false && options.network !== "local";
-    const nat = networked ? (options.nat === undefined ? natTool() : options.nat || undefined) : undefined;
+    const via = networked ? (options.nat === undefined ? natTool() : options.nat || undefined) : undefined;
     const prlimit = findTrusted("prlimit");
     const mkfifo = findTrusted("mkfifo") ?? "/usr/bin/mkfifo";
     const unshare = findTrusted("unshare") ?? "/usr/bin/unshare";
@@ -380,7 +392,7 @@ export function bwrapCommand(bwrap: string, file: string, args: string[], option
       networked,
       mkfifo,
       unshare,
-      ...(nat ? { nat } : {}),
+      ...(via ? { nat: via } : {}),
       ...(prlimit ? { prlimit } : {}),
       command: [file, ...args],
     };
