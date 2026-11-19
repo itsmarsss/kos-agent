@@ -25,6 +25,11 @@ const PAIR_PATH = `${PREFIX}/pair`;
 
 /** Sockets beyond this are refused: a page that opens hundreds is not a device. */
 const MAX_SOCKETS = 64;
+/** Sockets not yet through the handshake, in all and from one address: a real device proves itself within a moment. */
+const MAX_UNPROVED = 8;
+const MAX_UNPROVED_PER_ADDRESS = 4;
+/** What a socket may send before its hello is proved: a hello is a few hundred bytes, never a picture. */
+export const PRE_HELLO_BYTES = 16 * 1024;
 const PING_EVERY_MS = 30_000;
 
 const ok = (body: unknown): ApiResponse => ({ status: 200, body });
@@ -173,10 +178,31 @@ export function isLoopback(address: string | undefined): boolean {
   return a === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(a);
 }
 
+/**
+ * An upgrade a web page made: a browser always says the page's origin, and a
+ * device says none (KOS for Mac and for iPhone) or its extension's own
+ * (KOS for Chrome). WebSockets are not held to the same origin, so without
+ * this any site the owner opens could hold the device socket's places.
+ */
+export function fromWebPage(headers: IncomingMessage["headers"]): boolean {
+  return /^https?:/i.test(headers.origin ?? "");
+}
+
+/** Who sent an upgrade, for the cap on sockets not yet proved. */
+const sender = (address: string | undefined): string => (address ?? "").replace(/^::ffff:/i, "").toLowerCase();
+
+const refuse = (socket: Duplex, status: string): void => {
+  socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+  socket.destroy();
+};
+
 export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: DeviceSocketOptions = {}): DeviceSocketServer {
   const { admit, maxPayload = MAX_FRAME_BYTES, maxSockets = MAX_SOCKETS, loopback = true } = options;
   const wss = new WebSocketServer({ noServer: true, maxPayload });
   const alive = new WeakSet<WebSocket>();
+  /** Sockets through the upgrade but not yet the handshake, by who sent them. */
+  const unproved = new Map<WebSocket, string>();
+  const unprovedFrom = (from: string): number => [...unproved.values()].filter((f) => f === from).length;
   // A connection that stops answering pings is a laptop that went to sleep
   // without saying goodbye; dropping it ends its session.
   const pinger = setInterval(() => {
@@ -194,17 +220,38 @@ export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: 
   return {
     upgrade(req, socket, head) {
       if ((req.url ?? "").split("?")[0] !== SOCKET_PATH) return false;
+      if (fromWebPage(req.headers)) {
+        refuse(socket, "403 Forbidden");
+        return true;
+      }
       const hub = hubOf();
-      if (!hub || wss.clients.size >= maxSockets) {
-        socket.write("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
-        socket.destroy();
+      const from = sender(req.socket.remoteAddress);
+      if (!hub || wss.clients.size >= maxSockets || unproved.size >= MAX_UNPROVED || unprovedFrom(from) >= MAX_UNPROVED_PER_ADDRESS) {
+        refuse(socket, "503 Service Unavailable");
         return true;
       }
       wss.handleUpgrade(req, socket, head, (ws) => {
         alive.add(ws);
+        unproved.set(ws, from);
         ws.on("pong", () => alive.add(ws));
         ws.on("error", () => ws.terminate());
-        hub.accept(asSocket(ws), { ...(admit ? { admit } : {}), local: loopback && isLoopback(req.socket.remoteAddress) && !isForwarded(req.headers) });
+        ws.on("close", () => unproved.delete(ws));
+        // Until the hello is proved, the bytes on the wire are counted as they come, before any frame is put together.
+        let heard = head.length;
+        const count = (chunk: Buffer): void => {
+          heard += chunk.length;
+          if (heard > PRE_HELLO_BYTES) ws.terminate();
+        };
+        socket.on("data", count);
+        const link = hub.accept(asSocket(ws), { ...(admit ? { admit } : {}), local: loopback && isLoopback(req.socket.remoteAddress) && !isForwarded(req.headers) });
+        // Heard after the link has read each frame: the one that proves it frees its place and lifts the limit.
+        const proved = (): void => {
+          if (!link.ready) return;
+          unproved.delete(ws);
+          socket.off("data", count);
+          ws.off("message", proved);
+        };
+        ws.on("message", proved);
       });
       return true;
     },
