@@ -2505,7 +2505,7 @@ export function ChatsPage({
                     exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
                     transition={spring}
                   >
-                    <PendingAsk ask={a} deciding={deciding} onDecide={(id, ok, remember, code) => onDecide(String(id), ok, remember === true, code)} />
+                    <PendingAsk ask={a} deciding={deciding} onDecide={(id, ok, remember, code) => (code !== undefined ? onDecide(String(id), ok, false, code) : remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} />
                   </m.div>
                 ))}
                 </AnimatePresence>

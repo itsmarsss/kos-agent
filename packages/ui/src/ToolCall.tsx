@@ -156,7 +156,7 @@ export function ToolCall({
 
       {ask && onDecide && (
         <div className="toolcall-approve">
-          <PendingAsk ask={ask} deciding={deciding} onDecide={(id, ok, remember, code) => onDecide(String(id), ok, remember === true, code)} bare>
+          <PendingAsk ask={ask} deciding={deciding} onDecide={(id, ok, remember, code) => (code !== undefined ? onDecide(String(id), ok, false, code) : remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} bare>
             {/* The page a browser action is aimed at, when there is one. */}
             {ask.picture && <Signed url={`/api/approvals/${ask.id}/picture`}>{(src) => <StepPicture src={src} alt="The page this would act on" caption={ask.title ?? ask.summary ?? ask.tool} />}</Signed>}
           </PendingAsk>
