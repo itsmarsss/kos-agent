@@ -203,7 +203,8 @@ describe.runIf(jailed)("shell.run in its own jail", () => {
 
     for (const escape of [join(tmpdir(), `kos-shell-escape-${process.pid}.txt`), `/tmp/kos-shell-escape-${process.pid}.txt`]) {
       const outside = await run({ command: `echo x > ${escape}` });
-      expect(outside.exitCode).not.toBe(0);
+      // macOS refuses the write; under bubblewrap it lands in the run's own /tmp, gone when it ends.
+      if (onMac) expect(outside.exitCode).not.toBe(0);
       expect(existsSync(escape)).toBe(false);
     }
     // TMPDIR is inside the workspace, so a program's scratch lands here.
@@ -216,7 +217,8 @@ describe.runIf(jailed)("shell.run in its own jail", () => {
     const r = await run({ command: `cat ${outsideHome}` });
     expect(r.exitCode).not.toBe(0);
     expect(r.stdout).toBe("");
-    expect(r.stderr).toMatch(/not permitted/i);
+    // Denied by macOS's sandbox; under bubblewrap it is not there at all.
+    expect(r.stderr).toMatch(onMac ? /not permitted/i : /no such file/i);
     // HOME is the workspace, so a tool that reads its config reads it there.
     const home = await run({ command: "echo $HOME" });
     expect(home.stdout.trim().endsWith(root.split("/").slice(-1)[0]!)).toBe(true);

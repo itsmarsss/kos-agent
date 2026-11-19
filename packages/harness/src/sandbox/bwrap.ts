@@ -110,12 +110,22 @@ export function bubblewrap(): string | undefined {
   return found || undefined;
 }
 
-/** Cover a path: an empty, read-only folder over a folder, a device that cannot be opened over a file. */
+/**
+ * Cover a path: an empty folder over a folder, a device that cannot be
+ * opened over a file. The folder is made read-only once every mount is in
+ * place (see sealed), since a write bound back inside it needs its mount
+ * point made there first.
+ */
 function cover(path: string, kind: Kind | undefined): string[] {
-  if (kind === "dir") return ["--tmpfs", path, "--remount-ro", path];
+  if (kind === "dir") return ["--tmpfs", path];
   // Binds are nodev, so the null device mounted there refuses to open.
   if (kind === "file") return ["--ro-bind", "/dev/null", path];
   return [];
+}
+
+/** The covering folders among these mounts, made read-only. */
+function sealed(mounts: string[]): string[] {
+  return mounts.flatMap((m, i) => (m === "--tmpfs" && mounts[i + 1] !== "/tmp" ? ["--remount-ro", mounts[i + 1]!] : []));
 }
 
 /** True when no part of the path below the workspace is a link: one the agent planted could aim a bind anywhere. */
@@ -240,5 +250,5 @@ export function bwrapCommand(bwrap: string, file: string, args: string[], option
   }
 
   const net = options.network === false || options.network === "local" ? [] : ["--share-net"];
-  return { file: bwrap, args: [...BASE, ...net, ...systemArgs(), ...mounts, file, ...args], release };
+  return { file: bwrap, args: [...BASE, ...net, ...systemArgs(), ...mounts, ...sealed(mounts), file, ...args], release };
 }

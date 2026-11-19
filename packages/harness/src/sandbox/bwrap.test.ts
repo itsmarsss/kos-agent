@@ -38,11 +38,13 @@ describe("the bubblewrap jail's command line", () => {
     expect(args.slice(0, 3)).toEqual(["--unshare-all", "--die-with-parent", "--new-session"]);
     expect(args).not.toContain("--share-net");
     const base = mountAt(args, "--ro-bind", ws, ws);
-    const covered = mountAt(args, "--tmpfs", join(ws, ".kos"), "--remount-ro", join(ws, ".kos"));
+    const covered = mountAt(args, "--tmpfs", join(ws, ".kos"));
     const opened = mountAt(args, "--bind", join(ws, ".kos/tmp/run"), join(ws, ".kos/tmp/run"));
     expect(base).toBeGreaterThan(mountAt(args, "--tmpfs", "/tmp"));
     expect(covered).toBeGreaterThan(base);
     expect(opened).toBeGreaterThan(covered);
+    // Read-only only once the write inside it has its mount point.
+    expect(mountAt(args, "--remount-ro", join(ws, ".kos"))).toBeGreaterThan(opened);
     expect(mountAt(args, "--ro-bind", "/dev/null", join(ws, "kos.sqlite"))).toBeGreaterThan(base);
     // Nothing there, nothing to cover.
     expect(args).not.toContain(join(ws, "gone"));
