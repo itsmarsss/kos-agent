@@ -58,6 +58,7 @@ import {
   uninstallService,
 } from "./service.js";
 import { runHost, waitForPortFree } from "./host.js";
+import { PortTakenError, awaitOwnHost } from "./porttaken.js";
 import { runSecrets } from "./secrets.js";
 import { serveMemoryMcp } from "./memorymcp.js";
 import { runRemoteCommand } from "./remote.js";
@@ -308,20 +309,20 @@ async function cmdStart(
     });
     child.unref();
 
-    const baseUrl = `http://${host}:${port}`;
-    if (await waitForDaemon(baseUrl, dashboardToken())) {
-      console.log(`KOS started (pid ${child.pid}) on ${baseUrl}`);
-      console.log(`log: ${logPath}`);
-      console.log("Attach: kos   |  Discord: DM the bot if configured");
+    const token = dashboardToken();
+    const refused = await awaitOwnHost({ child, host, port, logPath, ...(token ? { token } : {}) });
+    if (refused) {
+      console.error(refused);
+      process.exitCode = 1;
       return;
     }
-    console.error(
-      `host did not become ready within 15s; check ${logPath}`,
-    );
-    process.exitCode = 1;
+    console.log(`KOS started (pid ${child.pid}) on http://${host}:${port}`);
+    console.log(`log: ${logPath}`);
+    console.log("Attach: kos   |  Discord: DM the bot if configured");
     return;
   }
 
+  // A host that cannot have the port says who has it and exits, rather than staying up half-booted.
   await runHost({
     rootDir,
     allowedHosts,
@@ -332,6 +333,10 @@ async function cmdStart(
     discord: flags["no-discord"] === true ? false : true,
     requireDiscord: flags.discord === true,
     sitesPort: sitesPort(flags["sites-port"], port),
+  }).catch((err: unknown) => {
+    if (!(err instanceof PortTakenError)) throw err;
+    console.error(err.message);
+    process.exit(1);
   });
 }
 
