@@ -7,6 +7,7 @@ import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
 import { openDatabase } from "../store/db.js";
 import { Migrator, buildMigrationSql, parseChangeSpec } from "./migrate.js";
+import { registeredTables } from "./registered.js";
 
 describe("buildMigrationSql", () => {
   it("builds a namespaced create_table", () => {
@@ -342,5 +343,73 @@ describe("computed defaults", () => {
         ],
       }),
     ).toThrow();
+  });
+});
+
+describe("a project's migrations reach its own tables only", () => {
+  let root: string;
+  let ws: Workspace;
+  let manifest: ProjectManifest;
+  let migrator: Migrator;
+  const id = [{ name: "id", type: "INTEGER", primaryKey: true }];
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-migrate-reach-"));
+    ws = Workspace.open(root);
+    manifest = new ProjectManifest(ws.db);
+    migrator = new Migrator(ws.db, manifest);
+    manifest.createProject({ name: "Budget", type: "budget" });
+    manifest.createProject({ name: "Budget Tracker", type: "budget" });
+    migrator.migrate("budget_tracker", { op: "create_table", table: "expenses", columns: id });
+    migrator.migrate("budget", { op: "create_table", table: "tx", columns: id });
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("refuses every step on a sibling's table, a rename included, and takes nothing over", () => {
+    // budget_tracker_expenses reads as budget's tracker_expenses by name alone.
+    const steps = [
+      { op: "add_column", table: "tracker_expenses", column: { name: "note", type: "TEXT" } },
+      { op: "drop_column", table: "tracker_expenses", column: "id" },
+      { op: "rename_column", table: "tracker_expenses", from: "id", to: "key" },
+      { op: "create_index", table: "tracker_expenses", columns: ["id"] },
+      { op: "rename_table", from: "tracker_expenses", to: "mine" },
+    ] as const;
+    for (const step of steps) expect(() => migrator.migrate("budget", step)).toThrow(/not a table project "budget" made/);
+    expect(ws.db.prepare(`SELECT name FROM pragma_table_info('budget_tracker_expenses')`).all()).toEqual([{ name: "id" }]);
+    expect([...registeredTables(ws.db, "budget")]).toEqual(["budget_tx"]);
+    expect([...registeredTables(ws.db, "budget_tracker")]).toEqual(["budget_tracker_expenses"]);
+  });
+
+  it("refuses a step on one of KOS's own tables, or a table made by hand", () => {
+    manifest.createProject({ name: "Permission", type: "x" });
+    ws.db.exec(`CREATE TABLE IF NOT EXISTS permission_rules (id INTEGER PRIMARY KEY)`);
+    expect(() => migrator.migrate("permission", { op: "add_column", table: "rules", column: { name: "x", type: "TEXT" } })).toThrow(/not a table project "permission" made/);
+    expect(() => migrator.migrate("permission", { op: "rename_table", from: "rules", to: "kept" })).toThrow(/not a table project "permission" made/);
+    // Removing the project takes what it made, never what only shares its prefix.
+    migrator.migrate("permission", { op: "create_table", table: "notes", columns: id });
+    expect(migrator.dropProject("permission")).toEqual(["permission_notes"]);
+    expect(ws.db.prepare(`SELECT 1 AS ok FROM sqlite_master WHERE name = 'permission_rules'`).get()).toEqual({ ok: 1 });
+  });
+
+  it("refuses a new table whose name is a longer sibling's", () => {
+    expect(() => migrator.migrate("budget", { op: "create_table", table: "tracker_notes", columns: id })).toThrow(/belongs to project "budget_tracker"/);
+    expect(() => migrator.migrate("budget", { op: "rename_table", from: "tx", to: "tracker_tx" })).toThrow(/belongs to project "budget_tracker"/);
+  });
+
+  it("keeps applying steps to its own tables, through a rename", () => {
+    migrator.migrate("budget", { op: "add_column", table: "tx", column: { name: "amount", type: "REAL" } });
+    migrator.migrate("budget", { op: "rename_table", from: "tx", to: "entries" });
+    migrator.migrate("budget", { op: "create_index", table: "entries", columns: ["amount"] });
+    expect([...registeredTables(ws.db, "budget")]).toEqual(["budget_entries"]);
+  });
+
+  it("registers a rename's new name only when the old one was the project's", () => {
+    // A ledger row written before the check, renaming a table it never made, takes nothing.
+    ws.db.prepare(`INSERT INTO schema_migrations (project_slug, version, op, spec_json, sql, applied_at) VALUES ('budget', 99, 'rename_table', ?, '', 0)`).run(JSON.stringify({ op: "rename_table", from: "ghost", to: "tracker_expenses" }));
+    expect([...registeredTables(ws.db, "budget")]).toEqual(["budget_tx"]);
   });
 });

@@ -38,3 +38,12 @@ export function projectTable(slug: string, table: string): string {
   assertIdentifier(table, "table name");
   return `${slug}_${table}`;
 }
+
+/** The project a physical table belongs to by name: the longest slug that prefixes it. */
+export function ownerOf(table: string, slugs: string[]): string | undefined {
+  let best: string | undefined;
+  for (const slug of slugs) {
+    if ((table === slug || table.startsWith(`${slug}_`)) && (best === undefined || slug.length > best.length)) best = slug;
+  }
+  return best;
+}

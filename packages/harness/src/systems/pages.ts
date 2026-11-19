@@ -23,7 +23,7 @@ import {
 import { ROLE_NAME, RoleStore } from "../agents/roles.js";
 import type { Db } from "../store/db.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
-import { projectTable } from "./identifiers.js";
+import { ownerOf, projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
 import { unsavableDocText, withDocText } from "./artifactedit.js";
 import { applyPatch, type PatchEdit } from "./artifactpatch.js";
@@ -197,15 +197,6 @@ const repairClosingTags = (html: string): string => html.replace(/<\\\//g, "</")
 /** A write's input with its HTML repaired, or as given when it has none (validation then says so). */
 const withRepairedClosingTags = (input: unknown): unknown =>
   input !== null && typeof input === "object" && typeof (input as { html?: unknown }).html === "string" ? { ...input, html: repairClosingTags((input as { html: string }).html) } : input;
-
-/** The project a physical table belongs to: the longest slug that prefixes it. */
-export function ownerOf(table: string, slugs: string[]): string | undefined {
-  let best: string | undefined;
-  for (const slug of slugs) {
-    if ((table === slug || table.startsWith(`${slug}_`)) && (best === undefined || slug.length > best.length)) best = slug;
-  }
-  return best;
-}
 
 /** What each source tab reads of its table, by tab: its key, its order and its columns (in any order). */
 const sourceColumns = (book: SheetBook): string =>

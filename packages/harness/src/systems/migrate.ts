@@ -1,6 +1,6 @@
 import type { Db } from "../store/db.js";
-import { assertIdentifier, projectTable } from "./identifiers.js";
-import { describeProject } from "./schema.js";
+import { assertIdentifier, ownerOf, projectTable } from "./identifiers.js";
+import { registeredTables } from "./registered.js";
 import type { ProjectManifest } from "./manifest.js";
 
 /**
@@ -371,6 +371,7 @@ export class Migrator {
       throw new Error(`unknown project: ${slug}`);
     }
     const sql = buildMigrationSql(slug, spec);
+    this.refuseOutsideProject(slug, spec);
     const ts = this.now();
 
     // "table X already exists" leaves the caller guessing what is in it, so it
@@ -412,6 +413,30 @@ export class Migrator {
     return toRecord(row);
   }
 
+  /**
+   * A step reaches only what the project made. A name is not a claim: slugs
+   * prefix each other (budget, budget_tracker) and KOS's own tables
+   * (permission_rules, memory_claims), so budget's "tracker_expenses" is
+   * budget_tracker's table and permission's "rules" is KOS's. A step on an
+   * existing table needs it registered to the project (registered.ts); a new
+   * name, made or renamed to, must not read as a longer sibling's.
+   */
+  private refuseOutsideProject(slug: string, spec: ChangeSpec): void {
+    const target = spec.op === "rename_table" ? spec.from : spec.op === "create_table" ? undefined : spec.table;
+    if (target !== undefined) {
+      const phys = projectTable(slug, target);
+      if (!registeredTables(this.db, slug).has(phys)) {
+        throw new Error(`${phys} is not a table project "${slug}" made; it can change only the tables its own migrations created`);
+      }
+    }
+    const made = spec.op === "create_table" ? spec.table : spec.op === "rename_table" ? spec.to : undefined;
+    if (made !== undefined) {
+      const phys = projectTable(slug, made);
+      const owner = ownerOf(phys, this.manifest.list().map((p) => p.slug));
+      if (owner !== slug) throw new Error(`${phys} reads as a table of project "${owner}", so it belongs to project "${owner}"; choose another name`);
+    }
+  }
+
   /** Column names of a physical table, empty when it does not exist. */
   private columnsOf(table: string): string[] {
     return (
@@ -429,19 +454,16 @@ export class Migrator {
   }
 
   /**
-   * Drop every physical table a project owns and erase its migration ledger.
+   * Drop every physical table a project made and erase its migration ledger.
    *
-   * Ownership is the slug prefix, and it is sibling-safe: a table under a
-   * longer slug (workout_tracker_2_sets beside workout_tracker) belongs to the
-   * longer project and is left alone. Returns the physical names dropped. The
-   * manifest row is the caller's to remove, and it is still present here so the
-   * sibling list is complete while the tables are chosen.
+   * What it made is its ledger's record (registered.ts), not the slug
+   * prefix: a project named "permission" does not own permission_rules, and a
+   * table under a longer slug (workout_tracker_2_sets beside workout_tracker)
+   * is the longer project's. Returns the physical names dropped, sorted. The
+   * manifest row is the caller's to remove.
    */
   dropProject(slug: string): string[] {
-    const siblings = this.manifest.list().map((p) => p.slug);
-    const tables = describeProject(this.db, slug, 0, siblings).tables.map(
-      (t) => t.name,
-    );
+    const tables = [...registeredTables(this.db, slug)].sort();
     const run = this.db.transaction(() => {
       for (const name of tables) {
         this.db.exec(`DROP TABLE IF EXISTS "${name.replace(/"/g, '""')}"`);
