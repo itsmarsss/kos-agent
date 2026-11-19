@@ -1242,6 +1242,47 @@ describe("Kernel", () => {
     expect(res.halted).toBe(true);
   });
 
+  it("ends a running turn at the kill switch, and runs no tool for it after", async () => {
+    let calls = 0;
+    const listed: string[] = [];
+    kernel = await boot({
+      async generate(): Promise<ModelResponse> {
+        calls += 1;
+        // A runaway: it asks for one more safe call every step; the owner throws the switch at the second.
+        if (calls === 2) kernel.killSwitch.halt();
+        return { content: [{ type: "tool_use", id: `t${calls}`, name: "cron.list", input: {} }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    kernel.bus.on("tool:end", (e) => {
+      listed.push(e.tool);
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Runaway" });
+    await kernel.handleMessage("go", { sessionId: c.id });
+    expect(calls).toBeLessThanOrEqual(2);
+    expect(listed).toEqual(["cron.list"]);
+  });
+
+  it("starts no turn the kill switch caught waiting: a dispatch, a queued message", async () => {
+    let calls = 0;
+    kernel = await boot({
+      async generate(): Promise<ModelResponse> {
+        calls += 1;
+        return { content: [{ type: "text", text: "ran" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Queued" });
+    // Held behind work in the chat's lane, then the switch is thrown before it runs.
+    let release!: () => void;
+    const held = new Promise<void>((done) => (release = done));
+    const busy = kernel.queue.enqueue(() => held, c.id);
+    const queued = kernel.dispatchTo(c.id, "do the thing", undefined, { attended: true, owner: true });
+    kernel.killSwitch.halt();
+    release();
+    await busy;
+    expect((await queued).reply).toMatch(/halted/);
+    expect(calls).toBe(0);
+  });
+
   it("carries one turn through an approval rather than starting another", async () => {
     kernel = await boot(
       stubInference([

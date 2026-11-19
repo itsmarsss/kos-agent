@@ -196,9 +196,14 @@ describe("GuardedTools", () => {
       expect(approvals.pending().at(-1)).toMatchObject({ reason: "outside this project, in the books project", beyondAuto: false, rule: { tool: "files.write" } });
     });
 
-    it("lets nothing through while the kill switch is thrown", async () => {
+    it("lets nothing through while the kill switch is thrown, safe or risky, and asks nothing either", async () => {
       risky("files.rm");
-      expect((await auto({ halted: () => true }).execute("files.rm", {})).content).toMatch(/Queued for approval/);
+      registry.register({ name: "files.list", description: "l", inputSchema: { type: "object" } }, () => "listed", { floor: "safe" });
+      for (const name of ["files.rm", "files.list"]) {
+        const ran = await auto({ halted: () => true }).execute(name, {});
+        expect(ran).toMatchObject({ isError: true, content: expect.stringMatching(/halted/) });
+      }
+      expect(approvals.pending()).toHaveLength(0);
     });
 
     it("starts a session only when the owner let Auto start sessions too", async () => {

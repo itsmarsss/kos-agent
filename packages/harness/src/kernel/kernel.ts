@@ -892,10 +892,11 @@ export class Kernel {
       const named = this.modes.migrated.map((id) => this.conversations.get(id)?.title ?? id).join(", ");
       this.suggestions.add("other", "Auto is now per chat, and off", `These chats acted in your Chrome without asking: ${named}. Chat modes replaced that setting, and Auto now covers every risky step in a chat, so they are back in Ask. Turn Auto on from a chat's message box where you want it.`);
     }
-    // The kill switch ends every chat's Auto, as it ends every session.
+    // The kill switch ends every chat's Auto, as it ends every session, and stops every live turn: running or waiting on the owner, whose asks lapse with it.
     this.killSwitch.onChange((halted) => {
       if (!halted) return;
       for (const id of this.modes.clear()) this.bus.emit({ kind: "chat:mode", conversationId: id, mode: ASK });
+      for (const id of [...this.stops.keys()]) this.stop(id);
     });
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -1184,6 +1185,8 @@ export class Kernel {
       maskedShut?: boolean;
     },
   ): Promise<HandleResult> {
+    // Every turn starts here, however it came: a message queued before the switch was thrown, a dispatch, a handoff, a schedule's prompt.
+    if (this.killSwitch.halted) return { reply: "KOS is halted (kill switch engaged).", halted: true };
     {
       // Kept with the chat it ran in, so a run in the log leads to its chat.
       const runId = this.runs.start("chat", sessionId);

@@ -443,6 +443,9 @@ export class GuardedTools implements ToolBox {
 
     this.deps.onStarted?.(name, called);
 
+    // Nothing runs while the kill switch is thrown, safe or not: a turn or a job still going when it was thrown does no more.
+    if (this.deps.halted?.()) return { content: "KOS is halted (kill switch engaged): nothing runs until the owner resumes it.", isError: true };
+
     // Enforced here too, not only in defs(): a model can name any tool it
     // likes, and an offered-but-not-executable list would be a fiction.
     if (!this.permitted(name)) {
