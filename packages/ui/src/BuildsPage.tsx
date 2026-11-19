@@ -171,7 +171,7 @@ export function BuildsPage({
   /** Opened straight from a link or a search result. */
   openId,
 }: {
-  onDecide: (pendingId: number, approved: boolean, remember?: boolean) => void;
+  onDecide: (pendingId: number, approved: boolean, remember?: boolean, code?: string) => void;
   deciding: ReadonlySet<number>;
   openId?: number;
 }): ReactElement {

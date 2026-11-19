@@ -1705,9 +1705,21 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       link.event("chat.send", { text, ...(where ? { beside: where } : {}), ...(quoted ? { quote: { text: quoted, from: url } } : {}) });
       return;
     }
-    case "decide":
-      if (panel.kos) fromOwner(panel.kos, "chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true, ...(message["remember"] === true ? { remember: true } : {}) });
+    case "decide": {
+      if (!panel.kos) return;
+      const approved = message["approved"] === true;
+      const code = approved && typeof message["code"] === "string" ? message["code"] : undefined;
+      const decision = { approval: str(message["approval"]), approved, ...(message["remember"] === true ? { remember: true } : {}) };
+      // A one-time code goes to KOS now or not at all: never kept in storage to wait for the line.
+      if (code !== undefined) {
+        const link = links.get(panel.kos);
+        if (link?.online) link.event("chat.decide", { ...decision, code });
+        else note("chat.decide with a one-time code from the side panel was not sent: KOS's line is down");
+        return;
+      }
+      fromOwner(panel.kos, "chat.decide", decision);
       return;
+    }
     case "mode":
     case "mentions":
     case "list":

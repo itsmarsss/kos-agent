@@ -102,7 +102,7 @@ export function Panel({
   onChange: (change: Partial<HomePanel>) => void;
   onOpenChat: (id: string) => void;
   onGo: Go;
-  onDecide: (id: number, approved: boolean, remember?: boolean) => void;
+  onDecide: (id: number, approved: boolean, remember?: boolean, code?: string) => void;
   deciding: ReadonlySet<number>;
   /** Stop reporting a failure the owner has dealt with. */
   onDismissFailure: (key: string) => void;

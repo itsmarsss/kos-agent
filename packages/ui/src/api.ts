@@ -1757,11 +1757,12 @@ export const api = {
     }),
   deleteMemory: (key: string) =>
     post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
-  /** Approve; with remember, the same shape stops asking. */
-  approve: (id: number, remember = false) =>
+  /** Approve; with remember, the same shape stops asking; with code, the one-time code typed on the card. */
+  approve: (id: number, remember = false, code?: string) =>
     post<{ ok: boolean; message: string; reply?: string; remembered?: boolean; resumed?: false; resumeError?: string }>("/api/approve", {
       id,
       ...(remember ? { remember: true } : {}),
+      ...(code !== undefined ? { code } : {}),
     }),
   callers: () => get<{ callers: CallerInfo[] }>("/api/callers"),
   createCaller: (name: string, readTags: string[], writeGlobal: boolean) =>

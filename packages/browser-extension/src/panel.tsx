@@ -678,7 +678,7 @@ function Thread({
       )}
       <AnimatePresence>
         {chat.asks.map((a) => (
-          <Ask key={`ask${a.id}`} approval={a} decide={(approved, remember) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}) })} />
+          <Ask key={`ask${a.id}`} approval={a} decide={(approved, remember, code) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}), ...(code !== undefined ? { code } : {}) })} />
         ))}
         {chat.consent && <ConsentCard key={`consent${chat.consent.id}`} request={chat.consent} answer={(allowed, minutes, site) => answer({ type: "consent.answer", id: chat.consent!.id, allowed, minutes, ...(site ? { site: true } : {}) })} />}
         {reads.map((r) => (
@@ -871,7 +871,7 @@ function Extra({ extra }: { extra: Extra }): ReactElement {
 }
 
 /** An approval, as the dashboard draws it: the kit's AskCard, laid out by the host. */
-function Ask({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean) => void }): ReactElement {
+function Ask({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean, code?: string) => void }): ReactElement {
   const { title, summary, tool, place, steps, always, alwaysTip, alwaysNote, tooLong, secret } = approval;
   // An older host sends the rule's words alone.
   const risk = approval.risk ?? askRisk(approval.reason);
@@ -888,9 +888,9 @@ function Ask({ approval, decide }: { approval: Approval; decide: (approved: bool
   };
   // Decided once: the card waits for KOS to settle it, so a held key or a second press sends nothing more.
   const [busy, setBusy] = useState(false);
-  const once = (approved: boolean, remember?: boolean): void => {
+  const once = (approved: boolean, remember?: boolean, code?: string): void => {
     setBusy(true);
-    decide(approved, remember);
+    decide(approved, remember, code);
   };
   return (
     <m.div layout {...enter}>

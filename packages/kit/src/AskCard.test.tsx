@@ -326,6 +326,65 @@ describe("an ask that places a secret", () => {
   });
 });
 
+describe("an ask for a one-time code", () => {
+  const secret = { handle: "code", label: "One-time code", kind: "code" as const, fields: [], origin: "https://github.com", frameOrigins: [], surface: "kos-browser" as const, warnings: [], remember: [], targets: [{ field: "code", label: "Authentication code", type: "text" }], code: true as const };
+  const fill = { secret: "code", label: "One-time code", fields: [{ field: "code", target: "@e7" }], origin: secret.origin };
+  const asked = (): ReturnType<typeof render> => render(<AskCard view={askView({ tool: "secrets.fill", args: fill, secret })} tool="secrets.fill" args={fill} onDecide={onDecide} />);
+  let onDecide: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    onDecide = vi.fn();
+  });
+  const box = (container: HTMLElement): HTMLInputElement => container.querySelector<HTMLInputElement>(".kos-ask-code input")!;
+
+  it("has a masked box for the code, and no yes until one is typed", () => {
+    const { container } = asked();
+    expect(container.querySelector(".kos-ask-title")?.textContent).toBe("Fill a one-time code you type on this card");
+    expect(container.querySelector(".kos-ask-secret-what")?.textContent).toBe("One-time code");
+    expect(box(container).className).toContain("secret-input--masked");
+    expect(box(container).getAttribute("autocomplete")).not.toBe("on");
+    expect(container.querySelector(".kos-ask-code .field-hint, .kos-ask-code")?.textContent).toMatch(/Filled once on github\.com within 5 minutes, and never saved/);
+    const approve = screen.getByRole("button", { name: "Approve" });
+    expect(approve).toHaveProperty("disabled", true);
+    fireEvent.input(box(container), { target: { value: "48 19" } });
+    expect(approve).toHaveProperty("disabled", true);
+    fireEvent.input(box(container), { target: { value: "481 926" } });
+    expect(approve).toHaveProperty("disabled", false);
+  });
+
+  it("sends what was typed with the yes, then empties the box", () => {
+    const { container } = asked();
+    settle();
+    fireEvent.input(box(container), { target: { value: "481926" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(onDecide).toHaveBeenCalledWith(true, false, "481926");
+    expect(box(container).value).toBe("");
+  });
+
+  it("takes Enter in the box as the yes, and a no sends no code", () => {
+    const { container } = asked();
+    settle();
+    fireEvent.input(box(container), { target: { value: "481926" } });
+    fireEvent.submit(box(container).form!);
+    expect(onDecide).toHaveBeenCalledWith(true, false, "481926");
+    cleanup();
+    const again = asked();
+    settle();
+    fireEvent.input(box(again.container), { target: { value: "481926" } });
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+    expect(onDecide).toHaveBeenLastCalledWith(false);
+    expect(box(again.container).value).toBe("");
+  });
+
+  it("says why a short code is not taken", () => {
+    const { container } = asked();
+    settle();
+    fireEvent.input(box(container), { target: { value: "4819" } });
+    fireEvent.submit(box(container).form!);
+    expect(onDecide).not.toHaveBeenCalled();
+    expect(container.querySelector(".kos-ask-code-error")?.textContent).toMatch(/6 or more characters/);
+  });
+});
+
 describe("the focus after a decision", () => {
   it("goes on to the next ask's Approve, or to what the surface marked, never to the page", async () => {
     const box = document.createElement("textarea");

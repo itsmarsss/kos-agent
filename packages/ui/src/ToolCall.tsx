@@ -90,7 +90,7 @@ export function ToolCall({
   waiting?: boolean;
   /** That pending action, when the page has it; read here when it does not, so the buttons are never missing. */
   ask?: PendingAction | undefined;
-  onDecide?: (pendingId: string, approved: boolean, remember?: boolean) => void;
+  onDecide?: (pendingId: string, approved: boolean, remember?: boolean, code?: string) => void;
   /** Ids being decided right now, so the buttons can say so. */
   deciding?: ReadonlySet<number>;
 }): ReactElement {
@@ -156,7 +156,7 @@ export function ToolCall({
 
       {ask && onDecide && (
         <div className="toolcall-approve">
-          <PendingAsk ask={ask} deciding={deciding} onDecide={(id, ok, remember) => (remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} bare>
+          <PendingAsk ask={ask} deciding={deciding} onDecide={(id, ok, remember, code) => onDecide(String(id), ok, remember === true, code)} bare>
             {/* The page a browser action is aimed at, when there is one. */}
             {ask.picture && <Signed url={`/api/approvals/${ask.id}/picture`}>{(src) => <StepPicture src={src} alt="The page this would act on" caption={ask.title ?? ask.summary ?? ask.tool} />}</Signed>}
           </PendingAsk>
