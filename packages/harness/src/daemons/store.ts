@@ -142,12 +142,24 @@ export class DaemonStore {
     return this.get(id);
   }
 
-  /** The owner's yes to running it as its entry is now: on, with that entry's hash. */
-  approve(id: number, codeHash: string): Daemon | undefined {
+  /** The owner's yes to running it as its code is now: on, with that code's hash, and the network they approved when it changes. */
+  approve(id: number, codeHash: string, network?: DaemonNetwork): Daemon | undefined {
     this.db
-      .prepare("UPDATE daemons SET enabled = 1, code_hash = ?, updated_at = ? WHERE id = ?")
-      .run(codeHash, Date.now(), id);
+      .prepare("UPDATE daemons SET enabled = 1, code_hash = ?, network = COALESCE(?, network), updated_at = ? WHERE id = ?")
+      .run(codeHash, network ?? null, Date.now(), id);
     return this.get(id);
+  }
+
+  /** Daemons kept from before hashes were, none approved as their code is: trusted once, at the first boot that keeps them. */
+  adoptUnhashed(hashOf: (daemon: Daemon) => string | undefined): Daemon[] {
+    const adopted: Daemon[] = [];
+    for (const daemon of this.list().filter((d) => d.codeHash === null)) {
+      const hash = hashOf(daemon);
+      if (hash === undefined) continue;
+      this.db.prepare("UPDATE daemons SET code_hash = ? WHERE id = ?").run(hash, daemon.id);
+      adopted.push(this.get(daemon.id)!);
+    }
+    return adopted;
   }
 
   remove(id: number): boolean {

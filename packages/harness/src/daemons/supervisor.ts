@@ -1,12 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { appendFileSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { resolvePath } from "../jail/resolvePath.js";
 import { RESERVED } from "../kernel/files.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
 import { jailedProgram } from "../sandbox/jail.js";
+import { folderHash } from "../store/folderhash.js";
 import type { Daemon, DaemonStatus } from "./types.js";
 
 /**
@@ -30,18 +30,22 @@ import type { Daemon, DaemonStatus } from "./types.js";
  * - HOST is 127.0.0.1 and PORT is assigned, so a well-behaved server is
  *   reachable through the dashboard proxy and not from the network.
  *
- * - It runs in the jail: it writes only its own project's folder, reads none
- *   of KOS's own state, database or settings, cannot rewrite its own entry,
- *   and reaches this machine only unless the owner approved more. KOS's own
- *   ports are refused either way. Where there is no jail it does not run.
- * - The entry's hash is kept when the owner approves it. A daemon whose entry
- *   changed since is not started, on a restart or a reboot, until the owner
- *   approves it again: the yes was to that code, not to whatever is there now.
+ * - It runs in the jail: it writes only data/ beside its entry, reads none
+ *   of KOS's own state, database or settings, and reaches this machine only
+ *   unless the owner approved more. KOS's own ports are refused either way.
+ *   Where there is no jail it does not run.
+ * - The hash of its entry's folder is kept when the owner approves it: the
+ *   entry and every helper beside it, all but data/ and the daemons/ logs.
+ *   A daemon whose code changed since is not started, on a restart or a
+ *   reboot, until the owner approves it again: the yes was to that code.
  */
 
-/** The hash of a daemon's entry as it is now, read through the jail. */
-export function entryHash(workspaceRoot: string, entry: string): string {
-  return createHash("sha256").update(readFileSync(resolvePath(workspaceRoot, entry))).digest("hex");
+/** Where a daemon writes: data/ in its entry's folder, left out of its hash. */
+export const DAEMON_DATA_DIR = "data";
+
+/** The hash of a daemon's code as it is now: its entry's folder, read through the jail. */
+export function daemonCodeHash(workspaceRoot: string, entry: string): string {
+  return folderHash(dirname(resolvePath(workspaceRoot, entry)), [DAEMON_DATA_DIR, "daemons"]);
 }
 
 /** Said when a daemon's entry is not the code the owner approved. */
@@ -140,13 +144,15 @@ export class DaemonSupervisor {
     const root = this.options.workspaceRoot;
     const entry = resolvePath(root, daemon.entry);
     const cwd = resolvePath(root, daemon.project ? `projects/${daemon.project}` : ".");
-    if (daemon.codeHash === null || entryHash(root, daemon.entry) !== daemon.codeHash) {
+    if (daemon.codeHash === null || daemonCodeHash(root, daemon.entry) !== daemon.codeHash) {
       this.status.set(daemon.id, { ...this.statusOf(daemon.id), state: "stopped", pid: null, since: null, lastError: CODE_CHANGED });
       throw new Error(`${daemon.project}/${daemon.name} was not started: ${CODE_CHANGED}`);
     }
 
+    const data = join(dirname(entry), DAEMON_DATA_DIR);
+    mkdirSync(data, { recursive: true });
     const env = childEnv(
-      { home: cwd, tmp: cwd },
+      { home: data, tmp: data },
       {
         KOS_DAEMON: "1",
         // Loopback: a daemon is reached through the dashboard proxy, not by
@@ -161,11 +167,11 @@ export class DaemonSupervisor {
     if (!interpreter) throw new Error(`could not start ${daemon.name}: python3 is not installed on this machine`);
     const program = jailedProgram(interpreter, [entry, ...daemon.args], {
       workspaceRoot: root,
-      writes: [cwd],
+      writes: [data],
       hidden: [...RESERVED, ".env"].map((name) => join(root, name)),
-      readOnly: [entry],
       reads: [dirname(dirname(realpathSync(interpreter)))],
-      ...(daemon.network === "open" ? {} : { network: "local" as const }),
+      // Open, it resolves names as well, which a sealed program asks a service for.
+      ...(daemon.network === "open" ? { services: ["com.apple.dnssd.service"] } : { network: "local" as const }),
       sealed: true,
       ...(this.options.contained !== undefined ? { contained: this.options.contained } : {}),
     });

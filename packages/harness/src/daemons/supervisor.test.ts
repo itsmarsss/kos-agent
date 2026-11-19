@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { JailError } from "../jail/resolvePath.js";
-import { CODE_CHANGED, DaemonSupervisor, entryHash } from "./supervisor.js";
+import { CODE_CHANGED, DaemonSupervisor, daemonCodeHash } from "./supervisor.js";
 import type { Daemon } from "./types.js";
 
 /**
@@ -23,7 +23,7 @@ function daemonFor(overrides: Partial<Daemon> = {}): Daemon {
   const entry = overrides.entry ?? "projects/app/server.js";
   let codeHash: string | null = null;
   try {
-    codeHash = entryHash(root, entry);
+    codeHash = daemonCodeHash(root, entry);
   } catch {
     // Not there, or outside the jail: start refuses it before the hash matters.
   }
@@ -213,7 +213,21 @@ describe("DaemonSupervisor", () => {
     }
   });
 
-  it.runIf(process.platform === "darwin")("runs a daemon in the jail: its own folder, none of KOS's files, not its own entry", async () => {
+  it("pins the entry's whole folder but its data/ and logs", () => {
+    const dir = join(root, "projects", "app");
+    writeFileSync(join(dir, "server.js"), "require('./lib.js')");
+    writeFileSync(join(dir, "lib.js"), "module.exports = 1");
+    const approved = daemonCodeHash(root, "projects/app/server.js");
+    mkdirSync(join(dir, "data"), { recursive: true });
+    writeFileSync(join(dir, "data", "db.json"), "{}");
+    mkdirSync(join(dir, "daemons"), { recursive: true });
+    writeFileSync(join(dir, "daemons", "api.log"), "up");
+    expect(daemonCodeHash(root, "projects/app/server.js")).toBe(approved);
+    writeFileSync(join(dir, "lib.js"), "require('child_process')");
+    expect(daemonCodeHash(root, "projects/app/server.js")).not.toBe(approved);
+  });
+
+  it.runIf(process.platform === "darwin")("runs a daemon in the jail: its own data/, none of KOS's files, not its own code", async () => {
     writeFileSync(join(root, "kos.sqlite"), "the database");
     writeFileSync(join(root, "outside.txt"), "before");
     const entry = join(root, "projects", "app", "server.js");
@@ -225,7 +239,8 @@ describe("DaemonSupervisor", () => {
         `tryIt('db', () => fs.readFileSync(${JSON.stringify(join(root, "kos.sqlite"))}));`,
         `tryIt('outside', () => fs.writeFileSync(${JSON.stringify(join(root, "outside.txt"))}, 'after'));`,
         `tryIt('entry', () => fs.appendFileSync(${JSON.stringify(entry)}, '//x'));`,
-        `tryIt('own', () => fs.writeFileSync(${JSON.stringify(join(root, "projects", "app", "data.txt"))}, 'kept'));`,
+        `tryIt('beside', () => fs.writeFileSync(${JSON.stringify(join(root, "projects", "app", "lib.js"))}, 'planted'));`,
+        `tryIt('own', () => fs.writeFileSync(${JSON.stringify(join(root, "projects", "app", "data", "data.txt"))}, 'kept'));`,
         "setInterval(() => {}, 1000);",
       ].join("\n"),
     );
@@ -235,8 +250,9 @@ describe("DaemonSupervisor", () => {
     expect(logs).toContain("db EPERM");
     expect(logs).toContain("outside EPERM");
     expect(logs).toContain("entry EPERM");
+    expect(logs).toContain("beside EPERM");
     expect(logs).toContain("own ok");
     expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("before");
-    expect(existsSync(join(root, "projects", "app", "data.txt"))).toBe(true);
+    expect(existsSync(join(root, "projects", "app", "data", "data.txt"))).toBe(true);
   });
 });

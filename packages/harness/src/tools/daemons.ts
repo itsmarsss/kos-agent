@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 
 import { resolvePath } from "../jail/resolvePath.js";
 import type { DaemonStore } from "../daemons/store.js";
-import { entryHash, type DaemonSupervisor } from "../daemons/supervisor.js";
+import { daemonCodeHash, type DaemonSupervisor } from "../daemons/supervisor.js";
 import type { Daemon, DaemonRuntime } from "../daemons/types.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
@@ -142,10 +142,10 @@ function define(deps: DaemonToolDeps, ctx: ModuleContext): void {
         "node or python. It is given PORT and HOST=127.0.0.1 in its environment and " +
         "should listen on those; it is reached through KOS rather than being on the " +
         "network itself. It gets no API keys: anything it needs, write into its own " +
-        "project. It runs jailed: it writes only its project's folder, cannot change its " +
-        "own entry, and reaches this machine only unless network is \"open\". The owner " +
-        "approves the entry as it is: write the file first, then register it; a changed " +
-        "entry does not run again until daemons.start is approved.",
+        "project. It runs jailed: it writes only data/ beside its entry (its HOME), and " +
+        "reaches this machine only unless network is \"open\". The owner approves the " +
+        "code as it is, the entry's whole folder but data/: write it first, then register " +
+        "it; changed code does not run again until daemons.start is approved.",
       inputSchema: {
         type: "object",
         properties: {
@@ -196,7 +196,7 @@ function define(deps: DaemonToolDeps, ctx: ModuleContext): void {
           : [],
         port: listens ? nextPort(store.takenPorts()) : null,
         network: input.network === "open" ? "open" : "local",
-        codeHash: entryHash(deps.workspaceRoot, entry),
+        codeHash: daemonCodeHash(deps.workspaceRoot, entry),
       });
       supervisor.start(daemon);
       return JSON.stringify(describe(daemon, deps));
@@ -209,16 +209,17 @@ function define(deps: DaemonToolDeps, ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "daemons.start",
-      description: "Start a daemon that is stopped, or restart one that has crashed or whose code changed: the owner approves its entry as it is now.",
+      description: "Start a daemon that is stopped, or restart one that has crashed or whose code changed: the owner approves its code as it is now, and network when given (local or open).",
       inputSchema: {
         type: "object",
-        properties: { id: { type: "number" } },
+        properties: { id: { type: "number" }, network: { type: "string", enum: ["local", "open"] } },
         required: ["id"],
       },
     },
     (input) => {
       const daemon = required(Number(input.id));
-      const approved = store.approve(daemon.id, entryHash(deps.workspaceRoot, daemon.entry))!;
+      const network = input.network === "open" || input.network === "local" ? input.network : undefined;
+      const approved = store.approve(daemon.id, daemonCodeHash(deps.workspaceRoot, daemon.entry), network)!;
       supervisor.start(approved);
       return JSON.stringify(describe(required(daemon.id), deps));
     },

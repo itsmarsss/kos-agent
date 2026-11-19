@@ -33,7 +33,10 @@ describe("DaemonStore", () => {
       old.db.prepare("INSERT INTO daemons (project, name, runtime, entry, created_at, updated_at) VALUES ('app', 'api', 'node', 'a.js', 0, 0)").run();
       const upgraded = new DaemonStore(old.db);
       expect(upgraded.find("app", "api")).toMatchObject({ network: "local", codeHash: null, enabled: true });
-      expect(upgraded.approve(1, "abc")).toMatchObject({ codeHash: "abc", enabled: true });
+      expect(upgraded.approve(1, "abc")).toMatchObject({ codeHash: "abc", enabled: true, network: "local" });
+      // The network changes only with an approval that names it.
+      expect(upgraded.approve(1, "abd", "open")).toMatchObject({ codeHash: "abd", network: "open" });
+      expect(upgraded.approve(1, "abe")).toMatchObject({ network: "open" });
     } finally {
       old.close();
     }

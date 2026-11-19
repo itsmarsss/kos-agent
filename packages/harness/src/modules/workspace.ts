@@ -1,10 +1,10 @@
-import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { RESERVED } from "../kernel/files.js";
 import { jailedProgram } from "../sandbox/jail.js";
 import { SKILL_NAME } from "../skills/manifest.js";
+import { folderHash } from "../store/folderhash.js";
 import type { Workspace } from "../store/workspace.js";
 import type { McpServerConfig } from "../tools/mcp.js";
 import { parseBlueprint, type Blueprint } from "./blueprint.js";
@@ -137,45 +137,12 @@ export interface ModuleSettings {
 /** A module's own writable folder, `modules/<name>/data`: what its server keeps, never part of its hash. */
 export const MODULE_DATA_DIR = "data";
 
-/** Each file's content hash, kept while its size and modification time stand, so a large node_modules is read once. */
-const fileHashes = new Map<string, { size: number; mtimeMs: number; hash: string }>();
-
-function fileHash(abs: string): string {
-  const st = lstatSync(abs);
-  const known = fileHashes.get(abs);
-  if (known && known.size === st.size && known.mtimeMs === st.mtimeMs) return known.hash;
-  const hash = createHash("sha256").update(readFileSync(abs)).digest("hex");
-  fileHashes.set(abs, { size: st.size, mtimeMs: st.mtimeMs, hash });
-  return hash;
-}
-
 /**
- * The hash of a module's folder: every path, every file's bytes and every
- * link's target as it is written, so anything added, removed or changed is
- * a different module. Left out: .git, which runs nothing, and data/, which
- * the module's own server writes. A link is hashed as its target's name,
- * never followed: pnpm's node_modules are links, and what one names outside
- * the folder is the jail's to guard.
+ * The hash of a module's folder (see store/folderhash.ts), leaving out its
+ * data/, which the module's own server writes.
  */
 export function moduleHash(ws: Workspace, module: WorkspaceModule): string {
-  const hash = createHash("sha256");
-  const walk = (rel: string, top: boolean): void => {
-    for (const entry of readdirSync(ws.resolve(rel), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
-      const path = `${rel}/${entry.name}`;
-      const abs = join(ws.root, path);
-      if (entry.isDirectory()) {
-        if (entry.name !== ".git" && !(top && entry.name === MODULE_DATA_DIR)) walk(path, false);
-      } else if (entry.isSymbolicLink()) {
-        hash.update(`link\0${path}\0${readlinkSync(abs)}\0`);
-      } else if (entry.isFile()) {
-        hash.update(`file\0${path}\0${fileHash(abs)}\0`);
-      } else {
-        throw new Error(`${path} is not a plain file, folder or link`);
-      }
-    }
-  };
-  walk(module.dir, true);
-  return hash.digest("hex");
+  return folderHash(ws.resolve(module.dir), [MODULE_DATA_DIR]);
 }
 
 /** What the owner switches on: the module's folder as it is now. */
