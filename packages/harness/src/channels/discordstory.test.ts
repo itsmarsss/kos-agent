@@ -92,6 +92,35 @@ describe("a live story", () => {
     expect(log.posts.every((p) => p.removed)).toBe(true);
   });
 
+  it("never rolls past a step running for minutes or hours", async () => {
+    for (const so of ["2m 05s", "1h 02m"]) {
+      const log = { posts: [] as { content: string; edits: StoryPayload[]; removed: boolean }[] };
+      const story = new LiveStory(fakePost("thinking", log), { render: (r) => r, next: async (content) => fakePost(content, log), limit: 50, gapMs: 0, ...clock() });
+      await story.update(["› step one · 1.0s", `› step two · ${so} so far`, "› step three"].join("\n"));
+      expect(log.posts[0]!.content, so).toBe("› step one · 1.0s");
+      expect(log.posts[1]!.content, so).toBe(`› step two · ${so} so far\n› step three`);
+    }
+  });
+
+  it("keeps the first message whole when the next could not be posted, and tries again", async () => {
+    const log = { posts: [] as { content: string; edits: StoryPayload[]; removed: boolean }[] };
+    let refuse = true;
+    const story = new LiveStory(fakePost("thinking", log), {
+      render: (r) => r,
+      next: async (content) => (refuse ? undefined : fakePost(content, log)),
+      limit: 45,
+      gapMs: 0,
+      ...clock(),
+    });
+    await story.update(["› step one · 1.0s", "› step two · 2.0s", "› step three"].join("\n"));
+    expect(log.posts).toHaveLength(1);
+    expect(log.posts[0]!.content).toBe("› step one · 1.0s\n› step two · 2.0s");
+    refuse = false;
+    await story.update(["› step one · 1.0s", "› step two · 2.0s", "› step three · 3.0s"].join("\n"));
+    expect(log.posts[0]!.content).toBe("› step one · 1.0s\n› step two · 2.0s");
+    expect(log.posts[1]!.content).toBe("› step three · 3.0s");
+  });
+
   it("shows the newest step's picture as a thumbnail, sent again only when it changes, and only where allowed", async () => {
     const log = { posts: [] as { content: string; edits: StoryPayload[]; removed: boolean }[] };
     const story = new LiveStory(fakePost("t", log), { render: (r) => r, next: async () => undefined, pictures: true, gapMs: 0, ...clock() });

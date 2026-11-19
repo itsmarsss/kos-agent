@@ -36,6 +36,8 @@ export function durationWords(ms: number): string {
 }
 
 const DURATION = String.raw`(?:\d+\.\d+s|\d+s|\d+m \d{2}s|\d+h \d{2}m)`;
+/** A step line still at work: its time so far, or its wait on the owner, can still change. */
+export const RUNNING_STEP = new RegExp(String.raw` · (?:${DURATION} so far|${WAITING_ON_YOU})$`);
 /** The time a step line ends with: how long it ran or has run so far, its wait for the owner, or that it waits now. */
 const STEP_TIME = new RegExp(String.raw`(?: · (?:${DURATION}(?: so far)?|${WAITING_ON_YOU}))?(?: · waited ${DURATION} for you)?$`);
 

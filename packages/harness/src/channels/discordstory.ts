@@ -1,3 +1,4 @@
+import { RUNNING_STEP } from "./narrate.js";
 import type { StoryExtra } from "./types.js";
 
 /**
@@ -58,9 +59,6 @@ function retryAfter(err: unknown): number | undefined {
 export function autoMarked(content: string): string {
   return content.startsWith("-# ") ? `-# (Auto) ${content.slice(3)}` : `(Auto) ${content}`;
 }
-
-/** A step line that is still running: the story is not rolled past one, so its time can still change. */
-const RUNNING = / · (?:\S+ so far|waiting on you)$/;
 
 export class LiveStory {
   private readonly posts: StoryPost[];
@@ -138,13 +136,16 @@ export class LiveStory {
       if (this.content(open, extra).length <= this.limit || open.length <= 1) break;
       let fit = 1;
       while (fit < open.length - 1 && this.content(open.slice(0, fit + 1), extra).length <= this.limit) fit += 1;
-      const running = open.findIndex((l) => RUNNING.test(l));
+      // The story is not rolled past a step still running, so its time can still change.
+      const running = open.findIndex((l) => RUNNING_STEP.test(l));
       if (running > 0 && running < fit) fit = running;
       await this.posts.at(-1)!.edit({ content: this.content(open.slice(0, fit), extra).slice(0, 2000), embeds: [], attachments: [] });
       this.shownPicture = undefined;
-      this.settled += fit;
-      const post = await this.options.next(this.content(lines.slice(this.settled), extra).slice(0, 2000));
+      const post = await this.options.next(this.content(lines.slice(this.settled + fit), extra).slice(0, 2000));
+      // Not posted: nothing is settled, so the next state is drawn whole
+      // here and tries again, rather than the newer lines alone over the older.
       if (!post) return;
+      this.settled += fit;
       this.posts.push(post);
     }
     const content = this.content(lines.slice(this.settled), extra).slice(0, 2000);
