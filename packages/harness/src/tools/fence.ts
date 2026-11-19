@@ -303,7 +303,7 @@ export function fence(db: Db, sql: string, reach: Reach, params: readonly unknow
   if (own.length) {
     return refuse(
       `${own.join(", ")}: ${own.length === 1 ? "that table is" : "those tables are"} KOS's own, not a project's. ` +
-        "Use the tool for the job (cron.list for jobs, chats.list and chats.read for chats, tasks.list, blobs.list, memory.recall for facts, chats.handoff to pass something to another chat); sql is for your project's tables.",
+        "Use the tool for the job (cron.list for jobs, kos.status for failed runs, pending approvals and spend, chats.list and chats.read for chats, tasks.list, blobs.list, memory.recall for facts, chats.handoff to pass something to another chat); sql is for your project's tables.",
     );
   }
   const tables = reached;
