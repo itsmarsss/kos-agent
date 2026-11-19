@@ -84,41 +84,67 @@ works, and in Docker (step 5c) otherwise; with neither, it refuses the
 shell, Python and TeX tools ("this needs a jail: install bubblewrap
 (bwrap), ..."). iMessage and KOS for Mac are macOS only.
 
-- Install: `sudo apt-get install bubblewrap` on Debian or Ubuntu,
-  `sudo dnf install bubblewrap` on Fedora (ask before `sudo`).
+- Install bubblewrap 0.8 or later, and pasta for commands that use the
+  network: `sudo apt-get install bubblewrap passt` on Debian 12 or Ubuntu
+  24.04 and later, `sudo dnf install bubblewrap passt` on Fedora (ask
+  before `sudo`). `slirp4netns` stands in for pasta where pasta is missing.
+  Without either, a command that needs the network fails, saying so.
 - Check that it can build a jail, not only that it is installed:
 
   ```bash
+  bwrap --version
   bwrap --unshare-all --die-with-parent --ro-bind /usr /usr \
     --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
     /bin/sh -c 'echo jailed'
   ```
 
-  Expect `jailed`. "setting up uid map: Permission denied" or "No
-  permissions to create new namespace" means unprivileged user namespaces
-  are off. Ubuntu 23.10 and later hold them back with AppArmor; the user
-  allows them with `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`
-  (and the same line in `/etc/sysctl.d/` to keep it), or uses Docker.
-- KOS looks for bwrap only in `/usr/bin`, `/usr/local/bin` and `/bin`,
-  tries it once, and uses the container (5c) or refuses when it
-  fails. Restart KOS after installing it.
+  Expect `bubblewrap 0.8.0` or later, then `jailed`. "setting up uid map:
+  Permission denied" or "No permissions to create new namespace" means
+  unprivileged user namespaces are held back. Ubuntu 23.10 and later do it
+  with AppArmor. The narrow fix lets bwrap alone make them, with a profile
+  of its own:
 
-Under bubblewrap a command sees the system read-only (`/usr`, `/bin`,
+  ```bash
+  printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n' \
+    | sudo tee /etc/apparmor.d/bwrap
+  sudo apparmor_parser -r /etc/apparmor.d/bwrap
+  ```
+
+  (pasta's own profile ships with the passt package.) Only if that is not
+  possible, the system-wide switch lets every program make them:
+  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, and the
+  same line in `/etc/sysctl.d/` to keep it. Or use Docker.
+- KOS runs bwrap, pasta, slirp4netns and prlimit only from `/usr/bin`,
+  `/usr/local/bin` and `/bin`, and only when root owns the program and
+  every folder above it, writable by no one else. It tries bwrap once, and
+  uses the container (5c) or refuses when it fails. Restart KOS after
+  installing it.
+
+On bare Linux bubblewrap stands in for the container, which KOS.md names
+as the backstop behind the path jail. Under bubblewrap a command sees the system read-only (`/usr`, `/bin`,
 `/lib*`, `/opt`, a few files of `/etc`), the workspace, and a fresh `/tmp`
-that is gone when it ends; the owner's home, `/run`, `/var` and the rest of
-the machine are not there. A run without the network, or kept to this
-machine, gets a loopback of its own, so the host's ports, KOS's among them,
-are out of its reach. Where it differs from macOS:
+of at most 1 GiB that is gone when it ends; the owner's home, `/run`,
+`/var` and the rest of the machine are not there. It gets namespaces of its
+own and may not make more, a seccomp filter (no keyrings, BPF, io_uring,
+ptrace, mounts or typing into a terminal), no core files, files of at most
+8 GiB and at most 4096 processes. Its network is its own: a loopback alone
+without the network or kept to this machine, and with the network a NAT
+through pasta or slirp4netns that does not reach the host's loopback, so
+KOS's ports, its Chrome's debugging port among them, are out of reach.
+Where it differs from macOS:
 
-- A run the owner approved with the network shares the host's, and KOS's
-  own ports are not refused there as they are on macOS.
+- A networked command reaches what the outside reaches, the host's own
+  network address included: a service KOS or anything else listens on
+  there (the Wi-Fi listener for phones, say) is reachable, as from the LAN.
 - A path the jail holds by pattern (a repository's config and hooks) is
-  held where it is when the run starts; a repository the run creates, or a
-  `.git/modules` or `.git/worktrees` it adds, is not held. `node_modules`
-  is not searched, and a workspace of over 200,000 files is refused for
-  such runs.
-- A read-only KOS file that is not there yet (`mcp.json`, say) is stood in
-  for by an empty one while the run lasts, and taken away after.
+  held where it is when the run starts. After a run nobody approved, git
+  control that is new or changed (a repository it made, a hooks folder or
+  config.worktree it added) is moved to `.kos/quarantine` with a note, and
+  the result names it. `node_modules` is not searched, and a workspace of
+  over 200,000 files is refused for such runs.
+- A read-only KOS file or folder that is not there yet (`mcp.json`, say)
+  is stood in for by an empty one while the run lasts, and taken away
+  after; one a crash left is taken away on the next run.
 - A read-only path reached through a link is refused rather than held.
 - A hidden folder with a run's own temp inside it (`.kos`) shows the
   empty folders down to that temp, and nothing else.
