@@ -10,7 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { WorkspaceBackup } from "./backup.js";
+import Database from "better-sqlite3";
+
+import { Workspace } from "../store/workspace.js";
+import { DB_SNAPSHOT, WorkspaceBackup } from "./backup.js";
 
 describe("WorkspaceBackup", () => {
   let root: string;
@@ -58,6 +61,33 @@ describe("WorkspaceBackup", () => {
     await backup.snapshot("with a build");
     expect(await backup.tracked()).toEqual(["sites/app/.claude/settings.json", "sites/app/index.html"]);
     expect(readFileSync(join(root, "sites/old/.claude/projects/t.jsonl"), "utf8")).toBe("{}");
+  });
+
+  it("commits a consistent copy of the database, never the live file, its WAL or the workspace's .kos", async () => {
+    const ws = Workspace.open(root);
+    try {
+      const withDb = new WorkspaceBackup(root, undefined, ws.db);
+      await withDb.ensureRepo();
+      ws.db.exec("CREATE TABLE notes (body TEXT)");
+      // Committed by an older snapshot: taken out of the index, left on disk.
+      execFileSync("git", ["add", "-f", "kos.sqlite"], { cwd: root });
+      // In the WAL, not yet checkpointed into kos.sqlite: a copy of the file alone would lose it.
+      ws.db.pragma("wal_autocheckpoint = 0");
+      ws.db.prepare("INSERT INTO notes (body) VALUES (?)").run("only in the wal");
+      mkdirSync(join(root, ".kos", "tmp"), { recursive: true });
+      writeFileSync(join(root, ".kos", "daemon.log"), "raw host output");
+      writeFileSync(join(root, ".kos", "tmp", "x"), "scratch");
+      writeFileSync(join(root, "profile.json"), "{}");
+      expect(await withDb.snapshot("with a db")).toBeTruthy();
+      expect(await withDb.tracked()).toEqual([DB_SNAPSHOT, "profile.json"]);
+      const copy = new Database(join(root, DB_SNAPSHOT), { readonly: true });
+      expect(copy.prepare("SELECT body FROM notes").all()).toEqual([{ body: "only in the wal" }]);
+      copy.close();
+      // Nothing changed, nothing committed: the copy is the same bytes, and opening it left nothing beside it.
+      expect(await withDb.snapshot("again")).toBeNull();
+    } finally {
+      ws.close();
+    }
   });
 
   it("returns null when there is nothing to commit", async () => {

@@ -245,7 +245,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   );
   const killSwitch = new PersistentKillSwitch(workspace.db);
   const queue = new WorkQueue();
-  const backup = new WorkspaceBackup(workspace.root);
+  const backup = new WorkspaceBackup(workspace.root, undefined, workspace.db);
   const promoter = new SkillPromoter({
     workspaceRoot: workspace.root,
     backup,

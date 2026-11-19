@@ -5,8 +5,20 @@ beyond a folder's listing (`GET /api/files`) and a file (`GET /api/file`).
 Every path is workspace-relative and goes through the jail
 (`resolvePath`): `..`, a symbolic link anywhere on the way, or a path out
 of the workspace is refused with a 400. Writes also refuse the
-workspace's own files (`.kos`, `kos.sqlite`, `profile.json`, `mcp.json`,
-`daemon.json`, `locks`) and its top-level folders.
+workspace's own files (`.kos`, `kos.sqlite`, `kos.snapshot.sqlite`,
+`profile.json`, `mcp.json`, `daemon.json`, `locks`) and its top-level
+folders.
+
+## Backups
+
+Each workspace snapshot (the `kos.backup` job, or `snapshot` by hand) is a git commit of
+the workspace. The live `kos.sqlite` and its `-wal` and `-shm` are never
+committed: the snapshot first copies the database through SQLite's backup
+API into `kos.snapshot.sqlite`, and that copy is what history keeps. The
+workspace's `.kos` folder (logs, caches, scratch, the host's state) is never
+committed either; a restore needs nothing in it. To restore, stop the host,
+check out the snapshot, move `kos.snapshot.sqlite` over `kos.sqlite` and
+delete the old `kos.sqlite-wal` and `kos.sqlite-shm`.
 
 ## Office views
 
