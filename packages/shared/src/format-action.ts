@@ -470,6 +470,11 @@ export function summarizeAction(
       const fields = Array.isArray(a.fields) ? a.fields.map((f) => (f && typeof f === "object" ? String((f as { field?: unknown }).field ?? "") : "")).filter(Boolean) : [];
       return `Fill ${listWords([...new Set(fields)].map(secretFieldWords)) || "a secret"} from ${secretNamed(a)}`;
     }
+    case "secrets.type": {
+      const app = a.app && typeof a.app === "object" ? (a.app as { name?: unknown }).name : undefined;
+      const field = typeof a.field === "string" && a.field.trim() ? secretFieldWords(a.field.trim()) : "a secret";
+      return `Type ${field} from ${secretNamed(a)}${typeof app === "string" && app ? ` into ${app}` : ""}`;
+    }
     case "secrets.allow_site":
       return `Allow ${secretNamed(a)} on ${typeof a.origin === "string" ? a.origin : "this tab's site"}`;
     case "secrets.request": {

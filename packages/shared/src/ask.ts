@@ -122,6 +122,7 @@ export function askPlace(input: Pick<AskInput, "tool" | "args" | "rule" | "yours
   }
   if (tool.startsWith("chrome.")) return { words: "In your Chrome" };
   if (tool.startsWith("computer.")) return { words: "On your Mac" };
+  if (tool === "secrets.type") return { words: typeof a.device === "string" && a.device ? `On your Mac, ${a.device}` : "On your Mac" };
   if (tool === "shell.run" || tool === "python.run") {
     const cwd = typeof a.cwd === "string" && a.cwd.trim() ? a.cwd.trim() : "";
     return { words: cwd ? `In ${cwd}` : "In the workspace" };
@@ -257,8 +258,9 @@ export function askView(input: AskInput): AskView {
   const title = steps ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, where, platform);
   const always = !(input.asksAlways ?? usesSecret(tool, a));
   const secret = input.secret ?? undefined;
-  // A secret whose policy is "site" offers its own remembered yes: a grant on this origin, kept in the vault.
-  const site = secret?.origin && secret.remember.includes("site") ? hostOf(secret.origin) : undefined;
+  // A secret whose policy is "site" offers its own remembered yes: a grant on this origin, or in this Mac app, kept in the vault.
+  const host = secret?.origin ? hostOf(secret.origin) : undefined;
+  const site = secret?.remember.includes("site") ? (secret.app ? `in ${secret.app.name}${host ? ` on ${host}` : ""}` : host ? `on ${host}` : undefined) : undefined;
   return {
     title,
     ...(intent ? { said: showInvisible(intent) } : {}),
@@ -270,8 +272,10 @@ export function askView(input: AskInput): AskView {
     ...(secret ? { secret } : {}),
     ...(site
       ? {
-          always: `Approve, and always on ${site}`,
-          alwaysTip: `Approves this, and from now on ${secret!.label} is filled on ${secret!.origin} without asking; each use is still recorded. Take it back on the Secrets page.`,
+          always: `Approve, and always ${site}`,
+          alwaysTip: secret!.app
+            ? `Approves this, and from now on ${secret!.label} is typed into password fields ${site} without asking; each use is still recorded. Take it back on the Secrets page.`
+            : `Approves this, and from now on ${secret!.label} is filled on ${secret!.origin} without asking; each use is still recorded. Take it back on the Secrets page.`,
         }
       : !always
         ? { alwaysNote: "Secrets always ask" }
