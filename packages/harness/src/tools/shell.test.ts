@@ -8,12 +8,15 @@ import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
+import { bubblewrap } from "../sandbox/bwrap.js";
 import { underAuto } from "../kernel/caller.js";
 import { programOf } from "../risk/rules.js";
 import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
 import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
+/** KOS's own jail holds it here: macOS's sandbox, or bubblewrap on Linux. */
+const jailed = onMac || bubblewrap() !== undefined;
 
 describe("naming the program a command runs", () => {
   it("is the first word of one plain command", () => {
@@ -49,7 +52,7 @@ describe("shell.run in the container", () => {
   });
 });
 
-describe.runIf(onMac)("shell.run on macOS", () => {
+describe.runIf(jailed)("shell.run in its own jail", () => {
   let root: string;
   let ws: Workspace;
   let registry: ToolRegistry;
@@ -158,14 +161,14 @@ describe.runIf(onMac)("shell.run on macOS", () => {
       "printf '#!/bin/sh\\ntouch PLANTED\\n' > .git/hooks/pre-commit && echo REACHED",
       "printf '[core]\\n\\thooksPath = x\\n' >> .git/config && echo REACHED",
       "mkdir -p .git/info && echo '* diff=x' > .git/info/attributes && echo REACHED",
-      "mkdir -p .GIT/Hooks/x && echo REACHED",
-      "mkdir -p sub && echo 'gitdir: /tmp/x' > sub/.git && echo REACHED",
+      // A disk that folds case, and a .git made by the run: macOS's patterns hold both, bubblewrap's mounts neither (see bwrap.ts).
+      ...(onMac ? ["mkdir -p .GIT/Hooks/x && echo REACHED", "mkdir -p sub && echo 'gitdir: /tmp/x' > sub/.git && echo REACHED"] : []),
     ]) {
       expect((await inBooks(command)).stdout, command).not.toContain("REACHED");
     }
     expect(readFileSync(join(books, ".git/config"), "utf8")).toBe(config);
     expect(existsSync(join(books, ".git/hooks/pre-commit"))).toBe(false);
-    expect(existsSync(join(books, "sub/.git"))).toBe(false);
+    if (onMac) expect(existsSync(join(books, "sub/.git"))).toBe(false);
     for (const command of [
       "echo '[core] hooksPath = x' > .gitconfig && echo REACHED",
       "mkdir -p .config/git && echo x > .config/git/config && echo REACHED",

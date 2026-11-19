@@ -7,10 +7,13 @@ import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
+import { bubblewrap } from "../sandbox/bwrap.js";
 import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
 import { createPythonModule, type PythonModuleOptions, type PythonResult } from "./python.js";
 
 const onMac = process.platform === "darwin";
+/** KOS's own jail holds it here: macOS's sandbox, or bubblewrap on Linux. */
+const jailed = onMac || bubblewrap() !== undefined;
 
 async function registryWith(ws: Workspace, options: PythonModuleOptions): Promise<ToolRegistry> {
   const registry = new ToolRegistry();
@@ -45,7 +48,7 @@ describe("python.run's tier", () => {
   });
 });
 
-describe.runIf(onMac)("python.run on macOS", () => {
+describe.runIf(jailed)("python.run in its own jail", () => {
   let root: string;
   let ws: Workspace;
   let registry: ToolRegistry;
