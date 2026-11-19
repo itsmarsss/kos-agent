@@ -224,6 +224,19 @@ export function hostNamesOf(host: string, env: NodeJS.ProcessEnv = process.env):
     .filter((h): h is string => !!h);
 }
 
+/**
+ * KOS's own addresses, however it is reached, for the agent's fetches to
+ * keep away from and for no secret to be typed on its dashboard: each name
+ * it answers to (hostNamesOf) on its port, KOS_PUBLIC_URL's host as it is
+ * written, and each KOS_HOST_NAMES name on any port (a tunnel's or a proxy's
+ * name is KOS's alone), a loopback name never on any port.
+ */
+export function ownHostsOf(host: string, port: number, env: NodeJS.ProcessEnv = process.env): string[] {
+  const loopback = new Set(["localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"]);
+  const anyPort = (env.KOS_HOST_NAMES ?? "").split(",").map((h) => h.trim()).filter((h) => h && !loopback.has(h.replace(/:\d+$/, "")));
+  return [...new Set([...hostNamesOf(host, env).map((h) => (/^(\[[^\]]+\]|[^:]+):\d+$/.test(h) ? h : `${h}:${port}`)), ...publicHostsOf(env.KOS_PUBLIC_URL), ...anyPort])];
+}
+
 /** The host a public url reaches KOS on, for the agent's fetches to keep away from. */
 function publicHostsOf(url: string | undefined): string[] {
   try {
@@ -684,7 +697,11 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   });
   /** The dashboard's options, made after boot; a phone's ask of the dashboard waits for them as for the kernel. */
   const dashboardBox = new BootBox<DashboardServerOptions>();
+  // KOS's own address, however it is reached.
+  const ownHosts = (): string[] => ownHostsOf(options.host, options.port);
   const computer = createComputerUse({
+    // No secret is typed on its dashboard.
+    ownHosts,
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
     ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
     // Read by KOS for Mac on this computer to prove it is here, so KOS may rebuild it (docs/computer.md, Builds and updates).
@@ -765,7 +782,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
     secrets,
     allowedHosts: options.allowedHosts,
     // KOS's own address, however it is reached: the agent's fetches never come back to its API.
-    ownHosts: () => [`${options.host}:${options.port}`, ...publicHostsOf(process.env.KOS_PUBLIC_URL)],
+    ownHosts,
     ...(Number.isInteger(browserPort) && browserPort > 0 && browserPort < 65_536 ? { chrome: { port: browserPort } } : {}),
     extraModules: [computer.module],
     features: [{ name: "computer", description: "Use a paired computer: its screen, pointer and keyboard" }],
@@ -940,6 +957,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
 
   // A chat that borrowed the owner's Chrome browses there.
   kernel.setBrowserElsewhere(computer.chrome);
+  // A yes on a secret's ask is never taken from where KOS's own hand is.
+  kernel.setHandsOn((device, conversation) => computer.handsOn(device, conversation));
 
   // The two upgrades the dashboard server takes: the dashboard's own socket, and a paired device's.
   const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : {}), hostNames });

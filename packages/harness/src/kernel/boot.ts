@@ -66,6 +66,7 @@ import { outlinerFor } from "../context/outliner.js";
 import { join } from "node:path";
 import { createSkillsModule } from "../tools/skills.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillPromoted } from "../skills/settings.js";
+import { migratePromoted } from "../skills/migrate.js";
 import { createChatsModule } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
 import { EXTRACTOR_KEY } from "../memory/extractor.js";
@@ -847,13 +848,36 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     kernel.bus.emit({ kind: "chat:renamed", conversationId: id, title });
     kernel.progress.emit({ kind: "renamed", conversationId: id, title });
   });
+  carryPromotions(kernel, settings);
   kernel.conversations.onRemoved((id) => {
-    // A chat's kept results go with it.
+    // A chat's kept results go with it, and so do its asks: approved later, one would run as nobody's, at the root's reach.
     shelf.forget(id);
+    for (const ask of kernel.approvals.pending()) if (ask.conversationId === id) kernel.approvals.lapse(ask.id, "chat deleted");
     kernel.rememberGone(id);
     kernel.bus.emit({ kind: "chat:deleted", conversationId: id });
   });
   return kernelRef;
+}
+
+/**
+ * Promotions kept under the two-file hash, moved to the folder-wide one at
+ * boot where the owner's yes still holds, each audited, so a schedule that
+ * runs a promoted skill (the morning board) runs on unasked as before. The
+ * rest are let go and the owner told once which to promote again: kept,
+ * they would only ask on their next run with nobody watching.
+ */
+export function carryPromotions(kernel: Pick<Kernel, "workspace" | "audit" | "suggestions">, settings: Pick<SettingsStore, "get" | "set">): void {
+  const current = parseSkillSettings(settings.get(SKILLS_KEY));
+  const { promoted, carried, stale } = migratePromoted(kernel.workspace, current.promoted);
+  if (!carried.length && !stale.length) return;
+  for (const name of stale) delete promoted[name];
+  settings.set(SKILLS_KEY, { ...current, promoted });
+  for (const name of carried) {
+    kernel.audit.record({ tool: "skills.promote", args: { name }, result: `carried ${name}'s promotion over to the hash of every file in its folder; its files are those the owner approved`, isError: false, riskTier: "risky", approvedBy: "migration" });
+  }
+  if (stale.length) {
+    kernel.suggestions.add("other", "Skills to promote again", `These skills changed since you promoted them, or are gone, so they ask before running: ${stale.join(", ")}. Ask KOS to promote any you still want (skills.promote), and a schedule that runs one waits on your yes until then.`);
+  }
 }
 
 /** Set once the first boot that keeps pins has adopted what was on before them. */

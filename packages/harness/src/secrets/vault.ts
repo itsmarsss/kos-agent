@@ -7,7 +7,7 @@ import type { SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUs
 
 import { buildIndex, SCRUB_INDEX_FORMAT, SCRUB_INDEX_VERSION, ScrubIndex, type ScrubIndexFile } from "./scrubindex.js";
 import { checkDir, copyAtomic, excludeFromBackup, fsyncDir, readPrivate, shred, VaultFsError, withFileLock, writeAtomic } from "./vaultfs.js";
-import { checkPolicy, checkUse, checkValues, hintOf, labelOf, originAllowed, scannedOf, slugOf, type ScannedValue } from "./records.js";
+import { checkPolicy, checkUse, checkValues, grantAllowed, hintOf, labelOf, scannedOf, slugOf, type ScannedValue } from "./records.js";
 
 /**
  * The owner's secrets at rest: one encrypted file, docs/secrets.md.
@@ -672,7 +672,7 @@ export class Vault {
         values,
         use,
         // A site no longer allowed keeps no grant on it.
-        policy: { ...policy, grants: policy.grants.filter((g) => originAllowed(g.origin, use.web.origins)) },
+        policy: { ...policy, grants: policy.grants.filter((g) => grantAllowed(g.origin, use)) },
         hint: hintOf(record.kind, values),
       };
     });
@@ -684,7 +684,7 @@ export class Vault {
    */
   addGrant(handle: string, origin: string): SecretMeta {
     return this.change(handle, (record) => {
-      if (!originAllowed(origin, record.use.web.origins)) throw new VaultError("invalid", `${handle} is not allowed on ${origin}`);
+      if (!grantAllowed(origin, record.use)) throw new VaultError("invalid", `${handle} is not allowed on ${origin}`);
       const grants = [...record.policy.grants.filter((g) => g.origin !== origin), { origin, at: this.now() }];
       return { ...record, policy: { ...record.policy, grants } };
     });

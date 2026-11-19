@@ -147,4 +147,6 @@ export interface AskSecret {
   targets?: { field: string; label: string; type: string }[];
   /** Where the fields' form sends what is typed, when they are in one. */
   formAction?: string;
+  /** The app it is typed into on a Mac (secrets.type); its field is the one target, as Accessibility names it. */
+  app?: { name: string; bundle: string };
 }

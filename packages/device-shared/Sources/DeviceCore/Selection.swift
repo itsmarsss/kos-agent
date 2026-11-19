@@ -58,7 +58,7 @@ public enum SelectionRead: Equatable, Sendable {
 /// selection is the focused element's, else one of its parents' (a web area
 /// around a focused link), as text or as a marker range, else the first in
 /// the focused window, looked for within a bound and a time budget. Never a
-/// hidden app's, a password field's, or while secure input is on.
+/// hidden app's, a password field's or one KOS typed a secret into, or while secure input is on.
 ///
 /// Not tied to an actor: each reader is used from one serial queue.
 public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable {
@@ -100,6 +100,8 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
   private var deadline: TimeInterval = 0
   /// What the last read was of: the app, and the element focused in it then.
   private var last: (pid: Int32, focused: Access.Element?)?
+  /// The fields this read passes over, as a password field: those KOS typed a secret into.
+  private var skipping: (Access.Element) -> Bool = { _ in false }
   /// Flags this reader turned on and could not turn off again, by app: put back at the next read, and on quitting.
   private(set) var unrestored: [Int32: Set<String>] = [:]
 
@@ -110,10 +112,14 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
 
   /// `secureInput` is asked again after the wait; `pause` is the wait for an app to build its tree, blocking this
   /// reader's queue. With `onlyIfChanged`, nil when the app and its focused element are those of the last read, so
-  /// one opening of the window reads once however often it is asked.
+  /// one opening of the window reads once however often it is asked. `skipping` names the fields KOS typed a secret
+  /// into, which are read as a password field is: never.
   public func read(
-    _ app: SelectionApp, hidden: Bool, onlyIfChanged: Bool = false, secureInput: () -> Bool, pause: () -> Void
+    _ app: SelectionApp, hidden: Bool, onlyIfChanged: Bool = false, skipping: @escaping (Access.Element) -> Bool = { _ in false },
+    secureInput: () -> Bool, pause: () -> Void
   ) -> SelectionRead? {
+    self.skipping = skipping
+    defer { self.skipping = { _ in false } }
     restore()
     guard !hidden, access.trusted, !secureInput() else {
       last = nil
@@ -214,7 +220,7 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
 
   private func secure(_ element: Access.Element) -> Bool {
     let field = "AXSecureTextField"
-    return access.string("AXSubrole", of: element) == field || access.string("AXRole", of: element) == field
+    return skipping(element) || access.string("AXSubrole", of: element) == field || access.string("AXRole", of: element) == field
   }
 }
 

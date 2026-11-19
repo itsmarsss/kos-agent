@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
-import { requireServices, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule, type ModuleContext } from "@kos/harness";
+import { requireServices, SecretUses, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule, type ModuleContext } from "@kos/harness";
 import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
 import type { Build, BuildKind } from "./builds.js";
@@ -51,6 +51,8 @@ export interface ComputerUseOptions {
   audit?(entry: AuditEntry): void;
   /** Stop every live turn in a chat, as the owner's Stop does; false when none was running. */
   stopTurn?(conversation: string): boolean;
+  /** KOS's own addresses (host, or host:port): its dashboard, on which no secret is typed. */
+  ownHosts?(): readonly string[];
   /** Keeping the device apps on KOS's build: what it would hand each, and how KOS for Mac is rebuilt here. None, and nothing is compared. */
   updates?: {
     expected(kind: BuildKind): Build | undefined;
@@ -63,6 +65,8 @@ export interface ComputerUse {
   module: KosModule;
   /** The owner's Chrome, for the kernel to send a chat's browser tools to while it works there. */
   chrome: BrowserElsewhere;
+  /** Why a yes on a secret's ask from this device, or from the dashboard, may be KOS's own hand (DeviceHub.handsOn). */
+  handsOn(device: string | undefined, conversation: string | null): string | undefined;
   /** The side panel of each paired Chrome, as a channel. */
   panel: DevicePanel;
   /** The chat window of each paired Mac, as a channel. */
@@ -113,6 +117,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let unthemed: (() => void) | undefined;
   let unmoded: (() => void) | undefined;
   let waits: ReturnType<typeof tellWaits> | undefined;
+  let secretUses: SecretUses | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
   const mac = new DevicePanel(MAC_PANEL, options.panels.mac);
@@ -154,6 +159,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           face: options.face,
           theme: options.theme,
           ...(localKey ? { localKey } : {}),
+          ...(options.ownHosts ? { ownHosts: options.ownHosts } : {}),
           scrub: (text) => secrets.scrub(text),
         });
       }
@@ -190,6 +196,13 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         titleOf: options.titleOf,
         ...(options.audit ? { audit: options.audit } : {}),
         ...(options.stopTurn ? { stopTurn: options.stopTurn } : {}),
+        // The owner's vault, read at each use, and its record of uses: secrets.type on a Mac.
+        secrets: {
+          vault: () => secrets.attached(),
+          uses: (secretUses ??= new SecretUses(requireServices(ctx).db)),
+          tellOwner: (text) => void requireServices(ctx).notify?.({ text, target: { kind: "owner" } }).catch(() => undefined),
+          ...(options.ownHosts ? { ownHosts: options.ownHosts } : {}),
+        },
         // The KOS for Mac window's chat set to Ask: each step on the screen asks first.
         asksEachStep: (conversation) => mac.asksEachStep(conversation),
         inAuto: (conversation) => mac.inAuto(conversation),
@@ -264,6 +277,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   return {
     module,
     chrome: elsewhere,
+    handsOn: (device, conversation) => hub?.handsOn(device, conversation),
     panel,
     mac,
     phone,

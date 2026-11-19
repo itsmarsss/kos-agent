@@ -1,12 +1,13 @@
 import Carbon
+import DeviceCore
 
 /// One key combination that works whichever app is in front: the chat
 /// window's, ⌥⌘K. Carbon's hot key, which macOS gives without a permission,
 /// where watching every key would need Input Monitoring.
 @MainActor
 final class HotKey {
-  /// ⌥⌘K.
-  static let chat = (code: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | optionKey))
+  /// ⌥⌘K, the key DeviceCore's OwnKeys refuses KOS's own presses of.
+  static let chat = (code: UInt32(OwnKeys.chat.code), modifiers: UInt32(cmdKey | optionKey))
 
   private var ref: EventHotKeyRef?
   private var handler: EventHandlerRef?

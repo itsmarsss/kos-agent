@@ -121,6 +121,22 @@ describe.runIf(onMac)("python.run on macOS", () => {
     expect(r.stdout).toContain("offline");
   });
 
+  it("can start nothing that acts outside the sandbox: no open, no osascript, no .env read", async () => {
+    writeFileSync(join(root, ".env"), "OPENAI_API_KEY=sk-env-file", "utf8");
+    // Only harmless forms: were a deny missing, none of these would launch an app or ask the owner anything.
+    const r = await run(
+      [
+        "import subprocess",
+        "for argv in (['/usr/bin/open', '-h'], ['/usr/bin/osascript', '-e', 'return 1'], ['/usr/bin/defaults', 'help']):",
+        "    try:\n        subprocess.run(argv, capture_output=True); print('ran', argv[0])\n    except OSError:\n        print('refused', argv[0])",
+        "try:\n    open('.env').read(); print('read .env')\nexcept OSError:\n    print('hidden .env')",
+      ].join("\n"),
+    );
+    expect(r.stdout).not.toContain("ran ");
+    expect(r.stdout.match(/refused/g)).toHaveLength(3);
+    expect(r.stdout).toContain("hidden .env");
+  });
+
   it("shows a picture it saved", async () => {
     // A one-pixel PNG, written by hand so the test needs no plotting library.
     const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

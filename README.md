@@ -120,8 +120,9 @@ the named job, and nothing else.
 
 **Supervises daemons.** Programs it spawns are restarted with backoff.
 
-**Extends itself.** Skills are sandbox-tested in a child process against a
-throwaway database copy, then promoted if safe or queued for your approval.
+**Extends itself.** Skills are sandbox-tested in a jailed child process
+against a throwaway database copy, with no network, and promoted only when
+you say yes to their files; any change after that and they ask again.
 Modules it writes do not run until you switch them on.
 
 **Uses your computer, when you let it.** Pair a Mac running KOS for Mac
@@ -142,7 +143,7 @@ from it. [docs/modules.md](docs/modules.md).
 | | |
 | --- | --- |
 | **Path jail** | One `resolvePath()` gate. Rejects `..`, NUL bytes, absolute escapes, and all symlinks |
-| **Container** | The container is the jail for unattended work. On macOS a sandbox profile confines shell commands to the workspace. `python.run` and `tex.pdf` get a narrower one: KOS's own files and the owner's home hidden, writes only to their own folder, and for Python no network, which is why they run without asking |
+| **Container** | The container is the jail for unattended work. On macOS a sandbox profile confines shell commands to the workspace. `python.run` and `tex.pdf` get a narrower one: KOS's own files and the owner's home hidden, writes only to their own folder, and for Python no network, which is why they run without asking. Every jailed program, an approved one included, sends no Apple Events, writes no preferences, and cannot run `open`, `osascript`, `automator`, `shortcuts` or `defaults` (so `gh auth login --web` cannot open a browser, and `vite --open` only warns); one that runs unasked also signals no process outside its own group. What stays open on the Mac: an approved run keeps mach lookups, so a program that calls LaunchServices itself (or a copy of `open`) can still start an app outside the sandbox; only the container closes that |
 | **Risk tiers** | A static floor per tool, escalated deterministically by arguments, and relaxed the same way: a shell line that provably only reads (ls, cat, grep, git status) runs without asking, by allow-list. The model is never asked whether something is safe |
 | **Own tables** | The sql tool reaches a project's tables and not KOS's own: conversations, the approval queue, permission rules, memory, the audit log are refused, reads included. Maintenance, where KOS repairs itself, may read them; the trust tables are written by nobody but you |
 | **Approvals** | Interactive turns suspend and resume on your decision. Scheduled runs queue the action and finish. A decision remembered with Always covers that shape, in that project, and nothing wider |

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -19,6 +19,11 @@ describe("what a spawned skill inherits", () => {
   let root: string;
   let ws: Workspace;
 
+  /** In a skill's own folder, which is where a skill runs from. */
+  const ENTRY = "skills/r/reporter.js";
+  /** The platform's sandbox on macOS; elsewhere the test stands in for the container, which is the jail there. */
+  const jail = { contained: process.platform !== "darwin" };
+
   /** A skill that reports the environment it was handed. */
   const REPORTER = `
     const keys = Object.keys(process.env).sort();
@@ -28,7 +33,8 @@ describe("what a spawned skill inherits", () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "kos-env-"));
     ws = Workspace.open(root);
-    writeFileSync(join(ws.root, "reporter.js"), REPORTER);
+    mkdirSync(join(ws.root, "skills", "r"), { recursive: true });
+    writeFileSync(join(ws.root, ENTRY), REPORTER);
     process.env.OPENAI_API_KEY = "sk-test-must-not-leak";
     process.env.KOS_SECRET_DISCORD = "discord-must-not-leak";
     process.env.AWS_SECRET_ACCESS_KEY = "aws-must-not-leak";
@@ -49,7 +55,7 @@ describe("what a spawned skill inherits", () => {
     };
 
   it("does not hand the owner's api keys to a sandboxed skill", async () => {
-    const result = await runSandbox({ workspaceRoot: ws.root, entry: "reporter.js" });
+    const result = await runSandbox({ workspaceRoot: ws.root, entry: ENTRY, jail });
     const seen = report(result.stdout);
     expect(seen.openai).toBeNull();
     expect(seen.keys).not.toContain("OPENAI_API_KEY");
@@ -58,7 +64,7 @@ describe("what a spawned skill inherits", () => {
   });
 
   it("does not hand them to a promoted skill running live either", async () => {
-    const result = await runSkillLive({ workspaceRoot: ws.root, entry: "reporter.js" });
+    const result = await runSkillLive({ workspaceRoot: ws.root, entry: ENTRY, jail });
     const seen = report(result.stdout);
     expect(seen.openai).toBeNull();
     expect(seen.keys).not.toContain("KOS_SECRET_DISCORD");
@@ -66,7 +72,7 @@ describe("what a spawned skill inherits", () => {
   });
 
   it("still passes the variables a skill needs to do its job", async () => {
-    const result = await runSandbox({ workspaceRoot: ws.root, entry: "reporter.js" });
+    const result = await runSandbox({ workspaceRoot: ws.root, entry: ENTRY, jail });
     const seen = report(result.stdout);
     expect(seen.keys).toContain("KOS_DB");
     expect(seen.keys).toContain("KOS_SANDBOX");

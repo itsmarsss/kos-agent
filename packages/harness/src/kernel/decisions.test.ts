@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PendingAction } from "../ops/approvals.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { isAttended, isOwnerTurn } from "./caller.js";
+import { approvedAs, caller, isAttended, isOwnerTurn } from "./caller.js";
 import { Decisions, decidedLine, type DecisionsDeps } from "./decisions.js";
 
 function pending(over: Partial<PendingAction> = {}): PendingAction {
@@ -83,6 +83,40 @@ describe("approving", () => {
     expect(await as({ owner: false, attended: false })).toEqual({ owner: false, attended: false });
     // A turn nobody attended is never the owner's.
     expect(await as({ owner: true, attended: false })).toEqual({ owner: false, attended: false });
+  });
+
+  it("runs an orphaned action with its own chat as the caller, and as approved by whom", async () => {
+    let seen: unknown;
+    const { d } = deps(pending(), false, {
+      registry: { execute: async () => { seen = { caller: caller.getStore(), yes: approvedAs.getStore() }; return { content: "ok", isError: false }; }, secretSlots: () => undefined },
+    });
+    await new Decisions(d).approve(5, "owner", { surface: "dashboard" });
+    expect(seen).toEqual({ caller: "c1", yes: { id: 5, by: "owner" } });
+  });
+
+  it("refuses an orphaned action its tool now refuses, judged as the turn that asked", async () => {
+    let judgedAs: string | undefined;
+    const { d, log } = deps(pending(), false, {
+      registry: {
+        execute: async (tool) => { log.push(`run:${tool}`); return { content: "removed", isError: false }; },
+        secretSlots: () => undefined,
+        refusal: async () => { judgedAs = caller.getStore(); return "that folder is no longer this chat's"; },
+      },
+    });
+    const r = await new Decisions(d).approve(5, "owner", { surface: "dashboard" });
+    expect(judgedAs).toBe("c1");
+    expect(log).not.toContain("run:files.rm");
+    expect(r).toMatchObject({ ok: true, isError: true, message: "that folder is no longer this chat's" });
+  });
+
+  it("runs nothing while the kill switch is thrown, awaited or not, and leaves the ask for later", async () => {
+    for (const awaited of [true, false]) {
+      const { d, log } = deps(pending(), awaited, { halted: () => true });
+      const r = await new Decisions(d).approve(5, "owner", { surface: "dashboard" });
+      expect(r.ok).toBe(false);
+      expect(r.message).toMatch(/kill switch/);
+      expect(log.filter((l) => l.startsWith("approve:") || l.startsWith("run:"))).toEqual([]);
+    }
   });
 
   it("keeps no rule for a call that sends a secret, even when the owner says remember", async () => {

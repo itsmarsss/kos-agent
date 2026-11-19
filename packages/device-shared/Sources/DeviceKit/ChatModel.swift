@@ -93,14 +93,17 @@ public final class ChatModel: ObservableObject {
     public let expires: Date?
     /// The chat it is asked in, as KOS says: what keeps it up once that chat is shown.
     public let chat: String?
+    /// The secret a secrets tool's ask places, and where.
+    public let secret: ChatSecret?
 
     public init(
       id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
       steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, tooLong: Bool = false, risk: String? = nil, why: String? = nil, reason: String? = nil,
       always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expires: Date? = nil,
-      chat: String? = nil
+      chat: String? = nil, secret: ChatSecret? = nil
     ) {
       self.id = id
+      self.secret = secret
       self.summary = summary
       self.title = title
       self.chat = chat

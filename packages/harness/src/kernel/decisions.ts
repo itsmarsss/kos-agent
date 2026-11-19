@@ -5,7 +5,7 @@ import type { PermissionContext } from "../ops/permissions.js";
 import { SHARED_LANE } from "../ops/queue.js";
 import { placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, guested, ownership } from "./caller.js";
+import { approvedAs, attendance, caller, guested, ownership } from "./caller.js";
 import { primarySessionId } from "./session.js";
 
 /**
@@ -68,7 +68,11 @@ export interface DecisionsDeps {
     secretSlots: (tool: string) => SecretSlots | undefined;
     /** A yes-and-remember the tool keeps itself (a secret's grant on a site); see ToolRisk.keep. */
     keeps?: (tool: string, input: Record<string, unknown>) => boolean;
+    /** Why the tool refuses this call now, judged inside the asking turn's stores; see ToolRisk.refuse. */
+    refusal?: (tool: string, input: Record<string, unknown>) => Promise<string | undefined>;
   };
+  /** The kill switch: while thrown, no decision runs anything. */
+  halted?: () => boolean;
   secrets: SecretsRegistry;
   queue: { enqueue: <T>(work: () => Promise<T>, lane: string) => Promise<T> };
   /** Run work with a conversation as the current one, so tools attribute to it. */
@@ -76,6 +80,12 @@ export interface DecisionsDeps {
   /** Something a tool did that the kernel must notice, e.g. a schedule changed. */
   onToolRan: (tool: string) => void;
   handleMessage: (text: string, opts: { sessionId: string; userId: string; origin: "system" }) => Promise<{ reply: string }>;
+  /**
+   * Why a yes on an ask that places a secret may be KOS's own hand, if it
+   * may: decided on the device KOS is working on in that chat, or a moment
+   * after a device acted for KOS. Read at each such yes; none, and none is.
+   */
+  handsOn?: (device: string | undefined, conversationId: string | null) => string | undefined;
 }
 
 /**
@@ -106,6 +116,15 @@ export function controlElsewhere(what: string): string {
  * DECIDING_SURFACES (a chat channel, one added later) is refused a secret's ask.
  */
 export type DecisionSurface = "dashboard" | "chrome" | "mac" | "phone" | "cli" | "discord" | "sms" | "imessage" | (string & Record<never, never>);
+
+/** How a yes was given: where, from which paired device (its id), as a typed command or a press, and whether to remember it. */
+export interface DecisionOptions {
+  remember?: boolean;
+  surface: DecisionSurface;
+  device?: string;
+  /** A typed /approve rather than a card's button: never enough for a secret's ask. */
+  typed?: boolean;
+}
 
 /** Said on a chat surface for an ask that places a secret, in place of its buttons or a typed decision. */
 export function secretAskElsewhere(id: number | string): string {
@@ -158,16 +177,25 @@ export class Decisions {
     return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
   }
 
-  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface }): Promise<DecisionResult> {
+  async approve(id: number, decidedBy: string | undefined, options: DecisionOptions): Promise<DecisionResult> {
     const d = this.deps;
     const action = d.approvals.get(id);
     if (!action || action.status !== "pending") return { ok: false, message: `no pending action #${id}` };
+    // Nothing runs while the kill switch is thrown, whoever waits on it: the ask stays for after.
+    if (d.halted?.()) return { ok: false, message: `The kill switch is thrown, so nothing runs: #${id} waits until it is lifted.` };
     const stored = JSON.parse(action.args) as Record<string, unknown>;
     const placing = usesSecret(action.tool, stored);
     // A call that places a secret is approved only where the owner is proved: the dashboard or a paired device, never a chat surface.
     if (!DECIDING_SURFACES.has(options.surface) && placing) {
       return { ok: false, message: secretAskElsewhere(id) };
     }
+    // Typed words are not a press: on a device's own chat they could be KOS's own keys.
+    if (options.typed && placing) {
+      return { ok: false, message: `#${id} uses a secret, which is decided with its card's buttons on the dashboard or a paired device, never a typed /approve.` };
+    }
+    // Nor from where KOS's own pointer may be: the ask stays, for the owner to decide where KOS is not.
+    const handsOn = placing ? d.handsOn?.(options.device, action.conversationId) : undefined;
+    if (handsOn) return { ok: false, message: `#${id} was not approved: ${handsOn}` };
     const awaited = d.approvals.isAwaited(id);
     // A secrets tool's ask nobody waits on any more is not run later: the page it was for is gone.
     if (!awaited && action.tool.startsWith(SECRETS_PREFIX)) {
@@ -201,16 +229,23 @@ export class Decisions {
     const result = await d.queue.enqueue(async () => {
       // Secrets only in the slots the tool declared, as GuardedTools places them.
       const placed = placeSecrets(action.tool, stored, d.registry.secretSlots(action.tool), d.secrets, { conversationId: action.conversationId, attended: action.attended, guest: action.guest !== null && action.guest !== undefined });
-      // Run as the turn that asked would have: the owner's reach only if it was the owner's own turn, a guest's room's if a guest's.
+      // Run as the turn that asked would have: in its chat, as the caller; the owner's reach only if it was the owner's own turn, a guest's room's if a guest's.
+      const asAsked = <T>(work: () => Promise<T>): Promise<T> =>
+        guested.run(action.guest ?? undefined, () =>
+          attendance.run(action.attended, () =>
+            ownership.run(action.owner && action.attended, () =>
+              d.inConversation(action.conversationId, () => (action.conversationId ? caller.run(action.conversationId, work) : work())),
+            ),
+          ),
+        );
       const ran = "refused" in placed
         ? { content: placed.refused, isError: true }
-        : await guested.run(action.guest ?? undefined, () =>
-            attendance.run(action.attended, () =>
-              ownership.run(action.owner && action.attended, () =>
-                d.inConversation(action.conversationId, () => d.registry.execute(action.tool, placed.input)),
-              ),
-            ),
-          );
+        : await asAsked(async () => {
+            // Judged again now, as the guarded path judges a call: what the tool refuses is not run on an old yes.
+            const refused = await d.registry.refusal?.(action.tool, stored);
+            if (refused) return { content: refused, isError: true };
+            return approvedAs.run({ id, by }, () => d.registry.execute(action.tool, placed.input));
+          });
       // What it answered is scrubbed before the audit and the resumed turn read it.
       const r = { ...ran, content: d.secrets.scrub(ran.content) };
       d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SurfaceDownError, type ChannelAdapter, type NotifyPayload } from "@kos/harness";
 
-import { dashboardUrlFor, PlaceNotifier, roomCursorsIn, scrubOutput, surfaceUp, unsentCards, waitForPortFree, type PlaceNotifierDeps } from "./host.js";
+import { dashboardUrlFor, ownHostsOf, PlaceNotifier, roomCursorsIn, scrubOutput, surfaceUp, unsentCards, waitForPortFree, type PlaceNotifierDeps } from "./host.js";
 import { postSaid, type JobFacts, type Said } from "./saidpost.js";
 
 describe("waitForPortFree", () => {
@@ -324,5 +324,13 @@ describe("Discord back from a drop", () => {
       { id: 4, tool: "secrets.allow_site", args: JSON.stringify({ secret: "github-login-9xq1", origin: "https://github.com" }) },
     ];
     expect(unsentCards(pending, (id) => id === "3").map((a) => a.id)).toEqual([1]);
+  });
+});
+
+describe("KOS's own hosts", () => {
+  it("names every address it answers to on its port, and a tunnel's or a proxy's name on any", () => {
+    const env = { KOS_DEVICE_LAN_HOST: "192.168.1.5", KOS_PUBLIC_URL: "https://kos.example.ts.net", KOS_HOST_NAMES: "kos.home, localhost" };
+    expect(ownHostsOf("127.0.0.1", 4317, env)).toEqual(["127.0.0.1:4317", "192.168.1.5:4317", "kos.example.ts.net:4317", "kos.home:4317", "localhost:4317", "kos.example.ts.net", "kos.home"]);
+    expect(ownHostsOf("0.0.0.0", 4317, {})).toEqual(["0.0.0.0:4317"]);
   });
 });
