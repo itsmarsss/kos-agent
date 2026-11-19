@@ -633,7 +633,7 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 
 /* —— a secret's field: masked as typed, never drawn back; and where it may be used —— */
 .secret-input { font-family: var(--mono); font-size: var(--text-base); }
-textarea.secret-input--masked { -webkit-text-security: disc; }
+.secret-input--masked { -webkit-text-security: disc; }
 .origin-ticks { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.15rem 0.75rem; margin: 0.15rem 0 0.3rem; }
 .origin-tick { display: flex; align-items: center; gap: 0.45rem; min-width: 0; padding: 0.2rem 0; font-size: var(--text-base); cursor: pointer; }
 .origin-tick-origin { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-family: var(--mono); font-size: var(--text-xs); }

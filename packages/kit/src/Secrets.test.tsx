@@ -3,21 +3,46 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { checkOrigin, OriginList, PAYMENT_FRAMES, SecretField, takeSecretValues } from "./Secrets.js";
+import { checkOrigin, hintWords, OriginList, PAYMENT_FRAMES, SecretField, takeSecretValues } from "./Secrets.js";
 
 afterEach(cleanup);
 
 describe("a secret's field", () => {
-  it("is masked, unremembered and unchecked, and blank says unchanged with the hint", () => {
+  it("is a text field masked by CSS where the browser can, so no password manager offers to save it", () => {
+    vi.stubGlobal("CSS", { supports: (p: string, v: string) => p === "-webkit-text-security" && v === "disc" });
     render(<SecretField label="Card number" name="number" set hint="•••• 4242" />);
     const input = screen.getByLabelText(/^Card number/) as HTMLInputElement;
-    expect(input.type).toBe("password");
+    expect(input.type).toBe("text");
+    expect(input.className).toContain("secret-input--masked");
     expect(input.getAttribute("autocomplete")).toBe("off");
     expect(input.getAttribute("spellcheck")).toBe("false");
     expect(input.value).toBe("");
-    expect(input.placeholder).toBe("Unchanged (•••• 4242)");
+    expect(input.placeholder).toBe("Unchanged · •••• 4242");
     expect(input.required).toBe(false);
     expect(input.closest("label")!.querySelector(".hint")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to a new-password field where CSS cannot mask, and says only Unchanged for a hint of dots", () => {
+    vi.stubGlobal("CSS", { supports: () => false });
+    render(<SecretField label="Password" name="password" set hint="••••••••" />);
+    const input = screen.getByLabelText(/^Password/) as HTMLInputElement;
+    expect(input.type).toBe("password");
+    expect(input.getAttribute("autocomplete")).toBe("new-password");
+    expect(input.placeholder).toBe("Unchanged");
+    vi.unstubAllGlobals();
+  });
+
+  it("marks a passphrase being set as a new password", () => {
+    render(<SecretField label="Passphrase" name="next" newPassword />);
+    expect(screen.getByLabelText(/^Passphrase/).getAttribute("autocomplete")).toBe("new-password");
+  });
+
+  it("puts a space between a hint's dots and what follows", () => {
+    expect(hintWords("••••0123")).toBe("•••• 0123");
+    expect(hintWords("•••• 4242")).toBe("•••• 4242");
+    expect(hintWords("••••••••")).toBe("••••••••");
+    expect(hintWords("3 lines")).toBe("3 lines");
   });
 
   it("is required when nothing is kept yet, and shows a plain one as typed", () => {

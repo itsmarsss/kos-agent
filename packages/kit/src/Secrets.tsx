@@ -29,6 +29,23 @@ export interface SecretFieldProps {
   seed?: string;
   autoFocus?: boolean;
   help?: ReactNode;
+  /** A passphrase being set: told to the browser as a new password, so it is never offered back or filled in. */
+  newPassword?: boolean;
+}
+
+/**
+ * Whether this browser masks a text field by CSS. Where it does, a masked
+ * field is a text field: a password field is what a password manager offers
+ * to save, and this is not the owner's login. Where it does not, it falls
+ * back to a password field marked as a new password.
+ */
+export function masksText(): boolean {
+  return typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("-webkit-text-security", "disc");
+}
+
+/** A hint as every field and row shows it: the dots, a space, then what may be shown ("•••• 4242"). */
+export function hintWords(hint: string): string {
+  return hint.replace(/^(•+)\s*(?=[^•\s])/, "$1 ");
 }
 
 /** Where a SecretField is in the DOM, so a form's values can be read and cleared without passing through state. */
@@ -38,19 +55,23 @@ const SECRET_ATTR = "data-secret";
  * A secret's value, masked as it is typed. Blank means unchanged when one
  * is kept; paste works; the browser is told not to remember, fill or check it.
  */
-export function SecretField({ label, name, hint, set = false, plain = false, multiline = false, required = false, disabled = false, placeholder, inputMode, seed, autoFocus, help }: SecretFieldProps): ReactElement {
+export function SecretField({ label, name, hint, set = false, plain = false, multiline = false, required = false, disabled = false, placeholder, inputMode, seed, autoFocus, help, newPassword = false }: SecretFieldProps): ReactElement {
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     if (seed && ref.current) ref.current.value = seed;
     // Once: the seed is a hand-off, not a binding.
   }, []);
-  const shown = placeholder ?? (set ? (hint ? `Unchanged (${hint})` : "Unchanged") : "");
+  // The dots alone say nothing a blank field does not: "Unchanged", or "Unchanged · •••• 4242".
+  const told = hint && /[^•\s]/.test(hint) ? hintWords(hint) : "";
+  const shown = placeholder ?? (set ? (told ? `Unchanged · ${told}` : "Unchanged") : "");
+  const css = masksText();
+  const type = plain || multiline || css ? "text" : "password";
   const common = {
     ref,
     name,
     [SECRET_ATTR]: "",
     className: `kos-input secret-input${plain ? "" : " secret-input--masked"}`,
-    autoComplete: "off",
+    autoComplete: newPassword || type === "password" ? "new-password" : "off",
     spellCheck: false,
     autoCapitalize: "off",
     autoCorrect: "off",
@@ -63,7 +84,7 @@ export function SecretField({ label, name, hint, set = false, plain = false, mul
   } as const;
   return (
     <Field label={label} required={required && !set} hint={help}>
-      {multiline ? <textarea rows={3} {...common} /> : <input type={plain ? "text" : "password"} inputMode={inputMode} {...common} />}
+      {multiline ? <textarea rows={3} {...common} /> : <input type={type} inputMode={inputMode} {...common} />}
     </Field>
   );
 }
