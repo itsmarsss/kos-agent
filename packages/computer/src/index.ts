@@ -6,7 +6,7 @@ export { DeviceStore, cleanName, DEFAULT_SETTINGS, MAX_ASK_MINUTES, type Compute
 export { PairingCodes, CODE_TTL_MS, type PairingCode } from "./pairing.js";
 export { DeviceError, DeviceLink, type Socket } from "./link.js";
 export { DeviceHub, PairError, kindOf, type DeviceKind, type DeviceListener, type DeviceStatus, type HubDeps, type Session } from "./hub.js";
-export { OwnerChrome } from "./chrome.js";
+export { OwnerChrome, type PageSecrets } from "./chrome.js";
 export { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, appNote, phoneNote, besideNote, panelLines, type Glance, type PanelChat, type PanelChatItem, type PanelPlaceOf, type PanelDeps, type PanelModels, type PanelPlace } from "./panel.js";
 export { ARTIFACT_DOCUMENT_BYTES, ARTIFACTS_LISTED, type ArtifactTheme, type PanelArtifact, type PanelArtifacts, type PanelArtifactView } from "./artifacts.js";
 export { DASHBOARD_IN_FLIGHT, DashboardRelay, admit, type DashboardAsk, type DashboardDeps, type PanelDashboard } from "./dashboard.js";

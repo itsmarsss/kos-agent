@@ -627,6 +627,12 @@ export async function runHost(options: HostOptions): Promise<void> {
     // The module activates inside Kernel.boot, before `kernel` is set: keys read then wait for it.
     watchKey: (name, value) => (boot.kernel ? boot.kernel.secrets.watch(name, value) : earlyKeys.push([name, value])),
     caller: () => kernel.callerConversationId,
+    // The vault's values and sites, read at each use, as KOS's own browser reads them (Kernel's BrowserLive).
+    pageSecrets: {
+      saved: () => kernel.secrets.browserValues(),
+      savedFor: (origins) => kernel.secrets.pageValues(origins),
+      evalBlocked: (origin) => kernel.secrets.evalBlocked(origin),
+    },
     // An ask to use a computer or a Chrome says who asks by the name it goes by everywhere.
     titleOf: (id) => kernel.nameOf(id),
     halted: () => kernel.killSwitch.halted,
