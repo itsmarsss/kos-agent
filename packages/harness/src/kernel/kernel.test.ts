@@ -886,6 +886,22 @@ describe("Kernel", () => {
     expect(kernel.suggestions.pending().filter((x) => JSON.stringify(x).includes("drifted"))).toHaveLength(1);
   });
 
+  it("names promotions an older workspace kept as names alone, once, and keeps none of them", async () => {
+    kernel = await boot(stubInference([]));
+    mkdirSync(join(root, "skills", "board"), { recursive: true });
+    writeFileSync(join(root, "skills", "board", "skill.json"), JSON.stringify({ name: "board", description: "d", kind: "script", entry: "run.mjs" }));
+    writeFileSync(join(root, "skills", "board", "run.mjs"), "1");
+    kernel.settings.set(SKILLS_KEY, { disabled: ["pdf"], promoted: ["board"] });
+    kernel.close();
+    const reboot = () => Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stubInference([]), profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    kernel = await reboot();
+    expect(kernel.settings.get(SKILLS_KEY)).toEqual({ disabled: ["pdf"], promoted: {} });
+    expect(JSON.stringify(kernel.suggestions.pending())).toContain("board");
+    kernel.close();
+    kernel = await reboot();
+    expect(kernel.suggestions.pending().filter((x) => JSON.stringify(x).includes("board"))).toHaveLength(1);
+  });
+
   it("lapses a deleted chat's asks, so a later yes runs nothing as nobody's", async () => {
     kernel = await boot(stubInference([]));
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Gone soon" });

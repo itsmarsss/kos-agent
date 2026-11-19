@@ -867,9 +867,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
  * they would only ask on their next run with nobody watching.
  */
 export function carryPromotions(kernel: Pick<Kernel, "workspace" | "audit" | "suggestions">, settings: Pick<SettingsStore, "get" | "set">): void {
-  const current = parseSkillSettings(settings.get(SKILLS_KEY));
+  const raw = settings.get(SKILLS_KEY) as { promoted?: unknown } | undefined;
+  const current = parseSkillSettings(raw);
   const { promoted, carried, stale } = migratePromoted(kernel.workspace, current.promoted);
-  if (!carried.length && !stale.length) return;
+  // A list of names, as older workspaces kept, ties no code to carry over: named once, so it is promoted anew.
+  if (Array.isArray(raw?.promoted)) stale.push(...raw.promoted.filter((n): n is string => typeof n === "string" && !(n in promoted)));
+  if (!carried.length && !stale.length && !Array.isArray(raw?.promoted)) return;
   for (const name of stale) delete promoted[name];
   settings.set(SKILLS_KEY, { ...current, promoted });
   for (const name of carried) {
