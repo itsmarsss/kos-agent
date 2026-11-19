@@ -1722,7 +1722,7 @@ export function ChatsPage({
                 <input
                   className="chats-search"
                   value={query}
-                  placeholder={showArchived ? "Search archived…" : "Search chats…"}
+                  placeholder={showArchived ? "Search archived" : "Search chats"}
                   aria-label={showArchived ? "Search archived chats" : "Search chats"}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
