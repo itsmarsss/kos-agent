@@ -98,20 +98,19 @@ export function Sidebar({
         </button>
         <a className="brand" href="#/">
           <Face seed={KOS_SEED} look={faceLookOf(kos)} size={20} mood={kosMood} label="KOS" />
-          <span className="brand-k">K</span>
-          <span>-OS</span>
+          <span>KOS</span>
         </a>
-        <button type="button" className="btn btn--ghost phonebar-search" aria-label="Search" onClick={onSearch}>
-          ⌘K
-        </button>
+        {/* A touch screen has no ⌘K: the search is its mark. */}
+        <IconButton className="phonebar-search" label="Search" onClick={onSearch}>
+          <NavIcon name="search" />
+        </IconButton>
       </header>
       {open && <div className="side-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />}
       <aside className={`side${open ? " is-open" : ""}`} aria-label="Primary">
         <div className="side-brand-row">
           <a className="brand side-brand" href="#/">
             <Face seed={KOS_SEED} look={faceLookOf(kos)} size={22} mood={kosMood} label="KOS" />
-            <span className="brand-k">K</span>
-          <span>-OS</span>
+            <span>KOS</span>
           </a>
           {/* Collapse to a rail. Desktop only; on a phone the sidebar is a
               drawer and this button is hidden. */}
@@ -146,10 +145,10 @@ export function Sidebar({
             type="button"
             className="side-link side-search"
             onClick={onAsk}
-            title="Quick question about the open chat"
+            title="Quick ask about the open chat"
           >
             <NavIcon name="ask" />
-            <span className="side-label">Quick question</span>
+            <span className="side-label">Quick ask</span>
             <kbd>⌘⇧K</kbd>
           </button>
           <button

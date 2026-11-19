@@ -5915,7 +5915,7 @@ a.health {
   .phonebar-menu-lines { position: relative; margin: 0 auto; }
   .phonebar-menu-lines::before { position: absolute; top: -6px; }
   .phonebar-menu-lines::after { position: absolute; top: 6px; }
-  .phonebar-search { font-family: var(--mono); }
+  .phonebar-search { width: 2.25rem; height: 2.25rem; border-radius: var(--radius); color: var(--text); }
   .side {
     position: fixed;
     inset: 0 22% 0 0;
