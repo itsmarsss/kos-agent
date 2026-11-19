@@ -14,7 +14,8 @@ under the workspace. A Chrome already answering on that port is adopted.
 Each conversation browses in a tab of its own, each tab in a window of its
 own so every page paints at once. A popup belongs to whoever's page opened
 it. Tabs nobody has used for twenty minutes are closed; the owner's own
-tabs stay until the owner closes them.
+tabs stay until the owner closes them, and so does every tab of a
+conversation the owner holds or watches one of.
 
 Sign-ins survive restarts. Chrome forgets a cookie with no expiry when it
 quits, and KOS's Chrome quits whenever KOS does, so every minute, and
@@ -91,10 +92,11 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
 - **Never hanging.** Every wait has a deadline and ends in an answer: a
   page still loading at twenty seconds is handed back as it is, said to
   be still loading. A dialog is answered the moment it opens (an alert
-  closed, a confirm dismissed unless a step said to accept), since an
-  open one holds every later command on the tab, and the agent is told
-  what it said. A crashed tab is loaded again. Calls on one tab run one
-  at a time.
+  closed, a confirm dismissed unless a step said to accept), since an open
+  one holds every later command on the tab, and the agent is told what it
+  said (a note that comes again is told once, with how often, and twenty
+  kinds at most are kept between its calls). A crashed tab is loaded
+  again. Calls on one tab run one at a time.
 
 - **Secrets.** `Page.fillSecret(ref, value, expect)` is the one way a
   saved secret goes into a page (the `secrets.fill` tool, see
@@ -128,10 +130,10 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   expiry or CVC, a token, a note; not a username, a name or an address),
   the page is tainted until its document changes: its secret fields read
   as `(hidden)` in the index and the outline; Meta or Ctrl with c, x or a
-  while a secret field has the keyboard, typing or filling into one, a
-  drag, and any target but an @ref (a CSS or text selector, a look's or a
-  read's scope, a wait for words or a selector), which could find the
-  value by guessing at it, are refused. A document is also known by its
+  while a secret field has the keyboard, a key that types or deletes in
+  one, typing or filling into one, a drag, and any target but an @ref (a
+  CSS or text selector, a look's or a read's scope, a wait for words or a
+  selector), which could find the value by guessing at it, are refused. A document is also known by its
   address (less its fragment): history coming back to one a secret was in
   (back, forward, a reload) may restore what was typed, so it is held
   tainted, the whole page, though which field holds the secret is no
@@ -145,14 +147,19 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   page's pictures are masked only for the values it may be sent
   (`savedFor`, those of secrets for its site, and the conversation's
   filled ones). Service workers on credential sites are cleared at attach
-  and when a site is listed (`purgeWorkers`). See docs/secrets.md.
+  and when a site is listed (`purgeWorkers`); a list of them that has not
+  gone quiet in three seconds leaves the sites uncleared, and they take no
+  fill. See docs/secrets.md.
 - **A conversation's tabs together.** A popup can read its opener, and
   any tab can echo what another sent, so the secrets are held per
   conversation (`Kin`, from `BrowserLive`, popups adopted into the
   conversation of the tab that opened them): while any of its tabs is on
   a tainted page, `browser.eval` and a `data:` address are refused in
   every one, and the values filled in any are kept for the conversation's
-  life. Every place any page of any of its tabs echoes one (its text, its
+  life. What a tab holds is kept for the tab's life, through its hands
+  being made again after a detach, and another conversation does not take
+  (`browser.use_tab`) a tab of one that filled a secret, nor one the owner
+  holds. Every place any page of any of its tabs echoes one (its text, its
   title, its address, a dialog, a script's answer) reads as `(hidden)`,
   as typed, percent encoded in either case of hex (as an address or a
   form carries it, a space as `+`) or JSON escaped. Every picture of
@@ -200,7 +207,10 @@ Only http and https pages (and `about:blank`, and `data:` while no tab of
 the conversation holds a secret) open for an agent; a file, a
 `javascript:` address or the browser's own pages do not, which keeps the
 workspace jail whole. `Page.goto` checks every address itself (`urlFor`,
-`address.ts`), so no way of navigating gets around it.
+`address.ts`), so no way of navigating gets around it: back and forward go
+only to an entry it would open, and the dashboard's address bar is held to
+the same. Where a tab is comes from the browser's history, not the page's
+script.
 Looking is safe; acting asks the owner until the site the tab is on is
 trusted, and the trust is kept per site for every browser action
 (`browser.*` on `site:<host>`); a script in the page, and the ask for the
