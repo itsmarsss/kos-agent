@@ -4745,7 +4745,9 @@ export class Kernel {
    * (see SeenPages), rather than another taken on the same line to the tab.
    */
   private async browserPicture(tool: string, conversationId?: string): Promise<string | undefined> {
-    const context = conversationId ? this.browserContext(tool, conversationId) : undefined;
+    // A secret's ask is about the page too: it shows the page, masked like every picture of a page holding a secret.
+    const onPage = tool === "secrets.fill" || tool === "secrets.allow_site" ? `${BROWSER_PREFIX}look` : tool;
+    const context = conversationId ? this.browserContext(onPage, conversationId) : undefined;
     if (!conversationId || !context) return undefined;
     const seen = this.seen.picture(conversationId, this.spotOf(conversationId), context.browser?.site);
     if (seen) return seen;
