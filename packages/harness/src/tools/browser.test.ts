@@ -46,6 +46,10 @@ class ScriptedPage implements Session {
         if (params["replMode"]) return { result: { type: "number", value: 42 } };
         return { result: {} };
       }
+      // The page's own context, reported as Runtime is turned on, as Chrome does.
+      case "Runtime.enable":
+        this.page.handle({ method: "Runtime.executionContextCreated", params: { context: { id: 1, uniqueId: "u1", origin: "null", auxData: { isDefault: true, frameId: "F" } } } });
+        return {};
       case "Accessibility.getFullAXTree":
         return { nodes: structuredClone(this.tree) };
       case "Page.getLayoutMetrics":
