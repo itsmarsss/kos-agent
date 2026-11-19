@@ -51,7 +51,10 @@ Settings, Network, Dashboard token. The tab keeps it in session storage
 (gone when it closes, never on disk) and sends it as `x-kos-token` with
 every request. What the browser fetches by itself (an image, a player, a
 framed PDF) goes by an address KOS signs for the holder through
-`/api/sign`, good for 15 minutes, so the token never goes into a URL. The
+`/api/sign`, so the token never goes into a URL: only those routes are
+signed, a picture's for 15 minutes (signed again before it lapses or when
+it fails), a player's or a PDF's for 6 hours, and the socket's ticket for a
+minute and one connection. The
 dashboard's page and files are sent with `frame-ancestors 'none'` and
 `X-Frame-Options: DENY`, so no other page can frame it. Every route answers only to KOS's own names
 (localhost, the bound host, `KOS_PUBLIC_URL`'s, the Wi-Fi host) or an
