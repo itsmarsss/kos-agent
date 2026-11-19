@@ -1157,14 +1157,16 @@ describe("handleApiRequest", () => {
 
   it("reports per-widget query errors instead of empty data", async () => {
     const project = kernel.manifest.createProject({ name: "Broken", type: "x" });
+    kernel.migrator.migrate(project.slug, { op: "create_table", table: "gone", columns: [{ name: "id", type: "INTEGER", primaryKey: true }] });
     kernel.pages.write(project.slug, {
       id: "broken",
       title: "Broken",
       widgets: [
         { type: "stat", label: "N", query: "SELECT 1 AS n" },
-        { type: "table", query: "SELECT * FROM no_such_table" },
+        { type: "table", query: `SELECT * FROM ${project.slug}_gone` },
       ],
     });
+    kernel.workspace.db.exec(`DROP TABLE ${project.slug}_gone`);
     const page = await handleApiRequest(kernel, {
       method: "GET",
       path: "/api/pages/broken",
@@ -1176,7 +1178,31 @@ describe("handleApiRequest", () => {
     expect(body.data[0]).toEqual([{ n: 1 }]);
     expect(body.errors[0]).toBeUndefined();
     expect(body.data[1]).toEqual([]);
-    expect(body.errors[1]).toContain("no_such_table");
+    expect(body.errors[1]).toContain("cannot run here");
+  });
+
+  it("holds a widget page on disk to its project's tables, as it is drawn and on every write", async () => {
+    const project = kernel.manifest.createProject({ name: "Tasks", type: "x" });
+    kernel.migrator.migrate(project.slug, { op: "create_table", table: "items", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "title", type: "TEXT" }] });
+    const rec = kernel.pages.write(project.slug, {
+      id: "board",
+      title: "Board",
+      widgets: [
+        { type: "form", title: "Add", mutate: { table: `${project.slug}_items`, columns: ["title"] } },
+        { type: "table", query: `SELECT * FROM ${project.slug}_items` },
+      ],
+    });
+    // The spec as stored is a file: one changed on disk names KOS's own tables.
+    const file = join(root, rec.path);
+    const spec = JSON.parse(readFileSync(file, "utf8")) as { widgets: { mutate?: { table: string }; query?: string }[] };
+    spec.widgets[0]!.mutate!.table = "permission_rules";
+    spec.widgets[1]!.query = "SELECT * FROM pages";
+    writeFileSync(file, JSON.stringify(spec));
+    const mutate = await handleApiRequest(kernel, { method: "POST", path: "/api/mutate", body: { pageId: "board", widgetIndex: 0, op: "insert", values: { title: "x" } } });
+    expect(mutate.status).toBe(403);
+    const drawn = (await handleApiRequest(kernel, { method: "GET", path: "/api/pages/board" })).body as { data: Record<number, unknown[]>; errors: Record<number, string> };
+    expect(drawn.data[1]).toEqual([]);
+    expect(drawn.errors[1]).toContain('reads "pages"');
   });
 
   describe("health and running a job by hand", () => {
@@ -1938,27 +1964,27 @@ describe("handleApiRequest", () => {
   describe("/api/mutate", () => {
     beforeEach(() => {
       kernel.workspace.db.exec(
-        `CREATE TABLE tasks (id INTEGER PRIMARY KEY, title TEXT, done INTEGER DEFAULT 0);
-         CREATE TABLE secrets_vault (id INTEGER PRIMARY KEY, token TEXT);
+        `CREATE TABLE secrets_vault (id INTEGER PRIMARY KEY, token TEXT);
          INSERT INTO secrets_vault (id, token) VALUES (1, 'keep me');`,
       );
       const project = kernel.manifest.createProject({ name: "Tasks", type: "tracker" });
+      kernel.migrator.migrate(project.slug, { op: "create_table", table: "items", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "title", type: "TEXT" }, { name: "done", type: "INTEGER", default: 0 }] });
       kernel.pages.write(project.slug, {
         id: "tasks",
         title: "Tasks",
         widgets: [
-          { type: "stat", label: "N", query: "SELECT COUNT(*) AS n FROM tasks" },
+          { type: "stat", label: "N", query: "SELECT COUNT(*) AS n FROM tasks_items" },
           {
             type: "form",
             title: "Add",
-            mutate: { table: "tasks", columns: ["title"], allow: ["insert"] },
+            mutate: { table: "tasks_items", columns: ["title"], allow: ["insert"] },
           },
           {
             type: "list",
-            query: "SELECT id, title FROM tasks",
-            mutate: { table: "tasks", columns: ["done"], allow: ["update", "delete"] },
+            query: "SELECT id, title FROM tasks_items",
+            mutate: { table: "tasks_items", columns: ["done"], allow: ["update", "delete"] },
           },
-          { type: "card", query: "SELECT id, title FROM tasks" },
+          { type: "card", query: "SELECT id, title FROM tasks_items" },
         ],
       });
     });
@@ -1976,7 +2002,7 @@ describe("handleApiRequest", () => {
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ changes: 1 });
       const rows = kernel.workspace.db
-        .prepare("SELECT title FROM tasks")
+        .prepare("SELECT title FROM tasks_items")
         .all() as Array<{ title: string }>;
       expect(rows).toEqual([{ title: "write tests" }]);
     });
@@ -1986,7 +2012,7 @@ describe("handleApiRequest", () => {
       const res = await mutate({ pageId: "tasks", widgetIndex: 1, op: "insert", values: { title: "from the trash" } });
       expect(res.status).toBe(409);
       expect((res.body as { error: string }).error).toContain("in the trash");
-      expect(kernel.workspace.db.prepare("SELECT COUNT(*) AS n FROM tasks").get()).toEqual({ n: 0 });
+      expect(kernel.workspace.db.prepare("SELECT COUNT(*) AS n FROM tasks_items").get()).toEqual({ n: 0 });
     });
 
     it("ignores a table and columns supplied by the caller", async () => {
@@ -2019,7 +2045,7 @@ describe("handleApiRequest", () => {
     });
 
     it("rejects a column the widget did not declare", async () => {
-      kernel.workspace.db.prepare("INSERT INTO tasks (title) VALUES ('a')").run();
+      kernel.workspace.db.prepare("INSERT INTO tasks_items (title) VALUES ('a')").run();
       const res = await mutate({
         pageId: "tasks",
         widgetIndex: 2,

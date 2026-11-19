@@ -351,30 +351,41 @@ export class PageStore {
   }
 
   /**
-   * A widget that writes has to name a table that exists.
+   * A widget that writes has to name a table its project made.
    *
    * Tables are namespaced to the project slug on creation, so an agent that
    * writes the logical name gets a page that renders, passes validation, and
    * then fails on the first save with "no such table". The failure belongs at
-   * write time, naming the physical table it should have used.
+   * write time, naming the physical table it should have used. A table that
+   * exists but is not the project's (permission_rules, crons, another
+   * project's) is refused as well: a form on it would write KOS's own rows.
    */
   private assertMutationTablesExist(projectSlug: string, page: PageSpec): void {
-    const exists = (table: string): boolean =>
-      this.db
-        .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
-        .get(table) !== undefined;
-
+    const tables = registeredTables(this.db, projectSlug);
     page.widgets.forEach((widget, index) => {
       const target = (widget as { mutate?: { table?: unknown } }).mutate;
       const table = target?.table;
-      if (typeof table !== "string" || table === "" || exists(table)) return;
-      const namespaced = `${projectSlug}_${table}`;
+      if (typeof table !== "string" || table === "" || tables.has(table)) return;
+      const namespaced = projectTable(projectSlug, table);
       throw new Error(
-        exists(namespaced)
-          ? `widget[${index}]: mutation target table "${table}" does not exist. Tables are namespaced to the project, so use "${namespaced}".`
-          : `widget[${index}]: mutation target table "${table}" does not exist. Create it with systems.migrate first.`,
+        tables.has(namespaced)
+          ? `widget[${index}]: mutation target table "${table}" is not a table of project "${projectSlug}". Tables are namespaced to the project, so use "${namespaced}".`
+          : `widget[${index}]: mutation target table "${table}" is not a table of project "${projectSlug}". Create it with systems.migrate first.`,
       );
     });
+  }
+
+  /** A spec widget's query reads only its project's own tables, as an HTML page's do; the refusal names the first that is not. */
+  refuseSpecQuery(projectSlug: string, query: string): void {
+    const tables = registeredTables(this.db, projectSlug);
+    for (const table of tablesRead(this.db, query, [])) {
+      if (!tables.has(table)) throw new BridgeRefusal(`it reads "${table}", which is not a table of project "${projectSlug}"`);
+    }
+  }
+
+  /** Whether a spec widget may write a table: only one its project made, checked again on every write. */
+  specMayWrite(projectSlug: string, table: string): boolean {
+    return registeredTables(this.db, projectSlug).has(table);
   }
 
   /**
@@ -383,12 +394,13 @@ export class PageStore {
    * Tables are namespaced by slug, so a query naming another project's tables
    * says plainly that the page was filed in the wrong place. Left unchecked
    * the page renders correctly and the mistake shows up only as a stranger in
-   * someone else's project on the Projects tab.
+   * someone else's project on the Projects tab. Past that, what the query
+   * plan opens must be the project's own tables, so a widget cannot show
+   * audit_log or memory_claims.
    */
   private assertQueriesStayInProject(projectSlug: string, page: PageSpec): void {
     const all = this.manifest.list().map((p) => p.slug);
     const others = all.filter((s) => s !== projectSlug);
-    if (others.length === 0) return;
 
     page.widgets.forEach((widget, index) => {
       const query = (widget as { query?: unknown }).query;
@@ -407,6 +419,15 @@ export class PageStore {
         throw new Error(
           `widget[${index}]: query reads "${hit}", which belongs to project "${owner}", not "${projectSlug}". Write this page under "${owner}", or create the project it really belongs to.`,
         );
+      }
+    });
+    page.widgets.forEach((widget, index) => {
+      const query = (widget as { query?: unknown }).query;
+      if (typeof query !== "string" || !query.trim()) return;
+      try {
+        this.refuseSpecQuery(projectSlug, query);
+      } catch (err) {
+        throw new Error(`widget[${index}].query: ${err instanceof Error ? err.message : String(err)}`);
       }
     });
   }
