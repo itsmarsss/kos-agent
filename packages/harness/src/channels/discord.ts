@@ -2267,11 +2267,10 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!target) return undefined;
     const channel = (await this.place(target)) as { isSendable?: () => boolean } | null;
     if (!channel?.isSendable?.()) return undefined;
-    // A place guests read is no place for the owner's chat to ask in: the
-    // card spells out the tool and all it would do. A room's own asks are
-    // what its guests' words asked for, and show there.
-    const key = this.roomKeyOf(channel);
-    if (!roomPlaceOf(conversationId) && key !== undefined && this.guestsAllowed?.(key)) return undefined;
+    // A place anyone else can read is no place to ask in, a room's own asks
+    // included: the card spells out the tool and all it would do. Those ask
+    // in #needs-you, or the DM.
+    if (!this.ownerOnly(channel)) return undefined;
     return channel as unknown as { id: string; isThread?: () => boolean; parent?: { id: string } | null; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> };
   }
 
@@ -2286,11 +2285,32 @@ export class DiscordAdapter implements ChannelAdapter {
     return `${topic} · ${base}/#/chats/${encodeURIComponent(key)}`;
   }
 
-  /** The approvals channel, when the server has one; prompts go there rather than to a DM. */
+  /**
+   * Whether only the owner and KOS can read a place, as Discord's own
+   * permissions say it: everyone denied the view, and nobody else allowed
+   * it, by role or by name. A thread is read by whoever reads its channel.
+   * A DM is the owner's.
+   */
+  private ownerOnly(place: unknown): boolean {
+    type Overwrites = { cache?: Map<string, { deny: { has: (bit: bigint) => boolean }; allow?: { has: (bit: bigint) => boolean } }> };
+    const at = place as { isThread?: () => boolean; parent?: { permissionOverwrites?: Overwrites } | null; guildId?: string | null; guild?: { id: string } | null; permissionOverwrites?: Overwrites } | null;
+    if (!at) return false;
+    const guildId = at.guildId ?? at.guild?.id;
+    if (!guildId) return true;
+    const cache = (at.isThread?.() ? at.parent : at)?.permissionOverwrites?.cache;
+    if (!cache?.get(guildId)?.deny.has(PermissionFlagsBits.ViewChannel)) return false;
+    const ours = new Set([this.ownerId, this.client.user?.id].filter((id): id is string => id !== undefined));
+    for (const [id, overwrite] of cache) {
+      if (id !== guildId && !ours.has(id) && overwrite.allow?.has(PermissionFlagsBits.ViewChannel)) return false;
+    }
+    return true;
+  }
+
+  /** The approvals channel, when the server has one and only the owner reads it; prompts go there rather than to a DM. */
   private async approvalsChannel(): Promise<{ id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> } | undefined> {
     if (!this.approvalsChannelId) return undefined;
     const channel = (await this.place(this.approvalsChannelId)) as { isSendable?: () => boolean } | null;
-    return channel?.isSendable?.() ? (channel as unknown as { id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
+    return channel?.isSendable?.() && this.ownerOnly(channel) ? (channel as unknown as { id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
   }
 
   /**

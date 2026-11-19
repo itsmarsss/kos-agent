@@ -1642,17 +1642,34 @@ describe("DiscordAdapter authorization", () => {
     expect(presses[2]).toEqual({ buttonId: "", label: "Ship it", token: "tok9", pressedBy: "owner-id" });
   });
 
-  it("asks in #needs-you alone for an owner's chat bound to a place guests read, and in a room's own place", async () => {
+  /** Discord's permission overwrites as a channel carries them: who is denied the view, who is allowed it. */
+  function overwrites(deny: string[], allow: string[] = []): { cache: Map<string, { deny: { has: (b: bigint) => boolean }; allow: { has: (b: bigint) => boolean } }> } {
+    const view = PermissionFlagsBits.ViewChannel;
+    const cache = new Map<string, { deny: { has: (b: bigint) => boolean }; allow: { has: (b: bigint) => boolean } }>();
+    for (const id of deny) cache.set(id, { deny: { has: (b) => b === view }, allow: { has: () => false } });
+    for (const id of allow) cache.set(id, { deny: { has: () => false }, allow: { has: (b) => b === view } });
+    return { cache };
+  }
+
+  it("asks only where the owner alone reads: never a place guests or anyone else read, a room's own asks included", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "chat-board" });
-    const posts: Record<string, Record<string, unknown>[]> = { ny: [], c8: [], c9: [] };
-    const sendable = (id: string, topic: string) => ({ id, topic, isThread: () => false, isSendable: () => true, send: async (p: Record<string, unknown>) => { posts[id]!.push(p); return { id: `m${posts[id]!.length}`, edit: async () => undefined }; } });
-    const places: Record<string, unknown> = { ny: sendable("ny", "kos:needs-you · Approvals"), c8: sendable("c8", "kos:chat-board · Board"), c9: sendable("c9", "kos:chat-mine · Mine") };
+    const posts: Record<string, Record<string, unknown>[]> = { ny: [], c8: [], c9: [], c10: [] };
+    const sendable = (id: string, topic: string, perms: ReturnType<typeof overwrites>) => ({ id, topic, guildId: "g1", permissionOverwrites: perms, isThread: () => false, isSendable: () => true, send: async (p: Record<string, unknown>) => { posts[id]!.push(p); return { id: `m${posts[id]!.length}`, edit: async () => undefined }; } });
+    const mine = overwrites(["g1"], ["owner-id"]);
+    const places: Record<string, unknown> = {
+      ny: sendable("ny", "kos:needs-you · Approvals", mine),
+      // Opened to guests: everyone reads and writes.
+      c8: sendable("c8", "kos:chat-board · Board", overwrites([])),
+      c9: sendable("c9", "kos:chat-mine · Mine", mine),
+      // Shut to everyone, but a role let in by hand.
+      c10: sendable("c10", "kos:chat-team · Team", overwrites(["g1"], ["owner-id", "role-team"])),
+    };
     const inner = adapter as unknown as { client: unknown; approvalsChannelId: string; boundIds: Map<string, string> };
     inner.client = { channels: { fetch: async (id: string) => places[id] ?? null }, users: { fetch: async () => ({ send: async () => { throw new Error("no DM"); } }) } };
     inner.approvalsChannelId = "ny";
-    inner.boundIds.set("chat-board", "c8").set("chat-mine", "c9");
+    inner.boundIds.set("chat-board", "c8").set("chat-mine", "c9").set("chat-team", "c10");
     const ask = (id: string, conversationId: string) => adapter.requestApproval("owner-id", { id, text: "x", tool: "sql", args: { sql: "UPDATE secrets SET v = 1" }, asker: { name: "Board", conversationId } });
-    // The owner's chat bound to #leetcode, which guests read: the card, with all it would do, stays in #needs-you.
+    // The owner's chat bound to a place guests read: the card, with all it would do, stays in #needs-you.
     await ask("1", "chat-board");
     expect(posts["c8"]).toHaveLength(0);
     expect(posts["ny"]).toHaveLength(1);
@@ -1660,10 +1677,28 @@ describe("DiscordAdapter authorization", () => {
     // A chat whose place only the owner reads is asked there too, as before.
     await ask("2", "chat-mine");
     expect(posts["c9"]).toHaveLength(1);
-    // The room's own ask, what a guest's words asked for, shows in its place.
+    // The room's own ask spells out the call too: guests never see it.
     await ask("3", "discord:room:c8");
-    expect(posts["c8"]).toHaveLength(1);
-    expect(posts["ny"]).toHaveLength(3);
+    expect(posts["c8"]).toHaveLength(0);
+    // A place a role reads is not the owner's alone.
+    await ask("4", "chat-team");
+    expect(posts["c10"]).toHaveLength(0);
+    expect(posts["ny"]).toHaveLength(4);
+  });
+
+  it("asks in the DM when #needs-you has been opened to others", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    const dm: Record<string, unknown>[] = [];
+    const ny: Record<string, unknown>[] = [];
+    const inner = adapter as unknown as { client: unknown; approvalsChannelId: string };
+    inner.client = {
+      channels: { fetch: async () => ({ id: "ny", guildId: "g1", permissionOverwrites: overwrites([]), isSendable: () => true, send: async (p: Record<string, unknown>) => (ny.push(p), { id: "n1" }) }) },
+      users: { fetch: async () => ({ send: async (p: Record<string, unknown>) => (dm.push(p), { id: "d1" }) }) },
+    };
+    inner.approvalsChannelId = "ny";
+    await adapter.requestApproval("owner-id", { id: "5", text: "x", tool: "shell.run", args: { command: "rm -rf build" } });
+    expect(ny).toHaveLength(0);
+    expect(dm).toHaveLength(1);
   });
 
   it("reads a channel's messages and reactions, reacts, and hands back what it posted", async () => {
