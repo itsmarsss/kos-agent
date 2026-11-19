@@ -8,6 +8,9 @@ import { resultText } from "../models/heard.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel, orchestratorId, projectBrief } from "./kernel.js";
+import { readSkills, skillHash } from "../skills/manifest.js";
+import { legacySkillHash } from "../skills/migrate.js";
+import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import type { Conversation } from "./conversations.js";
 import { isKernelTable } from "../tools/fence.js";
 import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
@@ -854,6 +857,33 @@ describe("Kernel", () => {
     // A name that tries to climb out is just a name.
     expect(files.at(-1)!.files).toEqual([{ name: "../../notes.txt", path: "blobs/recap/uploads/notes.txt" }]);
     expect(readFileSync(join(root, "blobs", "recap", "uploads", "notes.txt"), "utf8")).toBe("hi");
+  });
+
+  it("carries a promotion kept under the two-file hash over at boot, and names the ones it cannot", async () => {
+    kernel = await boot(stubInference([]));
+    const write = (name: string, body: string): void => {
+      mkdirSync(join(root, "skills", name), { recursive: true });
+      writeFileSync(join(root, "skills", name, "skill.json"), JSON.stringify({ name, description: "d", kind: "script", entry: "run.mjs" }));
+      writeFileSync(join(root, "skills", name, "run.mjs"), body);
+    };
+    // With a helper beside it, so the folder hash is not the two-file one.
+    write("board", "import './lib.mjs';");
+    writeFileSync(join(root, "skills", "board", "lib.mjs"), "console.log('board')");
+    write("drifted", "1");
+    const record = (name: string) => readSkills(kernel.workspace).skills.find((s) => s.manifest.name === name)!;
+    const legacy = { board: legacySkillHash(kernel.workspace, record("board")), drifted: legacySkillHash(kernel.workspace, record("drifted")) };
+    writeFileSync(join(root, "skills", "drifted", "run.mjs"), "2");
+    kernel.settings.set(SKILLS_KEY, { disabled: [], promoted: legacy });
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stubInference([]), profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    const promoted = parseSkillSettings(kernel.settings.get(SKILLS_KEY)).promoted;
+    expect(promoted).toEqual({ board: skillHash(kernel.workspace, record("board")) });
+    expect(JSON.stringify(kernel.audit.recent(500)).includes("carried board")).toBe(true);
+    expect(JSON.stringify(kernel.suggestions.pending())).toContain("drifted");
+    // Told once: a second boot finds nothing to carry and nothing to tell.
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stubInference([]), profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    expect(kernel.suggestions.pending().filter((x) => JSON.stringify(x).includes("drifted"))).toHaveLength(1);
   });
 
   it("lapses a deleted chat's asks, so a later yes runs nothing as nobody's", async () => {
