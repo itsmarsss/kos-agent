@@ -33,6 +33,8 @@ describe.skipIf(!findChrome(undefined))("no script on a credential site", { time
   let host: ChromeHost;
   /** Whether the vault knows the site yet: off, it is a site no secret is for. */
   let known = true;
+  /** How far the wall clock has been stepped back. */
+  let stepBack = 0;
   /** What reached the site's server through a service worker's hands, and what it was sent. */
   const stolen: string[] = [];
   const submitted: string[] = [];
@@ -121,6 +123,8 @@ describe.skipIf(!findChrome(undefined))("no script on a credential site", { time
       savedFor: (origins) => (origins.some(onSite) ? saved : []),
       evalBlocked: (origin) => (known && onSite(origin) ? "a saved secret may be filled on this site" : undefined),
       workerSites: () => (known ? ["127.0.0.1"] : []),
+      // The wall clock, which a test may step back.
+      now: () => Date.now() - stepBack,
     });
     await visit(await tabOf("warm"), [`${otherBase}/next`], { then: "none" });
   }, 60_000);
@@ -239,26 +243,85 @@ describe.skipIf(!findChrome(undefined))("no script on a credential site", { time
     expect(stolen).toEqual([]);
   });
 
+  type Send = (method: string, params?: Record<string, unknown>, sessionId?: string, timeoutMs?: number) => Promise<Record<string, unknown>>;
+  /** Chrome's commands passed through `wrap` for as long as `work` runs: a failure or a race forced where it is wanted. */
+  const meddled = async (wrap: (send: Send, method: string, params?: Record<string, unknown>, sessionId?: string, timeoutMs?: number) => Promise<Record<string, unknown>>, work: () => Promise<void>): Promise<void> => {
+    const cdp = (live as unknown as { cdp: { send: Send } }).cdp;
+    const send = cdp.send.bind(cdp);
+    cdp.send = (method, params, sessionId, timeoutMs) => wrap(send, method, params, sessionId, timeoutMs);
+    try {
+      await work();
+    } finally {
+      cdp.send = send;
+    }
+  };
+
   it("clears every scope though one fails, and takes no fill on the site until a clearing works", async () => {
     const h = await tabOf("h");
     await plant(h, ["/sw.js", "/a/sw.js"]);
     expect(await registrations(h)).toBe(2);
-    const cdp = (live as unknown as { cdp: { send: (...args: unknown[]) => Promise<Record<string, unknown>> } }).cdp;
-    const send = cdp.send.bind(cdp);
     let failures = 1;
-    cdp.send = async (...args: unknown[]) => {
-      if (args[0] === "Storage.clearDataForOrigin" && failures-- > 0) throw new Error("Internal error");
-      return send(...args);
-    };
+    await meddled(
+      async (send, method, ...rest) => {
+        if (method === "ServiceWorker.unregister" && failures-- > 0) throw new Error("Internal error");
+        return send(method, ...rest);
+      },
+      () => live.purgeWorkers(["127.0.0.1"]),
+    );
+    // The scope after the one that failed was still cleared, and with it the origin's every worker.
+    expect(await registrations(h)).toBe(0);
+    // While clearing keeps failing, the site takes no fill, though a fill tries once more.
+    await meddled(
+      async (send, method, ...rest) => {
+        if (method === "ServiceWorker.enable") throw new Error("Internal error");
+        return send(method, ...rest);
+      },
+      () => expect(fillOn(h, true)).rejects.toMatchObject({ code: "worker", message: expect.stringMatching(/could not be cleared/) }),
+    );
+    // Once it works, the fill's own try clears the site, and the fill goes in.
+    await fillOn(h, true);
+  });
+
+  it("recovers from a clearing that could not start: the fill tries again", async () => {
+    const h = await tabOf("h");
+    let failures = 1;
+    await meddled(
+      async (send, method, ...rest) => {
+        if (method === "Target.createTarget" && failures-- > 0) throw new Error("Internal error");
+        return send(method, ...rest);
+      },
+      () => live.purgeWorkers(["127.0.0.1"]),
+    );
+    await fillOn(h, true);
+  });
+
+  it("takes no fill in a document the worker served while it was being cleared", async () => {
+    const r = await tabOf("r");
+    await plant(r, ["/sw.js"]);
+    await meddled(
+      async (send, method, ...rest) => {
+        // The page loads anew, through the worker, in the middle of the clearing.
+        if (method === "ServiceWorker.unregister") await visit(r, [`${base}/swlogin`], { then: "none", until: "load" });
+        return send(method, ...rest);
+      },
+      () => live.purgeWorkers(["127.0.0.1"]),
+    );
+    expect(await peek(r, "Boolean(navigator.serviceWorker.controller)")).toBe(false);
+    await expect(fillOn(r, false)).rejects.toMatchObject({ code: "worker" });
+    await fillOn(r, true);
+  });
+
+  it("orders documents and clearings by a clock that a step of the wall clock does not turn back", async () => {
+    const s = await tabOf("s");
+    await plant(s, ["/sw.js"]);
+    stepBack = 3_600_000;
     try {
       await live.purgeWorkers(["127.0.0.1"]);
+      await expect(fillOn(s, false)).rejects.toMatchObject({ code: "worker" });
+      await fillOn(s, true);
     } finally {
-      cdp.send = send;
+      stepBack = 0;
     }
-    expect(await registrations(h)).toBe(0);
-    await expect(fillOn(h, true)).rejects.toMatchObject({ code: "worker", message: expect.stringMatching(/could not be cleared/) });
-    await live.purgeWorkers(["127.0.0.1"]);
-    await fillOn(h, true);
   });
 
   it("runs no script in a blank popup a credential site opened, which has the site's origin", async () => {
@@ -289,6 +352,10 @@ describe.skipIf(!findChrome(undefined))("no script on a credential site", { time
     }
     expect(shown.filter((u) => u.includes("kos-internal"))).toEqual([]);
     expect(live.tabs().some((t) => t.url.includes("kos-internal"))).toBe(false);
+    // Known by its id, not its address: a page that goes there is still listed.
+    const id = await live.tabFor("q");
+    await sessionOf({ page: await live.page(id), capture: async () => undefined }).send("Page.navigate", { url: "about:blank#kos-internal" });
+    await expect.poll(() => live.tabs().find((t) => t.id === id)?.url, { timeout: 5_000 }).toBe("about:blank#kos-internal");
   });
 
   it("tells a page elsewhere nothing of which of its words is a saved secret, and still cleans them from what KOS reads", async () => {
