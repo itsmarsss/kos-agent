@@ -8,9 +8,13 @@ import UIKit
 #endif
 
 extension Phone {
+  /// The app's one phone: the scene draws it, and a notification's action, which may come with no scene up, decides
+  /// through it.
+  public static let shared = onThisDevice()
+
   /// The phone over this device's own adapters: on an iPhone, the Keychain, its speech recognition and its
   /// haptics; on a Mac, where the app runs only to be looked at, pairings in memory and no microphone.
-  public static func onThisDevice() -> Phone {
+  private static func onThisDevice() -> Phone {
     let log = Logger(subsystem: "com.itsmarsss.kos-phone", category: "line")
     let app = AppInfo.phone
     // Stamped into the app by its Xcode build phase (README); none from `swift run`.
@@ -18,7 +22,7 @@ extension Phone {
     #if os(iOS)
     return Phone(
       vault: KeychainVault(service: "KOS for iPhone"), pairer: NetworkPairer(), recognizer: SystemSpeechRecognizer(), speaker: SystemSpeaker(),
-      haptics: SystemHaptics(), preferences: UserDefaults.standard, line: { Connection(log: log, app: app, build: build) })
+      haptics: SystemHaptics(), preferences: UserDefaults.standard, line: { Connection(log: log, app: app, build: build) }, notifier: SystemNotifier())
     #else
     return Phone(
       vault: MemoryVault(), pairer: NetworkPairer(), recognizer: NoSpeech(), speaker: SystemSpeaker(), haptics: SystemHaptics(),

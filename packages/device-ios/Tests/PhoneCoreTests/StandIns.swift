@@ -22,24 +22,26 @@ final class FakeLine: Line {
   private(set) var redialled = 0
   private(set) var unpaired = false
   private(set) var stopped = false
+  /// Hung up with the pairing kept, as the phone does after deciding from a notification with the app off screen.
+  private(set) var held = 0
 
   func start(_ pairing: Pairing) { started = pairing }
-  func hold(_ pairing: Pairing) {}
+  func hold(_ pairing: Pairing) { held += 1 }
   func redialNow() { redialled += 1 }
   /// Frames held on their way, as a slow line holds them: each told gone only at `release`.
   var holding = false
-  private var held: [@MainActor () -> Void] = []
+  private var waiting: [@MainActor () -> Void] = []
 
   func send(_ data: Data, done: (@MainActor () -> Void)?) {
     sent.append((try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:])
     guard let done else { return }
-    if holding { held.append(done) } else { done() }
+    if holding { waiting.append(done) } else { done() }
   }
 
   func release() {
-    let waiting = held
-    held = []
-    for done in waiting { done() }
+    let gone = waiting
+    waiting = []
+    for done in gone { done() }
   }
   func unpair(then done: @escaping () -> Void) {
     unpaired = true
@@ -171,6 +173,32 @@ final class FeltHaptics: Haptics {
   func done() { felt.append("done") }
 }
 
+/// Notifications as a test plays the iPhone's: the owner's answer when asked, and what the phone did with them.
+@MainActor
+final class FakeNotifier: Notifier {
+  /// None by default: a build with no push, as every build is before the owner has an Apple developer account.
+  var environment: PushEnvironment?
+  var allowed: PushPermission = .undecided
+  /// What the owner says when asked.
+  var answer: PushPermission = .allowed
+  private(set) var asked = 0
+  private(set) var registered = 0
+  private(set) var withdrawn: [String] = []
+  private(set) var withdrewAll = 0
+  private(set) var fallbacks: [String] = []
+
+  func permission() async -> PushPermission { allowed }
+  func requestPermission() async -> PushPermission {
+    asked += 1
+    allowed = answer
+    return allowed
+  }
+  func register() { registered += 1 }
+  func withdraw(_ identifiers: [String]) { withdrawn += identifiers }
+  func withdrawAll() { withdrewAll += 1 }
+  func couldNotDecide(ask: String) { fallbacks.append(ask) }
+}
+
 /// Pairing as a test plays KOS: the pin a probe sees, and what each pair was asked with.
 final class FakePairer: Pairer, @unchecked Sendable {
   var pin = Pins.kos
@@ -211,6 +239,7 @@ struct Rig {
   let preferences: MemoryPreferences
   let sleeps: Sleeps
   let lines: Lines
+  let notifier: FakeNotifier
 
   /// Every line the phone made, the latest last.
   @MainActor
@@ -219,7 +248,7 @@ struct Rig {
     var latest: FakeLine { made.last! }
   }
 
-  init(paired: Pairing? = nil, preferences: MemoryPreferences = MemoryPreferences()) {
+  init(paired: Pairing? = nil, preferences: MemoryPreferences = MemoryPreferences(), notifier: FakeNotifier? = nil) {
     vault = MemoryVault(paired.map { [$0] } ?? [])
     pairer = FakePairer()
     speech = ScriptedSpeech()
@@ -227,6 +256,8 @@ struct Rig {
     haptics = FeltHaptics()
     self.preferences = preferences
     sleeps = Sleeps()
+    let notifier = notifier ?? FakeNotifier()
+    self.notifier = notifier
     let lines = Lines()
     self.lines = lines
     phone = Phone(
@@ -235,7 +266,7 @@ struct Rig {
         let line = FakeLine()
         lines.made.append(line)
         return line
-      }, timing: .init(takeWithin: .seconds(12), showWithin: .seconds(6), sleep: sleeps.sleep))
+      }, notifier: notifier, timing: .init(takeWithin: .seconds(12), showWithin: .seconds(6), sleep: sleeps.sleep))
   }
 
   var line: FakeLine { lines.latest }

@@ -31,7 +31,7 @@ let package = Package(
       .product(name: "DeviceKit", package: "device-shared"),
     ]),
     // The app itself: the one file an iOS app target takes (README), run on a Mac in a phone-sized window.
-    .executableTarget(name: "KOSPhoneApp", dependencies: ["PhoneUI"], path: "App", exclude: ["Info.plist"]),
+    .executableTarget(name: "KOSPhoneApp", dependencies: ["PhoneUI"], path: "App", exclude: ["Info.plist", "Push.entitlements", "Push.xcconfig"]),
     .testTarget(name: "PhoneCoreTests", dependencies: [
       "PhoneCore",
       .product(name: "DeviceCore", package: "device-shared"),

@@ -45,6 +45,8 @@ struct InboxScreen: View {
       try? await Task.sleep(for: .milliseconds(350))
       if !Task.isCancelled { await inbox.refreshDecided() }
     }
+    // An ask's notification tapped: opened here, once the Inbox has it.
+    .task(id: inbox.revealKey) { if inbox.revealKey != nil, let ask = await inbox.revealed() { open = ask } }
     .sheet(item: $open) { ask in
       AskBody(ask: ask.ask, more: 0, from: ask.asker) { approved, remember in
         open = nil

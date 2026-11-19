@@ -93,6 +93,7 @@ export const SETTINGS: SettingEntry[] = [
   { section: "devices", label: "KOS asks for", words: "session length minutes" },
   { section: "devices", label: "Work you did not start may use a computer", words: "unattended schedules" },
   { section: "devices", label: "Add a device", words: "pair pairing code kos device extension chrome" },
+  { section: "devices", label: "Phone notifications", words: "push apns iphone lock screen key p8" },
 ];
 
 export interface SettingHit {

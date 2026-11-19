@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { Empty, Field, Pill, Switch, type Tone } from "@kos/kit";
 
-import { api, type ComputerSettings, type DeviceBuild, type DeviceCode, type LanStatus, type PairedDevice } from "./api.js";
+import type { SecretSummary } from "@kos/shared";
+
+import { api, type ComputerSettings, type DeviceBuild, type DeviceCode, type LanStatus, type PairedDevice, type PushSettings, type PushStatus } from "./api.js";
 import { CommandLine, ConfirmButton, FieldRow } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
+import { secretsApi } from "./secrets.js";
 import { Select } from "./Select.js";
 
 /**
@@ -95,6 +98,75 @@ function PhoneRules({ settings, lan, onChange }: { settings: ComputerSettings; l
   );
 }
 
+/** One of the APNs key's names, saved when the owner leaves the field. */
+function PushText({ label, hint, field, value, placeholder, disabled, onSave }: { label: string; hint: string; field: keyof PushSettings; value: string; placeholder: string; disabled: boolean; onSave: (patch: Partial<PushSettings>) => void }): ReactElement {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const save = (): void => {
+    if (draft.trim() !== value) onSave({ [field]: draft.trim() });
+  };
+  return (
+    <Field className="set-field" label={label} hint={hint}>
+      <input
+        className="kos-input"
+        value={draft}
+        placeholder={placeholder}
+        disabled={disabled}
+        spellCheck={false}
+        autoComplete="off"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+        }}
+      />
+    </Field>
+  );
+}
+
+/** Where push stands, in the owner's words: what is wrong, where it is set, or that it is on. */
+export function pushStanding(push: PushStatus): string {
+  if (push.problem) return push.problem;
+  if (push.configured) return push.source === "env" ? "On, set by KOS_APNS_* on the host. Each iPhone that turned notifications on gets KOS's asks, to approve or deny from the lock screen." : "On. Each iPhone that turned notifications on gets KOS's asks, to approve or deny from the lock screen.";
+  return "Off until an APNs key is added. It takes an Apple developer account: in Certificates, Identifiers and Profiles, make a key with Apple Push Notifications service, and download its .p8 file.";
+}
+
+/**
+ * Asks pushed to phones: the APNs key's id, the team, the app's bundle id,
+ * and the vault secret that holds the .p8. The key itself is added on the
+ * Secrets page, as a note, so it is sealed, scrubbed and never shown again.
+ */
+function PushRules({ push, onSave }: { push: PushStatus; onSave: (patch: Partial<PushSettings>) => void }): ReactElement {
+  const [secrets, setSecrets] = useState<SecretSummary[]>([]);
+  useEffect(() => {
+    void secretsApi.list().then((all) => setSecrets(all.filter((s) => s.source === "vault" && (s.kind === "note" || s.kind === "apikey"))), () => setSecrets([]));
+  }, []);
+  const fromEnv = push.source === "env";
+  const p = push.settings;
+  const options = [{ value: "", label: "None" }, ...secrets.map((s) => ({ value: s.handle, label: s.label, hint: s.handle }))];
+  if (p.secret && !secrets.some((s) => s.handle === p.secret)) options.push({ value: p.secret, label: p.secret, hint: "not in the vault" });
+  return (
+    <div className="set-group device-rules">
+      <h2>Phone notifications</h2>
+      <p className="hint" data-field="Phone notifications">{pushStanding(push)}</p>
+      <Field group className="set-field" label="APNs key" hint="The .p8 file's text, added on the Secrets page as a note. KOS reads it from the vault to sign each push and never shows it.">
+        <Select label="APNs key" value={p.secret} options={options} disabled={fromEnv} onChange={(secret) => onSave({ secret })} />
+      </Field>
+      <PushText label="Key ID" field="keyId" value={p.keyId} placeholder="ABC123DEFG" disabled={fromEnv} onSave={onSave} hint="The 10 letters and digits Apple shows beside the key." />
+      <PushText label="Team ID" field="teamId" value={p.teamId} placeholder="DEF123GHIJ" disabled={fromEnv} onSave={onSave} hint="Your Apple developer team's, under Membership." />
+      <PushText label="Bundle ID" field="topic" value={p.topic} placeholder="com.you.kos-phone" disabled={fromEnv} onSave={onSave} hint="KOS for iPhone's, as its Xcode target signs it." />
+    </div>
+  );
+}
+
+/** A phone's notifications, in a few words: on, off on the phone, or waiting on KOS's APNs key. */
+export function pushWords(d: PairedDevice, push: PushStatus | undefined): string | undefined {
+  if (d.kind !== "phone" || !push) return undefined;
+  if (!push.configured) return d.push?.on ? "Push ready on the iPhone; KOS has no APNs key yet" : "Push not configured";
+  if (!d.push?.on) return "Push off: turn on notifications in KOS for iPhone's Settings";
+  return d.push.env === "sandbox" ? "Push on, a build from Xcode" : "Push on";
+}
+
 /** The link KOS for iPhone pairs from: the Wi-Fi address, the code, and the certificate it pins. */
 export function phoneLink(url: string, code: string, pin: string): string {
   return `${pairingLink(url, code)}&pin=${encodeURIComponent(pin)}`;
@@ -183,7 +255,7 @@ export function describeDevice(d: PairedDevice, now = Date.now()): string {
   return parts.join(" · ");
 }
 
-function DeviceRow({ device, onChanged }: { device: PairedDevice; onChanged: () => void }): ReactElement {
+function DeviceRow({ device, push, onChanged }: { device: PairedDevice; push: PushStatus | undefined; onChanged: () => void }): ReactElement {
   const [name, setName] = useState<string | null>(null);
   const save = (): void => {
     const next = name?.trim();
@@ -203,7 +275,7 @@ function DeviceRow({ device, onChanged }: { device: PairedDevice; onChanged: () 
     </>
   );
   // Its build and where that stands, never folded away: the reason is what the owner acts on.
-  const note = device.online ? [buildWords(device.build), update?.why].filter(Boolean).join(" · ") : undefined;
+  const note = [...(device.online ? [buildWords(device.build), update?.why] : []), pushWords(device, push)].filter(Boolean).join(" · ") || undefined;
   const command = device.online ? device.update?.command : undefined;
   return (
     <FieldRow label={device.name} badge={badge} hint={describeDevice(device)} {...(note ? { note } : {})} {...(command ? { after: <CommandLine command={command} /> } : {})}>
@@ -297,6 +369,7 @@ export function DevicesPanel(): ReactElement {
   const [devices, setDevices] = useState<PairedDevice[] | null>(null);
   const [settings, setSettings] = useState<ComputerSettings | null>(null);
   const [lan, setLan] = useState<LanStatus | undefined>(undefined);
+  const [push, setPush] = useState<PushStatus | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<DeviceCode | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -310,6 +383,7 @@ export function DevicesPanel(): ReactElement {
         setDevices(r.devices);
         setSettings(r.settings);
         setLan(r.lan);
+        setPush(r.push);
         // A device that appears while a code is up is the one that used it.
         const before = known.current;
         known.current = new Set(r.devices.map((d) => d.id));
@@ -344,6 +418,10 @@ export function DevicesPanel(): ReactElement {
     );
   };
 
+  const savePush = (patch: Partial<PushSettings>): void => {
+    void api.setPush(patch).then(setPush, (err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  };
+
   const add = (): void => {
     setJoined(null);
     void api.deviceCode().then(setCode, (err: unknown) => setError(err instanceof Error ? err.message : String(err)));
@@ -359,7 +437,7 @@ export function DevicesPanel(): ReactElement {
       {joined && <p className="hint">Paired {joined}.</p>}
       <div className="set-rows">
         {devices.map((d) => (
-          <DeviceRow key={d.id} device={d} onChanged={load} />
+          <DeviceRow key={d.id} device={d} push={push} onChanged={load} />
         ))}
       </div>
       {code ? (
@@ -373,6 +451,7 @@ export function DevicesPanel(): ReactElement {
       )}
       {settings && <SessionRules settings={settings} onChange={change} />}
       {settings && <PhoneRules settings={settings} lan={lan} onChange={change} />}
+      {push && <PushRules push={push} onSave={savePush} />}
       {settings && <UpdateRules settings={settings} onChange={change} />}
     </>
   );

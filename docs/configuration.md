@@ -38,6 +38,10 @@ KOS_WRITE_KEY_FILE=      where this boot's write key is kept for the kos CLI, de
 KOS_UI_DIST=             built UI, default packages/ui/dist
 KOS_DEVICE_KEY_FILE=     KOS's key for paired computers, default ~/.kos/device-host.key
 KOS_DEVICE_HOST_KEY=     the same key as base64 PKCS#8, for a container whose home does not last
+KOS_APNS_KEY_FILE=       the APNs .p8 key that pushes asks to paired iPhones, outside the workspace (or KOS_APNS_KEY, its text); off unless set here or in Settings, Devices (docs/computer.md, Push)
+KOS_APNS_KEY_ID=         that key's 10-character id
+KOS_APNS_TEAM_ID=        the Apple developer team's 10-character id
+KOS_APNS_TOPIC=          KOS for iPhone's bundle id
 ```
 
 Every request that changes something carries this boot's write key

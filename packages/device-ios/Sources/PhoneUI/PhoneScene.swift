@@ -6,7 +6,7 @@ import SwiftUI
 /// app is run only to be looked at, pairings in memory and no microphone.
 /// A link opened pairs, asked first; Ask KOS listens.
 public struct PhoneScene: Scene {
-  @StateObject private var phone = Phone.onThisDevice()
+  @StateObject private var phone = Phone.shared
   @ObservedObject private var handsFree = HandsFree.shared
 
   public init() {}

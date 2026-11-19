@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS device_updates (
   at INTEGER NOT NULL,
   PRIMARY KEY (device, build)
 );
+CREATE TABLE IF NOT EXISTS device_push (
+  device TEXT PRIMARY KEY,
+  token TEXT NOT NULL,
+  env TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
 `;
 
 /**
@@ -85,6 +91,31 @@ export interface UpdateAttempt {
   detail?: string;
   at: number;
 }
+
+/** Which of APNs' two gateways a phone's token is good on: the sandbox for a build run from Xcode, production for TestFlight and the App Store. */
+export type PushEnv = "sandbox" | "production";
+
+/** Where a phone's notifications go: the token its iPhone gave it, for the gateway it is good on. */
+export interface PushTarget {
+  device: string;
+  token: string;
+  env: PushEnv;
+  at: number;
+}
+
+/**
+ * The owner's APNs key as Settings keeps it: the key's id, the team, the
+ * app's bundle id, and the vault secret holding the .p8 itself, by handle.
+ * None of these is the key; the key is only ever read from the vault.
+ */
+export interface PushSettings {
+  keyId: string;
+  teamId: string;
+  topic: string;
+  secret: string;
+}
+
+const PUSH_FIELDS = ["keyId", "teamId", "topic", "secret"] as const satisfies readonly (keyof PushSettings)[];
 
 const toDevice = (r: Row): Device => ({
   id: r.id,
@@ -149,6 +180,7 @@ export class DeviceStore {
 
   remove(id: string): boolean {
     this.db.prepare(`DELETE FROM device_updates WHERE device = ?`).run(id);
+    this.db.prepare(`DELETE FROM device_push WHERE device = ?`).run(id);
     return this.db.prepare(`DELETE FROM devices WHERE id = ?`).run(id).changes > 0;
   }
 
@@ -181,6 +213,47 @@ export class DeviceStore {
   /** The owner asked again: the build may be tried once more. */
   clearAttempt(device: string, build: string): void {
     this.db.prepare(`DELETE FROM device_updates WHERE device = ? AND build = ?`).run(device, build);
+  }
+
+  /** Where a phone's notifications go; a token another device held is taken from it, since one iPhone app has one token. */
+  setPush(device: string, token: string, env: PushEnv): void {
+    this.db.prepare(`DELETE FROM device_push WHERE token = ? AND device != ?`).run(token, device);
+    this.db
+      .prepare(`INSERT INTO device_push (device, token, env, at) VALUES (?, ?, ?, ?) ON CONFLICT(device) DO UPDATE SET token = excluded.token, env = excluded.env, at = excluded.at`)
+      .run(device, token, env, this.now());
+  }
+
+  /** The phone turned its notifications off, or APNs said its token is no longer good. */
+  clearPush(device: string): void {
+    this.db.prepare(`DELETE FROM device_push WHERE device = ?`).run(device);
+  }
+
+  push(device: string): PushTarget | undefined {
+    return this.pushes().find((p) => p.device === device);
+  }
+
+  /** Every paired phone with a token, by when it was given. */
+  pushes(): PushTarget[] {
+    return this.db.prepare(`SELECT device, token, env, at FROM device_push ORDER BY at`).all() as unknown as PushTarget[];
+  }
+
+  pushSettings(): PushSettings {
+    const rows = this.db.prepare(`SELECT key, value FROM device_settings WHERE key LIKE 'push.%'`).all() as { key: string; value: string }[];
+    const saved = new Map(rows.map((r) => [r.key.slice("push.".length), r.value]));
+    return { keyId: saved.get("keyId") ?? "", teamId: saved.get("teamId") ?? "", topic: saved.get("topic") ?? "", secret: saved.get("secret") ?? "" };
+  }
+
+  /** Change some of the push settings; each is trimmed, and an empty one is cleared. */
+  setPushSettings(patch: Partial<PushSettings>): PushSettings {
+    const put = this.db.prepare(`INSERT INTO device_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
+    const clear = this.db.prepare(`DELETE FROM device_settings WHERE key = ?`);
+    for (const field of PUSH_FIELDS) {
+      const value = patch[field]?.trim();
+      if (value === undefined) continue;
+      if (value) put.run(`push.${field}`, value);
+      else clear.run(`push.${field}`);
+    }
+    return this.pushSettings();
   }
 
   seen(id: string): void {
