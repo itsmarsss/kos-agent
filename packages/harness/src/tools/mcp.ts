@@ -71,6 +71,8 @@ export interface McpServerConfig {
    * The owner writes these; the harness never guesses a tool is safe.
    */
   tools?: Record<string, Extract<RiskTier, "safe" | "risky">>;
+  /** Undoes what jailing the server put in place: called once it is dropped, or at once when this config is not the one brought up. */
+  release?: () => unknown;
 }
 
 export interface McpConfig {
@@ -335,6 +337,12 @@ export interface McpModule extends KosModule {
 export function createMcpModule(options: McpModuleOptions): McpModule {
   const report = options.report ?? ((m: string) => console.error(`[mcp] ${m}`));
   const connected = new Map<string, Connected>();
+  /** What each brought-up server's jail holds until it is dropped. */
+  const holds = new Map<string, () => unknown>();
+  const releaseHold = (name: string): void => {
+    holds.get(name)?.();
+    holds.delete(name);
+  };
 
   const transportFor = (name: string, server: McpServerConfig): Transport => {
     const supplied = options.transportFor?.(name, server);
@@ -422,6 +430,7 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
       }
       connected.delete(name);
     }
+    releaseHold(name);
     for (const tool of status[name]?.tools ?? []) context!.unregisterTool?.(tool);
     delete status[name];
   }
@@ -441,9 +450,16 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
       if (!wanted.has(name)) await drop(name);
       else if (connected.get(name) && connected.get(name)!.spec !== JSON.stringify(config.servers[name])) await drop(name);
     }
+    const brought = new Set<string>();
     for (const name of wanted) {
-      if (!(name in status)) await bring(name, config.servers[name]!);
+      if (name in status) continue;
+      const server = config.servers[name]!;
+      if (server.release) holds.set(name, server.release);
+      brought.add(name);
+      await bring(name, server);
     }
+    // A config computed but not brought up holds nothing: its jail is undone now.
+    for (const [name, server] of Object.entries(config.servers)) if (!brought.has(name)) server.release?.();
     return { ...status };
   }
 

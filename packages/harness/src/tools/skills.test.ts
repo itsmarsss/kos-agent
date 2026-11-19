@@ -233,7 +233,7 @@ describe("skills tools", () => {
 
   it("refuses to test, promote or run a script where there is no jail, rather than asking", async () => {
     skill("hello", "script", "console.log('hi')");
-    jail = { platform: "linux", contained: false };
+    jail = { platform: "linux", contained: false, bubblewrap: false };
     for (const tool of ["skills.test", "skills.promote", "skills.commit", "skills.run"]) {
       expect(await registry.refusal(tool, { name: "hello" })).toMatch(/runs only in a jail/);
     }

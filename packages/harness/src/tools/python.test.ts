@@ -7,10 +7,13 @@ import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
+import { bubblewrap } from "../sandbox/bwrap.js";
 import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
 import { createPythonModule, type PythonModuleOptions, type PythonResult } from "./python.js";
 
 const onMac = process.platform === "darwin";
+/** KOS's own jail holds it here: macOS's sandbox, or bubblewrap on Linux. */
+const jailed = onMac || bubblewrap() !== undefined;
 
 async function registryWith(ws: Workspace, options: PythonModuleOptions): Promise<ToolRegistry> {
   const registry = new ToolRegistry();
@@ -33,17 +36,19 @@ describe("python.run's tier", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("runs without asking only where the macOS jail holds it", async () => {
+  it("runs without asking only where KOS's own jail holds it: macOS, or bubblewrap on Linux", async () => {
     const mac = await registryWith(ws, { platform: "darwin", contained: false });
     expect(mac.classify("python.run", { code: "print(1)" }).tier).toBe("safe");
     const container = await registryWith(ws, { platform: "linux", contained: true });
     expect(container.classify("python.run", { code: "print(1)" })).toMatchObject({ tier: "risky", beyondAuto: CONTAINED_BEYOND_AUTO });
-    const linux = await registryWith(ws, { platform: "linux", contained: false });
+    const linux = await registryWith(ws, { platform: "linux", contained: false, bubblewrap: false });
     expect(linux.classify("python.run", { code: "print(1)" }).beyondAuto).toBe(CONTAINED_BEYOND_AUTO);
+    const bwrap = await registryWith(ws, { platform: "linux", contained: false, bubblewrap: "/usr/bin/bwrap" });
+    expect(bwrap.classify("python.run", { code: "print(1)" }).tier).toBe("safe");
   });
 });
 
-describe.runIf(onMac)("python.run on macOS", () => {
+describe.runIf(jailed)("python.run in its own jail", () => {
   let root: string;
   let ws: Workspace;
   let registry: ToolRegistry;
@@ -132,8 +137,11 @@ describe.runIf(onMac)("python.run on macOS", () => {
         "try:\n    open('.env').read(); print('read .env')\nexcept OSError:\n    print('hidden .env')",
       ].join("\n"),
     );
-    expect(r.stdout).not.toContain("ran ");
-    expect(r.stdout.match(/refused/g)).toHaveLength(3);
+    // macOS refuses the hand-off programs; under bubblewrap one may start, with no session, display or bus to hand anything to.
+    if (onMac) {
+      expect(r.stdout).not.toContain("ran ");
+      expect(r.stdout.match(/refused/g)).toHaveLength(3);
+    }
     expect(r.stdout).toContain("hidden .env");
   });
 
