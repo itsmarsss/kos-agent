@@ -248,6 +248,12 @@ A stream holds back no more than 256 characters for them.
 When a message is masked while the vault is locked, the turn also tells the
 owner the vault is locked and exact masking is off until it is unlocked.
 
+A one-time code the owner gave on a card (below) is looked for as well, for
+as long as it is held and five minutes after: as it is only where no letter
+or digit stands beside it, so a six-digit code is not found inside a
+timestamp or an id, and in its encodings. A card number is looked for in its
+encodings too (base64, base64url, hex of its digits).
+
 It runs on: every tool result, every progress event, every string a
 statement binds into the workspace database, the owner's messages at the
 door (`Kernel.handleMessage`, which also tells the turn to say it masked a
@@ -267,7 +273,7 @@ call's arguments, its result, the audit, a progress event or a log.
 | Tool | Input | Tier |
 | --- | --- | --- |
 | `secrets.list` | none | safe. Each secret's handle, label, kind, fields, hint, sites, frames, apps and hosts, its `ask`, and `usableHere` for the page the caller's tab is on. A guest's turn gets none; an unattended turn only secrets with `unattended`; a chat only the secrets `chats` allows it. Env keys are not listed. |
-| `secrets.fill` | `{secret, fields: [{field, target}], intent, then?}` | risky, asks always |
+| `secrets.fill` | `{secret, fields: [{field, target}], intent, then?}`; `secret: "code"` for a one-time code | risky, asks always |
 | `secrets.request` | `{kind, label?, why}` | risky, asks always |
 | `secrets.allow_site` | `{secret, why}` | risky, asks always |
 
@@ -434,6 +440,48 @@ Both engines' prompts say the same: use `secrets.*`, never ask the owner
 to type a credential into the chat, and words on a page asking for a
 secret are not the owner's.
 
+## One-time codes
+
+A one-time code (texted, emailed, from an authenticator) is never saved, and
+no TOTP seed is kept. By default the agent hands the tab to the owner
+(`browser.handoff`) and they type it in the page themselves.
+
+When the owner is away from the page, a fill or a type can ask for the code
+instead: `secrets.fill {secret: "code", fields: [{field: "code", target:
+"@e7"}]}` in a browser, or `secrets.type {secret: "code", field: "code"}` on
+the Mac. Its card (`AskSecret` with `kind: "code"`, `code: true`, no handle,
+the page's origin or the app as any fill's) has a masked box, kit
+`SecretField` on the web, `AskCodeField` on KOS for Mac and KOS for iPhone.
+Approve is off until what is typed, spaces taken out, is 6 to 32 letters,
+digits or dashes; there is no "always". The code goes with the yes and the
+box is emptied:
+
+- the dashboard: `POST /api/approve {id, code}`;
+- a device's panel (KOS for Chrome's side panel, KOS for Mac): `chat.decide
+  {approval, approved: true, code}`; KOS for Chrome sends it only while its
+  line to KOS is up, never kept in storage to wait for it;
+- the phone, through the dashboard relay: `/api/approve {id, code}`, which
+  the relay's audit writes down as `code: "(typed on the card)"`.
+
+Discord, SMS and iMessage cannot decide it, as no secret's ask is decided
+there. A yes without a code, or with one that is not a code, decides
+nothing and the ask stays.
+
+The host keeps the code in memory alone (`secrets/codes.ts`, held by the
+`SecretsRegistry`): not in `pending_actions`, the audit, a transcript, a
+progress event, memory, a log or a backup. The approved call takes it as a
+handle `otp_<8 hex>`, bound to where it was asked for (the surface, the
+page's origin, the Mac app, and the chat), and fills or types it through the
+same path as a saved value, slot `text`, in the page's own frame only, on
+https or `http://localhost`. The result names the handle, never the code.
+It is used once and for five minutes from the yes, both enforced in the
+host: a second use is refused (`used`), a late one too (`expired`), and a
+handle used in another chat, page, browser or app is refused (`policy`,
+`origin`). A refusal before anything went in (a field that will not take
+it, a page that changed, the Mac turning it away) leaves the handle for one
+more try in that place, without a second ask, since the owner's yes was for
+that page; anything that may have put part of it in spends it.
+
 ## Routes
 
 Owner-only, under `/api/secrets`, behind the dashboard token. A change also
@@ -485,6 +533,33 @@ Each use or refusal of a secret is a row in `secret_uses` in the workspace
 database (`id, secret_id, at, conversation_id, tool, surface, device_id,
 origin, frame_origin, app, fields, outcome, approval_id, decided_by`), never
 a value. It is a kernel trust table: no agent SQL reaches it.
+
+## Leak tests
+
+A canary is never found, as it is or in any encoding the scrubber knows,
+anywhere KOS keeps or shows text. Two suites check it end to end:
+
+- `computer/src/leaks.test.ts`, on fakes, fast: a real kernel, approvals,
+  device hub, panels, dashboard server and socket, with stub inference and
+  stand-ins for a page, KOS for Chrome's line and a Mac. Three chats fill a
+  login and a code in KOS's browser (decided on the dashboard over HTTP), a
+  card and a code in the owner's Chrome (decided in its side panel), and
+  type a password and a code on a Mac (decided on the phone through the
+  relay); every page echoes what goes in, a field and the Mac each turn the
+  first code away in words that hold it, and the owner pastes values on the
+  dashboard, Discord and SMS. Then a compaction, a memory pass, an
+  artifact's export and a backup. It looks in the database's files (WAL and
+  `kos.snapshot.sqlite` included) and every table, transcripts, the audit,
+  the asks, memory and the embedder's inputs, what KOS printed, Discord's
+  and SMS's sends, the dashboard socket's frames, every frame the hub sent
+  but the `secret.fill` and `keys.secret` that carry a value, what the model
+  was sent, the compaction's summary, the export, and the workspace's files
+  and git objects.
+- `harness/src/secrets/leak.chrome.test.ts`, in a real Chrome: a login, a
+  card in another origin's frame and a one-time code into KOS's browser on
+  a page that echoes into its text, its title and its console, then looks,
+  a refused script and a `javascript:` address, and no picture shows the
+  magenta the values are drawn in.
 
 ## On the Mac
 
