@@ -1,4 +1,4 @@
-import { SECRET_FIELDS, type SecretFieldName } from "@kos/shared";
+import { registrableDomain, SECRET_FIELDS, type SecretFieldName } from "@kos/shared";
 
 import { MIN_SCANNED, Scrubber, STREAM_REACH, type Watched } from "./scrub.js";
 import { SHAPE_REACH, scrubShapes } from "./shapes.js";
@@ -74,6 +74,8 @@ export class SecretsRegistry {
   private readonly kept = new Map<string, string>();
   /** Built on first use after any change, so it always looks for today's values. */
   private scrubber: Scrubber | undefined;
+  /** The scrubber's values as the browser masks them, made again with the scrubber. */
+  private masked: { by: Scrubber; values: { text: string; digits: boolean }[] } | undefined;
   private hits = 0;
   private vault: Vault | undefined;
   private unwatchVault: (() => void) | undefined;
@@ -221,6 +223,33 @@ export class SecretsRegistry {
     this.scrubber = undefined;
   }
 
+  /**
+   * Every value the scrubber looks for, as KOS's browser masks them in
+   * every tab: the same strings, a card's by its digits. Made again only
+   * when the scrubber is.
+   */
+  browserValues(): readonly { text: string; digits: boolean }[] {
+    const by = this.scrubberNow();
+    if (this.masked?.by !== by) this.masked = { by, values: this.scanned().map(([, text, mode]) => ({ text, digits: mode === "digits" })) };
+    return this.masked.values;
+  }
+
+  /**
+   * Whether a page origin is on a site a vault secret may be filled on (any
+   * secret's web origins or frames, by registrable domain), where KOS runs
+   * no script: one could read a copy the site keeps or wait for a fill.
+   * Read from the vault each time, so it holds after a restart; a locked
+   * vault cannot say which sites, so it holds every web origin.
+   */
+  evalBlocked(origin: string): boolean {
+    const state = this.vault?.status().state;
+    if (!this.vault || state === "absent") return false;
+    const domain = siteDomain(origin);
+    if (!domain) return false;
+    if (state !== "ready") return /^https?:/i.test(origin);
+    return this.vault.list().some((meta) => [...meta.use.web.origins, ...meta.use.web.frames].some((site) => siteDomain(site) === domain));
+  }
+
   /** Every value the scrubber looks for, by name: secrets first, so a shared value keeps its secret's name. */
   private scanned(): Watched[] {
     return [...this.map, ...(this.vault?.scanned() ?? []), ...this.watched, ...this.kept];
@@ -311,4 +340,10 @@ export class SecretsRegistry {
     }
     return out;
   }
+}
+
+/** The registrable domain of an origin or a site pattern (`https://*.example.com`), or "" for none. */
+function siteDomain(origin: string): string {
+  const host = /^[a-z][a-z0-9+.-]*:\/\/(?:\*\.)?([^/:?#]+)/i.exec(origin)?.[1];
+  return host ? registrableDomain(host) : "";
 }

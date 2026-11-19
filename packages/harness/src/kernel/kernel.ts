@@ -734,6 +734,9 @@ export class Kernel {
         config,
         downloadsDir,
         onDownload: (download) => this.placeDownload(download),
+        // The vault's values and sites, read from the registry at each use: masked in every tab, no script on a credential site.
+        saved: () => args.secrets.browserValues(),
+        evalBlocked: (origin) => args.secrets.evalBlocked(origin),
         chrome: new ChromeHost({
           port: BROWSER_PORT,
           profileDir: this.workspace.resolve(".kos/browser-profile"),

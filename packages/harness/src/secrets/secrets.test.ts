@@ -119,6 +119,21 @@ describe("SecretsRegistry over a vault", () => {
     expect(reg.inVault("stripe")).toBe(false);
   });
 
+  it("keeps scripts off every site a secret may be filled on, by registrable domain, its frames too", () => {
+    vault.add({ label: "Shop", kind: "login", values: { password: "pw-shop-0001" }, use: { web: { origins: ["https://login.shop.example", "https://*.acme.co.uk"], frames: ["https://pay.stripe.com"] } } });
+    for (const origin of ["https://shop.example", "https://www.shop.example:8443", "https://acme.co.uk", "https://js.stripe.com"]) expect({ origin, blocked: reg.evalBlocked(origin) }).toEqual({ origin, blocked: true });
+    for (const origin of ["https://example.com", "https://other.co.uk", "null", ""]) expect({ origin, blocked: reg.evalBlocked(origin) }).toEqual({ origin, blocked: false });
+  });
+
+  it("hands the browser the scrubber's values, a card by its digits, made again only when the vault changes", () => {
+    const values = reg.browserValues();
+    expect(values).toContainEqual({ text: "sk_live_vaulted_0123456789", digits: false });
+    expect(values).toContainEqual({ text: "4111111111111111", digits: true });
+    expect(reg.browserValues()).toBe(values);
+    vault.add({ label: "New", kind: "login", values: { password: "pw-new-0002" } });
+    expect(reg.browserValues()).toContainEqual({ text: "pw-new-0002", digits: false });
+  });
+
   it("binds a vault key to its http hosts", () => {
     expect(reg.hostsOf(key)).toEqual(["api.stripe.com"]);
     expect(reg.hostsOf(card)).toBeUndefined();
@@ -228,6 +243,9 @@ describe("SecretsRegistry over a locked vault", () => {
       ].join("\n");
       const masked = reg.mask(text);
       expect(masked.shut).toBe(true);
+      // Which sites hold a secret cannot be read: no script runs on any.
+      expect(reg.evalBlocked("https://example.com")).toBe(true);
+      expect(reg.evalBlocked("about:blank")).toBe(false);
       expect(masked.text).toContain(`[secret ${login}.password]`);
       expect(masked.text).toContain(`[secret ${key}.token]`);
       expect(masked.text).toContain("[secret card ••1111]");
