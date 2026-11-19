@@ -472,8 +472,12 @@ export function summarizeAction(
     }
     case "secrets.allow_site":
       return `Allow ${secretNamed(a)} on ${typeof a.origin === "string" ? a.origin : "this tab's site"}`;
-    case "secrets.request":
-      return `Add ${KIND_WORDS[String(a.kind)] ?? "a secret"}${typeof a.label === "string" && a.label.trim() ? ` for ${a.label.trim()}` : ""}, for KOS to use without seeing it`;
+    case "secrets.request": {
+      // The label is KOS's words, so it is quoted as such and kept short.
+      const label = typeof a.label === "string" ? a.label.replace(/\s+/g, " ").trim() : "";
+      const said = label.length > 80 ? `${label.slice(0, 79)}…` : label;
+      return `Add ${KIND_WORDS[String(a.kind)] ?? "a secret"}${said ? ` KOS calls “${said}”` : ""}, for KOS to use without seeing it`;
+    }
     case "discord.bind":
       return `Make ${named("channel", a.channel, `#${fmtVal(a.channel)}`)} the home of ${named("chat", a.to)}`;
     case "discord.audience": {

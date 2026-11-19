@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
-import { secretFieldWords, type AskSecret, type AskView, type StepLine } from "@kos/shared";
+import { registrableDomain, secretFieldWords, type AskSecret, type AskView, type StepLine } from "@kos/shared";
 
 import { CheckIcon, ChevronDown, ChevronRight, CopyIcon, GlobeIcon, HiddenIcon, MailIcon, PageIcon, ServerIcon, WindowIcon } from "./icons.js";
 import { Collapse, Countdown, Tag } from "./kit.js";
@@ -156,14 +156,13 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
   );
 }
 
-/** A host split for reading: what comes before its registrable domain, and that domain (its last two labels), which is what says whose site it is. */
+/** A host split for reading: what comes before its registrable domain, and that domain, which is what says whose site it is. */
 function hostParts(origin: string): { scheme: string; sub: string; domain: string; port: string } | undefined {
   const m = /^(https?:\/\/)([^/:]+)(:\d+)?$/.exec(origin);
   if (!m) return undefined;
   const host = m[2]!;
-  const labels = host.split(".");
-  const cut = /^[\d.]+$/.test(host) || labels.length <= 2 ? 0 : labels.length - 2;
-  return { scheme: m[1]!, sub: labels.slice(0, cut).join(".") + (cut ? "." : ""), domain: labels.slice(cut).join("."), port: m[3] ?? "" };
+  const domain = registrableDomain(host);
+  return { scheme: m[1]!, sub: host.slice(0, host.length - domain.length), domain, port: m[3] ?? "" };
 }
 
 /**
@@ -201,6 +200,18 @@ export function AskSecretBlock({ secret }: { secret: AskSecret }): ReactElement 
         </p>
       )}
       {frames.length > 0 && <p className="kos-ask-secret-frames">In a frame from {frames.join(", ")}</p>}
+      {secret.targets && secret.targets.length > 0 && (
+        <p className="kos-ask-secret-frames">
+          Into{" "}
+          {secret.targets.map((t, i) => (
+            <span key={i}>
+              {i > 0 && ", "}
+              {secretFieldWords(t.field)} → “{t.label || "unlabelled"}” ({t.type})
+            </span>
+          ))}
+          {secret.formAction && <>, a form sending to {secret.formAction}</>}
+        </p>
+      )}
       {warnings.length > 0 && (
         <span className="kos-ask-risk">
           {warnings.map((w) => (

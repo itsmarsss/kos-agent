@@ -192,7 +192,7 @@ describe("an ask that places a secret", () => {
   });
 
   it("draws a secret's ask with its label, handle, fields and the real origin, and no rule's always", () => {
-    const secret = { handle: "github-login-9xq1", label: "GitHub", kind: "login" as const, fields: ["username" as const, "password" as const], origin: "http://login.github.com.evil.example", frameOrigins: ["https://js.stripe.com"], surface: "kos-browser" as const, warnings: ["The page is not encrypted (plain http)."], remember: [] };
+    const secret = { handle: "github-login-9xq1", label: "GitHub", kind: "login" as const, fields: ["username" as const, "password" as const], origin: "http://login.github.com.evil.example", frameOrigins: ["https://js.stripe.com"], surface: "kos-browser" as const, warnings: ["The page is not encrypted (plain http)."], remember: [], targets: [{ field: "username", label: "Email", type: "email" }, { field: "password", label: "Password", type: "password" }], formAction: "http://login.github.com.evil.example/session" };
     const fill = { secret: secret.handle, label: "GitHub", fields: [{ field: "username", target: "@e3" }, { field: "password", target: "@e4" }], origin: secret.origin };
     const asked = askView({ tool: "secrets.fill", args: fill, rule: { tool: "secrets.fill", scope: null, project: null }, secret });
     const { container } = render(<AskCard view={asked} tool="secrets.fill" args={fill} onDecide={vi.fn()} />);
@@ -203,6 +203,7 @@ describe("an ask that places a secret", () => {
     expect(container.querySelector(".kos-ask-secret-origin")?.textContent).toBe("http://login.github.com.evil.example");
     expect(container.querySelector(".kos-ask-secret-frames")?.textContent).toBe("In a frame from js.stripe.com");
     expect(container.querySelector(".kos-ask-secret .tag--warn")?.textContent).toBe("The page is not encrypted (plain http).");
+    expect(container.querySelectorAll(".kos-ask-secret-frames")[1]?.textContent).toBe("Into username → “Email” (email), password → “Password” (password), a form sending to http://login.github.com.evil.example/session");
     expect(screen.queryByRole("button", { name: /Always/ })).toBeNull();
     expect(container.querySelector(".kos-ask-note")?.textContent).toBe("Secrets always ask");
   });

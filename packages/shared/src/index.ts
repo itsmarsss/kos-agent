@@ -77,6 +77,7 @@ export {
 export { formatDuration, waitWords } from "./duration.js";
 
 export { hasSecretRef, usesSecret } from "./secretref.js";
+export { registrableDomain } from "./domain.js";
 export {
   SECRET_FIELDS,
   SECRET_KINDS,

@@ -131,7 +131,7 @@ describe("a request for a secret", () => {
     const add = vi.spyOn(secretsApi, "create").mockResolvedValue({ handle: "stripe-0a1b" });
     const onDecide = vi.fn();
     render(<PendingAsk ask={request} deciding={new Set()} onDecide={onDecide} />);
-    expect(screen.getByText("Add an API key for Stripe, for KOS to use without seeing it")).toBeTruthy();
+    expect(screen.getByText("Add an API key KOS calls “Stripe”, for KOS to use without seeing it")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Always/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add it" }));
     // Nothing is approved by the press itself: only a saved secret answers the ask.
