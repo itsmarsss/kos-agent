@@ -1,20 +1,24 @@
-import { caller, guestCannot } from "../kernel/caller.js";
+import { allowsTool, caller, guestCannot, scopeAllow } from "../kernel/caller.js";
 import cron from "node-cron";
 
+import { conditionSql } from "../cron/conditions.js";
 import { CronStore } from "../cron/store.js";
 import type { CreateCronInput, ToolCall } from "../cron/types.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { fence } from "./fence.js";
+import { reachOf } from "./sql.js";
 
 /**
  * The `cron` tool module: lets the agent schedule, list, run and remove jobs.
  * Jobs are stored data (a schedule plus actions or a self_prompt); the
- * scheduler runs them. Scheduling and running ask nothing: a job is the
- * owner's own standing instruction, and what a run does is gated when it
- * runs, since an unattended run queues anything risky for the owner and
- * does nothing until they decide. Scheduling used to ask, and so did
- * running a job by hand, which put an approval in front of "remind me every
- * Saturday" while the reminder itself would have asked if it needed to.
+ * scheduler runs them. Scheduling in a chat's own project and running ask
+ * nothing: what a run does is gated when it runs, since an unattended run
+ * queues anything risky for the owner and does nothing until they decide.
+ * A job is held to what the chat that made it could do: its project's
+ * tables through the sql fence for its query and condition (judged now and
+ * again on every run), and the chat's allow-list for its actions and its
+ * turns. Scheduling as another project asks the owner, and never under Auto.
  */
 
 export interface CronToolDeps {
@@ -30,6 +34,12 @@ export interface CronToolDeps {
    * otherwise, the way an agent started there is the project's agent.
    */
   projectOf?: (conversationId: string) => string | null;
+}
+
+/** The project the calling chat is in, when it is in one. */
+function callerProjectOf(deps: CronToolDeps): string | null {
+  const from = caller.getStore();
+  return from && deps.projectOf ? deps.projectOf(from) : null;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -159,15 +169,33 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
     (input) => {
       const parsed = parseSchedule(input);
       // Scheduled from a project's thread, it is the project's job.
-      const from = caller.getStore();
-      if (!parsed.projectSlug && from && deps.projectOf) {
-        const slug = deps.projectOf(from);
-        if (slug) parsed.projectSlug = slug;
+      const own = callerProjectOf(deps);
+      if (!parsed.projectSlug && own) parsed.projectSlug = own;
+      // What the chat may do is all its job may: its actions are tools it has, and the job keeps its list.
+      const allow = scopeAllow();
+      for (const action of parsed.actions ?? []) {
+        if (!allowsTool(allow, action.tool)) throw new Error(`${action.tool} is not a tool this chat has, so a job of its own cannot call it either`);
+      }
+      if (allow !== undefined) parsed.toolAllow = [...allow];
+      // Its reads judged as its runs will be: the sql fence, for the job's project.
+      const reach = { ...reachOf(ctx), project: parsed.projectSlug, owner: false, made: [] };
+      for (const sql of [parsed.query, parsed.condition ? conditionSql(parsed.condition.test, parsed.query ?? null) : undefined]) {
+        if (!sql) continue;
+        const verdict = fence(db, sql, reach);
+        if (!verdict.ok) throw new Error(`the job's ${sql === parsed.query ? "query" : "condition"} is refused: ${verdict.reason}`);
       }
       const job = store.create(parsed);
       return JSON.stringify({ id: job.id, name: job.name, ...(job.projectSlug ? { projectSlug: job.projectSlug } : {}) });
     },
-    { floor: "safe", refuse: () => guestCannot("A schedule") },
+    {
+      floor: "safe",
+      refuse: () => guestCannot("A schedule"),
+      // Work set up to run as another project, Maintenance included, is the owner's to allow; never Auto's (beyondauto.ts).
+      escalate: (input) => {
+        const asked = typeof input.projectSlug === "string" && input.projectSlug ? input.projectSlug : null;
+        return asked !== null && asked !== callerProjectOf(deps) ? `schedules work to run as the ${asked} project, not this chat's own` : false;
+      },
+    },
   );
 
   ctx.registerTool(

@@ -76,7 +76,7 @@ import { bootKernel, callerBlobOf } from "./boot.js";
 import { fileHomeOf, homeNote } from "./home.js";
 import { artifactFileRefusal, whyNot } from "../tools/systems.js";
 import { isKosState } from "../tools/files.js";
-import type { Reach } from "../tools/fence.js";
+import { fence, type Reach } from "../tools/fence.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 export { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
@@ -1813,6 +1813,8 @@ export class Kernel {
         this.conversations.moveToProject(id, job.projectSlug ?? null);
         for (const [threadId, bound] of Object.entries(this.threadBindings())) if (bound === id) this.unbindThread(threadId);
       }
+      // Its turns have the tools the chat that made the job had, and no more.
+      if (JSON.stringify(thread.toolAllow ?? null) !== JSON.stringify(job.toolAllow)) this.conversations.configure(id, { toolAllow: job.toolAllow });
     } else {
       this.conversations.create({
         id,
@@ -1821,6 +1823,7 @@ export class Kernel {
         // A job for a project runs in that project: what it remembers lands
         // in the project's scope, and the project's claims are in reach.
         ...(job.projectSlug ? { projectSlug: job.projectSlug } : {}),
+        ...(job.toolAllow ? { toolAllow: job.toolAllow } : {}),
         brief: [
           `The scheduled job "${job.name}" runs here, on ${job.schedule}.`,
           "Each run is a turn in this thread, so what it did last time is above.",
@@ -1829,6 +1832,16 @@ export class Kernel {
       });
     }
     return id;
+  }
+
+  /** Who a job is to the sql fence: its project, or its blob's thread, and never the owner, as no one watches it run. */
+  private jobReach(job: CronJob): Reach {
+    return {
+      project: job.projectSlug ?? undefined,
+      blob: job.agent ? callerBlobOf(agentConversationId(job.agent), this.conversations, this.roles) : undefined,
+      projects: this.manifest.list().map((p) => ({ slug: p.slug, name: p.name })),
+      owner: false,
+    };
   }
 
   /** The conversation a job's runs speak from, without making it: the blob's thread, or the job's own. */
@@ -4829,11 +4842,18 @@ export class Kernel {
     try {
       const result = await runCronJob(job, {
         // The job's query and condition are reads that build the variable
-        // scope, so they run on the read-only handle. Writes belong in the
-        // job's actions, which go through the guarded tool path.
+        // scope, so they run on the read-only handle, and through the sql
+        // fence for the job's own project, as its chat's sql call would.
+        // Writes belong in the job's actions, which go through the guarded
+        // tool path, held to the allow-list of the chat that made the job.
         db: this.workspace.reader,
+        check: (sql) => {
+          const verdict = fence(this.workspace.db, sql, this.jobReach(job));
+          if (!verdict.ok) throw new Error(`the job's query was refused: ${verdict.reason}`);
+        },
         tools: this.guardedTools({
           ...(jobSession ? { conversationId: jobSession } : {}),
+          ...(job.toolAllow ? { allow: job.toolAllow } : {}),
           // Unattended: queue what needs a decision and finish, rather than
           // holding a queue slot until the owner wakes up.
           waitForApproval: false,

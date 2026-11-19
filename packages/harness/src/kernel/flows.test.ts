@@ -1085,6 +1085,25 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("Reviewed the budget.");
   });
 
+  it("runs a job's query and condition through the sql fence for its project, and its actions under its maker's tools", async () => {
+    const model = scripted([text("unused")]);
+    kernel = await boot(model.inference);
+    // KOS's own tables, read by a job at the root: refused when it runs, whoever wrote it there.
+    const reads = kernel.crons.create({ name: "peek", schedule: "0 3 * * *", type: "actions", query: "SELECT group_concat(name) AS x FROM crons", actions: [{ tool: "notify", args: { text: "{x}" } }], enabled: true });
+    const peeked = await kernel.fireCron(reads.id);
+    expect(peeked.ok).toBe(false);
+    expect(peeked.error).toMatch(/refused/);
+    // Nor through the condition, spliced into a statement of its own.
+    const tests = kernel.crons.create({ name: "test", schedule: "0 3 * * *", type: "actions", condition: { test: "(SELECT count(*) FROM crons) > 0" }, actions: [{ tool: "notify", args: { text: "x" } }], enabled: true });
+    expect((await kernel.fireCron(tests.id)).ok).toBe(false);
+    // A job made in a chat scoped to notify calls nothing else, and its thread has that scope too.
+    const scoped = kernel.crons.create({ name: "scoped", schedule: "0 3 * * *", type: "actions", actions: [{ tool: "files.write", args: { path: "x.txt", content: "x" } }], toolAllow: ["notify"], enabled: true });
+    const ran = await kernel.fireCron(scoped.id);
+    expect(ran.ok).toBe(false);
+    expect(ran.error).toMatch(/not available/);
+    expect(kernel.conversations.get(`cron:${scoped.id}`)?.toolAllow).toEqual(["notify"]);
+  });
+
   it("gives a fixed-actions job a thread too, with what it actually ran", async () => {
     /*
      * An actions job makes no model call, so there was no turn to record: its

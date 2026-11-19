@@ -39,6 +39,7 @@ interface Row {
   project_slug: string | null;
   task: string | null;
   agent: string | null;
+  tool_allow: string | null;
   enabled: number;
   created_at: number;
   updated_at: number;
@@ -62,6 +63,7 @@ function toJob(row: Row): CronJob {
     projectSlug: row.project_slug,
     task: row.task === "cheap" ? "cheap" : "reasoning",
     agent: row.agent ?? null,
+    toolAllow: row.tool_allow ? (JSON.parse(row.tool_allow) as string[]) : null,
     enabled: row.enabled === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -98,6 +100,9 @@ export class CronStore {
     if (!columns.has("agent")) {
       this.db.exec(`ALTER TABLE crons ADD COLUMN agent TEXT`);
     }
+    if (!columns.has("tool_allow")) {
+      this.db.exec(`ALTER TABLE crons ADD COLUMN tool_allow TEXT`);
+    }
   }
 
   create(input: CreateCronInput): CronJob {
@@ -110,8 +115,8 @@ export class CronStore {
     const ts = this.now();
     const info = this.db
       .prepare(
-        `INSERT INTO crons (name, schedule, type, query, condition_json, actions_json, prompt, project_slug, task, agent, enabled, created_at, updated_at)
-         VALUES (@name, @schedule, @type, @query, @condition, @actions, @prompt, @projectSlug, @task, @agent, @enabled, @ts, @ts)`,
+        `INSERT INTO crons (name, schedule, type, query, condition_json, actions_json, prompt, project_slug, task, agent, tool_allow, enabled, created_at, updated_at)
+         VALUES (@name, @schedule, @type, @query, @condition, @actions, @prompt, @projectSlug, @task, @agent, @toolAllow, @enabled, @ts, @ts)`,
       )
       .run({
         name: input.name,
@@ -124,6 +129,7 @@ export class CronStore {
         projectSlug: input.projectSlug ?? null,
         task: input.task ?? null,
         agent: input.agent ?? null,
+        toolAllow: input.toolAllow ? JSON.stringify(input.toolAllow) : null,
         enabled: input.enabled === false ? 0 : 1,
         ts,
       });
