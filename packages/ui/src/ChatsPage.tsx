@@ -2076,6 +2076,7 @@ export function ChatsPage({
                     void startFromLanding();
                   }}
                 >
+                  <SecretOffer draft={opening} onDraft={setOpening} />
                   <div className="chats-welcome-field">
                     <textarea
                       className="hl-area chats-welcome-input"

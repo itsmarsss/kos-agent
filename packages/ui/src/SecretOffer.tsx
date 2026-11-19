@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 
 import { CloseIcon, IconButton } from "@kos/kit";
 
@@ -98,7 +99,8 @@ export function SecretOffer({ draft, onDraft }: { draft: string; onDraft: (next:
           </div>
         )
       )}
-      <SecretSheet open={open} mode={{ kind: "add", takeSeed: () => taken.current?.seed ?? null }} onClose={() => close(false)} onSaved={() => close(true)} />
+      {/* At the body: a composer can be a form itself (the landing's), and a form holds no form. */}
+      {createPortal(<SecretSheet open={open} mode={{ kind: "add", takeSeed: () => taken.current?.seed ?? null }} onClose={() => close(false)} onSaved={() => close(true)} />, document.body)}
     </>
   );
 }

@@ -8133,6 +8133,7 @@ img.ov-shape { object-fit: fill; }
 /* Over the composer: a secret in the draft, and the offer to keep it as one. */
 .secret-offer { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.3rem 0.3rem 0.6rem; border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: var(--r-sm); background: var(--warn-dim); color: var(--warn); font-size: var(--text-sm); }
 .secret-offer-text { flex: 1; min-width: 0; }
+.chats-welcome-form > .secret-offer { margin-bottom: 0.5rem; }
 
 @media (max-width: 640px) {
   .secret-row { flex-wrap: wrap; row-gap: 0.25rem; }
