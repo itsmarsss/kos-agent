@@ -396,7 +396,7 @@ describe("a key on a page holding a secret in a frame", () => {
         return { node: { backendNodeId: at?.node, ...(at?.frameId ? { frameId: at.frameId } : {}) } };
       },
     });
-    const page = new Page(session, { secrets: { taint: { loader: "L", nodes: new Map([[10, "C"]]) }, urls: new Set(), filled: [] } });
+    const page = new Page(session, { secrets: { taint: { loader: "L", nodes: new Map([["/10", "C"]]) }, urls: new Set(), filled: [] } });
     return { page, calls };
   };
   const typed = (calls: { method: string }[]): number => calls.filter((c) => c.method === "Input.dispatchKeyEvent").length;

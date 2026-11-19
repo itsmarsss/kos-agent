@@ -18,6 +18,10 @@
       "types": "./dist/keys.d.ts",
       "default": "./dist/keys.js"
     },
+    "./frames": {
+      "types": "./dist/frames.d.ts",
+      "default": "./dist/frames.js"
+    },
     "./boxes": {
       "types": "./dist/boxes.d.ts",
       "default": "./dist/boxes.js"

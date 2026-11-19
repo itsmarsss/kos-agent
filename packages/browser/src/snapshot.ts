@@ -32,20 +32,22 @@ export interface AxNode {
 
 /** Refs for one document: an element keeps its ref, a new one gets the next. */
 export class Refs {
-  private readonly byNode = new Map<number, string>();
-  private readonly byRef = new Map<string, number>();
+  private readonly byNode = new Map<string, string>();
+  private readonly byRef = new Map<string, { node: number; via: string }>();
   private next = 1;
 
-  refOf(node: number): string {
-    const known = this.byNode.get(node);
+  /** The ref of an element by its backend node and the part of the tab that holds it ("" for the tab's own; see frames.ts). */
+  refOf(node: number, via = ""): string {
+    const key = `${via}/${node}`;
+    const known = this.byNode.get(key);
     if (known) return known;
     const ref = `e${this.next++}`;
-    this.byNode.set(node, ref);
-    this.byRef.set(ref, node);
+    this.byNode.set(key, ref);
+    this.byRef.set(ref, { node, via });
     return ref;
   }
 
-  nodeOf(ref: string): number | undefined {
+  nodeOf(ref: string): { node: number; via: string } | undefined {
     return this.byRef.get(ref);
   }
 
@@ -225,6 +227,8 @@ export interface PageIndex {
 /** A control the index names: what it is, as a reader hears it, and its element. */
 export interface Control {
   node: number;
+  /** The part of the tab that holds it, for an element in a frame of another process (frames.ts): none for the tab's own. */
+  via?: string;
   role: string;
   name: string;
   states: string[];
@@ -271,7 +275,7 @@ export function indexOf(controls: Control[], total: number, refs: Refs, max = IN
     const key = c.dialog ?? "";
     const lines = groups.get(key) ?? [];
     groups.set(key, lines);
-    const line = describe(c.role, c.name, c.states, VALUED.has(c.role) ? (c.value ?? "") : "", refs.refOf(c.node));
+    const line = describe(c.role, c.name, c.states, VALUED.has(c.role) ? (c.value ?? "") : "", refs.refOf(c.node, c.via));
     lines.push(c.more ? `${line} (+${c.more} more like it)` : line);
   }
   const ordered: string[] = [];

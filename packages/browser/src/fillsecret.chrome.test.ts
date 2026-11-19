@@ -50,8 +50,11 @@ const page = (title: string, body: string): string =>
 describe.skipIf(!findChrome(undefined))("filling a secret in KOS's own Chrome", { timeout: 30_000 }, () => {
   let site: Server;
   let pay: Server;
+  /** A server of another site than the page's: its frames run in a process of their own, as a payment provider's do. */
+  let cross: Server;
   let base = "";
   let payBase = "";
+  let crossBase = "";
   let scratch = "";
   let profile = "";
   let live: BrowserLive;
@@ -76,6 +79,16 @@ describe.skipIf(!findChrome(undefined))("filling a secret in KOS's own Chrome", 
   const answer = (req: IncomingMessage, res: ServerResponse): void => {
     const html = (body: string): void => void res.writeHead(200, { "content-type": "text/html" }).end(body);
     if (req.url === "/card") return html(page("Card", `<label>Card number <input id=num autocomplete=cc-number></label><label>Note <input id=note></label>`));
+    // A checkout whose card fields are in a frame of another site, as a payment provider's are, with one more frame of its own site inside.
+    if (req.url === "/checkout")
+      return html(page("Checkout", `<label>Email <input id=email autocomplete=email></label><label>Password <input id=pw type=password></label><iframe id=elements src="${crossBase}/elements" style="width:460px;height:330px;margin-left:30px;border:0"></iframe>`));
+    if (req.url === "/elements")
+      return html(
+        page(
+          "Elements",
+          `<label>Card number <input id=num autocomplete=cc-number></label><label>Expiry <input id=exp autocomplete=cc-exp></label><label>CVC <input id=cvc autocomplete=cc-csc></label><label>Coupon <input id=coupon value="magenta words"></label><button id=pay onclick="this.textContent = 'Paid'">Pay</button>`,
+        ),
+      );
     if (req.url === "/magenta") return html(page("Magenta", `<div style="background:${MAGENTA};width:300px;height:200px"></div>`));
     if (req.url === "/next") return html(page("Next", `<p>Signed in.</p>`));
     // A page that copies the password into another box, a textarea and a box in a shadow root, and can show it as text.
@@ -209,13 +222,16 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
   beforeAll(async () => {
     site = createServer(answer);
     pay = createServer(answer);
-    for (const s of [site, pay]) await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
+    cross = createServer(answer);
+    for (const s of [site, pay, cross]) await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
     const portOf = (s: Server): number => {
       const a = s.address();
       return typeof a === "object" && a ? a.port : 0;
     };
     base = `http://127.0.0.1:${portOf(site)}`;
     payBase = `http://127.0.0.1:${portOf(pay)}`;
+    // localhost is another site than 127.0.0.1 (a port alone is not): Chrome puts its frames in a process of their own.
+    crossBase = `http://localhost:${portOf(cross)}`;
     scratch = mkdtempSync(join(tmpdir(), "kos-fill-"));
     profile = join(scratch, "profile");
     host = new ChromeHost({ port: 10_000 + Math.floor(Math.random() * 200), profileDir: profile, launch: () => ({ windowSize: { width: 1100, height: 900 } }) });
@@ -230,7 +246,7 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     await live?.shutdown();
     await host?.waitGone();
     await host?.stop();
-    for (const s of [site, pay]) {
+    for (const s of [site, pay, cross]) {
       s?.closeAllConnections();
       s?.close();
     }
@@ -558,6 +574,91 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
     const masked = await tab.capture(1000);
     await visit(tab, [`${base}/next`], { then: "none" });
+    expect(await magentaIn(raw)).toBeGreaterThan(200);
+    expect(await magentaIn(masked!)).toBeLessThan(20);
+  });
+
+  /** The checkout's frame of another site, by its own session, behind KOS's back: a value read there, by element id. */
+  const peekCross = async (expression: string): Promise<unknown> => {
+    type DomNode = { attributes?: string[]; frameId?: string; children?: DomNode[] };
+    const find = (n: DomNode | undefined): string | undefined => {
+      if (!n) return undefined;
+      const a = n.attributes ?? [];
+      if (a.some((v, i) => i % 2 === 0 && v === "id" && a[i + 1] === "elements")) return n.frameId;
+      for (const c of n.children ?? []) {
+        const got = find(c);
+        if (got) return got;
+      }
+      return undefined;
+    };
+    const frame = find((await sessionOf(tab).send("DOM.getDocument", { depth: -1 }))["root"] as DomNode);
+    const own = frame ? sessionOf(tab).frame?.(frame) : undefined;
+    if (!own) throw new Error("no session for the frame of another site");
+    return ((await own.send("Runtime.evaluate", { expression, returnByValue: true }))["result"] as { value?: unknown }).value;
+  };
+  const checkout = async (): Promise<string> => (await visit(tab, [`${base}/checkout`], { then: "look", until: "load" })).text;
+
+  it("reads a frame of another site through its own session: its fields have refs, on the origin its process committed", async () => {
+    const seen = await checkout();
+    expect(await peekCross("location.origin")).toBe(crossBase);
+    expect(seen).not.toContain("Not read");
+    const [email, card] = await fieldSpots(tab, [refOf(seen, "Email"), refOf(seen, "Card number")]);
+    expect(email).toMatchObject({ origin: base, frameOrigin: base });
+    expect(card).toMatchObject({ origin: base, frameOrigin: crossBase, field: { label: "Card number" } });
+    // Acting in it: a click lands there, where its element is drawn in the tab.
+    const after = await act(tab, stepsOf([{ click: refOf(seen, "Pay") }]), "look");
+    expect(after.text).toContain('button "Paid"');
+  });
+
+  it("fills a card into a frame of another site, and refuses it where the frame's origin is not the one approved", async () => {
+    const seen = await checkout();
+    const [num, exp, cvc] = ["Card number", "Expiry", "CVC"].map((label) => refOf(seen, label)) as [string, string, string];
+    const wrong = { ...(await expectFor(num, "card-number")), frameOrigin: base };
+    await expect(fillSecrets(tab, [{ ref: num, value: CARD, expect: wrong }], "none")).rejects.toMatchObject({ code: "origin", placed: false });
+    expect(await peekCross("document.getElementById('num').value")).toBe("");
+    const after = await fillSecrets(
+      tab,
+      [
+        { ref: num, value: CARD, expect: await expectFor(num, "card-number") },
+        { ref: exp, value: "12/34", expect: await expectFor(exp, "card-expiry") },
+        { ref: cvc, value: "737", expect: await expectFor(cvc, "card-cvc") },
+      ],
+      "look",
+    );
+    expect(await peekCross("[...document.querySelectorAll('input')].map((i) => i.value)")).toEqual([CARD, "12/34", "737", "magenta words"]);
+    expect(after.text).toMatch(/textbox "Card number"( \[focused\])? = "\(hidden\)"/);
+    expect(after.text).not.toContain(CARD);
+    await visit(tab, [`${base}/next`], { then: "none" });
+  });
+
+  it("holds a frame of another site to its secret: no copy or typing in its field, no script on the page, and painted out of pictures", async () => {
+    const seen = await checkout();
+    const num = refOf(seen, "Card number");
+    await fillSecrets(tab, [{ ref: num, value: CARD, expect: await expectFor(num, "card-number") }], "none");
+    // The keyboard is followed into the frame's own session: its field has it.
+    await expect(act(tab, stepsOf([{ click: num }, { press: "Meta+c" }]), "none")).rejects.toThrow(/Meta\+c is refused/);
+    await expect(act(tab, stepsOf([{ click: num }, { press: "x" }]), "none")).rejects.toThrow(/x is refused/);
+    await expect(act(tab, stepsOf([{ fill: { target: num, text: "1" } }]), "none")).rejects.toThrow(/filling .* is refused/);
+    await expect(evaluate(tab, "1")).rejects.toThrow(/browser\.eval is refused/);
+    // The page's own field still takes keys.
+    await act(tab, stepsOf([{ click: refOf(seen, "Email") }, { press: "x" }]), "none");
+    // The frame's digits are drawn in magenta: measured in its own session and placed where it is drawn in the tab.
+    const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
+    const masked = await tab.capture(1000);
+    expect(await peekCross("document.getElementById('num').value")).toBe(CARD);
+    await visit(tab, [`${base}/next`], { then: "none" });
+    expect(await magentaIn(raw)).toBeGreaterThan(200);
+    expect(await magentaIn(masked!)).toBeLessThan(20);
+  });
+
+  it("paints every text box of a frame of another site out of a picture of a page holding a secret", async () => {
+    const seen = await checkout();
+    const pw = refOf(seen, "Password");
+    await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: await expectFor(pw, "password") }], "none");
+    const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
+    const masked = await tab.capture(1000);
+    await visit(tab, [`${base}/next`], { then: "none" });
+    // The frame's own words, in magenta, are in its process: measured there, they are painted where it is drawn.
     expect(await magentaIn(raw)).toBeGreaterThan(200);
     expect(await magentaIn(masked!)).toBeLessThan(20);
   });

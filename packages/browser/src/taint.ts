@@ -63,8 +63,8 @@ export function keepFilled(values: FilledValue[], value: FilledValue): void {
 export interface Taint {
   /** The main frame's document it holds for. */
   loader: string;
-  /** Tainted fields, by backend node, with the frame each is in. */
-  nodes: Map<number, string>;
+  /** Tainted fields, by their part of the tab and backend node (Page's keyOf), with the frame each is in. */
+  nodes: Map<string, string>;
 }
 
 /**
