@@ -610,10 +610,14 @@ export class Page {
       await this.send("Page.reload", {});
     } else {
       const history = await this.send("Page.getNavigationHistory");
-      const entries = (history["entries"] as { id: number }[] | undefined) ?? [];
+      const entries = (history["entries"] as { id: number; url?: string }[] | undefined) ?? [];
       const at = typeof history["currentIndex"] === "number" ? history["currentIndex"] : -1;
       const entry = entries[at + (where === "back" ? -1 : 1)];
       if (!entry) return false;
+      // History holds what anyone opened in the tab, the owner's file among it: only what goto would open is gone to.
+      const url = entry.url ?? "";
+      if (!opens(url)) throw new Error(`going ${where} is refused: it is not a web page`);
+      if (isDataUrl(url) && this.holding()) throw new Error(`going ${where} to a data: address is refused: ${TAINTED}`);
       await this.send("Page.navigateToHistoryEntry", { entryId: entry.id });
     }
     await this.settle(before, since);
@@ -622,10 +626,18 @@ export class Page {
 
   // Seeing.
 
-  /** Where the tab is and what the page is called. */
+  /**
+   * Where the tab is and what the page is called, as the browser holds them
+   * (its history's current entry), not as a script of the page says: a busy
+   * or hostile page cannot hide where it is. Throws when the browser does not
+   * say, rather than answering nowhere.
+   */
   async whereAmI(): Promise<{ url: string; title: string }> {
-    const where = await this.value<{ url: string; title: string }>(`(${inpage.whereAmI.toString()})()`, 3_000).catch(() => ({ url: "", title: "" }));
-    return { url: this.clean(where.url), title: this.clean(where.title) };
+    const history = await this.send("Page.getNavigationHistory", {}, 3_000);
+    const entries = (history["entries"] as { url?: string; title?: string }[] | undefined) ?? [];
+    const entry = typeof history["currentIndex"] === "number" ? entries[history["currentIndex"]] : undefined;
+    if (typeof entry?.url !== "string") throw new Error("the browser did not say where the tab is");
+    return { url: this.clean(entry.url), title: this.clean(entry.title ?? "") };
   }
 
   /** What can be acted on, each with its ref; `scope` limits it to the part of the page a CSS selector names. */
@@ -698,7 +710,7 @@ export class Page {
       this.scripted.mark(after.loader);
       throw new Error("the page loaded another document while the script ran, so its answer is withheld; look at the page again");
     }
-    if (answer["exceptionDetails"]) throw new Error(`the script threw: ${this.clean(exceptionText(answer["exceptionDetails"]))}`);
+    if (answer["exceptionDetails"]) throw new Error(`the script threw: ${this.thrown(answer["exceptionDetails"])}`);
     const result = answer["result"] as { type?: string; value?: unknown; description?: string } | undefined;
     if (!result || result.type === "undefined") return "undefined";
     // Cleaned whole, then cut: a value cut in half would not be found.
@@ -766,7 +778,7 @@ export class Page {
     }
     if ("press" in step) {
       const press = parseKeys(step.press);
-      if (await this.copiesSecret(press)) throw new Error(`${step.press} is refused: ${TAINTED}`);
+      if (await this.keyRefused(press)) throw new Error(`${step.press} is refused: ${TAINTED}`);
       await this.acting(() => this.key(press), typed);
       return `pressed ${step.press}`;
     }
@@ -969,6 +981,11 @@ export class Page {
     return new Map(this.contexts);
   }
 
+  /** What a script in the page threw, which the page wrote, cleaned as its words are. */
+  private thrown(details: unknown): string {
+    return this.clean(exceptionText(details));
+  }
+
   /** Text read from the page with every secret filled into it said as hidden, where the page echoes one. */
   private clean(text: string): string {
     const values = this.values();
@@ -985,16 +1002,21 @@ export class Page {
   }
 
   /**
-   * Whether a key would carry a secret out of its field: a copy, a cut, a
-   * select-all or a paste key (keys.copyKey), or any editing command, aimed
-   * at a field holding one (the one with the keyboard in a frame KOS
-   * filled). On a page a secret was in come back to, no field is known, so
-   * any of them anywhere.
+   * Whether a key would carry a secret out of its field or change it in
+   * place: a copy, a cut, a select-all or a paste key (keys.copyKey), any
+   * editing command, a key that types a character, or a delete, aimed at a
+   * field holding one (the one with the keyboard in a frame KOS filled). A
+   * page that echoes its field would then show a value cleaning no longer
+   * finds. Enter, which sends the form, is no edit. On a page a secret was in
+   * come back to, no field is known, so a copy key anywhere, while typing is
+   * left as typing a step is.
    */
-  private async copiesSecret(press: KeyPress): Promise<boolean> {
+  private async keyRefused(press: KeyPress): Promise<boolean> {
     const taint = this.tainted();
-    if (!taint || !(copyKey(press.key, press.code, press.keyCode, press.modifiers, press.commands) || press.commands?.length)) return false;
-    if (taint.nodes.size === 0) return true;
+    const carries = copyKey(press.key, press.code, press.keyCode, press.modifiers, press.commands) || (press.commands?.length ?? 0) > 0;
+    const edits = (press.text !== undefined && press.key !== "Enter") || press.key === "Backspace" || press.key === "Delete";
+    if (!taint || !(carries || edits)) return false;
+    if (taint.nodes.size === 0) return carries;
     for (const frame of new Set(taint.nodes.values())) {
       const context = await this.world(frame);
       // A frame KOS cannot look into is taken to have the field focused.
@@ -1295,7 +1317,7 @@ export class Page {
     const [before, since] = [this.life.loader, this.now()];
     const got = await this.call<{ picked?: string[]; error?: string; options?: string[] }>(node, inpage.selectOptions, [{ value: values }]);
     if (got.error === "not-select") throw new Error(`${label} is not a list box (<select>); click it, then click the option`);
-    if (!got.picked?.length) throw new Error(`${label} has no option ${values.map((v) => JSON.stringify(v)).join(" or ")}; it has ${(got.options ?? []).join(", ")}`);
+    if (!got.picked?.length) throw new Error(`${label} has no option ${values.map((v) => JSON.stringify(v)).join(" or ")}; it has ${this.clean((got.options ?? []).join(", "))}`);
     await this.settle(before, since);
     return got.picked;
   }
@@ -1353,7 +1375,7 @@ export class Page {
     const byText = textSelector(target);
     const expression = byText ? `(${inpage.byText.toString()})(${JSON.stringify(byText.base)}, ${JSON.stringify(byText.text)})` : `document.querySelector(${JSON.stringify(target)})`;
     const found = await this.send("Runtime.evaluate", { expression, objectGroup: GROUP }, EVAL_MS);
-    if (found["exceptionDetails"]) throw new Error(`${target} is not a selector I can use: ${exceptionText(found["exceptionDetails"])}`);
+    if (found["exceptionDetails"]) throw new Error(`${target} is not a selector I can use: ${this.thrown(found["exceptionDetails"])}`);
     const objectId = (found["result"] as { objectId?: string } | undefined)?.objectId;
     if (!objectId) throw new Error(`nothing on the page matches ${target}`);
     return this.backendOf(objectId);
@@ -1386,7 +1408,7 @@ export class Page {
       { objectId, functionDeclaration: fn.toString(), arguments: args, returnByValue: true, awaitPromise: true },
       EVAL_MS,
     );
-    if (answer["exceptionDetails"]) throw new Error(exceptionText(answer["exceptionDetails"]));
+    if (answer["exceptionDetails"]) throw new Error(this.thrown(answer["exceptionDetails"]));
     return (answer["result"] as { value?: T } | undefined)?.value as T;
   }
 
@@ -1401,7 +1423,7 @@ export class Page {
   /** An expression in the page, its answer by value. */
   private async value<T>(expression: string, timeoutMs = EVAL_MS): Promise<T> {
     const answer = await this.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
-    if (answer["exceptionDetails"]) throw new Error(exceptionText(answer["exceptionDetails"]));
+    if (answer["exceptionDetails"]) throw new Error(this.thrown(answer["exceptionDetails"]));
     return (answer["result"] as { value?: T } | undefined)?.value as T;
   }
 
@@ -1437,7 +1459,7 @@ export class Page {
     const centred = await this.point(node, label);
     if ((await this.blocker(node, centred)) === undefined) return centred;
     for (const spot of await this.spots(node)) if ((await this.blocker(node, spot)) === undefined) return spot;
-    const what = await this.call<string>(first, inpage.describe).catch(() => "something");
+    const what = this.clean(await this.call<string>(first, inpage.describe).catch(() => "something"));
     throw new Error(`${label} is covered by ${what} @${this.refs.refOf(first)}; close or answer that first`);
   }
 
@@ -1600,8 +1622,8 @@ export class Page {
       throw err;
     }
     if (answer["exceptionDetails"]) {
-      if (scope) throw new Error(`${scope} is not a selector I can use: ${exceptionText(answer["exceptionDetails"])}`);
-      throw new Error(`the page could not be read: ${exceptionText(answer["exceptionDetails"])}`);
+      if (scope) throw new Error(`${scope} is not a selector I can use: ${this.thrown(answer["exceptionDetails"])}`);
+      throw new Error(`the page could not be read: ${this.thrown(answer["exceptionDetails"])}`);
     }
     const objectId = (answer["result"] as { objectId?: string } | undefined)?.objectId;
     const props = objectId ? await this.send("Runtime.getProperties", { objectId, ownProperties: true }) : {};
@@ -1715,7 +1737,7 @@ export class Page {
   /** Every node inside what a selector names, through shadow roots and frames. */
   private async scopeNodes(scope: string): Promise<Set<number>> {
     const found = await this.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(scope)})`, objectGroup: GROUP }, EVAL_MS);
-    if (found["exceptionDetails"]) throw new Error(`${scope} is not a selector I can use: ${exceptionText(found["exceptionDetails"])}`);
+    if (found["exceptionDetails"]) throw new Error(`${scope} is not a selector I can use: ${this.thrown(found["exceptionDetails"])}`);
     const objectId = (found["result"] as { objectId?: string } | undefined)?.objectId;
     if (!objectId) throw new Error(`nothing on the page matches ${scope}`);
     const described = await this.send("DOM.describeNode", { objectId, depth: -1, pierce: true });
@@ -1769,6 +1791,15 @@ function merged(...lists: (readonly FilledValue[])[]): FilledValue[] {
   const out: FilledValue[] = [];
   for (const list of lists) for (const v of list) if (!out.some((had) => had.text === v.text)) out.push(v);
   return out;
+}
+
+/** Whether goto would open a url as it is. */
+function opens(url: string): boolean {
+  try {
+    return urlFor(url) === url;
+  } catch {
+    return false;
+  }
 }
 
 /** An address as a document is known by in history: less its fragment. */

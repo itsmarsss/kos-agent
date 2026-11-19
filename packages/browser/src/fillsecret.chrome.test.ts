@@ -280,6 +280,11 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     for (const key of ["Control+Insert", "Shift+Insert", "Shift+Delete", "Meta+v", "Meta+z"]) {
       await expect(act(tab, stepsOf([{ click: pw }, { press: key }]), "none")).rejects.toThrow(/is refused/);
     }
+    // A key that types into the field or deletes from it edits the secret in place, where an echo of it would no longer be found.
+    for (const key of ["x", "Space", "Backspace", "Delete"]) {
+      await expect(act(tab, stepsOf([{ click: pw }, { press: key }]), "none")).rejects.toThrow(/is refused/);
+    }
+    await act(tab, stepsOf([{ click: pw }, { press: "Enter" }]), "none");
     await expect(act(tab, stepsOf([{ type: { target: pw, text: "x" } }]), "none")).rejects.toThrow(/typing into .* is refused/);
     await expect(act(tab, stepsOf([{ fill: { target: pw, text: "x" } }]), "none")).rejects.toThrow(/filling .* is refused/);
     await expect(act(tab, stepsOf([{ drag: { from: pw, to: refOf(seen, "Username") } }]), "none")).rejects.toThrow(/dragging is refused/);

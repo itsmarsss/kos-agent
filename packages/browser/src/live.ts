@@ -732,7 +732,10 @@ export class BrowserLive {
   private move(conversationId: string, b: Binding): void {
     const next = [...b.tabs].find((tab) => this.targets.has(tab));
     if (next) b.target = next;
-    else this.bindings.delete(conversationId);
+    else {
+      this.bindings.delete(conversationId);
+      this.filled.delete(conversationId);
+    }
   }
 
   /** A tab is gone: whoever had it moves on. */

@@ -20,6 +20,8 @@ function tab(handlers: Record<string, Handler>): { session: Session; calls: { me
 }
 
 const FRAME = { frameTree: { frame: { id: "F", loaderId: "L", url: "https://shop.example/" } } };
+/** Where the browser says the tab is. */
+const HISTORY = { currentIndex: 0, entries: [{ id: 1, url: "https://shop.example/", title: "Shop" }] };
 /** What the page itself finds to index: nothing, which is enough to see where it was looked from. */
 const NOTHING = { result: [{ name: "kos", value: { value: JSON.stringify({ items: [], total: 0 }) } }] };
 const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
@@ -153,6 +155,7 @@ describe("the time a page is given after typing", () => {
     const quiet = `(${inpage.domQuiet.toString()})(`;
     const { session } = tab({
       "Page.getFrameTree": () => FRAME,
+      "Page.getNavigationHistory": () => HISTORY,
       "Page.createIsolatedWorld": () => ({ executionContextId: 9 }),
       "Runtime.evaluate": (p) => {
         const expression = String(p["expression"]);
@@ -176,6 +179,7 @@ describe("the time a page is given after typing", () => {
     let ticked = false;
     const { session } = tab({
       "Page.getFrameTree": () => FRAME,
+      "Page.getNavigationHistory": () => HISTORY,
       "Page.createIsolatedWorld": () => ({ executionContextId: 9 }),
       "Runtime.evaluate": (p) => {
         const expression = String(p["expression"]);
@@ -328,5 +332,42 @@ describe("a script of KOS's in a page", () => {
     const blank = scripted({ "Page.getFrameTree": () => tree("L", "://") }, [{ frame: "F", origin: "https://bank.example" }], { evalBlocked: blocked });
     await expect(blank.page.evaluate("localStorage.getItem('kept')")).rejects.toThrow(/refused on https:\/\/bank\.example/);
     for (const { calls } of [framed, blank]) expect(calls.some((c) => c.method === "Runtime.evaluate")).toBe(false);
+  });
+});
+
+describe("what the agent is told of the page between its calls", () => {
+  it("counts a dialog a page raises again and again, and keeps few kinds of them", async () => {
+    const { session, calls } = tab({});
+    const page = new Page(session);
+    for (let i = 0; i < 1000; i++) page.handle({ method: "Page.javascriptDialogOpening", params: { type: "alert", message: "again" } });
+    for (let i = 0; i < 100; i++) page.handle({ method: "Page.javascriptDialogOpening", params: { type: "alert", message: `n${i}` } });
+    // Every one is answered, as an open one holds the tab.
+    expect(calls.filter((c) => c.method === "Page.handleJavaScriptDialog")).toHaveLength(1100);
+    const notes = page.takeNotes();
+    expect(notes.length).toBeLessThanOrEqual(21);
+    expect(notes[0]).toBe('A alert dialog said "again", and was closed. (1,000 times)');
+    expect(notes.at(-1)).toBe("81 more notes were not kept.");
+    expect(page.takeNotes()).toEqual([]);
+  });
+});
+
+describe("where the tab is", () => {
+  it("is what the browser's history says, not the page's script, and an error when it says nothing", async () => {
+    let said: Record<string, unknown> = HISTORY;
+    const { session, calls } = tab({ "Page.getNavigationHistory": () => said });
+    const page = new Page(session);
+    expect(await page.whereAmI()).toEqual({ url: "https://shop.example/", title: "Shop" });
+    expect(calls.some((c) => c.method === "Runtime.evaluate")).toBe(false);
+    said = {};
+    await expect(page.whereAmI()).rejects.toThrow(/did not say where the tab is/);
+  });
+
+  it("goes back or forward only to a page goto would open", async () => {
+    const entries = [{ id: 1, url: "file:///Users/owner/notes.txt" }, { id: 2, url: "https://shop.example/" }, { id: 3, url: "chrome://settings/" }];
+    const { session, calls } = tab({ "Page.getNavigationHistory": () => ({ currentIndex: 1, entries }) });
+    const page = new Page(session);
+    await expect(page.step({ go: "back" })).rejects.toThrow(/going back is refused: it is not a web page/);
+    await expect(page.step({ go: "forward" })).rejects.toThrow(/going forward is refused/);
+    expect(calls.some((c) => c.method === "Page.navigateToHistoryEntry")).toBe(false);
   });
 });

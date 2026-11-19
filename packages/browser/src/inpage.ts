@@ -187,11 +187,6 @@ export function readPage(selector: string | null): { text: string; links: { text
   return { text, links, matched: picked.length };
 }
 
-/** Where the page is and what it is called. */
-export function whereAmI(): { url: string; title: string } {
-  return { url: location.href, title: document.title };
-}
-
 /**
  * Until the document has not changed for `quietMs` and `graceMs` has gone
  * since this call, or `maxMs` has; true when it went still. Run in a world of

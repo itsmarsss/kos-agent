@@ -111,9 +111,9 @@ function notKos(input: Record<string, unknown>): string | false {
 }
 const NOT_KOS: ToolRisk = { floor: "safe", refuse: notKos };
 
-/** Whether a tab is on KOS's own dashboard or API now, by where it actually is: a redirect or a typed address alike. */
+/** Whether a tab is on KOS's own dashboard or API now, by where the browser says it is: a redirect or a typed address alike. Throws when it does not say. */
 async function onKos(tab: Tab): Promise<boolean> {
-  const url = await tab.page.whereAmI().then((w) => w.url, () => "");
+  const { url } = await tab.page.whereAmI();
   return reachesKos(url, kosPorts());
 }
 
