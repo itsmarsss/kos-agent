@@ -1116,6 +1116,9 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   onUp(how: { catchUp?: boolean } = {}): Promise<void> {
     this.gatewayUp = true;
+    // Marked at once, before any live message can move a room's place past
+    // what was said while KOS was away: the place moves again once read.
+    if (how.catchUp !== false) for (const room of this.cursors?.rooms() ?? []) if (!this.reading.has(room)) this.reading.set(room, undefined);
     this.downLog.up();
     this.upChain = this.upChain.then(() => this.afterUp(how.catchUp !== false)).catch((err: unknown) => {
       console.warn(`[discord] after reconnecting: ${err instanceof Error ? err.message : String(err)}`);
@@ -1163,16 +1166,39 @@ export class DiscordAdapter implements ChannelAdapter {
 
   private async catchUpIn(roomId: string): Promise<void> {
     const since = this.cursors?.get(roomId);
-    if (!since || this.catchingUp.has(roomId)) return;
+    if (this.catchingUp.has(roomId)) return;
     this.catchingUp.add(roomId);
     try {
-      await this.readMissed(roomId, since);
+      if (since) await this.readMissed(roomId, since);
     } finally {
       this.catchingUp.delete(roomId);
+      // Read: the place moves past what was heard live meanwhile, too.
+      const live = this.reading.get(roomId);
+      this.reading.delete(roomId);
+      if (live) this.cursors?.advance(roomId, live);
     }
   }
 
   private readonly catchingUp = new Set<string>();
+  /** Rooms still to be read after a new session, each with the newest message heard live there meanwhile. */
+  private readonly reading = new Map<string, string | undefined>();
+
+  /**
+   * A message the harness has taken: where catch-up reads from moves past
+   * it. Not before, so one lost on the way in is read again; and not while
+   * the room is still to be read, or a live message would carry the place
+   * past what was said while KOS was away.
+   */
+  private handled(message: Message): void {
+    const room = message.channel?.id;
+    if (!message.id || !room) return;
+    if (!this.reading.has(room)) {
+      this.cursors?.advance(room, message.id);
+      return;
+    }
+    const newest = this.reading.get(room);
+    if (!newest || BigInt(message.id) > BigInt(newest)) this.reading.set(room, message.id);
+  }
 
   private async readMissed(roomId: string, since: string): Promise<void> {
     const room = (await this.client.channels.fetch(roomId).catch(() => null)) as (ReadableChannel & { send?: (p: unknown) => Promise<unknown>; guildId?: string | null }) | null;
@@ -1214,7 +1240,7 @@ export class DiscordAdapter implements ChannelAdapter {
     await this.notRun(missed.filter((m) => m.createdTimestamp < lateBy));
     if (told.length) this.cursors?.advance(roomId, told.at(-1)!.id);
     for (const message of after.filter((m) => m.createdTimestamp >= lateBy)) {
-      if (missed.includes(message)) await this.receiveMessage(message, { late: true });
+      if (missed.includes(message)) await this.receiveMessage(message, { late: true, caughtUp: true });
       this.cursors?.advance(roomId, message.id);
     }
   }
@@ -1263,7 +1289,7 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   /** Gateway MessageCreate handler. Internal; separated for tests. */
-  async receiveMessage(message: Message, how: { late?: boolean } = {}): Promise<void> {
+  async receiveMessage(message: Message, how: { late?: boolean; caughtUp?: boolean } = {}): Promise<void> {
     if (message.author.bot) return;
     // Once each: a resumed gateway replays what it missed, and catch-up
     // reads the same messages from the history.
@@ -1290,13 +1316,11 @@ export class DiscordAdapter implements ChannelAdapter {
     const members = this.membersNamed(message);
     const speaker = message.author.globalName ?? message.author.username;
     if (speaker) this.membersSeen.set(speaker.toLowerCase(), message.author.id);
-    // Where catch-up starts reading this room from, after a drop or a restart.
-    if (message.id && message.channel?.id) this.cursors?.advance(message.channel.id, message.id);
     const replyingTo = await this.repliedTo(message, guest !== undefined);
     // Late whichever way it came: a resumed gateway replays live what it
     // missed, and a message from long ago is told, not run, as in catch-up.
     const late = how.late || (typeof message.createdTimestamp === "number" && Date.now() - message.createdTimestamp > LATE_RUN_MS);
-    await this.messageHandler?.({
+    const handling = this.messageHandler?.({
       channel: this.name,
       ...(late ? { late: true, sentAt: message.createdTimestamp } : {}),
       // What a reply answers rides beside the words, told to this turn and quoted, never as the sender's own.
@@ -1314,6 +1338,12 @@ export class DiscordAdapter implements ChannelAdapter {
       ...(guest ? { guest } : {}),
       native: message,
     });
+    // Taken: where catch-up starts reading this room from moves past it.
+    // Catch-up moves its own place, in order.
+    if (how.caughtUp) {
+      if (message.id && message.channel?.id) this.cursors?.advance(message.channel.id, message.id);
+    } else this.handled(message);
+    await handling;
   }
 
   private markSeen(id: string): void {

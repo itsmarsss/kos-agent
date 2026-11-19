@@ -2580,6 +2580,33 @@ describe("catching up after a drop or a restart", () => {
     expect(guests.map((m) => [m.senderId, m.missed])).toEqual([["ana", ["ana: said 802"]]]);
   });
 
+  it("keeps a room's place while it waits to be read, so a live message cannot carry it past what was missed", async () => {
+    const dm = room("dm1", [{ id: "901", author: "owner" }, { id: "902", author: "owner" }]);
+    const cursors: Record<string, string> = { dm1: "900" };
+    const { adapter, heard } = adapterOver({ dm1: dm.channel }, cursors);
+    // A new session: the room is marked to be read before anything live is taken.
+    const up = adapter.onUp();
+    const live = { ...(dm.messages[1] as unknown as Record<string, unknown>), id: "903", content: "said 903" } as unknown as Message;
+    await adapter.receiveMessage(live);
+    expect(cursors.dm1).toBe("900");
+    await up;
+    await vi.waitFor(() => expect(heard.map((m) => m.text)).toEqual(["said 903", "said 901", "said 902"]));
+    // Read: the place is past all of it, the live one too.
+    expect(cursors.dm1).toBe("903");
+  });
+
+  it("moves a room's place only once the harness has taken the message", async () => {
+    const dm = room("dm1", []);
+    const cursors: Record<string, string> = { dm1: "500" };
+    const { adapter } = adapterOver({ dm1: dm.channel }, cursors);
+    let seenAt: string | undefined;
+    adapter.onMessage(async () => void (seenAt = cursors.dm1));
+    const message = { id: "501", content: "hi", createdTimestamp: Date.now(), author: { id: "owner", bot: false, username: "owner" }, system: false, guild: null, channel: dm.channel } as unknown as Message;
+    await adapter.receiveMessage(message);
+    expect(seenAt).toBe("500");
+    expect(cursors.dm1).toBe("501");
+  });
+
   it("moves the cursor past a message once it is handed over, so a restart mid-turn does not run it twice", async () => {
     const dm = room("dm1", [{ id: "701", author: "owner" }, { id: "702", author: "owner" }]);
     const cursors: Record<string, string> = { dm1: "700" };
