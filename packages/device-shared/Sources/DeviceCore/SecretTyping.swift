@@ -189,6 +189,7 @@ public struct SecretScene: Sendable {
 /// in a browser. Then it is typed as unicode, in chunks, from a buffer
 /// zeroed after, and the field is kept: a picture blacks it out, and copying
 /// out of it or typing into it again is refused for the rest of the session.
+@MainActor
 public final class SecretDesk<Access: FieldAccess> {
   private let access: Access
   /// The fields typed into, for the session they were typed in.

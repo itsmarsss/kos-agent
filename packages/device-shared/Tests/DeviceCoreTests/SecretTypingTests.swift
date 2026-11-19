@@ -6,6 +6,7 @@ import Testing
 /// A saved secret typed on the Mac: refused into the wrong app, the wrong field or the wrong page, typed in chunks
 /// from a buffer zeroed after, answered with an outcome alone, and the field kept out of pictures and copies.
 @Suite("A secret typed")
+@MainActor
 struct SecretTypingTests {
   /// An app's Accessibility tree, by element id, and which element has focus in each app. Every attribute asked is
   /// written down, so a test can say the field's value is never read.
