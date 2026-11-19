@@ -734,9 +734,11 @@ export class Kernel {
         config,
         downloadsDir,
         onDownload: (download) => this.placeDownload(download),
-        // The vault's values and sites, read from the registry at each use: masked in every tab, no script on a credential site.
+        // The vault's values and sites, read from the registry at each use: cleaned from every tab's words, shown only to their own sites' pages, no script on a credential site.
         saved: () => args.secrets.browserValues(),
+        savedFor: (origins) => args.secrets.pageValues(origins),
         evalBlocked: (origin) => args.secrets.evalBlocked(origin),
+        workerSites: () => [...args.secrets.listedDomains()],
         chrome: new ChromeHost({
           port: BROWSER_PORT,
           profileDir: this.workspace.resolve(".kos/browser-profile"),
@@ -746,6 +748,8 @@ export class Kernel {
           ...args.chrome,
         }),
       });
+      // A site newly listed for a secret may already have a worker planted on it: cleared before anything is filled there.
+      args.secrets.onSitesListed((domains) => void this.browser.purgeWorkers(domains));
       this.idleSweep = setInterval(() => this.sweepIdleTabs(), IDLE_SWEEP_MS);
       this.idleSweep.unref?.();
     }

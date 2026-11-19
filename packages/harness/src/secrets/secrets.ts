@@ -74,8 +74,11 @@ export class SecretsRegistry {
   private readonly kept = new Map<string, string>();
   /** Built on first use after any change, so it always looks for today's values. */
   private scrubber: Scrubber | undefined;
-  /** The scrubber's values as the browser masks them, made again with the scrubber. */
-  private masked: { by: Scrubber; values: { text: string; digits: boolean }[] } | undefined;
+  /** The scrubber's values as the browser masks them, made with the scrubber from the same values: every one, and the vault's by the sites each may be filled on. */
+  private masked: { all: BrowserValue[]; bySite: Map<string, BrowserValue[]> } = { all: [], bySite: new Map() };
+  /** The registrable domains the vault's secrets may be filled on, as last seen. */
+  private listed = new Set<string>();
+  private readonly siteListeners = new Set<(domains: string[]) => void>();
   private hits = 0;
   private vault: Vault | undefined;
   private unwatchVault: (() => void) | undefined;
@@ -117,8 +120,12 @@ export class SecretsRegistry {
   attachVault(vault: Vault): void {
     this.unwatchVault?.();
     this.vault = vault;
-    this.unwatchVault = vault.onChange(() => (this.scrubber = undefined));
+    this.unwatchVault = vault.onChange(() => {
+      this.scrubber = undefined;
+      this.noteSites();
+    });
     this.scrubber = undefined;
+    this.noteSites();
   }
 
   /** The vault its entries are read from, when one is attached: the secrets tools work on it. */
@@ -224,41 +231,90 @@ export class SecretsRegistry {
   }
 
   /**
-   * Every value the scrubber looks for, as KOS's browser masks them in
-   * every tab: the same strings, a card's by its digits. Made again only
-   * when the scrubber is.
+   * Every value the scrubber looks for, as KOS's browser cleans what it
+   * reads back: the same strings, a card's by its digits. The harness's own
+   * keys among them: these stay in the host, never sent into a page.
    */
-  browserValues(): readonly { text: string; digits: boolean }[] {
-    const by = this.scrubberNow();
-    if (this.masked?.by !== by) this.masked = { by, values: this.scanned().map(([, text, mode]) => ({ text, digits: mode === "digits" })) };
-    return this.masked.values;
+  browserValues(): readonly BrowserValue[] {
+    this.scrubberNow();
+    return this.masked.all;
   }
 
   /**
-   * Whether a page origin is on a site a vault secret may be filled on (any
-   * secret's web origins or frames, by registrable domain), where KOS runs
-   * no script: one could read a copy the site keeps or wait for a fill.
-   * Read from the vault each time, so it holds after a restart; a locked
-   * vault cannot say which sites, so it holds every web origin.
+   * The vault's values whose secret may be filled on the site of one of
+   * `origins` (by registrable domain): the only saved values a page of
+   * that site is shown, to mask its pictures. A page elsewhere is shown
+   * none, so it cannot learn which of its words is a saved secret.
    */
-  evalBlocked(origin: string): boolean {
-    const state = this.vault?.status().state;
-    if (!this.vault || state === "absent") return false;
-    const domain = siteDomain(origin);
-    if (!domain) return false;
-    if (state !== "ready") return /^https?:/i.test(origin);
-    return this.vault.list().some((meta) => [...meta.use.web.origins, ...meta.use.web.frames].some((site) => siteDomain(site) === domain));
+  pageValues(origins: readonly string[]): readonly BrowserValue[] {
+    this.scrubberNow();
+    const out = new Set<BrowserValue>();
+    for (const origin of origins) for (const value of this.masked.bySite.get(siteDomain(origin)) ?? []) out.add(value);
+    return [...out];
   }
 
-  /** Every value the scrubber looks for, by name: secrets first, so a shared value keeps its secret's name. */
-  private scanned(): Watched[] {
-    return [...this.map, ...(this.vault?.scanned() ?? []), ...this.watched, ...this.kept];
+  /**
+   * Why no script of KOS's may run on a page origin, if none may: a vault
+   * secret may be filled on its site (any secret's web origins or frames,
+   * by registrable domain), where a script could read a copy the site keeps
+   * or wait for a fill. Read from the vault each time, so it holds after a
+   * restart; a locked vault cannot say which sites, so it holds every web
+   * origin until it is unlocked.
+   */
+  evalBlocked(origin: string): string | undefined {
+    const state = this.vault?.status().state;
+    if (!this.vault || state === "absent") return undefined;
+    const domain = siteDomain(origin);
+    if (!domain) return undefined;
+    if (state !== "ready") return /^https?:/i.test(origin) ? "the secrets vault is locked, so which sites hold a saved secret cannot be read; ask the owner to unlock it on the Secrets page" : undefined;
+    return this.listedDomains().has(domain) ? "a saved secret may be filled on this site" : undefined;
+  }
+
+  /** The registrable domains a vault secret may be filled on now. */
+  listedDomains(): Set<string> {
+    if (this.vault?.status().state !== "ready") return new Set();
+    return new Set(this.vault.list().flatMap((meta) => [...meta.use.web.origins, ...meta.use.web.frames].map(siteDomain).filter(Boolean)));
+  }
+
+  /** Told the domains newly listed for a secret, each time the vault lists one (an edit, allow_site, the CLI, an unlock). */
+  onSitesListed(listener: (domains: string[]) => void): () => void {
+    this.siteListeners.add(listener);
+    return () => this.siteListeners.delete(listener);
+  }
+
+  private maskedOf(scanned: Watched[], vaulted: Set<Watched>): { all: BrowserValue[]; bySite: Map<string, BrowserValue[]> } {
+    const all: BrowserValue[] = [];
+    const bySite = new Map<string, BrowserValue[]>();
+    for (const entry of scanned) {
+      const [name, text, mode] = entry;
+      const value = { text, digits: mode === "digits" };
+      all.push(value);
+      const meta = vaulted.has(entry) ? this.vault?.get(name.split(".")[0] ?? "") : undefined;
+      for (const domain of new Set([...(meta?.use.web.origins ?? []), ...(meta?.use.web.frames ?? [])].map(siteDomain))) {
+        if (domain) bySite.set(domain, [...(bySite.get(domain) ?? []), value]);
+      }
+    }
+    return { all, bySite };
+  }
+
+  private noteSites(): void {
+    const now = this.listedDomains();
+    const fresh = [...now].filter((d) => !this.listed.has(d));
+    this.listed = now;
+    if (fresh.length) for (const listener of this.siteListeners) listener(fresh);
   }
 
   private scrubberNow(): Scrubber {
     // A secret the CLI added while the host runs is looked for within a second.
     this.vault?.poll();
-    this.scrubber ??= new Scrubber(this.scanned(), (name, count) => this.counted(name, count));
+    if (!this.scrubber) {
+      // One read of the vault's values, for the scrubber and the browser both: no second copy is decrypted.
+      const vaulted = this.vault?.scanned() ?? [];
+      // Every value the scrubber looks for, by name: secrets first, so a shared value keeps its secret's name.
+      const scanned: Watched[] = [...this.map, ...vaulted, ...this.watched, ...this.kept];
+      this.scrubber = new Scrubber(scanned, (name, count) => this.counted(name, count));
+      this.masked = this.maskedOf(scanned, new Set(vaulted));
+    }
     return this.scrubber;
   }
 
@@ -340,6 +396,12 @@ export class SecretsRegistry {
     }
     return out;
   }
+}
+
+/** A value as KOS's browser looks for it: a card's by its digits. */
+export interface BrowserValue {
+  text: string;
+  digits: boolean;
 }
 
 /** The registrable domain of an origin or a site pattern (`https://*.example.com`), or "" for none. */
