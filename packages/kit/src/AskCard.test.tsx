@@ -190,4 +190,28 @@ describe("an ask that places a secret", () => {
     expect(screen.queryByRole("button", { name: /Always/ })).toBeNull();
     expect(container.querySelector(".kos-ask-actions .kos-ask-note")?.textContent).toBe("Secrets always ask");
   });
+
+  it("draws a secret's ask with its label, handle, fields and the real origin, and no rule's always", () => {
+    const secret = { handle: "github-login-9xq1", label: "GitHub", kind: "login" as const, fields: ["username" as const, "password" as const], origin: "http://login.github.com.evil.example", frameOrigins: ["https://js.stripe.com"], surface: "kos-browser" as const, warnings: ["The page is not encrypted (plain http)."], remember: [] };
+    const fill = { secret: secret.handle, label: "GitHub", fields: [{ field: "username", target: "@e3" }, { field: "password", target: "@e4" }], origin: secret.origin };
+    const asked = askView({ tool: "secrets.fill", args: fill, rule: { tool: "secrets.fill", scope: null, project: null }, secret });
+    const { container } = render(<AskCard view={asked} tool="secrets.fill" args={fill} onDecide={vi.fn()} />);
+    expect(container.querySelector(".kos-ask-title")?.textContent).toBe("Fill username and password from GitHub (github-login-9xq1)");
+    expect(container.querySelector(".kos-ask-secret-what")?.textContent).toBe("GitHub github-login-9xq1 · username, password");
+    // The registrable domain is what says whose site it is: in bold, apart from what comes before it.
+    expect(container.querySelector(".kos-ask-secret-origin strong")?.textContent).toBe("evil.example");
+    expect(container.querySelector(".kos-ask-secret-origin")?.textContent).toBe("http://login.github.com.evil.example");
+    expect(container.querySelector(".kos-ask-secret-frames")?.textContent).toBe("In a frame from js.stripe.com");
+    expect(container.querySelector(".kos-ask-secret .tag--warn")?.textContent).toBe("The page is not encrypted (plain http).");
+    expect(screen.queryByRole("button", { name: /Always/ })).toBeNull();
+    expect(container.querySelector(".kos-ask-note")?.textContent).toBe("Secrets always ask");
+  });
+
+  it("offers a site's always only where the secret's policy keeps one", () => {
+    const secret = { handle: "github-login-9xq1", label: "GitHub", kind: "login" as const, fields: ["password" as const], origin: "https://github.com", frameOrigins: [], surface: "kos-browser" as const, warnings: [], remember: ["site" as const] };
+    const onDecide = vi.fn();
+    render(<AskCard view={askView({ tool: "secrets.fill", args: { secret: secret.handle }, secret })} tool="secrets.fill" onDecide={onDecide} />);
+    fireEvent.click(screen.getByRole("button", { name: "Approve, and always on github.com" }));
+    expect(onDecide).toHaveBeenCalledWith(true, true);
+  });
 });

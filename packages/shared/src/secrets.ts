@@ -114,7 +114,7 @@ export const SECRET_KINDS: readonly SecretKind[] = ["login", "card", "apikey", "
  * time, never kept as a permission rule, and decided only on the
  * dashboard or a paired device.
  */
-export const SECRET_TOOLS: readonly string[] = ["secrets.fill", "secrets.type", "secrets.allow_site"];
+export const SECRET_TOOLS: readonly string[] = ["secrets.fill", "secrets.type", "secrets.allow_site", "secrets.request"];
 
 /** What a yes to a secret's ask may be kept as: `site` stops asking on that origin (a grant in the vault). */
 export type SecretRemember = "turn" | "site";

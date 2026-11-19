@@ -1,6 +1,6 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
+import type { AskSecret, ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
 
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
@@ -95,6 +95,8 @@ export interface PendingAction {
   /** The remembered yes in the host's words, its destination named, and exactly what it keeps. */
   always?: string;
   alwaysTip?: string;
+  /** The secret a secrets tool's ask places, and where; never a value. */
+  secret?: AskSecret;
 }
 
 export interface Project {
