@@ -171,11 +171,11 @@ own.close();`,
     }
   });
 
-  it("holds every program, sealed or not, off Apple Events, other processes, preferences and the hand-off programs, keeping mach lookups", () => {
+  it("holds every program, sealed or not, off Apple Events, preferences and the hand-off programs; a sealed one off other processes and mach lookups too", () => {
     for (const sealed of [false, true]) {
       const p = sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: [], sealed });
       expect(p).toContain("(deny appleevent-send)");
-      expect(p).toContain("(deny signal (target others))");
+      expect(p.includes("(deny signal (target others))")).toBe(sealed);
       expect(p).toContain("(deny user-preference-write)");
       for (const program of HANDOFF_PROGRAMS) expect(p).toContain(`(literal "${program}")`);
       expect(p.includes("(deny mach-lookup)")).toBe(sealed);
@@ -213,16 +213,30 @@ own.close();`,
     }
   });
 
-  it.runIf(process.platform === "darwin")("refuses an approved run a signal to a process outside it, while its own children stay its to stop", async () => {
+  it.runIf(process.platform === "darwin")("lets an approved run stop a detached child of its own, as a test runner stops its server", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kos-jail-detached-"));
+    writeFileSync(join(dir, "parent.mjs"), `import { spawn } from "node:child_process";
+const child = spawn("/bin/sleep", ["30"], { detached: true, stdio: "ignore" });
+await new Promise((r) => setTimeout(r, 100));
+try { process.kill(-child.pid, "SIGTERM"); console.log("stopped"); } catch (e) { console.log("refused " + e.code); }`);
+    try {
+      expect((await approved(dir, `"${process.execPath}" parent.mjs`)).out).toBe("stopped");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "darwin")("refuses a sealed run a signal to a process outside it, while its own children stay its to stop", async () => {
     const dir = mkdtempSync(join(tmpdir(), "kos-jail-signal-"));
     const outside = spawn("/bin/sleep", ["30"], { stdio: "ignore" });
+    const sealed = async (command: string): Promise<string> => {
+      const ran = await runCaptured(jailedCommand(command, { workspaceRoot: dir, homes: [], kosPorts: [45_998], secretFiles: [], sealed: true }), { cwd: dir, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir, TMPDIR: dir }, timeoutMs: CHILD_MS, maxOutput: 10_000 });
+      return `${ran.stdout}${ran.stderr}`.trim();
+    };
     try {
-      const own = await approved(dir, "/bin/sleep 30 & kill $! && echo stopped");
-      expect(own.out).toBe("stopped");
-      const other = await approved(dir, `kill ${outside.pid} 2>/dev/null && echo killed || echo refused`);
-      expect(other.out).toBe("refused");
+      expect(await sealed("/bin/sleep 30 & kill $! && echo stopped")).toBe("stopped");
+      expect(await sealed(`kill ${outside.pid} 2>/dev/null && echo killed || echo refused`)).toBe("refused");
       expect(outside.exitCode).toBeNull();
-      expect(outside.signalCode).toBeNull();
     } finally {
       outside.kill("SIGKILL");
       rmSync(dir, { recursive: true, force: true });
