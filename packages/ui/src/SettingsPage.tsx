@@ -1,5 +1,6 @@
 import { m } from "motion/react";
-import { CloseIcon, ease, Empty, Field, IconButton, KOS_SEED, Pill, RefChip, Switch, Tag, useOverlayScroll } from "@kos/kit";
+import { marksOfLetters } from "@kos/shared";
+import { CloseIcon, ease, Empty, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, Switch, Tag, useOverlayScroll } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -279,19 +280,6 @@ function timezones(): string[] {
   } catch {
     return [];
   }
-}
-
-/** Text with the letters a search matched marked. */
-function Marked({ text, marks }: { text: string; marks: number[] }): ReactElement {
-  const at = new Set(marks);
-  const runs: { text: string; marked: boolean }[] = [];
-  [...text].forEach((ch, i) => {
-    const marked = at.has(i);
-    const last = runs[runs.length - 1];
-    if (last && last.marked === marked) last.text += ch;
-    else runs.push({ text: ch, marked });
-  });
-  return <>{runs.map((r, i) => (r.marked ? <mark key={i}>{r.text}</mark> : <span key={i}>{r.text}</span>))}</>;
 }
 
 export function SettingsPage({
@@ -735,7 +723,7 @@ export function SettingsPage({
                   onClick={() => jump(hit)}
                 >
                   <span className="set-rail-label">
-                    <Marked text={hit.label ?? sec.label} marks={hit.marks} />
+                    <Marked text={hit.label ?? sec.label} marks={marksOfLetters(hit.marks)} />
                   </span>
                   <span className="set-rail-blurb">{hit.label ? `${sec.group} · ${sec.label}` : sec.blurb}</span>
                 </button>
