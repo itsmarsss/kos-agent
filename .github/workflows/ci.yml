@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -48,10 +51,48 @@ jobs:
       - name: Build KOS for Chrome
         run: pnpm -C packages/browser-extension build
 
-      - run: pnpm test
-
+      # Before the tests: the artifact runtime suites read ui/dist/page-lib and skip without it.
       - name: Build UI assets
         run: pnpm -C packages/ui build
+
+      # The *.chrome.test.ts suites skip when no Chrome is found; a runner image without one fails here instead.
+      - name: Chrome present
+        run: google-chrome --version
+
+      - run: pnpm test
+
+  # The macOS jail (sandbox-exec) and the suites that run under it skip on
+  # Linux. HOME is a temp dir so nothing reads the runner's own, by its real
+  # path (the jail's deny on the home is by path, and /tmp is a symlink), and
+  # Chrome under a stand-in HOME uses a mock keychain (browser/src/chrome.ts).
+  check-macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec tsc -b
+
+      - name: macOS jail suites
+        run: |
+          mkdir -p "$RUNNER_TEMP/home"
+          home="$(cd "$RUNNER_TEMP/home" && pwd -P)"
+          HOME="$home" ./node_modules/.bin/vitest run --testTimeout=30000 \
+            packages/harness/src/sandbox \
+            packages/harness/src/tools/shell.test.ts \
+            packages/harness/src/tools/python.test.ts \
+            packages/harness/src/tools/tex.test.ts \
+            packages/harness/src/tools/home.test.ts \
+            packages/harness/src/files/images.test.ts
 
   docker:
     runs-on: ubuntu-latest
