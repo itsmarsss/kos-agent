@@ -29,6 +29,10 @@ function short(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
+function pictureWords(n: number): string {
+  return n === 1 ? "1 picture" : `${n} pictures`;
+}
+
 export function ContextMeter({
   conversationId,
   refreshKey,
@@ -58,7 +62,7 @@ export function ContextMeter({
   const recall = use.recalled ? <TurnRecall recalled={use.recalled} /> : null;
   if (!use.history || use.history.historyChars <= 2) return recall;
 
-  const { historyChars, maxChars, exchanges, maxExchanges } = use.history;
+  const { historyChars, maxChars, exchanges, maxExchanges, pictures = 0 } = use.history;
   // Whichever budget is closer to being spent is the one worth showing: a
   // short conversation of enormous tool results runs out of characters, and a
   // long one of one-liners runs out of exchanges.
@@ -85,9 +89,12 @@ export function ContextMeter({
     <div
       className={`ctx${level}`}
       title={
-        `Keeping ${historyChars.toLocaleString()} of ${maxChars.toLocaleString()} characters ` +
-        `and ${exchanges} of ${maxExchanges} exchanges. Past either, the oldest turns ` +
-        `drop off; /compact turns them into a summary instead.${windowPart}`
+        // Never "keeping X of Y" with X past Y: past the budget, it says what is over.
+        `${over ? "Over the budget, so the oldest turns are being dropped: " : "Keeping "}` +
+        `${Math.min(historyChars, maxChars).toLocaleString()} of ${maxChars.toLocaleString()} characters ` +
+        `and ${Math.min(exchanges, maxExchanges)} of ${maxExchanges} exchanges.` +
+        `${pictures > 0 ? ` ${pictureWords(pictures)} counted at a fixed allowance each, not by their bytes.` : ""}` +
+        ` Past either, the oldest turns drop off; /compact turns them into a summary instead.${windowPart}`
       }
     >
       <span className="ctx-track" aria-hidden="true">
@@ -98,6 +105,7 @@ export function ContextMeter({
         <span className="ctx-detail">
           {" · "}
           {Math.min(exchanges, maxExchanges)}/{maxExchanges} turns
+          {pictures > 0 ? ` · ${pictureWords(pictures)}` : ""}
           {over ? " · trimming" : ""}
         </span>
       </span>

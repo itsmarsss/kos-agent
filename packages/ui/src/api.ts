@@ -758,8 +758,10 @@ export interface TurnRecall {
 }
 
 export interface ContextUseDetail {
-  /** Characters of history retained right now. */
+  /** Characters of history retained right now, each picture at its allowance rather than its bytes. */
   historyChars: number;
+  /** Pictures in that history, counted apart; absent from a KOS before they were. */
+  pictures?: number;
   /** Budget it is trimmed to. */
   maxChars: number;
   exchanges: number;

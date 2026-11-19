@@ -140,12 +140,38 @@ function capMessage(
 }
 
 /**
+ * What a picture costs the retention budget, in characters: about the 1,600
+ * tokens a provider bills one near its largest size, at four characters a
+ * token. Its base64 was counted as text, so one 160 KB photo read as 216,804
+ * characters of a 128,000 budget: the meter said full and the oldest turns
+ * were trimmed for it.
+ */
+export const PICTURE_CHARS = 6_400;
+
+/** The pictures in messages: attached, and come back with a tool's result. */
+export function picturesIn(messages: ModelMessage[]): number {
+  let n = 0;
+  for (const m of messages) for (const b of m.content) n += b.type === "image" ? 1 : b.type === "tool_result" ? (b.images?.length ?? 0) : 0;
+  return n;
+}
+
+/** A message with its pictures' bytes left out, for counting what its words take. */
+function wordsOf({ at: _at, ...message }: ModelMessage): Omit<ModelMessage, "at"> {
+  if (!message.content.some((b) => b.type === "image" || (b.type === "tool_result" && b.images?.length))) return message;
+  return {
+    ...message,
+    content: message.content.map((b) => (b.type === "image" ? { ...b, data: "" } : b.type === "tool_result" && b.images ? { ...b, images: b.images.map((i) => ({ ...i, data: "" })) } : b)),
+  };
+}
+
+/**
  * How much of the retention budget messages take: their JSON, without when
  * each was said, which is the reader's and never sent to the model, so a
- * time does not cost a turn its place.
+ * time does not cost a turn its place, and with each picture at its
+ * allowance rather than its bytes.
  */
 export function historySize(messages: ModelMessage[]): number {
-  return JSON.stringify(messages.map(({ at: _at, ...message }) => message)).length;
+  return JSON.stringify(messages.map(wordsOf)).length + picturesIn(messages) * PICTURE_CHARS;
 }
 
 /** A stored message from before messages kept their time: 0, so it is never taken for a new one. */

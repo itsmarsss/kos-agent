@@ -92,7 +92,7 @@ import {
 } from "../catalog/catalog.js";
 import { DEFAULT_SEARCH } from "@kos/browser";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
-import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize } from "./session.js";
+import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize, picturesIn } from "./session.js";
 
 /** Where the owner's home arrangement lives. */
 export const HOME_LAYOUT_KEY = "home.layout";
@@ -2640,6 +2640,8 @@ export async function handleApiRequest(
       conversationId: id,
       history: {
         historyChars,
+        // Counted apart: each is in historyChars at its allowance, not its bytes.
+        pictures: picturesIn(retained),
         maxChars: retention.maxChars,
         exchanges,
         maxExchanges: retention.maxExchanges,
