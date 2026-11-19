@@ -588,7 +588,8 @@ select {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  max-width: 28rem;
+  /* The window less its gutters on a phone; a comfortable line on a desk. */
+  max-width: 36rem;
   padding: 0.45rem 0.95rem 0.45rem 0.55rem;
   border-radius: 1.1rem;
   border: 1px solid var(--line-strong);
@@ -645,9 +646,22 @@ select {
 .host-banner-text { min-width: 0; }
 .host-banner--stale { padding-right: 0.3rem; border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
 .host-banner--stale .host-banner-mark { background: var(--danger-dim); color: var(--danger); }
-/* On a phone, under the bar with the menu, which stays in reach. */
+/* On a phone it takes the brand's slot in the bar, between the menu and
+   search, so it covers neither them nor the page's own head under the bar. */
 @media (max-width: 640px) {
-  .host-banner { top: calc(3.75rem + env(safe-area-inset-top, 0px)); }
+  .host-banner {
+    top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+    left: 3.5rem;
+    right: 3.5rem;
+    width: auto;
+    max-width: none;
+    min-height: 2.25rem;
+    margin: 0;
+    padding-block: 0.15rem;
+    font-size: var(--text-sm);
+    line-height: 1.25;
+  }
+  :root:has(.host-banner) .phonebar .brand { visibility: hidden; }
 }
 
 /* agent pages (keep usable) */
