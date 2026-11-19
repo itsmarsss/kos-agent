@@ -7,6 +7,7 @@ import type {
   MessageHandler,
   OutboundMessage,
   ApprovalOutcome,
+  StoryExtra,
   TurnPresence,
 } from "./types.js";
 
@@ -71,13 +72,16 @@ export class InMemoryAdapter implements ChannelAdapter {
    */
   withPresence = false;
   readonly shown: string[] = [];
+  /** What rode beside each story shown. */
+  readonly extras: StoryExtra[] = [];
   readonly completed: OutboundMessage[] = [];
 
   async acknowledge(): Promise<TurnPresence | undefined> {
     if (!this.withPresence) return undefined;
     return {
-      update: async (status) => {
+      update: async (status, extra) => {
         this.shown.push(status);
+        this.extras.push(extra ?? {});
       },
       complete: async (reply) => {
         this.completed.push(reply);
