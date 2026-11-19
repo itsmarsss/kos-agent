@@ -7,6 +7,7 @@ import type { PendingAction } from "../ops/approvals.js";
 import type { SecretUseInput, SecretUses } from "../ops/secretuses.js";
 import { checkOrigin, originAllowed } from "../secrets/records.js";
 import type { SecretMeta, Vault } from "../secrets/vault.js";
+import { SECRET_TYPE } from "./secrettype.js";
 
 /**
  * The owner's secrets, as tools: the agent lists them by handle, fills one
@@ -301,18 +302,22 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
     },
     activate(ctx: ModuleContext) {
       // A fill the owner denied, or that nobody answered, is a use that did not happen: recorded so.
+      // A type on the Mac (secrets.type, which the computer module registers) the same: its block names the app and device.
       unsubscribe = deps.onDecided?.((action) => {
-        if (action.tool !== FILL || !action.secret || (action.status !== "denied" && action.status !== "expired")) return;
+        if ((action.tool !== FILL && action.tool !== SECRET_TYPE) || !action.secret || (action.status !== "denied" && action.status !== "expired")) return;
         const s = action.secret;
+        const deviceId = (JSON.parse(action.args) as { deviceId?: unknown }).deviceId;
         deps.uses.record({
           secret: s.handle,
-          tool: FILL,
+          tool: action.tool,
           surface: s.surface,
           outcome: action.status,
           fields: s.fields,
           approvalId: action.id,
           ...(action.decidedBy ? { decidedBy: action.decidedBy } : {}),
           ...(action.conversationId ? { conversationId: action.conversationId } : {}),
+          ...(typeof deviceId === "string" ? { deviceId } : {}),
+          ...(s.app ? { app: s.app.bundle } : {}),
           ...(s.origin ? { origin: s.origin } : {}),
           ...(s.frameOrigins[0] ? { frameOrigin: s.frameOrigins[0] } : {}),
         });
@@ -324,7 +329,8 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
           description:
             "The owner's saved secrets (logins, cards, API keys, notes), by handle: label, kind, the fields each holds, a hint " +
             "(never a value), where it may be used (sites, payment frames, apps, API hosts), and whether it can be filled on " +
-            "the page your tab is on now (usableHere). You never see a value: fill one with secrets.fill, send an API key with " +
+            "the page your tab is on now (usableHere). You never see a value: fill one with secrets.fill, type one on the owner's " +
+            "Mac with secrets.type (into an app the secret names), send an API key with " +
             "{{secret:<handle>}} in an http.fetch header. Never ask the owner to type a password, a card or a key in the chat; " +
             "if what you need is not saved, secrets.request asks them to add it.",
           inputSchema: { type: "object", properties: {} },

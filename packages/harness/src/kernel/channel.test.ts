@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import { AllowlistMapping } from "../channels/identity.js";
@@ -355,6 +355,31 @@ describe("connectChannel", () => {
     await kernel.approve(pendingId, undefined, { surface: "dashboard" });
 
     expect(adapter.settled).toEqual([]);
+  });
+
+  it.each(["mac", "phone", "chrome"])("refuses a typed /approve of a secret ask on %s, a paired device's own chat", async (channel) => {
+    await boot(stub([]));
+    const action = kernel.approvals.enqueue({ tool: "http.fetch", args: { url: "https://api.stripe.com/v1", headers: { authorization: "Bearer {{secret:stripe-ab12}}" } }, riskTier: "risky" });
+    const res = await kernel.handleChannelTurn({ text: `/approve ${action.id}`, userId: kernel.profile.ownerId, channel });
+    expect(res.reply).toMatch(/never a typed \/approve/);
+    expect(kernel.approvals.get(action.id)?.status).toBe("pending");
+  });
+
+  it("names the deciding device only for a paired device's panel; a chat surface's press names none and still decides", async () => {
+    await boot(stub(riskyScript()));
+    const approve = vi.spyOn(kernel, "approve");
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+    await adapter.decide({ id: adapter.approvalsRequested[0]!.req.id, approved: true, deciderId: "owner" });
+    expect(approve.mock.calls[0]?.[2]).toEqual({ remember: false, surface: "memory" });
+
+    const panel = new InMemoryAdapter();
+    Object.defineProperty(panel, "name", { value: "mac" });
+    const panelRuntime = connectChannel(panel, kernel, { ownerRecipientId: "owner" });
+    await panelRuntime.start();
+    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "x" }, riskTier: "risky" });
+    await panel.decide({ id: String(action.id), approved: true, deciderId: "dev_mac" });
+    expect(approve.mock.calls.at(-1)?.[2]).toEqual({ remember: false, surface: "mac", device: "dev_mac" });
+    await panelRuntime.stop();
   });
 
   it("passes a surface's remember through to the kernel", async () => {

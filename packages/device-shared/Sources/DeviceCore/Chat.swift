@@ -196,11 +196,14 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public let asker: String?
   /// When it is decided for the owner if they do not, epoch milliseconds.
   public let expiresAt: Double?
+  /// The secret a secrets tool's ask places, and where; never its value.
+  public let secret: ChatSecret?
 
   public init(
     id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
     steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, tooLong: Bool? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
-    always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expiresAt: Double? = nil
+    always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expiresAt: Double? = nil,
+    secret: ChatSecret? = nil
   ) {
     self.id = id
     self.tool = tool
@@ -220,6 +223,41 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
     self.alwaysNote = alwaysNote
     self.asker = asker
     self.expiresAt = expiresAt
+    self.secret = secret
+  }
+}
+
+/// A secret's ask as every card shows it (AskSecret, docs/secrets.md): the secret by label and handle, its fields,
+/// and where it goes (a page's origin, an app on a device). Never a value.
+public struct ChatSecret: Codable, Equatable, Sendable {
+  public struct App: Codable, Equatable, Sendable {
+    public let name: String
+    public let bundle: String
+
+    public init(name: String, bundle: String) {
+      self.name = name
+      self.bundle = bundle
+    }
+  }
+
+  public let handle: String
+  public let label: String
+  public let fields: [String]
+  public let origin: String?
+  /// The app it is typed into on a Mac.
+  public let app: App?
+  /// The paired device it goes into, by name.
+  public let device: String?
+  public let warnings: [String]?
+
+  public init(handle: String, label: String, fields: [String], origin: String? = nil, app: App? = nil, device: String? = nil, warnings: [String]? = nil) {
+    self.handle = handle
+    self.label = label
+    self.fields = fields
+    self.origin = origin
+    self.app = app
+    self.device = device
+    self.warnings = warnings
   }
 }
 

@@ -14,19 +14,18 @@ enum Targets {
     return FrontApp(name: app.localizedName ?? app.bundleIdentifier ?? "Unknown", bundle: app.bundleIdentifier ?? "")
   }
 
-  /// The app owning the topmost window under `point` (global, top-left), not counting this one.
-  static func app(at point: CGPoint) -> NSRunningApplication? {
+  /// Every on-screen window under `point` (global, top-left), topmost first: this app's own among them, its status
+  /// item and its menus in the menu bar too, so a click on them is seen for what it is.
+  static func windows(at point: CGPoint) -> [WindowHit] {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-    guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return nil }
-    let me = getpid()
-    for window in windows {
-      guard let pid = window[kCGWindowOwnerPID as String] as? pid_t, pid != me,
-            (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+    guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
+    return windows.compactMap { window in
+      guard let pid = window[kCGWindowOwnerPID as String] as? pid_t,
+            let number = window[kCGWindowNumber as String] as? Int,
             let bounds = window[kCGWindowBounds as String] as? NSDictionary,
-            let frame = CGRect(dictionaryRepresentation: bounds), frame.contains(point) else { continue }
-      return NSRunningApplication(processIdentifier: pid)
+            let frame = CGRect(dictionaryRepresentation: bounds), frame.contains(point) else { return nil }
+      return WindowHit(pid: pid, number: number, clear: (window[kCGWindowAlpha as String] as? Double ?? 1) <= 0)
     }
-    return nil
   }
 
   /// macOS turns secure input on while a password field has focus, and keeps keystrokes from other apps' eyes.

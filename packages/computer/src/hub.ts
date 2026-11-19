@@ -60,6 +60,8 @@ export interface DeviceStatus {
 export interface HubDeps {
   store: DeviceStore;
   hostKey: HostKey;
+  /** KOS's own addresses (host, or host:port), told to a computer as a session begins: it never acts on that dashboard. */
+  ownHosts?: () => readonly string[];
   /** True while KOS's kill switch is thrown: nothing starts. */
   halted: () => boolean;
   /** KOS's face as the owner set it, for every device to draw KOS by. */
@@ -122,6 +124,11 @@ const MAX_REFUSALS_LOGGED = 100;
 /** What a device claimed, safe for a log line: one line, printable, short. */
 export const loggable = (text: string, max = 64): string => text.replace(/[^\x20-\x7e]/g, "?").slice(0, max);
 
+/** Calls that only look, which leave the screen as it was. */
+const LOOKS: ReadonlySet<string> = new Set(["screen.capture", "keys.focus", "tabs.list"]);
+/** How long after a device acted for KOS a yes on a secret's ask is not taken from it. */
+export const HANDS_OFF_MS = 5_000;
+
 export class DeviceHub {
   readonly codes: PairingCodes;
   private readonly links = new Map<string, DeviceLink>();
@@ -138,6 +145,10 @@ export class DeviceHub {
   private readonly refusalsLogged = new Map<string, number>();
   /** Devices whose line dropped with a session on them: the session ends when the wait runs out, unless they come back holding it. */
   private readonly graces = new Map<string, ReturnType<typeof setTimeout>>();
+  /** When each computer last began or finished an action for KOS (a click, a key, a scroll), by its id. */
+  private readonly acted = new Map<string, number>();
+  /** Actions each computer is carrying out for KOS now, by its id: a yes from its screen meanwhile may be one of them. */
+  private readonly acting = new Map<string, number>();
 
   constructor(private readonly deps: HubDeps) {
     this.codes = new PairingCodes(this.now);
@@ -489,6 +500,7 @@ export class DeviceHub {
         session: id, task: input.task, requester: input.requester, conversation: input.conversation, minutes,
         ...(input.app ? { target: { app: input.app } } : {}),
         ...(input.maxEdge ? { maxEdge: input.maxEdge } : {}),
+        ...(!browser && this.deps.ownHosts ? { kosHosts: [...this.deps.ownHosts()] } : {}),
       },
       this.deps.beginTimeoutMs ?? BEGIN_TIMEOUT_MS,
     );
@@ -605,6 +617,9 @@ export class DeviceHub {
       this.drop(session, "offline", "its line being down when KOS acted");
       throw new DeviceError("offline", "the device went offline");
     }
+    // Only a computer's hand is the system's own pointer and keys, which can press an Approve anywhere on its screen.
+    const hand = !LOOKS.has(method) && kindOf(link.device!) === "computer";
+    if (hand) this.handBegins(session.device);
     try {
       const result = await link.call(method, { ...params, session: session.id }, timeoutMs ?? this.deps.callTimeoutMs ?? CALL_TIMEOUT_MS);
       if (method === "screen.capture" && params["region"] === undefined) session.scrolled = false;
@@ -613,7 +628,50 @@ export class DeviceHub {
       if (err instanceof DeviceError && err.code === "no_session") this.drop(session, "host", "the device, which said it holds none");
       if (err instanceof DeviceError && err.code === "paused") session.paused = true;
       throw err;
+    } finally {
+      if (hand) this.handEnds(session.device);
     }
+  }
+
+  private handBegins(device: string): void {
+    this.acting.set(device, (this.acting.get(device) ?? 0) + 1);
+    this.acted.set(device, this.now());
+  }
+
+  private handEnds(device: string): void {
+    const left = (this.acting.get(device) ?? 1) - 1;
+    if (left > 0) this.acting.set(device, left);
+    else this.acting.delete(device);
+    this.acted.set(device, this.now());
+  }
+
+  /** Whether a computer's hand is at work for KOS now or was a moment ago. */
+  private handBusy(device: string, now: number): boolean {
+    const at = this.acted.get(device);
+    return (this.acting.get(device) ?? 0) > 0 || (at !== undefined && now - at < HANDS_OFF_MS);
+  }
+
+  /**
+   * Why a yes from `device` on an ask that places a secret in `conversation`
+   * may be KOS's own hand, if it may. Only a computer (KOS for Mac) has one:
+   * its pointer and keys are the system's, and reach any window on its
+   * screen. A yes from a computer is refused while it holds that chat's
+   * session, or is acting for KOS or did a moment ago. A yes from anywhere
+   * else (the dashboard, a Chrome's panel, a phone) is refused while any
+   * computer is, since its hand can reach a browser on its screen. A Chrome's
+   * own calls are KOS's page work, not a pointer, and never count.
+   */
+  handsOn(device: string | undefined, conversation: string | null): string | undefined {
+    const now = this.now();
+    const from = device === undefined ? undefined : this.links.get(device)?.device;
+    if (device !== undefined && from && kindOf(from) === "computer") {
+      if (conversation !== null && this.sessionOf(conversation)?.device === device) {
+        return "This device is the one KOS is working on in this chat, so a yes from it could be KOS's own click. Decide on the dashboard, or on another device.";
+      }
+      return this.handBusy(device, now) ? "This device is acting for KOS, or did a moment ago, so a yes from it could be KOS's own. Wait a few seconds and decide again." : undefined;
+    }
+    const busy = [...new Set([...this.acted.keys(), ...this.acting.keys()])].some((d) => this.handBusy(d, now));
+    return busy ? "A paired computer is acting for KOS, or did a moment ago, so this yes could be KOS's own click. Wait a few seconds and decide again." : undefined;
   }
 
   /**

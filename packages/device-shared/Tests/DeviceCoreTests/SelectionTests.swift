@@ -313,6 +313,23 @@ struct SelectionTests {
     #expect(read(fake, notes).0 == .nothing)
   }
 
+  /// A field KOS typed a secret into is read as a password field is: never, in focus or found in the window.
+  @Test func aFieldTypedIntoIsNeverRead() {
+    let fake = Fake()
+    fake.attributes = [
+      0: ["AXFocusedUIElement": 1, "AXFocusedWindow": 10],
+      1: ["AXRole": "AXTextField", "AXSelectedText": "4111 1111"],
+      10: ["AXRole": "AXWindow"],
+      11: ["AXRole": "AXTextField", "AXSelectedText": "card 4242"],
+    ]
+    fake.children = [10: [11]]
+    let typed: Set<Int> = [1, 11]
+    #expect(reader(fake).read(notes, hidden: false, skipping: { typed.contains($0) }, secureInput: { false }) {} == .refused)
+    fake.attributes[0]?["AXFocusedUIElement"] = nil
+    #expect(reader(fake).read(notes, hidden: false, skipping: { typed.contains($0) }, secureInput: { false }) {} == .nothing)
+    #expect(reader(fake).read(notes, hidden: false, secureInput: { false }) {} == .text("card 4242"))
+  }
+
   /// The focused element and seven of its parents are looked through, and no more.
   @Test func eightParentsAreLookedThrough() {
     for (depth, expected) in [(7, SelectionRead.text("in reach")), (8, .nothing)] {

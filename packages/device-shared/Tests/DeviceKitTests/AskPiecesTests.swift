@@ -16,6 +16,19 @@ struct AskPiecesTests {
     #expect(ChatModel.Ask(id: "1", tool: "shell.run").stepLines.isEmpty)
   }
 
+  @Test func saysASecretsFieldsAndWhereItGoes() {
+    let mac = ChatSecret(
+      handle: "github-login-9xq1", label: "GitHub", fields: ["password"], app: .init(name: "Safari", bundle: "com.apple.Safari"), device: "Studio MacBook")
+    #expect(AskWords.secretFields(mac) == "password")
+    #expect(AskWords.secretPlace(mac) == "Into Safari, on Studio MacBook")
+    let page = ChatSecret(handle: "visa-7k2q", label: "Visa", fields: ["number", "cvc", "expiry"], origin: "https://shop.example")
+    #expect(AskWords.secretFields(page) == "card number, CVC and expiry")
+    #expect(AskWords.secretPlace(page) == "On shop.example")
+    let both = ChatSecret(handle: "h", label: "L", fields: [], origin: "https://github.com", app: .init(name: "Safari", bundle: "com.apple.Safari"))
+    #expect(AskWords.secretFields(both) == nil)
+    #expect(AskWords.secretPlace(both) == "Into Safari on github.com")
+  }
+
   @Test func saysAStepsKeysAsTheirCaps() {
     let line: StepLine = [.text("Press "), .key("⌘−"), .text(" 4 times, then "), .key("⌘Home")]
     #expect(AskWords.plain(line) == "Press ⌘− 4 times, then ⌘Home")
