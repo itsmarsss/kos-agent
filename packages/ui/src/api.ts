@@ -1080,8 +1080,26 @@ export function dispositionName(header: string | null): string | undefined {
   return /filename="([^"]*)"/i.exec(header)?.[1] || undefined;
 }
 
+/** Who shows the token prompt, told each time KOS answers 401: this tab holds no token, or the wrong one. */
+const lockouts = new Set<() => void>();
+
+/** Hear every 401 KOS answers; the returned function stops listening. */
+export function onUnauthorized(listener: () => void): () => void {
+  lockouts.add(listener);
+  return () => {
+    lockouts.delete(listener);
+  };
+}
+
+/** Every request the dashboard makes: with the token this tab holds, and a 401 told to the token prompt. */
+export async function kosFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(path, { ...init, headers: { ...tokenHeaders(), ...(init.headers as Record<string, string> | undefined) } });
+  if (res.status === 401) for (const listener of lockouts) listener();
+  return res;
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(path, { headers: tokenHeaders(), ...(signal ? { signal } : {}) });
+  const res = await kosFetch(path, signal ? { signal } : {});
   if (!res.ok) throw new Error(await readError(res, path));
   return (await res.json()) as T;
 }
@@ -1125,7 +1143,7 @@ export function tokenHeaders(): Record<string, string> {
 }
 
 async function post<T>(path: string, body: unknown = {}): Promise<T> {
-  const res = await fetch(path, {
+  const res = await kosFetch(path, {
     method: "POST",
     headers: changeHeaders(),
     body: JSON.stringify(body),
@@ -1321,7 +1339,7 @@ export const api = {
   /** The owner's edit to a doc or a sheet, made on the version `base` (its record's updatedAt). */
   savePage: async (id: string, edit: unknown, base: number): Promise<PageSummary> => {
     const path = `/api/pages/${encodeURIComponent(id)}/save`;
-    const res = await fetch(path, { method: "POST", headers: changeHeaders(), body: JSON.stringify({ edit, base }) });
+    const res = await kosFetch(path, { method: "POST", headers: changeHeaders(), body: JSON.stringify({ edit, base }) });
     if (res.status === 409) throw new SaveConflict(await readError(res, path));
     if (!res.ok) throw new Error(await readError(res, path));
     return (await res.json()) as PageSummary;
@@ -1393,7 +1411,7 @@ export const api = {
    */
   imageUrl: async (path: string): Promise<string> => {
     const url = `/api/file/raw?path=${encodeURIComponent(path)}`;
-    const res = await fetch(url);
+    const res = await kosFetch(url);
     if (!res.ok) throw new Error(await readError(res, url));
     return URL.createObjectURL(await res.blob());
   },
@@ -1418,7 +1436,7 @@ export const api = {
   officeView: (path: string) => get<OfficeView>(`/api/file/office?path=${encodeURIComponent(path)}`),
   /** A document's thumbnail as an object URL, or null when no host can draw one; the caller revokes it. */
   thumbUrl: async (path: string, size: number): Promise<string | null> => {
-    const res = await fetch(`/api/file/thumb?path=${encodeURIComponent(path)}&size=${size}`);
+    const res = await kosFetch(`/api/file/thumb?path=${encodeURIComponent(path)}&size=${size}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(await readError(res, "/api/file/thumb"));
     return URL.createObjectURL(await res.blob());
@@ -1441,7 +1459,7 @@ export const api = {
   /** Save a file through the browser's own download, under its own name. */
   downloadFile: async (path: string): Promise<void> => {
     const url = `/api/file/download?path=${encodeURIComponent(path)}`;
-    const res = await fetch(url);
+    const res = await kosFetch(url);
     if (!res.ok) throw new Error(await readError(res, url));
     save(await res.blob(), path.split("/").pop() ?? "file");
   },
@@ -1449,7 +1467,7 @@ export const api = {
   exportArtifact: async (id: string, format: ExportFormat, options: { tab?: string; theme?: "light" | "dark" } = {}): Promise<void> => {
     const query = new URLSearchParams({ format, ...(options.tab !== undefined ? { tab: options.tab } : {}), ...(options.theme ? { theme: options.theme } : {}) });
     const url = `/api/artifacts/${encodeURIComponent(id)}/export?${query}`;
-    const res = await fetch(url);
+    const res = await kosFetch(url);
     if (!res.ok) throw new Error(await readError(res, url));
     save(await res.blob(), dispositionName(res.headers.get("content-disposition")) ?? `artifact.${format}`);
   },

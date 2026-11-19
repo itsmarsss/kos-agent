@@ -5,6 +5,7 @@ import { domMax, LazyMotion, MotionConfig } from "motion/react";
 import { App } from "./App.js";
 import { AudienceWindow } from "./AudienceWindow.js";
 import { audienceRoute } from "./presentlink.js";
+import { TokenGate } from "./TokenGate.js";
 import { applyDensity, applyTheme, followOtherTabs, readDensity, readTheme } from "./theme.js";
 // The kit's pieces first, so the dashboard's own sheet says where a piece differs in its place; KaTeX's for typeset maths.
 import "@kos/kit/kit.css";
@@ -38,7 +39,7 @@ else if (root) {
       */}
       <LazyMotion features={domMax} strict>
         <MotionConfig reducedMotion="user">
-          {audience ? <AudienceWindow {...audience} /> : <App />}
+          <TokenGate>{audience ? <AudienceWindow {...audience} /> : <App />}</TokenGate>
         </MotionConfig>
       </LazyMotion>
     </StrictMode>,

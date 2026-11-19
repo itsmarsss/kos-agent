@@ -8141,3 +8141,8 @@ img.ov-shape { object-fit: fill; }
   .secret-billing { grid-template-columns: 1fr; }
   .secret-billing > :nth-child(-n + 2) { grid-column: auto; }
 }
+
+/* The token prompt: the one thing a tab without KOS's token can see. */
+.token-gate { min-height: 100dvh; display: grid; place-items: center; padding-inline: 16px; background: var(--bg); }
+.token-gate__card { width: min(30rem, 100%); display: grid; gap: 0.75rem; }
+.token-gate__title { margin: 0; font-size: 1.25rem; }
