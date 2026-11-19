@@ -329,6 +329,15 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA", modifiers: 4 })).toMatchObject(refused);
     expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "c", modifiers: 2 })).toMatchObject(refused);
     expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", commands: ["selectAll"] })).toMatchObject(refused);
+    for (const key of [
+      { key: "Insert", code: "Insert", windowsVirtualKeyCode: 45, modifiers: 2 },
+      { key: "Insert", code: "Insert", windowsVirtualKeyCode: 45, modifiers: 8 },
+      { key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, modifiers: 8 },
+      { key: "k", code: "KeyK", modifiers: 2, commands: ["deleteToEndOfParagraph"] },
+      { key: "y", code: "KeyY", modifiers: 2, commands: ["yank"] },
+    ]) {
+      expect(await send("Input.dispatchKeyEvent", { type: "keyDown", ...key })).toMatchObject(refused);
+    }
     expect(await send("Input.dispatchDragEvent", { type: "dragEnter", x: 10, y: 10, data: { items: [], dragOperationsMask: 1 } })).toMatchObject(refused);
     const { byId } = await read();
     // What the tree says each field holds stays in the browser: read here, and checked with every other frame sent at the end.
@@ -336,9 +345,13 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     expect(tree).toContain("(hidden)");
     await cdp("DOM.focus", { backendNodeId: byId.get("pw")!.node });
     expect(await send("Input.insertText", { text: "x" })).toMatchObject(refused);
-    // Another field takes typing, and the page's own address bar takes no script.
+    // Any editing command on the filled field, a paste or an undo among them.
+    expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "v", code: "KeyV", modifiers: 4, commands: ["paste"] })).toMatchObject(refused);
+    expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", modifiers: 4, commands: ["undo"] })).toMatchObject(refused);
+    // Another field takes typing and its editing commands, and the page's own address bar takes no script.
     await cdp("DOM.focus", { backendNodeId: byId.get("search")!.node });
     expect(await send("Input.insertText", { text: "shoes" })).toMatchObject({ ok: true });
+    expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", modifiers: 4, commands: ["undo"] })).toMatchObject({ ok: true });
     expect((await send("Page.navigate", { url: "javascript:alert(document.getElementById('pw').value)" }))["error"]).toMatchObject({ code: "url" });
   });
 

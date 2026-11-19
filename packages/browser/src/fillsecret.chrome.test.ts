@@ -229,6 +229,10 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: await expectFor(pw, "password") }], "none");
     await expect(evaluate(tab, "document.getElementById('pw').value")).rejects.toThrow(/browser\.eval is refused: a secret was filled/);
     await expect(act(tab, stepsOf([{ click: pw }, { press: "Meta+c" }]), "none")).rejects.toThrow(/Meta\+c is refused/);
+    // Every other way a field's text is copied, cut or pasted, and any editing command on it.
+    for (const key of ["Control+Insert", "Shift+Insert", "Shift+Delete", "Meta+v", "Meta+z"]) {
+      await expect(act(tab, stepsOf([{ click: pw }, { press: key }]), "none")).rejects.toThrow(/is refused/);
+    }
     await expect(act(tab, stepsOf([{ type: { target: pw, text: "x" } }]), "none")).rejects.toThrow(/typing into .* is refused/);
     await expect(act(tab, stepsOf([{ fill: { target: pw, text: "x" } }]), "none")).rejects.toThrow(/filling .* is refused/);
     await expect(act(tab, stepsOf([{ drag: { from: pw, to: refOf(seen, "Username") } }]), "none")).rejects.toThrow(/dragging is refused/);

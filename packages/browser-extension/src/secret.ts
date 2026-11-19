@@ -1,5 +1,7 @@
 import { fillable, frameShown, hasKeyboard, holds, isFocused, maskField, maskRoot, putValue, selectAll, unmaskAll } from "@kos/browser/inpage";
 
+import { copyKey } from "@kos/browser/keys";
+
 import { CallError } from "./protocol.js";
 
 /**
@@ -208,21 +210,17 @@ export function hiddenValues(method: string, answer: Record<string, unknown>, he
   return dropped.size ? { ...answer, nodes: nodes.filter((n) => n.nodeId === undefined || !dropped.has(n.nodeId)) } : answer;
 }
 
-/** Modifier bits as Input.dispatchKeyEvent takes them: Ctrl and Meta. */
-const COPY_MODIFIERS = 2 | 4;
-const COPY_KEYS = new Set(["a", "c", "x"]);
-const COPY_COMMANDS = new Set(["copy", "cut", "selectall"]);
-
-/** Whether a key copies, cuts or selects all: Ctrl or Meta with A, C or X, or an editing command that does. */
+/** Whether a key event copies, cuts, selects all or pastes, or carries an editing command that takes text out (keys.copyKey in KOS's hands). */
 function copies(params: Record<string, unknown>): boolean {
-  const commands = Array.isArray(params["commands"]) ? params["commands"] : [];
-  if (commands.some((c) => typeof c === "string" && COPY_COMMANDS.has(c.toLowerCase()))) return true;
-  const modifiers = typeof params["modifiers"] === "number" ? params["modifiers"] : 0;
-  if ((modifiers & COPY_MODIFIERS) === 0) return false;
-  const key = typeof params["key"] === "string" ? params["key"].toLowerCase() : "";
-  const code = typeof params["code"] === "string" ? params["code"] : "";
-  const vk = params["windowsVirtualKeyCode"];
-  return COPY_KEYS.has(key) || /^Key[ACX]$/.test(code) || vk === 65 || vk === 67 || vk === 88;
+  const commands = Array.isArray(params["commands"]) ? params["commands"].filter((c): c is string => typeof c === "string") : [];
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  const vk = typeof params["windowsVirtualKeyCode"] === "number" ? params["windowsVirtualKeyCode"] : 0;
+  return copyKey(str(params["key"]), str(params["code"]), vk, typeof params["modifiers"] === "number" ? params["modifiers"] : 0, commands);
+}
+
+/** Whether a key event carries any editing command: refused while a filled field has the keyboard, which a paste or an undo would change. */
+export function editsField(method: string, params: Record<string, unknown>): boolean {
+  return method === "Input.dispatchKeyEvent" && Array.isArray(params["commands"]) && params["commands"].length > 0;
 }
 
 /**
@@ -234,7 +232,7 @@ function copies(params: Record<string, unknown>): boolean {
  */
 export function heldRefusal(method: string, params: Record<string, unknown>): string | undefined {
   if (method === "Runtime.evaluate" && (params["replMode"] === true || params["uniqueContextId"] !== undefined)) return "running a script in the page";
-  if (method === "Input.dispatchKeyEvent" && copies(params)) return "copying, cutting or selecting all";
+  if (method === "Input.dispatchKeyEvent" && copies(params)) return "copying, cutting, selecting all or pasting";
   if (method === "Input.dispatchDragEvent" || (method === "Input.setInterceptDrags" && params["enabled"] === true)) return "dragging";
   return undefined;
 }
@@ -248,7 +246,7 @@ export function typesText(method: string, params: Record<string, unknown>): bool
 
 /** Words for a refusal on a tab holding a secret. */
 export const FILLED_PAGE =
-  "a secret was filled into this page, so a script in it, copying, cutting or selecting all, dragging and typing into a filled field are refused until a new page loads";
+  "a secret was filled into this page, so a script in it, copying, cutting, selecting all or pasting, dragging, and typing or editing in a filled field are refused until a new page loads";
 
 /** A command to the tab's debugger. */
 export type Send = (method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>;

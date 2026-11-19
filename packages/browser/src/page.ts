@@ -1,7 +1,7 @@
 import { isDataUrl, urlFor } from "./address.js";
 import type { CdpEvent } from "./cdp.js";
 import * as inpage from "./inpage.js";
-import { parseKeys, type KeyPress } from "./keys.js";
+import { copyKey, parseKeys, type KeyPress } from "./keys.js";
 import { controlsOf, HIDDEN_VALUE, holdsValue, indexOf, INDEX_MAX, Refs, secretField, treeOf, type AxNode, type Control, type PageIndex } from "./snapshot.js";
 import { WAIT_FOR_MS, type Step } from "./steps.js";
 import { echoPatterns, isDigitSlot, isSecretSlot, unechoed, type FilledValue, type Kin, type SecretSlot, type Taint } from "./taint.js";
@@ -958,10 +958,17 @@ export class Page {
     if (this.tainted()) throw new Error(`${what} is refused: ${TAINTED}`);
   }
 
-  /** Whether a key would copy, cut or select all from a field holding a secret: the one with the keyboard in a frame KOS filled. */
+  /**
+   * Whether a key would carry a secret out of its field: a copy, a cut, a
+   * select-all or a paste key (keys.copyKey), or any editing command, aimed
+   * at a field holding one (the one with the keyboard in a frame KOS
+   * filled). On a page a secret was in come back to, no field is known, so
+   * any of them anywhere.
+   */
   private async copiesSecret(press: KeyPress): Promise<boolean> {
     const taint = this.tainted();
-    if (!taint || !/^[acx]$/i.test(press.key) || !press.held.some((h) => h.key === "Meta" || h.key === "Control")) return false;
+    if (!taint || !(copyKey(press.key, press.code, press.keyCode, press.modifiers, press.commands) || press.commands?.length)) return false;
+    if (taint.nodes.size === 0) return true;
     for (const frame of new Set(taint.nodes.values())) {
       const context = await this.world(frame);
       // A frame KOS cannot look into is taken to have the field focused.

@@ -2,7 +2,7 @@ import { isSecretSlot, type SecretSlot } from "@kos/browser";
 import { describe, expect, it } from "vitest";
 
 import { withoutFieldText } from "./relay.js";
-import { SLOTS, heldNow, heldRefusal, hiddenValues, isSecret, marked, movedWithin, readMasks, readPut, readTaints, typesText, type TabTaint } from "./secret.js";
+import { SLOTS, editsField, heldNow, heldRefusal, hiddenValues, isSecret, marked, movedWithin, readMasks, readPut, readTaints, typesText, type TabTaint } from "./secret.js";
 
 /**
  * What the extension reads of a secret's fill, and what it holds a tab to
@@ -87,6 +87,13 @@ describe("a tab a secret was filled into", () => {
       { windowsVirtualKeyCode: 67, modifiers: 2 },
       { key: "Enter", commands: ["copy"] },
       { key: "Enter", commands: ["selectAll"] },
+      { key: "Insert", modifiers: 2 },
+      { key: "Insert", code: "Insert", modifiers: 8 },
+      { key: "Delete", modifiers: 8 },
+      { windowsVirtualKeyCode: 45, modifiers: 4 },
+      { key: "k", commands: ["deleteToEndOfParagraph"] },
+      { key: "y", commands: ["yank"] },
+      { key: "Backspace", commands: ["deleteWordBackward"] },
     ]) {
       expect(heldRefusal("Input.dispatchKeyEvent", { type: "keyDown", ...key })).toMatch(/copying/);
     }
@@ -99,6 +106,13 @@ describe("a tab a secret was filled into", () => {
     expect(heldRefusal("Input.dispatchKeyEvent", { type: "keyDown", key: "c", modifiers: 8 })).toBeUndefined();
     expect(heldRefusal("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter" })).toBeUndefined();
     expect(heldRefusal("Input.dispatchMouseEvent", { type: "mousePressed", x: 1, y: 1 })).toBeUndefined();
+  });
+
+  it("knows a key event that carries an editing command, which a filled field refuses", () => {
+    expect(editsField("Input.dispatchKeyEvent", { type: "keyDown", key: "v", commands: ["paste"] })).toBe(true);
+    expect(editsField("Input.dispatchKeyEvent", { type: "keyDown", key: "v", commands: [] })).toBe(false);
+    expect(editsField("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter" })).toBe(false);
+    expect(editsField("Input.insertText", { text: "x", commands: ["paste"] })).toBe(false);
   });
 
   it("knows a command that types text from one that does not", () => {

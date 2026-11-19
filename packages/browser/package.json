@@ -13,6 +13,10 @@
     "./inpage": {
       "types": "./dist/inpage.d.ts",
       "default": "./dist/inpage.js"
+    },
+    "./keys": {
+      "types": "./dist/keys.d.ts",
+      "default": "./dist/keys.js"
     }
   },
   "scripts": {

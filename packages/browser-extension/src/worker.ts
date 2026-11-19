@@ -15,7 +15,7 @@ import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { changesPage, checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
-import { FILLED_PAGE, TAINTS_KEY, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type TabTaint } from "./secret.js";
+import { FILLED_PAGE, TAINTS_KEY, editsField, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type TabTaint } from "./secret.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
 import { FolderWait, ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
@@ -928,7 +928,9 @@ async function refuseHeld(tab: number, method: string, args: Record<string, unkn
   if (!held) return;
   const why = heldRefusal(method, args);
   if (why) throw new CallError("tainted", `${why} is refused: ${FILLED_PAGE}`);
-  if (held.nodes.length && typesText(method, args) && (await focusedOn(sendTo(tab), held.nodes))) throw new CallError("tainted", `typing into a filled field is refused: ${FILLED_PAGE}`);
+  if (!typesText(method, args) && !editsField(method, args)) return;
+  // On a page a secret was in come back to, no field is known: an editing command anywhere is taken as aimed at one.
+  if (!held.nodes.length ? editsField(method, args) : await focusedOn(sendTo(tab), held.nodes)) throw new CallError("tainted", `typing or editing in a filled field is refused: ${FILLED_PAGE}`);
 }
 
 /**
