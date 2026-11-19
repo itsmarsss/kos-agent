@@ -382,6 +382,16 @@ export function keptStoriesIn(settings: { get<T>(key: string): T | undefined; se
  * the owner shares when something breaks. A value split across two writes
  * is not caught; console lines are written whole.
  */
+/**
+ * The asks Discord gets a card for once it is back from a drop: each one
+ * pending whose card never went out, but never a secret's use, which was
+ * told where to decide when it was asked (a card would put a secret's
+ * approval on a surface that may not decide it).
+ */
+export function unsentCards<A extends { id: number; tool: string; args: string }>(pending: readonly A[], hasCard: (id: string) => boolean): A[] {
+  return pending.filter((action) => !usesSecret(action.tool, JSON.parse(action.args)) && !hasCard(String(action.id)));
+}
+
 export function scrubOutput(scrub: (text: string) => string, streams: NodeJS.WriteStream[] = [process.stdout, process.stderr]): void {
   for (const stream of streams) {
     const write = stream.write.bind(stream) as (chunk: unknown, ...rest: unknown[]) => boolean;
@@ -631,6 +641,12 @@ export async function runHost(options: HostOptions): Promise<void> {
     // The module activates inside Kernel.boot, before `kernel` is set: keys read then wait for it.
     watchKey: (name, value) => (boot.kernel ? boot.kernel.secrets.watch(name, value) : earlyKeys.push([name, value])),
     caller: () => kernel.callerConversationId,
+    // The vault's values and sites, read at each use, as KOS's own browser reads them (Kernel's BrowserLive).
+    pageSecrets: {
+      saved: () => kernel.secrets.browserValues(),
+      savedFor: (origins) => kernel.secrets.pageValues(origins),
+      evalBlocked: (origin) => kernel.secrets.evalBlocked(origin),
+    },
     // An ask to use a computer or a Chrome says who asks by the name it goes by everywhere.
     titleOf: (id) => kernel.nameOf(id),
     halted: () => kernel.killSwitch.halted,
@@ -981,9 +997,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       // Back from a drop: an ask made while the gateway was down, or whose
       // card never went out, gets one now.
       onConnected: async () => {
-        for (const action of kernel.approvals.pending()) {
-          if (!adapter!.hasCard(String(action.id))) await adapter!.requestApproval(creds.ownerId, approvalRequest(action)).catch(() => undefined);
-        }
+        for (const action of unsentCards(kernel.approvals.pending(), (id) => adapter!.hasCard(id))) await adapter!.requestApproval(creds.ownerId, approvalRequest(action)).catch(() => undefined);
       },
     });
     /*

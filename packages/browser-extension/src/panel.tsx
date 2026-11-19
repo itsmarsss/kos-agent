@@ -872,7 +872,7 @@ function Extra({ extra }: { extra: Extra }): ReactElement {
 
 /** An approval, as the dashboard draws it: the kit's AskCard, laid out by the host. */
 function Ask({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean) => void }): ReactElement {
-  const { title, summary, tool, place, steps, always, alwaysTip, alwaysNote, tooLong } = approval;
+  const { title, summary, tool, place, steps, always, alwaysTip, alwaysNote, tooLong, secret } = approval;
   // An older host sends the rule's words alone.
   const risk = approval.risk ?? askRisk(approval.reason);
   const view: AskView = {
@@ -883,6 +883,8 @@ function Ask({ approval, decide }: { approval: Approval; decide: (approved: bool
     ...(always ? { always, ...(alwaysTip ? { alwaysTip } : {}) } : {}),
     ...(alwaysNote ? { alwaysNote } : {}),
     ...(tooLong ? { tooLong } : {}),
+    // The secret a fill places, and where: decided here, beside the page it goes into.
+    ...(secret ? { secret } : {}),
   };
   // Decided once: the card waits for KOS to settle it, so a held key or a second press sends nothing more.
   const [busy, setBusy] = useState(false);

@@ -44,6 +44,19 @@ export function isDigitSlot(slot: SecretSlot): boolean {
 export interface FilledValue {
   text: string;
   digits: boolean;
+  /**
+   * The origins it was filled on (the page's and the field's frame's): only
+   * frames on one of them are sent its pattern to find it by. None for a
+   * saved value, which is sent only to its own sites' frames.
+   */
+  origins?: string[];
+}
+
+/** A value filled kept in `values`: once, with every origin it was filled on. */
+export function keepFilled(values: FilledValue[], value: FilledValue): void {
+  const had = values.findIndex((v) => v.text === value.text);
+  if (had < 0) values.push(value);
+  else values[had] = { ...values[had]!, origins: [...new Set([...(values[had]!.origins ?? []), ...(value.origins ?? [])])] };
 }
 
 /** The fields of one document a secret is in: what refuses scripts, copies and selectors until the document changes. */
