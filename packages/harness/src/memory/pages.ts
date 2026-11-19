@@ -58,10 +58,10 @@ export function listPages(ws: Workspace): PageInfo[] {
 
 
 /**
- * The pages as last written, so an owner's edit can be told from the
- * dream job's own rewrite. A page line of the form `- key: value` is a
- * claim in the page's scope; an edited line comes back in as the owner's
- * word, which outranks anything the job believed.
+ * The pages as last written, so an edit can be told from the dream job's
+ * own rewrite. A page line of the form `- key: value` is a claim in the
+ * page's scope; an edited line comes back in as KOS's belief, since the
+ * edit may be any chat's as well as the owner's.
  */
 export class PageLog {
   constructor(private readonly db: Db, private readonly now: () => number = Date.now) {
@@ -106,7 +106,11 @@ export interface PageImport {
   unchanged: number;
 }
 
-/** Read a page's claim lines back into memory as the owner's word, and note the page as read. */
+/**
+ * Read a page's claim lines back into memory, and note the page as read.
+ * Each line is KOS's belief, never the owner's word: a page is a file any
+ * chat can write with files.write, so nothing in one shows who wrote it.
+ */
 export function importPage(ws: Workspace, facts: FactsStore, log: PageLog, ownerId: string, name: string): PageImport {
   const text = readPage(ws, name);
   if (text === undefined) throw new Error(`no page named ${name}`);
@@ -122,7 +126,7 @@ export function importPage(ws: Workspace, facts: FactsStore, log: PageLog, owner
       unchanged++;
       continue;
     }
-    facts.upsert(ownerId, { key: key!, value: value!, kind: current?.kind ?? "fact", scope, trust: "owner" }, `page:${name}`);
+    facts.upsert(ownerId, { key: key!, value: value!, kind: current?.kind ?? "fact", scope, trust: "agent" }, `page:${name}`);
     imported.push(key!);
   }
   log.record(name, text);

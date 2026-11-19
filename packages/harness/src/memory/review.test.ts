@@ -63,7 +63,7 @@ describe("the review queue", () => {
     expect(log.edited(ws).sort()).toEqual(["pantry", "profile"]);
     const got = importPage(ws, facts, log, "owner", "profile");
     expect(got).toMatchObject({ scope: "global", imported: ["city", "coffee_order"], unchanged: 0 });
-    expect(facts.get("owner", "city")).toMatchObject({ value: "Lisbon", trust: "owner", source: "page:profile" });
+    expect(facts.get("owner", "city")).toMatchObject({ value: "Lisbon", trust: "agent", source: "page:profile" });
     expect(facts.history("owner", "city")).toHaveLength(2);
     expect(facts.get("owner", "coffee_order")?.value).toBe("flat white");
     expect(importPage(ws, facts, log, "owner", "pantry")).toMatchObject({ scope: "project:pantry", imported: ["database"] });
