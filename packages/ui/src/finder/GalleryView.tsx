@@ -1,9 +1,11 @@
 import type { ReactElement } from "react";
 
+import { bytesWords } from "@kos/shared";
+
 import type { DirEntry } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { Thumb } from "../FileThumb.js";
-import { kindOf, sizeWords } from "./model.js";
+import { kindOf } from "./model.js";
 import { EntryName, rowProps, type RowHandlers } from "./rows.js";
 
 /**
@@ -19,7 +21,7 @@ export function GalleryView({ entries, h, empty }: { entries: DirEntry[]; h: Row
           key={entry.path}
           role="gridcell"
           className={`finder-tile${h.selected.has(entry.path) ? " is-selected" : ""}${h.lead === entry.path ? " is-lead" : ""}${h.over === entry.path ? " is-drop" : ""}`}
-          title={`${entry.name}\n${kindOf(entry)}${entry.kind === "file" ? `, ${sizeWords(entry.size)}` : ""}`}
+          title={`${entry.name}\n${kindOf(entry)}${entry.kind === "file" ? `, ${bytesWords(entry.size)}` : ""}`}
           {...rowProps(entry, h)}
           {...h.drag(entry)}
           {...(entry.kind === "dir" ? h.drop(entry.path) : {})}

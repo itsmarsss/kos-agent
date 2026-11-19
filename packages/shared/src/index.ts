@@ -327,3 +327,4 @@ export type {
   SlidesView,
   ViewFormat,
 } from "./officeview.js";
+export { bytesWords } from "./bytes.js";

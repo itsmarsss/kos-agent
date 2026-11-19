@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { DownloadIcon, ExternalIcon, IconButton, IconLink } from "@kos/kit";
+import { bytesWords } from "@kos/shared";
 
 import { api } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
-import { FilePreview, PreviewLinks, bytes } from "./FilePreview.js";
+import { FilePreview, PreviewLinks } from "./FilePreview.js";
 import { Thumb } from "./FileThumb.js";
 import { hrefFor } from "./routes.js";
 
@@ -72,7 +73,7 @@ export function forgetMentioned(path?: string): void {
 function sub(m: Mentioned): string {
   if (m.kind === "missing") return "not found";
   if (m.kind === "folder") return `folder · ${m.size ?? 0} item${m.size === 1 ? "" : "s"}`;
-  return `${bytes(m.size ?? 0)}${m.language && m.language !== "text" ? ` · ${m.language}` : ""}`;
+  return `${bytesWords(m.size ?? 0)}${m.language && m.language !== "text" ? ` · ${m.language}` : ""}`;
 }
 
 export function MentionedFiles({ text }: { text: string }): ReactElement | null {

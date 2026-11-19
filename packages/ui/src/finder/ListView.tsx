@@ -1,11 +1,12 @@
 import type { ReactElement } from "react";
 
 import { ChevronRight } from "@kos/kit";
+import { bytesWords } from "@kos/shared";
 
 import type { DirEntry } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { LIST_COLUMNS, LIST_WIDTHS_KEY, useColumns } from "./columns.js";
-import { dateWords, kindOf, parentOf, sizeWords, type Sort, type SortKey } from "./model.js";
+import { dateWords, kindOf, parentOf, type Sort, type SortKey } from "./model.js";
 import { EntryName, rowProps, type RowHandlers } from "./rows.js";
 
 /**
@@ -84,7 +85,7 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, widthsKey = L
             {dateWords(entry.modifiedAt)}
           </span>
           <span role="gridcell" className="finder-col finder-col--size" data-col="size">
-            {entry.kind === "file" ? sizeWords(entry.size) : "--"}
+            {entry.kind === "file" ? bytesWords(entry.size) : "--"}
           </span>
           <span role="gridcell" className="finder-col finder-col--kind" data-col="kind">
             {kindOf(entry)}

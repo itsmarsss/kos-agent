@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
 import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, IconButton, Markdown, spring } from "@kos/kit";
+import { bytesWords } from "@kos/shared";
 
 import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -24,12 +25,6 @@ import { agoWords } from "./schedulewords.js";
 
 /** How often the open file is re-read, so an agent's rewrite shows. */
 const POLL_MS = 5000;
-
-export function bytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 /** A PDF, by name: shown as itself in the browser's own viewer. */
 export function isPdfPath(path: string): boolean {
@@ -350,7 +345,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                 </span>
                 {shown && (
                   <span className="preview-meta">
-                    {bytes(shown.size)}
+                    {bytesWords(shown.size)}
                     {shown.language && shown.language !== "text" && shown.omitted !== "binary" ? ` · ${shown.language}` : ""}
                     {shown.modifiedAt ? ` · ${agoWords(shown.modifiedAt)}` : ""}
                   </span>

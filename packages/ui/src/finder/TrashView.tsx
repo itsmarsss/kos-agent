@@ -1,11 +1,13 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { bytesWords } from "@kos/shared";
+
 import { api, type TrashedFile } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { ConfirmButton } from "../kit.js";
 import { Modal } from "../Modal.js";
 import { TRASH_COLUMNS, TRASH_WIDTHS_KEY, useColumns } from "./columns.js";
-import { dateWords, parentOf, sizeWords } from "./model.js";
+import { dateWords, parentOf } from "./model.js";
 
 /**
  * The trash: what was moved there, from where and when, each with Put Back
@@ -70,7 +72,7 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
                 {dateWords(item.trashedAt)}
               </span>
               <span role="gridcell" className="finder-col finder-col--size" data-col="size">
-                {item.kind === "file" ? sizeWords(item.size) : "--"}
+                {item.kind === "file" ? bytesWords(item.size) : "--"}
               </span>
               <span role="gridcell" className="finder-col finder-col--acts">
                 <button type="button" className="btn btn--sm" onClick={() => act(api.restoreFile(item.id))}>
