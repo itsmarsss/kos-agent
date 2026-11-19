@@ -150,8 +150,18 @@ export function bubblewrap(): string | undefined {
   return found || undefined;
 }
 
-/** The NAT a networked run is given its own network through: pasta, else slirp4netns. */
+let ownNamespaces: boolean | undefined;
+
+/**
+ * The NAT a networked run is given its own network through: pasta, else
+ * slirp4netns; undefined without either, or where unshare may not make the
+ * run's namespaces for it to serve (AppArmor holds user namespaces back
+ * from programs it has no profile for).
+ */
 export function natTool(): JailNat | undefined {
+  const unshare = findTrusted("unshare");
+  ownNamespaces ??= !!unshare && spawnSync(unshare, ["--user", "--net", "true"], { stdio: "ignore", timeout: 5000 }).status === 0;
+  if (!ownNamespaces) return undefined;
   const pasta = findTrusted("pasta");
   if (pasta) return { tool: "pasta", path: pasta };
   const slirp = findTrusted("slirp4netns");

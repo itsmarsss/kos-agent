@@ -55,7 +55,8 @@ const SLIRP_DNS = "10.0.2.3";
 /** Caps on what a run may take: no core files, files to 8 GiB, a few thousand processes. */
 const LIMITS = ["--core=0", `--fsize=${8 * 1024 ** 3}`, "--nproc=4096"];
 
-export const NEEDS_NAT = "this run needs the network, which the Linux jail gives only through a NAT of its own: install pasta (the passt package) or slirp4netns";
+export const NEEDS_NAT =
+  "this run needs the network, which the Linux jail gives only through a NAT of its own: install pasta (the passt package) or slirp4netns, and let unshare make user namespaces (see docs/setup.md)";
 
 /**
  * Open a path that must be exactly itself: no link at its end, and, read
