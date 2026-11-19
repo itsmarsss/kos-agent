@@ -95,7 +95,7 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   closed, a confirm dismissed unless a step said to accept), since an open
   one holds every later command on the tab, and the agent is told what it
   said (a note that comes again is told once, with how often, and twenty
-  kinds at most are kept between its calls). A crashed tab is loaded
+  kinds of dialog at most are kept between its calls). A crashed tab is loaded
   again. Calls on one tab run one at a time.
 
 - **Secrets.** `Page.fillSecret(ref, value, expect)` is the one way a
