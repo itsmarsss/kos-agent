@@ -98,9 +98,19 @@ its key ("follow-up" as "Follow up").
   Only KOS's own words offer it, never the owner's or a guest's. The tool call is tiered and approved as any other: nothing in a
   block acts on its own.
 
+## On Discord
+
+KOS's own blocks are embeds: the kind and title as its heading, a field a
+row, the body as its description in the kind's style (code as code, a
+checklist ticked, steps numbered), and buttons: Copy, answered to the
+presser alone as a code block; Send, under the same rule as above, as the
+owner's words in the chat; a link for each `action: open`, its host beside
+its words. Five a message, the rest in plain words; the owner's own words
+are shown as written.
+
 ## Plain words
 
-Discord, iMessage and SMS have no block view, so a block goes out as
+iMessage and SMS have no block view, so a block goes out as
 `plainOf` says it: a heading, a line per field, a blank line, the body.
 
 ```

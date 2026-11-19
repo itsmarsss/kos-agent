@@ -7,23 +7,76 @@ can show.
 ## Discord
 
 Direct messages from one account. Buttons for approvals and for whatever
-KOS offers; forms for answers that are not fixed. Slash commands are
-answered by the host without a model turn; typed in a bound channel or
-thread, `/stop` stops that room's chat and `/chats` marks it, while
-`/target`, `/here` and `/new` still move only where your DMs go, and say so. An approval card opens with
-what KOS was saying when it reached for the tool, quoted, so the ask
-reads as a sentence and not a bare command; iMessage and SMS prompts and
-the dashboard's Inbox carry the same words. While a turn runs, a silent
-"thinking…" line stands in for it, as KOS or as the blob, and becomes the
-story of the turn, the words said and the steps taken, redrawn as they
-happen, so the card for an approval never lands first. A long story
-keeps its last eight steps under a line counting the earlier ones, and a
-run of the same step is one line with ×N. When the answer
-comes, as its own message, the story stays as the record of what was
-done; a turn that told nothing takes its line down. Nothing reacts to
-your message. A turn that stops to ask you says "waiting on you" and keeps
-its story open: the steps after your decision are added to it, and the
-answer lands under them when the turn ends. Waiting is not working: the
+KOS offers; forms for answers that are not fixed.
+
+**Slash commands.** Every command a chat understands is a slash command,
+from the one list every surface shares (`CHAT_COMMANDS` in
+`packages/shared/src/commands.ts`): the dashboard's composer, KOS for
+Chrome and KOS for Mac offer the same ones, and the kernel runs them the
+same way wherever they are typed, with no model turn. That is `/new`,
+`/chats`, `/switch` (or `/target`), `/here`, `/rename`, `/fork`,
+`/archive`, `/retry`, `/stop`, `/mode`, `/brief`, `/agent`, `/agents`,
+`/dispatch`, `/project`, `/inbox`, `/approve`, `/deny`, `/status`, `/run`,
+`/halt`, `/resume`, `/compact`, `/clear`, `/tools` and `/help`; the
+dashboard's own (`/btw`, `/export`, `/files`) stay there. A command that
+picks something offers it as you type: `/switch` your chats and projects
+by name, `/run` your jobs, `/approve` and `/deny` what waits on you;
+`/mode` takes `ask` or `auto`. They are yours alone: anyone else is told
+so and nothing runs. `/mode` shows the chat's mode, and sets it as the
+dashboard's chip does, for you only and never Auto over SMS or while
+halted; `/halt` and `/resume` are the kill switch. `/inbox` lists what
+waits on you, each ask as its own card with its own buttons, seen by you
+alone. The answer to any of them is shown to you alone. Typed in a bound
+channel or thread, a command acts on that room's chat (`/stop` stops it,
+`/compact` compacts it), while `/new`, `/switch`, `/here` and the like
+still move only where your DMs go, and say so. In your server the
+commands are registered for that server, where they show at once, and
+once more globally for DMs alone, so the server lists each only once. The
+bot needs the `applications.commands` scope for this; without it the
+host says so in its log and everything else works.
+
+**Approval cards.** A card is drawn from the same view of the ask as the
+dashboard, KOS for Chrome and KOS for Mac draw theirs: what KOS was
+saying when it reached for the tool, quoted; a title saying what the call
+acts on ("Act on the page", "Run"), the asker's name in it; KOS's own
+words for the step, small, as "KOS says"; the place line ("In your Chrome
+on docs.google.com", "In /w"); the command in a code block, or each step
+numbered with the keys it presses as inline code; and a small line with
+why it asks, the tool, the number and when it lapses, a relative time
+Discord itself keeps counting down. Anything the card cuts goes with it
+whole, as `call.json` (and `steps.txt` for steps that do not fit). The
+buttons are Approve, Deny, and the remembered yes, "Always allow on
+<site>", only where the ask names a rule to keep and Auto or a secret does
+not rule it out. Decided, the card becomes one small line with how it
+went, who decided ("by you", by the member who pressed, "by auto mode")
+and when; a lapse is nobody's. An ask that places a secret is never
+decided on Discord: its card names the secret, the site and the fields
+with no Approve, a "Decide on the dashboard" button opening that very ask
+in the Inbox (at `KOS_PUBLIC_URL`, or the dashboard's own address when
+another device can reach it; the way there in words otherwise), and Deny.
+iMessage and SMS prompts and the dashboard's Inbox carry the same words.
+
+**A turn as it runs.** While a turn runs, a silent "thinking…" line stands in
+for it, as KOS or as the blob, and becomes the story of the turn, the
+words said and the steps taken, redrawn as they happen, so the card for
+an approval never lands first. Each step says how long it took, or has
+taken so far while it runs, and how long it waited for you when it asked;
+the newest picture a step took rides beside it as a thumbnail, in your
+DM or a place only you read. A chat in Auto says "(Auto)" at the head of
+its story as at the head of its answer. Edits are coalesced to what
+Discord's rate limits allow: one at a time, the newest state only, a
+limit Discord answers with waited out. A long story keeps its last eight
+steps under a line counting the earlier ones, and a run of the same step
+is one line with ×N; one past a message's length goes on in a second
+message. When the answer comes, as its own message, the story stays as
+the record of what was done; a turn that told nothing takes its line
+down. Nothing reacts to your message. A turn that stops to ask you says
+"waiting on you" on the step it waits at and keeps its story open: the
+steps after your decision are added to it, and the answer lands under
+them when the turn ends. Discord stamps every message with its own
+time, so KOS adds no day or time lines of its own there; the times it
+writes are how long a step took, when an ask lapses, and when one was
+decided. Waiting is not working: the
 chat takes your next message meanwhile, and when you decide, the first
 turn finishes and its answer goes on the end: in the DM for a turn asked
 in the DM, in the channel or thread for one asked there, and only there,
@@ -93,7 +146,11 @@ without a `kos:` topic are yours and KOS stays out of them, as it does
 with anyone else's messages in its own.
 
 An ask from a chat you read in a channel or thread is asked there too, so
-the question sits in the conversation it belongs to. It comes from whoever
+the question sits in the conversation it belongs to, when only you read
+that place, as Discord's own permissions say: a place anyone else can see,
+guests', a role's or everyone's, a room's own asks included, gets no card,
+since a card spells out all the call would do. Those ask in `#needs-you`,
+or in your DM when `#needs-you` has been opened to others. It comes from whoever
 you are talking to there, through its own webhook, the way its answers
 come; in `#needs-you` KOS asks as itself. The two cards are one ask: decide
 on either, or on the dashboard, and both settle (a card pressed after the
@@ -133,6 +190,22 @@ not repeated. In a step line of the story, a workspace path ("Read
 blobs/verity/blob.md") links to the file on the dashboard. A slash
 command you run on the dashboard (`/clear`, `/rename`, `/compact`) shows
 there as a small line with what it answered.
+
+A voice note, or any recording, sent here is kept as a file the same way.
+It is heard through KOS's speech-to-text when one is configured, its
+words going to the turn as yours; with none configured, as now, the note
+says so under your message and the recording is kept as audio for a
+later turn. A picture or PDF KOS names in an answer (`@file:chart.png`) is
+uploaded with it, so Discord previews it, in your DM or a place only you
+read; elsewhere it stays a link.
+
+A typed block in KOS's answer (an email or message draft, an event, a
+checklist; see [blocks.md](blocks.md)) is an embed: its fields laid out,
+its body below, Copy (the draft to you alone, as a code block), Send where
+the kind sends and this KOS has a tool for it (your words asking KOS to
+send it, in the chat, so the call asks you as any other would), and a
+link for each `action: open`. Five blocks a message; more stay as words.
+Your own words are shown as you wrote them.
 
 A file sent with a message, here or on the dashboard, is kept in the
 workspace as it came: under `uploads/` in the project the chat belongs
@@ -414,8 +487,12 @@ bound, is let go until it next speaks;
 an answer to one of them says "sent while KOS was offline" under it. What
 is more than ten minutes old by then, the owner's or a guest's, is not
 run: the room gets one note listing it ("These were sent while KOS was
-offline and not run: ... Reply to run them."), and so does its chat on the
-dashboard.
+offline and not run: ... Reply to run them."), one note for each person
+who spoke, every line naming who said it, so a guest's words never ride
+as yours; and so does its chat on the dashboard. Where catch-up reads from
+moves past a message only once the harness has taken it, and not while
+the room still waits to be read after a new session, so nothing said
+while KOS was away is skipped.
 Nothing is run twice, however it arrives.
 
 A restart in the middle of a turn is said where the turn was: its story
