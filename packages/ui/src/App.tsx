@@ -56,7 +56,7 @@ import { Refreshes } from "./refreshes.js";
 import { HostBanner } from "./HostBanner.js";
 import { Toast } from "./Toast.js";
 import { useReach } from "./reach.js";
-import { agoWords } from "./schedulewords.js";
+import { agoWords, jobTitle } from "./schedulewords.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
@@ -1191,10 +1191,11 @@ export function App(): React.ReactElement {
           {
             key: "name",
             header: "Job",
-            searchText: (c) => `${c.name} ${c.schedule} ${c.type}`,
+            searchText: (c) => `${jobTitle(c.name)} ${c.name} ${c.schedule} ${c.type}`,
             render: (c) => (
               <span className="sched-name">
-                <span className="sched-title">{c.name}</span>
+                {/* KOS's own jobs by the names the owner knows them by; the id is in the title. */}
+                <span className="sched-title" title={c.name}>{jobTitle(c.name)}</span>
                 <span className="sched-sub">
                   <span>{describeCron(c.schedule) ?? "custom"}</span>
                   <code title="cron expression">{c.schedule}</code>
