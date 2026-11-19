@@ -51,6 +51,8 @@ export interface LinkOptions {
 
 /** How often the extension says it is still there, which also keeps its worker awake. */
 const PING_MS = 20_000;
+/** A line KOS has said nothing on for this long is gone, though its socket says open: a laptop slept, or the Wi-Fi changed. */
+const SILENT_MS = 2 * PING_MS + 5_000;
 const RETRY_MAX_MS = 30_000;
 /** KOS's close codes: a bad device or signature, a newer connection of the same device, another protocol version. */
 const UNAUTHORIZED = 4003;
@@ -69,6 +71,10 @@ export class Link {
   private ours = "";
   private welcomed = false;
   private stopped = false;
+  /** The host at the address could not prove it is the KOS paired with: not dialled again but on the owner's word. */
+  private impostor = false;
+  /** When KOS last said anything on the line: its pong to each ping, if nothing else. */
+  private heard = 0;
   private retry = 0;
   private ping: ReturnType<typeof setInterval> | undefined;
   private redial: ReturnType<typeof setTimeout> | undefined;
@@ -81,9 +87,15 @@ export class Link {
     return this.welcomed;
   }
 
+  /** Whether the host at the address failed to prove it is the KOS paired with: the minute's round leaves it be. */
+  get distrusted(): boolean {
+    return this.impostor;
+  }
+
   /** Dial now, unless a line is up or being dialled: a wait for the next try is cut short. */
   start(): void {
     this.stopped = false;
+    this.impostor = false;
     if (this.ws) return;
     clearTimeout(this.redial);
     this.redial = undefined;
@@ -138,30 +150,41 @@ export class Link {
       // A frame that fails is said and passed over; the frames after it are still read.
       this.inbox = this.inbox.then(() => this.receive(ws, text)).catch((err: unknown) => console.warn("KOS frame failed", err));
     };
-    ws.onclose = (event) => {
-      if (this.ws !== ws) return;
-      this.ws = null;
-      this.welcomed = false;
-      clearInterval(this.ping);
-      // Turned away for good: only pairing again, or another version, puts these right, so they are not dialled again at once.
-      if (event.code === UNAUTHORIZED) return this.options.onState("unpaired", said(event.reason, "KOS does not take this Chrome's pairing any more. Pair again."));
-      if (event.code === VERSION) return this.options.onState("refused", said(event.reason, "KOS speaks another version of the protocol. Update this extension."));
-      // Another copy of this pairing in its place: dialling again would only put that one out in turn.
-      if (event.code === REPLACED) return this.options.onState("refused", "Another copy of this extension connected to KOS in its place.");
-      // Any other close, KOS's own reason said, is dialled again, later each time.
-      this.options.onState("offline", event.code >= 4000 && event.reason ? `${said(event.reason, "")} Trying again.` : undefined);
-      if (this.stopped) return;
-      const wait = Math.min(RETRY_MAX_MS, 1_000 * 2 ** this.retry++);
-      this.redial = setTimeout(() => {
-        this.redial = undefined;
-        if (!this.stopped) this.dial();
-      }, wait);
-    };
+    ws.onclose = (event) => this.closed(ws, event);
+  }
+
+  /** A line closed, or given up on as silent: said, and dialled again unless it was turned away for good. */
+  private closed(ws: WebSocket, event: { code: number; reason: string }): void {
+    if (this.ws !== ws) return;
+    this.ws = null;
+    this.welcomed = false;
+    clearInterval(this.ping);
+    // Turned away for good: only pairing again, or another version, puts these right, so they are not dialled again at once.
+    if (event.code === UNAUTHORIZED) return this.options.onState("unpaired", said(event.reason, "KOS does not take this Chrome's pairing any more. Pair again."));
+    if (event.code === VERSION) return this.options.onState("refused", said(event.reason, "KOS speaks another version of the protocol. Update this extension."));
+    // Another copy of this pairing in its place: dialling again would only put that one out in turn.
+    if (event.code === REPLACED) return this.options.onState("refused", "Another copy of this extension connected to KOS in its place.");
+    // Any other close, KOS's own reason said, is dialled again, later each time.
+    this.options.onState("offline", event.code >= 4000 && event.reason ? `${said(event.reason, "")} Trying again.` : undefined);
+    if (this.stopped) return;
+    const wait = Math.min(RETRY_MAX_MS, 1_000 * 2 ** this.retry++);
+    this.redial = setTimeout(() => {
+      this.redial = undefined;
+      if (!this.stopped) this.dial();
+    }, wait);
+  }
+
+  /** A ping, unless KOS has been silent past its pongs: then the line is gone, whatever the socket says, and dialled again. */
+  private beat(ws: WebSocket): void {
+    if (Date.now() - this.heard <= SILENT_MS) return this.send({ t: "ping" });
+    ws.close();
+    this.closed(ws, { code: 1006, reason: "" });
   }
 
   private async receive(ws: WebSocket, text: string): Promise<void> {
     const frame = readFrame(text);
     if (!frame) return;
+    this.heard = Date.now();
     if (frame.t === "challenge") {
       if (frame.protocol !== PROTOCOL) return ws.close(1002, "protocol");
       this.ours = nonce();
@@ -173,12 +196,15 @@ export class Link {
       // A host that cannot sign our nonce with the key it gave at pairing is not KOS, whatever its address.
       if (!(await verify(this.options.hostKey, hostProof(this.ours, this.options.device), frame.signature))) {
         this.stopped = true;
+        this.impostor = true;
+        // Let go of before it closes, so its close is not said over this as a line that is only offline.
+        this.ws = null;
         ws.close(1008, "not KOS");
         return this.options.onState("refused", "The KOS at that address could not prove it is the one this extension paired with.");
       }
       this.welcomed = true;
       this.retry = 0;
-      this.ping = setInterval(() => this.send({ t: "ping" }), PING_MS);
+      this.ping = setInterval(() => this.beat(ws), PING_MS);
       this.options.onState("online");
       return;
     }

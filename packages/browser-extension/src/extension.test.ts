@@ -484,7 +484,7 @@ describe("a KOS's line in words", () => {
 describe("each KOS's line, opened once", () => {
   const paired = (device: string): Paired => ({ url: "http://127.0.0.1:4317", device, hostKey: "k", name: "Chrome" });
   const key = {} as CryptoKeyPair;
-  function setup(over: { keysFor?: (id: string) => Promise<CryptoKeyPair | undefined> } = {}) {
+  function setup(over: { keysFor?: (id: string) => Promise<CryptoKeyPair | undefined>; distrusted?: () => boolean } = {}) {
     const held = new Set<string>();
     const states = new Map<string, { state: LinkState; detail?: string }>();
     const made: string[] = [];
@@ -494,7 +494,7 @@ describe("each KOS's line, opened once", () => {
       keysFor: over.keysFor ?? (() => new Promise<CryptoKeyPair>((r) => (reading = () => r(key)))),
       link: (p) => {
         made.push(p.device);
-        return { start: () => void dials.push(p.device) };
+        return { start: () => void dials.push(p.device), get distrusted() { return over.distrusted?.() ?? false; } };
       },
       wanted: (id) => !held.has(id),
       stateOf: (id) => states.get(id)?.state,
@@ -533,6 +533,17 @@ describe("each KOS's line, opened once", () => {
     expect(states.get("dev_broken")).toEqual({ state: "error", detail: "This Chrome could not read its key: the key store did not open" });
     expect(states.get("dev_gone")).toEqual({ state: "unpaired", detail: "This Chrome no longer has the key it paired with. Pair again." });
     expect(made).toEqual(["dev_ok"]);
+  });
+
+  it("leaves a host that could not prove it is KOS to the owner: the minute's round does not dial it", async () => {
+    let distrusted = false;
+    const { lines, dials } = setup({ keysFor: async () => key, distrusted: () => distrusted });
+    await lines.connect(paired("dev_a"));
+    distrusted = true;
+    await lines.connectAll([paired("dev_a")]);
+    expect(dials).toEqual(["dev_a"]);
+    await lines.connectAll([paired("dev_a")], true);
+    expect(dials).toEqual(["dev_a", "dev_a"]);
   });
 
   it("leaves a line KOS no longer takes to the owner: the minute's round skips it, Try now or a changed setting dials it", async () => {
