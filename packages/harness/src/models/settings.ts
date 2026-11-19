@@ -61,14 +61,25 @@ export function parseModelSettings(raw: unknown): ModelSettings {
  * Point the router at whatever the owner chose, leaving the provider and any
  * field they did not set as they were. An empty setting is a no-op rather than
  * a reset, so clearing one field cannot silently clear the others.
+ *
+ * A choice on a provider that is not set up (the owner's own endpoint,
+ * since removed) is left out, and the route stays as it was: the host still
+ * starts, on the default route. What was left out comes back as warnings.
  */
 export function applyModelSettings(
   router: ModelRouter,
   settings: ModelSettings | undefined,
-): void {
-  if (!settings) return;
+): string[] {
+  const warnings: string[] = [];
+  if (!settings) return warnings;
+  const known = new Set(router.providerNames());
   for (const task of TASKS) {
     const setting = settings[task];
+    if (setting?.provider && !known.has(setting.provider)) {
+      warnings.push(`${task}: the saved model ${setting.model ?? "choice"} is on provider "${setting.provider}", which is not set up; the default route answers instead`);
+      if (task === "screen") router.followReasoning();
+      continue;
+    }
     /*
      * Screen work is its own only while the owner names a model for it.
      * Unnamed, it follows the reasoning route, built fresh from it each time:
@@ -91,6 +102,7 @@ export function applyModelSettings(
       },
     });
   }
+  return warnings;
 }
 
 /** Where the owner's own endpoint lives. Settings first, the environment as the default. */

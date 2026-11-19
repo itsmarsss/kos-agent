@@ -1,5 +1,6 @@
 import cron, { type ScheduledTask } from "node-cron";
 
+import { lastOccurrence } from "./occurrence.js";
 import type { CronStore } from "./store.js";
 import type { CronJob } from "./types.js";
 
@@ -22,6 +23,8 @@ export interface SchedulerOptions {
   clock?: () => number;
   /** The pause between one missed run and the next after a restart. */
   catchUpGapMs?: number;
+  /** The profile's timezone, which every schedule is read in: 9am is the owner's 9am, not the host's. */
+  timezone?: () => string | undefined;
 }
 
 export type FireOutcome =
@@ -52,12 +55,29 @@ export class CronScheduler {
 
   start(): void {
     this.stop();
+    const timezone = this.timezone();
     for (const job of this.store.list(true)) {
       if (!cron.validate(job.schedule)) continue;
-      const task = cron.schedule(job.schedule, () => {
-        void this.fire(job);
-      });
+      const task = cron.schedule(
+        job.schedule,
+        () => {
+          void this.fire(job);
+        },
+        timezone ? { timezone } : {},
+      );
       this.tasks.set(job.id, task);
+    }
+  }
+
+  /** The profile's timezone, when it is one this runtime knows; the host's otherwise. */
+  private timezone(): string | undefined {
+    const zone = this.options.timezone?.();
+    if (!zone) return undefined;
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: zone });
+      return zone;
+    } catch {
+      return undefined;
     }
   }
 
@@ -80,14 +100,15 @@ export class CronScheduler {
    */
   catchUp(): number {
     let ran = 0;
+    const timezone = this.timezone();
+    const now = this.now();
     for (const [id, task] of this.tasks) {
       const job = this.store.get(id);
       if (!job?.enabled) continue;
       // Never run is not missed: a job created while the host was down should
       // start at its next proper time, not the moment it is noticed.
       if (!job.lastRunAt) continue;
-      const due = this.previousOccurrence(task);
-      if (due === null || due <= job.lastRunAt) continue;
+      if (lastOccurrence(task, job.schedule, timezone, now, job.lastRunAt) === null) continue;
       ran += 1;
       const gap = this.options.catchUpGapMs ?? DEFAULT_CATCH_UP_GAP_MS;
       this.catching = this.catching
@@ -95,23 +116,6 @@ export class CronScheduler {
         .then(() => new Promise((resolve) => setTimeout(resolve, gap)));
     }
     return ran;
-  }
-
-  /**
-   * When this schedule last came round, worked out from when it next will.
-   *
-   * node-cron will say when a task runs next but not when it last should
-   * have, so the gap between the next two is used as the period and stepped
-   * back once. Exact for the fixed intervals a schedule usually is, and close
-   * enough for the rest: being an hour out decides nothing, since the
-   * question is only whether a run was skipped entirely.
-   */
-  private previousOccurrence(task: ScheduledTask): number | null {
-    const upcoming = task.getNextRuns(2);
-    if (upcoming.length < 2) return null;
-    const period = upcoming[1]!.getTime() - upcoming[0]!.getTime();
-    if (period <= 0) return null;
-    return upcoming[0]!.getTime() - period;
   }
 
   stop(): void {

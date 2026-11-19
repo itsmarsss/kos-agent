@@ -62,7 +62,7 @@ import type { BlobJob } from "../tools/agents.js";
 import { saidText, type ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
-import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
+import { MODULES_KEY, parseModuleSettings, pinModule, readWorkspaceModules, repinModule, runnableModules, withModuleEnabled, type ModulePin } from "../modules/workspace.js";
 import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled, type SkillSettings } from "../skills/settings.js";
@@ -476,7 +476,9 @@ function modulesReport(kernel: Kernel): {
   builtins: { name: string; description: string; enabled: boolean }[];
 } {
   const { modules, invalid } = readWorkspaceModules(kernel.workspace);
-  const on = new Set(parseModuleSettings(kernel.settings.get(MODULES_KEY)).enabled);
+  const settings = parseModuleSettings(kernel.settings.get(MODULES_KEY));
+  // On is on and unchanged: a module whose folder changed since is shown off, to be switched on again.
+  const on = new Set(runnableModules(kernel.workspace, settings));
   const status = kernel.mcp.status();
   return {
     modules: modules.map((m) => {
@@ -485,6 +487,7 @@ function modulesReport(kernel: Kernel): {
         ...manifest,
         dir: m.dir,
         enabled: on.has(m.manifest.name),
+        ...(settings.enabled.includes(m.manifest.name) && !on.has(m.manifest.name) ? { changed: true } : {}),
         ...(status[m.manifest.name] ?? {}),
         ...(blueprint
           ? {
@@ -933,8 +936,8 @@ export async function handleApiRequest(
     kernel.settings.set(MODEL_SETTINGS_KEY, settings);
     // Applied in place: the owner changing a model should not have to restart
     // the host to see it take effect.
-    kernel.applyModelSettings(settings);
-    return ok({ saved: settings, routes: kernel.routes() ?? null });
+    const warnings = kernel.applyModelSettings(settings);
+    return ok({ saved: settings, routes: kernel.routes() ?? null, ...(warnings.length ? { warnings } : {}) });
   }
 
   if (method === "GET" && path === "/api/models") {
@@ -1337,6 +1340,9 @@ export async function handleApiRequest(
     if (!name) return { status: 400, body: { error: "name required" } };
     try {
       const made = await updateModule(kernel.workspace, name);
+      // The owner's own update: a module that was on stays on as it is now.
+      const repinned = repinModule(kernel.workspace, parseModuleSettings(kernel.settings.get(MODULES_KEY)), name);
+      if (repinned) kernel.settings.set(MODULES_KEY, repinned);
       // A running server serves the old code until it is brought up again.
       const status = await kernel.mcp.reload();
       return ok({ updated: made.name, origin: made.origin, ...(status[name] ?? {}) });
@@ -1388,9 +1394,16 @@ export async function handleApiRequest(
       await kernel.setBuiltinEnabled(name, enabled);
       return ok({ name, enabled, builtin: true });
     }
-    const known = readWorkspaceModules(kernel.workspace).modules.some((m) => m.manifest.name === name);
-    if (!known) return { status: 404, body: { error: `no module named ${name}` } };
-    kernel.settings.set(MODULES_KEY, withModuleEnabled(parseModuleSettings(kernel.settings.get(MODULES_KEY)), name, enabled));
+    const found = readWorkspaceModules(kernel.workspace).modules.find((m) => m.manifest.name === name);
+    if (!found) return { status: 404, body: { error: `no module named ${name}` } };
+    // Switched on, the module is pinned as it is now: a later change waits for the owner to switch it on again.
+    let pin: ModulePin | undefined;
+    try {
+      pin = enabled ? pinModule(kernel.workspace, found) : undefined;
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+    kernel.settings.set(MODULES_KEY, withModuleEnabled(parseModuleSettings(kernel.settings.get(MODULES_KEY)), name, enabled, pin));
     const status = await kernel.mcp.reload();
     kernel.bus.emit({ kind: enabled ? "module:enabled" : "module:disabled", name });
     return ok({ name, enabled, ...(status[name] ?? {}) });
@@ -1746,7 +1759,7 @@ export async function handleApiRequest(
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
     if (got.kind === "html") return ok({ record: got.record, kind: "html", page: got.page });
-    const { data, errors } = await loadPageData(kernel, got.spec);
+    const { data, errors } = await loadPageData(kernel, got.record.projectSlug, got.spec);
     return ok({ record: got.record, kind: "spec", spec: got.spec, data, errors });
   }
 
@@ -1808,6 +1821,11 @@ export async function handleApiRequest(
       return { status: 400, body: { error: "invalid op" } };
     }
 
+    // Held again now, not only when the page was written: a spec on disk can name any table.
+    const slug = page.record.projectSlug;
+    if (slug === null || !kernel.pages.specMayWrite(slug, target.table)) {
+      return { status: 403, body: { error: `"${target.table}" is not a table of this page's project` } };
+    }
     try {
       return ok(executeMutation(kernel.workspace.db, target, edit));
     } catch (err) {
@@ -2232,8 +2250,11 @@ export async function handleApiRequest(
       name,
       ...(timezone ? { timezone } : {}),
     };
+    const moved = next.timezone !== kernel.profile.timezone;
     saveProfile(kernel.workspace, next);
     Object.assign(kernel.profile, next);
+    // Every schedule is read in the profile's timezone, so a new one re-registers them all.
+    if (moved) kernel.reloadCron();
     return ok({ profile: next });
   }
 
@@ -3158,7 +3179,13 @@ export async function handleApiRequest(
   /** Read everything new now, whatever the toggle says: the owner asked. */
   if (method === "POST" && path === "/api/memory/extract") {
     if (kernel.extractor.busy) return { status: 409, body: { error: "the extractor is already running" } };
-    const report = await kernel.extractMemory();
+    let report: Awaited<ReturnType<typeof kernel.extractMemory>>;
+    try {
+      report = await kernel.extractMemory();
+    } catch (err) {
+      // What was read is kept; what could not be is read again next time.
+      return { status: 502, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
     return ok({ ...report, claims: report.claims.map((c) => ({ key: c.key, value: c.value, scope: c.scope, trust: c.trust, replaced: c.supersedes !== null })) });
   }
 
@@ -3224,11 +3251,11 @@ export async function handleApiRequest(
     }
   }
 
-  /** Read the owner's page edits back into memory, one page or every edited one. */
+  /** Read the owner's page edits back into memory, one page or every edited one, as the owner's word: they asked. */
   if (method === "POST" && path === "/api/memory/pages/import") {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const names = name ? [name] : kernel.pageLog.edited(kernel.workspace);
-    const imported = names.map((n) => importPage(kernel.workspace, kernel.facts, kernel.pageLog, kernel.profile.ownerId, n));
+    const imported = names.map((n) => importPage(kernel.workspace, kernel.facts, kernel.pageLog, kernel.profile.ownerId, n, "owner"));
     return ok({ imported });
   }
 
@@ -3496,13 +3523,16 @@ interface PageData {
   errors: Record<number, string>;
 }
 
-async function loadPageData(kernel: Kernel, spec: PageSpec): Promise<PageData> {
+async function loadPageData(kernel: Kernel, projectSlug: string | null, spec: PageSpec): Promise<PageData> {
   const data: PageData["data"] = {};
   const errors: PageData["errors"] = {};
   for (let i = 0; i < spec.widgets.length; i++) {
     const w = spec.widgets[i] as Widget & { query?: string };
     if (typeof w.query === "string" && w.query.trim()) {
       try {
+        // A widget reads its project's tables only, checked as it is drawn: the spec on disk is not trusted to be the one written.
+        if (projectSlug === null) throw new Error("a widget page needs a project to read from");
+        kernel.pages.refuseSpecQuery(projectSlug, w.query);
         data[i] = runDisplayQuery(kernel.workspace.reader, w.query).rows;
       } catch (err) {
         // An empty result and a broken query must not look the same.

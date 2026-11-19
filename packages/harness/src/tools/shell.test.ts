@@ -1,5 +1,5 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -7,12 +7,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { vaultDir } from "../secrets/vault.js";
 import { Workspace } from "../store/workspace.js";
 import { bubblewrap, natTool } from "../sandbox/bwrap.js";
 import { underAuto } from "../kernel/caller.js";
 import { programOf } from "../risk/rules.js";
 import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
-import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
+import { CONFIG_REFUSED, CONTAINER_SECRET_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
 /** KOS's own jail holds it here: macOS's sandbox, or bubblewrap on Linux with a NAT for the runs that use the network. */
@@ -45,6 +46,30 @@ describe("shell.run in the container", () => {
       const jailed = new ToolRegistry();
       await createShellModule({ contained: false }).activate(toolRegistryContext(jailed, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() }));
       expect(jailed.classify("shell.run", { command: "pnpm build" }).beyondAuto).toBeUndefined();
+    } finally {
+      ws.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("a read-only line in the container", () => {
+  it("asks, since the container is its only jail, and names no secret the container holds", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-shell-contained-"));
+    const ws = Workspace.open(root);
+    try {
+      const registry = new ToolRegistry();
+      await createShellModule({ contained: true }).activate(toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() }));
+      for (const command of ["ls", "cat notes.txt", "grep -ra x .", "git status"]) {
+        expect(registry.classify("shell.run", { command }).tier, command).toBe("risky");
+      }
+      for (const command of ["cat /proc/1/environ", "cat /PROC/self/environ", "tr '\\0' '\\n' < /proc/1/environ", `grep -r "" ${homedir()}`, `ls ${homedir()}/.kos`, `cat ${vaultDir()}/key`]) {
+        expect(await registry.refusal("shell.run", { command }), command).toBe(CONTAINER_SECRET_REFUSED);
+      }
+      expect(await registry.refusal("shell.run", { command: "ls processes" })).toBeUndefined();
+      const jailed = new ToolRegistry();
+      await createShellModule({ contained: false }).activate(toolRegistryContext(jailed, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() }));
+      expect(jailed.classify("shell.run", { command: "ls" }).tier).toBe("safe");
     } finally {
       ws.close();
       rmSync(root, { recursive: true, force: true });
@@ -330,6 +355,25 @@ describe.runIf(jailed)("shell.run in its own jail", () => {
     expect(read.stdout).not.toContain("SQLite format 3");
     const own = JSON.parse((await maintenance.execute("shell.run", { command: "sh -c 'head -c 15 kos.sql*'" })).content) as ShellResult;
     expect(own.stdout).toContain("SQLite format 3");
+  });
+
+  it("keeps the database's snapshot and the backup repo unreadable to everyone but Maintenance", async () => {
+    copyFileSync(join(ws.root, "kos.sqlite"), join(ws.root, "kos.snapshot.sqlite"));
+    mkdirSync(join(ws.root, ".kos", "backup.git", "objects"), { recursive: true });
+    writeFileSync(join(ws.root, ".kos", "backup.git", "objects", "pack"), "old copies of the database");
+    expect(namesDatabase("sqlite3 kos.snapshot.sqlite .tables")).toBe(true);
+    expect(await registry.refusal("shell.run", { command: "sqlite3 kos.snapshot.sqlite .tables" })).toBe(DATABASE_REFUSED);
+    // Approved, not judged read-only: the sandbox holds, whatever the line names.
+    for (const command of ["sh -c 'head -c 15 kos.snap*'", "sh -c 'cat .kos/backup.git/objects/*'", "sh -c 'cat kos.snapshot.sqlite.part 2>/dev/null; ls .kos/backup.git'"]) {
+      const read = await run({ command });
+      expect(read.stdout, command).not.toMatch(/SQLite format 3|old copies|objects/);
+    }
+    const maintenance = new ToolRegistry();
+    const ctx = toolRegistryContext(maintenance, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => "maintenance" });
+    await createShellModule({ timeoutSeconds: 5 }).activate(ctx);
+    const own = JSON.parse((await maintenance.execute("shell.run", { command: "sh -c 'head -c 15 kos.snap*; cat .kos/backup.git/objects/pack'" })).content) as ShellResult;
+    expect(own.stdout).toContain("SQLite format 3");
+    expect(own.stdout).toContain("old copies");
   });
 
   it("gives a home's read-only run a fresh temp inside the home's own, gone afterwards", async () => {

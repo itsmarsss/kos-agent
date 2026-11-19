@@ -1,5 +1,5 @@
 import { PDF_TEXT_MAX } from "./pdftext.js";
-import { isZip, readZip } from "./zip.js";
+import { isZip, readZip, ZIP_ENTRY_MAX, ZIP_TOTAL_MAX } from "./zip.js";
 
 /**
  * The words in an Office document.
@@ -28,6 +28,8 @@ const BY_TYPE: Record<string, OfficeKind> = {
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
 };
+/** The parts the words are read from: a document's body, a workbook's sheets and strings, a deck's slides. */
+const TEXT_PARTS = /^(word\/document\.xml|xl\/.+\.xml|xl\/_rels\/workbook\.xml\.rels|ppt\/presentation\.xml|ppt\/slides\/slide\d+\.xml)$/;
 /** Rows a sheet gives up after; a ledger past this is a table to query, not a page to read. */
 const ROWS_MAX = 5000;
 
@@ -61,7 +63,8 @@ export function officeNote(read: OfficeText): string {
 /** The document's text, in reading order, under the cap. */
 export function officeText(bytes: Uint8Array, name = "", mediaType = "", maxChars = PDF_TEXT_MAX): OfficeText {
   if (!isZip(bytes)) throw new Error("not an Office document: the file is not a zip");
-  const entries = readZip(bytes);
+  // Under the viewer's caps, and only the XML the words are read from: a package's pictures are never inflated.
+  const entries = readZip(bytes, { entryMax: ZIP_ENTRY_MAX, totalMax: ZIP_TOTAL_MAX, only: (n) => TEXT_PARTS.test(n) });
   const kind = officeKindOf(mediaType, name) ?? kindInside(entries);
   if (!kind) throw new Error("not an Office document: no document, workbook or presentation inside");
   const blocks = kind === "docx" ? docxBlocks(entries) : kind === "xlsx" ? xlsxBlocks(entries) : pptxBlocks(entries);

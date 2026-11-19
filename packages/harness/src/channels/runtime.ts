@@ -8,6 +8,7 @@ import { SingleOwnerMapping, type UserMapping } from "./identity.js";
 import { TurnNarrator } from "./narrate.js";
 import { BindingGoneError } from "./types.js";
 import type {
+  ApprovalDecided,
   ApprovalDecision,
   ApprovalOutcome,
   ApprovalSettled,
@@ -16,6 +17,7 @@ import type {
   Guest,
   InboundMessage,
   OutboundMessage,
+  StoryExtra,
   TurnPresence,
 } from "./types.js";
 
@@ -129,7 +131,7 @@ export interface ChannelRuntimeOptions {
    * Returns its own unsubscribe.
    */
   watchDecisions?: (
-    listener: (id: string, outcome: ApprovalOutcome) => void,
+    listener: (id: string, outcome: ApprovalOutcome, decided?: ApprovalDecided) => void,
   ) => () => void;
   /**
    * Optional: follow a turn's progress as it runs, so a surface with a
@@ -139,6 +141,12 @@ export interface ChannelRuntimeOptions {
   watchTurn?: (ctx: TurnWatch, listener: (event: ProgressEvent) => void) => () => void;
   /** How often the story may be redrawn on the surface. */
   narrateEveryMs?: number;
+  /** How often a step's time so far is redrawn while it runs. */
+  tickEveryMs?: number;
+  /** Whether the chat a turn runs in is set to Auto, for its story to say so. */
+  isAuto?: (ctx: TurnWatch) => boolean;
+  /** A step's picture by frame id, base64 JPEG, for the story to show the newest. */
+  pictureOf?: (frameId: number) => string | undefined;
   /** Whether a turn is already running or queued where this message is going, so the surface can say "queued". */
   isBusy?: (ctx: TurnWatch) => boolean;
   /**
@@ -162,6 +170,10 @@ export interface TurnWatch {
 }
 
 const NARRATE_EVERY_MS = 1_500;
+/** A running step's time so far is redrawn this often: often enough to read as live, rarely enough for Discord's edit limits. */
+const TICK_EVERY_MS = 10_000;
+/** The most of a story handed to the surface: a surface that rolls a long story onto a second message gets all of it. */
+const STORY_MAX = 16_000;
 
 /**
  * Binds a channel adapter to a turn handler: inbound message -> resolve user ->
@@ -183,6 +195,9 @@ export class ChannelRuntime {
   private readonly watchTurn: ChannelRuntimeOptions["watchTurn"];
   private readonly narrateEveryMs: number;
   private readonly isBusy: ChannelRuntimeOptions["isBusy"];
+  private readonly tickEveryMs: number;
+  private readonly isAuto: ChannelRuntimeOptions["isAuto"];
+  private readonly pictureOf: ChannelRuntimeOptions["pictureOf"];
   private readonly scrub: (text: string) => string;
   private unwatch: (() => void) | undefined;
 
@@ -199,6 +214,9 @@ export class ChannelRuntime {
     this.watchTurn = options.watchTurn;
     this.narrateEveryMs = options.narrateEveryMs ?? NARRATE_EVERY_MS;
     this.isBusy = options.isBusy;
+    this.tickEveryMs = options.tickEveryMs ?? TICK_EVERY_MS;
+    this.isAuto = options.isAuto;
+    this.pictureOf = options.pictureOf;
     this.scrub = options.scrub ?? ((text) => text);
   }
 
@@ -221,8 +239,8 @@ export class ChannelRuntime {
      * this settles the ones taken elsewhere and no others.
      */
     if (this.watchDecisions && this.adapter.settleApproval) {
-      this.unwatch = this.watchDecisions((id, outcome) => {
-        const settled = this.adapter.settleApproval?.(id, outcome);
+      this.unwatch = this.watchDecisions((id, outcome, decided) => {
+        const settled = this.adapter.settleApproval?.(id, outcome, decided);
         // A prompt that cannot be settled is not worth failing a decision over.
         if (settled) void settled.catch(() => undefined);
       });
@@ -245,7 +263,7 @@ export class ChannelRuntime {
    * redrawn at most every so often. When the turn ends the story is
    * trimmed to its steps, since the answer is a message of its own.
    */
-  private narrate(presence: TurnPresence, ctx: TurnWatch, queued = false): { end: () => Promise<void> } | undefined {
+  private narrate(presence: TurnPresence, ctx: TurnWatch, queued = false): { end: () => Promise<void>; wait: () => void } | undefined {
     if (!this.watchTurn) return undefined;
     const narrator = new TurnNarrator();
     /*
@@ -259,11 +277,26 @@ export class ChannelRuntime {
     let mine = !queued;
     let sawEnd = false;
     let shownAt = 0;
+    let ended = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let tick: ReturnType<typeof setTimeout> | undefined;
     let last: Promise<void> = Promise.resolve();
+    // What rides beside the words: Auto, said as the answer says it, and the newest step's picture.
+    // The picture read once per frame, not on every redraw.
+    let picture: { id: number; image: string | undefined } | undefined;
+    const extra = (): StoryExtra => {
+      const frame = narrator.picture();
+      if (frame !== undefined && picture?.id !== frame) picture = { id: frame, image: this.pictureOf?.(frame) };
+      const image = frame !== undefined ? picture?.image : undefined;
+      return { ...(this.isAuto?.(ctx) ? { auto: true } : {}), ...(frame !== undefined && image ? { picture: { id: frame, image } } : {}) };
+    };
     const show = (text: string): void => {
       shownAt = Date.now();
-      last = last.then(() => presence.update(this.scrub(text))).catch(() => undefined);
+      const more = extra();
+      last = last.then(() => presence.update(this.scrub(text), more)).catch(() => undefined);
+      // A step at work has its time so far redrawn, now and then.
+      if (tick) clearTimeout(tick);
+      tick = narrator.ticking() && !ended ? setTimeout(() => redraw(true), this.tickEveryMs) : undefined;
     };
     const redraw = (now: boolean): void => {
       if (!narrator.worthShowing()) return;
@@ -271,23 +304,24 @@ export class ChannelRuntime {
       if (now || due <= 0) {
         if (timer) clearTimeout(timer);
         timer = undefined;
-        show(narrator.render());
+        show(narrator.render(STORY_MAX));
       } else if (!timer) {
         timer = setTimeout(() => {
           timer = undefined;
-          show(narrator.render());
+          show(narrator.render(STORY_MAX));
         }, due);
       }
     };
-    let ended = false;
     let unwatch: () => void = () => undefined;
     const end = async (): Promise<void> => {
       if (ended) return;
       ended = true;
       unwatch();
       if (timer) clearTimeout(timer);
+      if (tick) clearTimeout(tick);
       timer = undefined;
-      if (narrator.worthShowing()) show(narrator.renderSteps());
+      tick = undefined;
+      if (narrator.worthShowing()) show(narrator.renderSteps(STORY_MAX));
       await last;
       presence.close?.();
     };
@@ -306,7 +340,13 @@ export class ChannelRuntime {
       }
       if (narrator.take(event)) redraw(event.kind === "tool-start");
     });
-    return { end };
+    // Held on the owner's decision: the step it waits at says so.
+    const wait = (): void => {
+      if (ended) return;
+      narrator.waiting();
+      redraw(true);
+    };
+    return { end, wait };
   }
 
   private resolve(channel: string, senderId: string): string | null {
@@ -421,6 +461,7 @@ export class ChannelRuntime {
       // Waiting on the owner: the story stays open for the steps that follow
       // the decision, and closes itself when the turn ends.
       if (!suspended) await story?.end();
+      else story?.wait();
       if (presence) {
         await presence.complete(this.clean(reply), suspended ? { waiting: true } : undefined);
       } else {

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -109,16 +109,20 @@ describe.runIf(jailed)("python.run in its own jail", () => {
 
   it("sees neither the owner's home, KOS's own files, nor the network", async () => {
     writeFileSync(join(root, "mcp.json"), "{}", "utf8");
+    // The snapshot's copy of the database, and the backup repo whose objects hold the older ones.
+    writeFileSync(join(root, "kos.snapshot.sqlite"), "SQLite format 3", "utf8");
+    mkdirSync(join(root, ".kos", "backup.git"), { recursive: true });
+    writeFileSync(join(root, ".kos", "backup.git", "HEAD"), "ref: refs/heads/main", "utf8");
     const r = await run(
       [
         "import socket",
-        `for p in [${JSON.stringify(outsideHome)}, 'kos.sqlite', 'mcp.json']:`,
+        `for p in [${JSON.stringify(outsideHome)}, 'kos.sqlite', 'mcp.json', 'kos.snapshot.sqlite', '.kos/backup.git/HEAD']:`,
         "    try:\n        open(p).read(); print('read', p)\n    except OSError:\n        print('hidden', p)",
         "try:\n    socket.create_connection(('1.1.1.1', 80), timeout=3); print('online')\nexcept OSError:\n    print('offline')",
       ].join("\n"),
     );
     expect(r.stdout).not.toContain("read ");
-    expect(r.stdout.match(/hidden/g)).toHaveLength(3);
+    expect(r.stdout.match(/hidden/g)).toHaveLength(5);
     expect(r.stdout).toContain("offline");
   });
 
@@ -133,5 +137,47 @@ describe.runIf(jailed)("python.run in its own jail", () => {
   it("stops a program that runs too long and says so", async () => {
     const r = await run("import time\ntime.sleep(5)", 1);
     expect(r.timedOut).toBe(true);
+  });
+});
+
+describe("what a program leaves in OUT", () => {
+  let root: string;
+  let outside: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-python-out-"));
+    outside = mkdtempSync(join(tmpdir(), "kos-python-key-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("is never a link the host follows out of the workspace", async () => {
+    // A picture's bytes, so only the link stands between the key and the model.
+    const key = join(outside, "id_ed25519");
+    writeFileSync(key, Buffer.from("89504e470d0a1a0a6b6579", "hex"));
+    mkdirSync(join(outside, "dir"), { recursive: true });
+    writeFileSync(join(outside, "dir", "b.png"), Buffer.from("89504e470d0a1a0a", "hex"));
+    // Run as the container runs it, with no jail of its own, so the link is made wherever this runs.
+    const registry = await registryWith(ws, { contained: true, platform: "linux" });
+    const code = [
+      "import os",
+      "out = os.environ['OUT']",
+      `os.symlink(${JSON.stringify(key)}, os.path.join(out, 'a.png'))`,
+      `os.symlink(${JSON.stringify(join(outside, "dir"))}, os.path.join(out, 'linked'))`,
+      "open(os.path.join(out, 'real.png'), 'wb').write(bytes.fromhex('89504e470d0a1a0a'))",
+      "print('done')",
+    ].join("\n");
+    const res = await registry.execute("python.run", { code });
+    expect(res.isError).toBe(false);
+    const result = JSON.parse(res.content) as PythonResult;
+    expect(result.stdout).toContain("done");
+    expect(result.files?.map((f) => f.split("/").pop())).toEqual(["real.png"]);
+    expect(res.images?.map((i) => Buffer.from(i.data, "base64").toString("hex"))).toEqual(["89504e470d0a1a0a"]);
   });
 });

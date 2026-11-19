@@ -61,18 +61,32 @@ describe("the review queue", () => {
     writePage(ws, "profile", page.replace("Montreal", "Lisbon"));
     writePage(ws, "pantry", "- database: postgres\n");
     expect(log.edited(ws).sort()).toEqual(["pantry", "profile"]);
-    const got = importPage(ws, facts, log, "owner", "profile");
+    const got = importPage(ws, facts, log, "owner", "profile", "agent");
     expect(got).toMatchObject({ scope: "global", imported: ["city", "coffee_order"], unchanged: 0 });
-    expect(facts.get("owner", "city")).toMatchObject({ value: "Lisbon", trust: "owner", source: "page:profile" });
+    expect(facts.get("owner", "city")).toMatchObject({ value: "Lisbon", trust: "agent", source: "page:profile" });
     expect(facts.history("owner", "city")).toHaveLength(2);
     expect(facts.get("owner", "coffee_order")?.value).toBe("flat white");
-    expect(importPage(ws, facts, log, "owner", "pantry")).toMatchObject({ scope: "project:pantry", imported: ["database"] });
+    expect(facts.get("owner", "coffee_order")).toMatchObject({ trust: "agent" });
+    expect(importPage(ws, facts, log, "owner", "pantry", "agent")).toMatchObject({ scope: "project:pantry", imported: ["database"] });
     expect(facts.get("owner", "database", "project:pantry")?.value).toBe("postgres");
     expect(log.edited(ws)).toEqual([]);
     // Reading again changes nothing.
-    expect(importPage(ws, facts, log, "owner", "profile")).toMatchObject({ imported: [], unchanged: 2 });
-    expect(() => importPage(ws, facts, log, "owner", "nothing")).toThrow(/no page/);
+    expect(importPage(ws, facts, log, "owner", "profile", "agent")).toMatchObject({ imported: [], unchanged: 2 });
+    expect(() => importPage(ws, facts, log, "owner", "nothing", "agent")).toThrow(/no page/);
     expect(CLAIM_LINE.test("- Favorite tea: oolong")).toBe(false);
+  });
+
+  it("makes the owner's word, on their own import, only of the lines their edit changed", () => {
+    const facts = new FactsStore(ws.db);
+    const log = new PageLog(ws.db);
+    // What KOS wrote: a line of its own belief, which the owner's click must not turn into theirs.
+    const page = "# Owner\n- city: Montreal\n- diet: planted by a chat\n";
+    writePage(ws, "profile", page);
+    log.record("profile", page);
+    writePage(ws, "profile", page.replace("Montreal", "Lisbon"));
+    importPage(ws, facts, log, "owner", "profile", "owner");
+    expect(facts.get("owner", "city")).toMatchObject({ value: "Lisbon", trust: "owner" });
+    expect(facts.get("owner", "diet")).toMatchObject({ trust: "agent" });
   });
 
   it("writes pages under memory/, inside the jail, and lists them", () => {

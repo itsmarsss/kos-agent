@@ -1,99 +1,112 @@
 /**
- * Slash commands, answered by the daemon.
+ * Slash commands on Discord, from the one registry every surface shares.
  *
- * None of these reach the model. They are bookkeeping the surface can do
- * itself -- where messages go, what threads exist, stopping a turn -- and
- * routing them through a turn would spend tokens and seconds to answer a
- * question the process already knows the answer to.
- *
- * They exist because the alternative was typing `/switch 3` blind. Discord
- * offers a real picker with autocomplete, so the thing you are choosing is
- * shown to you by name while you choose it.
+ * None of these reach the model. Each is the command the dashboard's
+ * composer runs, sent through the kernel the same way, so it behaves the
+ * same wherever it is typed; what Discord adds is a real picker with
+ * autocomplete, so the thing being chosen is shown by name while it is
+ * chosen, rather than typed blind.
  */
 
-import type { MessageCard } from "./types.js";
+import { ApplicationCommandOptionType, InteractionContextType, type ApplicationCommandDataResolvable } from "discord.js";
+import { CHAT_COMMANDS, type CommandSpec } from "@kos/shared";
 
-/** What a command answers with. A card where the surface renders one. */
-export interface SlashReply {
-  text?: string;
-  card?: MessageCard;
-}
+import type { ApprovalRequest, MessageCard } from "./types.js";
 
 /** Muted blue, so an answer about bookkeeping does not read as an alert. */
 const CARD_COLOR = 0x5865f2;
-/** Grey, for an answer where nothing changed. */
-const CARD_MUTED = 0x4f545c;
 
 export interface SlashChoice {
   name: string;
   value: string;
 }
 
+/** What a command answered, as the kernel says it. */
+export interface CommandAnswer {
+  reply: string;
+  switchedTo?: string;
+  opens?: "tools";
+}
+
 /** What a command needs from the harness, so this file knows nothing of it. */
 export interface SlashContext {
-  /** Threads the owner may be sent to, newest first. */
+  /** Chats the owner may be sent to, newest first. */
   list(): { id: string; title: string; kind: string }[];
   /** Where this surface currently sends messages. */
   current(): string | undefined;
-  /** Point the surface at a thread. */
-  target(conversationId: string): void;
-  /** The surface's own stream, which is where /here goes. */
+  /** The surface's own stream. */
   home(): string;
-  /** Ask whatever is running in a thread to stop. Answers whether it did. */
-  stop(conversationId: string): boolean;
-  /** Start a thread and point at it. */
-  create(title: string): { id: string; title: string };
-  /**
-   * Where to read a thread, if the dashboard can be reached.
-   *
-   * A chat named in an answer is a thing the owner may want to open, and a
-   * name they cannot click is a name they have to go and find.
-   */
+  /** Run a command as typed, in the chat it is meant for, as every surface runs it. */
+  run(text: string, conversationId: string): Promise<CommandAnswer>;
+  /** Where to read a chat on the dashboard, when it can be reached. */
   link?(conversationId: string): string | undefined;
-  /**
-   * The scheduled jobs /run can fire, by id. From the jobs themselves, not
-   * from conversations: a job that has never run has no thread yet, and the
-   * chat list leaves schedules out on purpose.
-   */
+  /** The scheduled jobs /run can fire, by id. */
   jobs?(): { id: number; name: string; enabled: boolean }[];
+  /** What waits on the owner, as its cards draw it. */
+  pending?(): ApprovalRequest[];
 }
 
-export interface SlashSpec {
-  name: string;
-  description: string;
-  /** One optional string argument, offered with autocomplete when true. */
-  argument?: { name: string; description: string; autocomplete: boolean };
+/** The registry's commands a chat surface runs: the dashboard's own stay there. */
+export function surfaceCommands(): CommandSpec[] {
+  return CHAT_COMMANDS.filter((c) => c.where !== "dashboard");
 }
 
-export const COMMANDS: SlashSpec[] = [
-  {
-    name: "target",
-    description: "Send what you say next to a particular chat",
-    argument: { name: "chat", description: "which one", autocomplete: true },
-  },
-  {
-    name: "here",
-    description: "Go back to this surface's own thread",
-  },
-  {
-    name: "chats",
-    description: "List the chats you can be sent to",
-  },
-  {
-    name: "stop",
-    description: "Stop whatever the current chat is doing",
-  },
-  {
-    name: "new",
-    description: "Start a chat and send what you say next to it",
-    argument: { name: "title", description: "what it is for", autocomplete: false },
-  },
-  {
-    name: "run",
-    description: "Run a scheduled job now",
-    argument: { name: "job", description: "which job", autocomplete: true },
-  },
-];
+/** A surface's command by the name it was typed as, its own or an alias. */
+export function surfaceCommand(name: string): CommandSpec | undefined {
+  return surfaceCommands().find((c) => c.name === name || c.aliases?.includes(name));
+}
+
+/**
+ * The commands as Discord registers them. In the owner's server they are
+ * registered for that server, where they show at once, to its
+ * administrators alone; in the DM, globally, for DMs only, so the server
+ * does not list each one twice.
+ */
+export function slashCommands(where: "guild" | "dm" | "everywhere"): ApplicationCommandDataResolvable[] {
+  // An alias is a command of its own here, as the kernel runs it: `/target` is `/switch`.
+  return surfaceCommands().flatMap((c) => [c.name, ...(c.aliases ?? [])].map((name) => ({ ...c, name }))).map((c) => ({
+    name: c.name,
+    description: c.description.slice(0, 100),
+    ...(where === "dm" ? { contexts: [InteractionContextType.BotDM] } : {}),
+    // In the server, shown to nobody but its administrators, so a guest is
+    // not offered the owner's commands only to be refused them.
+    ...(where === "guild" ? { defaultMemberPermissions: 0n } : {}),
+    ...(c.option
+      ? {
+          options: [
+            {
+              type: ApplicationCommandOptionType.String,
+              name: c.option.name,
+              description: c.option.description.slice(0, 100),
+              required: c.option.required === true,
+              ...(c.option.choices ? { choices: c.option.choices.map((v) => ({ name: v, value: v })) } : { autocomplete: c.option.pick !== undefined }),
+            },
+          ],
+        }
+      : {}),
+  })) as ApplicationCommandDataResolvable[];
+}
+
+/** The command as the kernel reads it: `/name argument`. */
+export function commandText(name: string, argument?: string): string {
+  const said = argument?.trim();
+  return said ? `/${name} ${said}` : `/${name}`;
+}
+
+/** The commands that move where the DM sends, said so when typed in a room, which keeps its own chat. */
+const MOVES_DM = new Set(["new", "switch", "target", "here", "fork", "agent", "project", "archive"]);
+
+/** A command's answer as a card, shown to whoever asked alone; `tools` links the chat's tool scope, when it opens one. */
+export function commandCard(name: string, answer: CommandAnswer, opts: { room?: boolean; tools?: string } = {}): MessageCard {
+  const open = answer.opens === "tools" && opts.tools ? `\n\n[Open the tool scope](${opts.tools})` : "";
+  const moved = opts.room && MOVES_DM.has(name) && answer.switchedTo !== undefined;
+  return {
+    title: `/${name}`,
+    body: `${answer.reply.slice(0, 3900)}${open}`,
+    color: CARD_COLOR,
+    ...(moved ? { footer: "moves your DMs; this channel stays with its own chat" } : {}),
+  };
+}
 
 /**
  * A chat's name as the picker shows it.
@@ -102,8 +115,7 @@ export const COMMANDS: SlashSpec[] = [
  * title here is the owner's first message, so most of them are longer.
  */
 function label(chat: { title: string; kind: string }): string {
-  const mark =
-    chat.kind === "surface" ? "# " : chat.kind === "schedule" ? "⏱ " : "";
+  const mark = chat.kind === "surface" ? "# " : chat.kind === "schedule" ? "⏱ " : chat.kind === "project" ? "◆ " : "";
   const name = `${mark}${chat.title}`;
   return name.length > 90 ? `${name.slice(0, 89)}…` : name;
 }
@@ -111,18 +123,20 @@ function label(chat: { title: string; kind: string }): string {
 /** Chats matching what has been typed so far, for the picker. */
 export function completions(ctx: SlashContext, typed: string): SlashChoice[] {
   const needle = typed.trim().toLowerCase();
-  return ctx
-    .list()
-    .filter((c) => !needle || c.title.toLowerCase().includes(needle))
-    // Discord shows at most twenty-five.
-    .slice(0, 25)
-    .map((c) => ({ name: label(c), value: c.id }));
+  return (
+    ctx
+      .list()
+      .filter((c) => !needle || c.title.toLowerCase().includes(needle))
+      // Discord shows at most twenty-five.
+      .slice(0, 25)
+      .map((c) => ({ name: label(c), value: c.id }))
+  );
 }
 
 /** A job as the /run picker shows it, marked when paused. */
 function jobLabel(job: { name: string; enabled: boolean }): string {
-  const name = `\u23f1 ${job.name}${job.enabled ? "" : " (paused)"}`;
-  return name.length > 90 ? `${name.slice(0, 89)}\u2026` : name;
+  const name = `⏱ ${job.name}${job.enabled ? "" : " (paused)"}`;
+  return name.length > 90 ? `${name.slice(0, 89)}…` : name;
 }
 
 /** Jobs matching what has been typed, for /run: shown by name, chosen by id. */
@@ -132,6 +146,16 @@ export function jobCompletions(ctx: SlashContext, typed: string): SlashChoice[] 
     .filter((j) => !needle || j.name.toLowerCase().includes(needle))
     .slice(0, 25)
     .map((j) => ({ name: jobLabel(j), value: String(j.id) }));
+}
+
+/** Asks waiting on the owner, for /approve and /deny: shown by what they do, chosen by number. */
+export function approvalCompletions(ctx: SlashContext, typed: string, summary: (req: ApprovalRequest) => string): SlashChoice[] {
+  const needle = typed.trim().replace(/^#/, "").toLowerCase();
+  return (ctx.pending?.() ?? [])
+    .map((req) => ({ name: `#${req.id} ${summary(req)}`, value: req.id }))
+    .filter((c) => !needle || c.name.toLowerCase().includes(needle))
+    .slice(0, 25)
+    .map((c) => ({ ...c, name: c.name.length > 90 ? `${c.name.slice(0, 89)}…` : c.name }));
 }
 
 /**
@@ -149,206 +173,4 @@ export function jobNamed(ctx: SlashContext, argument: string | undefined): numbe
   if (exact) return exact.id;
   const partial = jobs.filter((j) => j.name.toLowerCase().includes(lower));
   return partial.length === 1 ? partial[0]!.id : undefined;
-}
-
-/**
- * A name the owner can click, where there is somewhere to send them.
- *
- * A chat named in an answer is usually one they want to look at, and a name
- * they cannot open is a name they have to go and find.
- */
-function named(ctx: SlashContext, chat: { id: string; title: string }): string {
-  const url = ctx.link?.(chat.id);
-  const name = trim(chat.title);
-  // Brackets and parentheses in a title would close the link early.
-  return url ? `**[${name.replace(/[[\]()]/g, "")}](${url})**` : `**${name}**`;
-}
-
-/**
- * Run one, and say what happened.
- *
- * All of them answer with a card, and the same card: a heading for what
- * changed, the chat it changed to as something clickable, and a footer
- * saying what to do next. Answers that each invented their own shape read
- * as unrelated features rather than one set of commands.
- *
- * Shown only to whoever asked. Where someone sends their messages is not
- * news for a channel.
- */
-export function runCommand(
-  ctx: SlashContext,
-  name: string,
-  argument?: string,
-  /** The chat the room it was typed in is bound to, when not the DM: what /stop stops and /chats marks. */
-  room?: string,
-): SlashReply {
-  const reply = answer(ctx, name, argument, room);
-  // Where the DM sends is not where this room sends: said, so a move made here is not read as moving the room.
-  if (room && (name === "target" || name === "here" || name === "new") && reply.card) {
-    reply.card.footer = `${reply.card.footer ? `${reply.card.footer} · ` : ""}moves your DMs; this channel stays with its own chat`;
-  }
-  return reply;
-}
-
-function answer(ctx: SlashContext, name: string, argument: string | undefined, room: string | undefined): SlashReply {
-  switch (name) {
-    case "target": {
-      // Nothing picked is a question, not a mistake: show the list.
-      if (!argument) return answer(ctx, "chats", undefined, room);
-      const found = ctx.list().find((c) => c.id === argument);
-      if (!found) {
-        return {
-          card: {
-            title: "No such chat",
-            body: `Nothing here is called \`${trim(argument)}\`. Pick one from the list /target offers.`,
-            color: CARD_MUTED,
-          },
-        };
-      }
-      ctx.target(found.id);
-      return {
-        card: {
-          title: "Now sending to",
-          body: named(ctx, found),
-          color: CARD_COLOR,
-          footer: "/here comes back · /target moves again",
-        },
-      };
-    }
-
-    case "here": {
-      const home = ctx.home();
-      ctx.target(home);
-      const stream = ctx.list().find((c) => c.id === home);
-      return {
-        card: {
-          title: "Back to this surface",
-          body: stream
-            ? `Messages land in ${named(ctx, stream)} again.`
-            : "Messages land in this surface's own thread again.",
-          color: CARD_COLOR,
-          footer: "/target sends them somewhere else",
-        },
-      };
-    }
-
-    case "chats": {
-      const all = ctx.list();
-      const chats = all.filter((c) => c.kind !== "surface");
-      if (chats.length === 0) {
-        return {
-          card: {
-            title: "No chats yet",
-            body: "Say something here, or start one with `/new`.",
-            color: CARD_MUTED,
-          },
-        };
-      }
-      const current = room ?? ctx.current();
-      const shown = chats.slice(0, LISTED);
-      /*
-       * One fenced block, not a pill each.
-       *
-       * Inline code gives every entry its own box, and boxes of fifteen
-       * different widths are a ragged edge rather than a list. In one block
-       * they share a left margin and a typeface, which is what makes a list
-       * scannable.
-       */
-      const rows = shown.map(
-        (c) => `${c.id === current ? "→" : " "} ${trim(c.title)}`,
-      );
-      const here = chats.find((c) => c.id === current);
-      return {
-        card: {
-          title: "Where you can send",
-          ...(here ? { body: `Currently ${named(ctx, here)}` } : {}),
-          color: CARD_COLOR,
-          fields: [{ name: "\u200b", value: fence(rows) }],
-          footer:
-            chats.length > LISTED
-              ? `${chats.length} in all · /target searches every one · /here comes back`
-              : "/target moves you · /here comes back",
-        },
-      };
-    }
-
-    case "stop": {
-      // The chat of the room it was typed in; the DM's current one otherwise.
-      const where = room ?? ctx.current() ?? ctx.home();
-      const chat = ctx.list().find((c) => c.id === where);
-      const asked = ctx.stop(where);
-      return {
-        card: {
-          title: asked ? "Asked it to stop" : "Nothing to stop",
-          body: chat
-            ? asked
-              ? `${named(ctx, chat)} will stop at the first thing it can leave cleanly.`
-              : `${named(ctx, chat)} is not doing anything.`
-            : undefined,
-          color: asked ? CARD_COLOR : CARD_MUTED,
-        },
-      };
-    }
-
-    case "new": {
-      const title = argument?.trim();
-      if (!title) {
-        return {
-          card: {
-            title: "Say what it is for",
-            body: "`/new taxes 2026` starts a chat and sends you there.",
-            color: CARD_MUTED,
-          },
-        };
-      }
-      const made = ctx.create(title);
-      ctx.target(made.id);
-      return {
-        card: {
-          title: "Started, and sending there",
-          body: named(ctx, made),
-          color: CARD_COLOR,
-          footer: "/here comes back",
-        },
-      };
-    }
-
-    default:
-      return {
-        card: {
-          title: "No such command",
-          body: `\`/${name}\` is not one of mine.`,
-          color: CARD_MUTED,
-        },
-      };
-  }
-}
-
-/**
- * A block, so entries share a margin instead of each having a box.
- *
- * Kept inside what a field will hold: Discord refuses a message whose field
- * runs past a thousand characters rather than trimming it, so a long list
- * would take the whole answer with it.
- */
-function fence(rows: string[]): string {
-  const kept: string[] = [];
-  let used = "```\n```".length;
-  for (const row of rows) {
-    if (used + row.length + 1 > 1000) break;
-    kept.push(row);
-    used += row.length + 1;
-  }
-  return ["```", kept.join("\n"), "```"].join("\n");
-}
-
-/** How many chats to list. Enough to find one without opening the picker. */
-const LISTED = 15;
-
-/** One line of a list, cut at a word so it does not end mid-syllable. */
-function trim(title: string): string {
-  if (title.length <= 40) return title;
-  const cut = title.slice(0, 39);
-  const space = cut.lastIndexOf(" ");
-  return `${(space > 20 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }

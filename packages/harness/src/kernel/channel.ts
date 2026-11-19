@@ -1,4 +1,6 @@
 export { secretAskElsewhere } from "./decisions.js";
+import { AUTO_DECIDER } from "@kos/shared";
+
 import { agentConversationId } from "../agents/roles.js";
 import { ChannelRuntime } from "../channels/runtime.js";
 import type { ChannelAdapter } from "../channels/types.js";
@@ -61,7 +63,10 @@ export function connectChannel(
     // has already been made.
     watchDecisions: (listener) =>
       kernel.approvals.onDecided((action) => {
-        if (action.status !== "pending") listener(String(action.id), action.status);
+        if (action.status === "pending") return;
+        // Who, as the owner reads it on the card: Auto by its name, and anyone else is the owner.
+        const by = action.status === "expired" ? undefined : action.decidedBy === AUTO_DECIDER ? AUTO_DECIDER : "you";
+        listener(String(action.id), action.status, { ...(by ? { by } : {}), ...(action.decidedAt !== null ? { at: action.decidedAt } : {}) });
       }),
     // The turn's own conversation is known before it runs, so its progress
     // can be told on the surface as it happens. A message addressed to an
@@ -74,6 +79,10 @@ export function connectChannel(
     },
     // A turn running or queued where the message is going: the surface says "queued".
     isBusy: (ctx) => kernel.laneDepth(conversationOf(ctx)) > 0,
+    // A chat in Auto says so on its story too, as its answer does.
+    isAuto: (ctx) => kernel.chatMode(conversationOf(ctx)).mode === "auto",
+    // The newest step's picture beside the story.
+    pictureOf: (frameId) => kernel.frames.pictureOf(frameId),
     scrub: (text) => kernel.secrets.scrub(text),
     handleTurn: async (ctx) => {
       // The kernel owns conversation resolution and the /new, /chats, /switch
@@ -111,8 +120,10 @@ export function connectChannel(
       const waiting = res.suspended ? { suspended: true as const } : {};
       // A chat in Auto went ahead without asking: its answer says so where no chip shows it.
       const reply = res.reply && kernel.ranUnderAuto(res.conversationId) ? `${AUTO_MARK} ${res.reply}` : res.reply;
-      if (res.from && reply) return { text: reply, from: res.from, ...waiting };
-      return res.suspended ? { text: reply || "(no reply)", ...waiting } : reply || "(no reply)";
+      // The chat it was said in rides along, so a button on it acts there.
+      const said = { conversationId: res.conversationId, ...waiting };
+      if (res.from && reply) return { text: reply, from: res.from, ...said };
+      return { text: reply || "(no reply)", ...said };
     },
     /*
      * Only what the prompt itself does not already say.

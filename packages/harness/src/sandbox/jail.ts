@@ -51,6 +51,8 @@ export interface JailOptions {
    * Under bubblewrap every run is sealed: its own namespaces, no /run.
    */
   sealed?: boolean;
+  /** Mach services a sealed program may look up besides the plain ones: com.apple.dnssd.service to resolve names. */
+  services?: string[];
   /** Readable although under a denied home: an interpreter's own libraries. */
   reads?: string[];
   /**
@@ -133,13 +135,15 @@ const SEALED_SERVICES = [
   "com.apple.diagnosticd",
 ];
 
-const SEALED = [
-  "(deny signal (target others))",
-  "(deny mach-lookup)",
-  `(allow mach-lookup ${SEALED_SERVICES.map((name) => `(global-name ${sb(name)})`).join(" ")})`,
-  "(deny appleevent-send)",
-  "(deny user-preference-write)",
-];
+function sealedRules(services: readonly string[]): string[] {
+  return [
+    "(deny signal (target others))",
+    "(deny mach-lookup)",
+    `(allow mach-lookup ${[...SEALED_SERVICES, ...services].map((name) => `(global-name ${sb(name)})`).join(" ")})`,
+    "(deny appleevent-send)",
+    "(deny user-preference-write)",
+  ];
+}
 
 /**
  * The profile: everything allowed, then writes denied except in the
@@ -190,7 +194,7 @@ export function sandboxProfile(options: JailOptions): string {
     // Last, so no allow above carves them back out.
     ...((options.secretFiles ?? kosSecretFiles()).length ? [`(deny file-read* ${subpaths(options.secretFiles ?? kosSecretFiles())})`] : []),
     "(allow file-read-metadata)",
-    ...(options.sealed ? SEALED : []),
+    ...(options.sealed ? sealedRules(options.services ?? []) : []),
     "",
   ];
   return lines.join("\n");

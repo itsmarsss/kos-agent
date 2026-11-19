@@ -26,6 +26,7 @@ import { SAFE, type Escalation, type ToolRisk } from "../risk/tiers.js";
 import { gitControlRefusal } from "../sandbox/githold.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { callerHome, placeFor, reachOutside, type HomePath } from "./home.js";
+import { maintains, type Reach } from "./fence.js";
 import { reachOf } from "./sql.js";
 import { artifactFileRefusal, artifactFolderRefusal } from "./systems.js";
 
@@ -161,6 +162,21 @@ export function reservedRefusal(ws: Workspace, path: string): string | undefined
 }
 
 /**
+ * Why a tool may not read `path`, when it is one of the workspace's own
+ * top-level entries: KOS's database and its journals hold every project's
+ * tables, the transcripts and the trust tables, past the sql fence, and its
+ * settings and locks are KOS's own. Maintenance, which repairs KOS, may read
+ * them, as it may query KOS's tables; .kos stays refused to it too, as every
+ * file tool refuses it.
+ */
+export function reservedReadRefusal(ws: Workspace, path: string, reach: Reach): string | undefined {
+  if (!isReserved(ws.root, path)) return undefined;
+  if (maintains(reach) && !isKosState(ws, path)) return undefined;
+  const top = foldName(foldedPath(ws.root, path).split("/")[0] ?? "");
+  return `${top} is KOS's own, not read with the file tools: a project's tables are read through sql, jobs through cron.list, chats through chats.list and chats.read, memory through memory.recall`;
+}
+
+/**
  * Why a removal or a move may not take `rel` whole: the workspace itself,
  * one of KOS's own top-level folders, or a project's or a blob's folder,
  * which a project's or a blob's own tools remove. What is inside them is
@@ -209,7 +225,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
    */
   const fenced = (path: string, what: "read" | "replace" | "remove", folder = false): HomePath => {
     const placed = usable(ws, ctx, path);
-    const reserved = what === "read" ? undefined : reservedRefusal(ws, placed.rel);
+    const reserved = what === "read" ? reservedReadRefusal(ws, placed.rel, reachOf(ctx)) : reservedRefusal(ws, placed.rel);
     if (reserved) throw new Error(reserved);
     // A repository's config or hooks name programs a git read would run.
     const git = what === "replace" ? gitControlRefusal(foldedPath(ws.root, placed.rel)) : undefined;
@@ -243,7 +259,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "files.read",
-      description: `Read a file from the workspace: UTF-8 text as it is, or part of it (offset and limit, in bytes; at most ${TEXT_READ_MAX} bytes a read, so a long file is read a part at a time); a PDF as its text page by page (from and to read some of its pages, as a long one is read); a Word, Excel or PowerPoint file (.docx, .xlsx, .pptx) as its paragraphs, rows or slides. ${HOME_PATHS} Reading anywhere is fine.`,
+      description: `Read a file from the workspace: UTF-8 text as it is, or part of it (offset and limit, in bytes; at most ${TEXT_READ_MAX} bytes a read, so a long file is read a part at a time); a PDF as its text page by page (from and to read some of its pages, as a long one is read); a Word, Excel or PowerPoint file (.docx, .xlsx, .pptx) as its paragraphs, rows or slides. ${HOME_PATHS} Reading anywhere is fine but KOS's own database, state and settings at the workspace root.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -326,6 +342,8 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     },
     (input) => {
       const { abs, rel } = usable(ws, ctx, optStr(input, "path") ?? ".");
+      const reserved = reservedReadRefusal(ws, rel, reachOf(ctx));
+      if (reserved) throw new Error(reserved);
       return readdirSync(abs)
         .map((name) => {
           const s = statSync(ws.resolve(rel ? `${rel}/${name}` : name));
