@@ -3230,11 +3230,11 @@ export async function handleApiRequest(
     }
   }
 
-  /** Read the owner's page edits back into memory, one page or every edited one. */
+  /** Read the owner's page edits back into memory, one page or every edited one, as the owner's word: they asked. */
   if (method === "POST" && path === "/api/memory/pages/import") {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const names = name ? [name] : kernel.pageLog.edited(kernel.workspace);
-    const imported = names.map((n) => importPage(kernel.workspace, kernel.facts, kernel.pageLog, kernel.profile.ownerId, n));
+    const imported = names.map((n) => importPage(kernel.workspace, kernel.facts, kernel.pageLog, kernel.profile.ownerId, n, "owner"));
     return ok({ imported });
   }
 

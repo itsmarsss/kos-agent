@@ -107,11 +107,12 @@ export interface PageImport {
 }
 
 /**
- * Read a page's claim lines back into memory, and note the page as read.
- * Each line is KOS's belief, never the owner's word: a page is a file any
- * chat can write with files.write, so nothing in one shows who wrote it.
+ * Read a page's claim lines back into memory, and note the page as read,
+ * at the trust of whoever asks: the owner's own import from the dashboard
+ * is their word; a tool's is KOS's belief, since a page is a file any chat
+ * can write with files.write, and nothing in one shows who wrote it.
  */
-export function importPage(ws: Workspace, facts: FactsStore, log: PageLog, ownerId: string, name: string): PageImport {
+export function importPage(ws: Workspace, facts: FactsStore, log: PageLog, ownerId: string, name: string, trust: "owner" | "agent"): PageImport {
   const text = readPage(ws, name);
   if (text === undefined) throw new Error(`no page named ${name}`);
   const scope = pageScope(name);
@@ -126,7 +127,7 @@ export function importPage(ws: Workspace, facts: FactsStore, log: PageLog, owner
       unchanged++;
       continue;
     }
-    facts.upsert(ownerId, { key: key!, value: value!, kind: current?.kind ?? "fact", scope, trust: "agent" }, `page:${name}`);
+    facts.upsert(ownerId, { key: key!, value: value!, kind: current?.kind ?? "fact", scope, trust }, `page:${name}`);
     imported.push(key!);
   }
   log.record(name, text);

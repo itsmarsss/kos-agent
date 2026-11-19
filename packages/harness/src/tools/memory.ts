@@ -616,7 +616,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const ws = requireServices(ctx).workspace;
       const name = str(input, "name");
       fenced(pageScope(name));
-      return JSON.stringify(importPage(ws, facts, deps.pages, ownerId, name));
+      return JSON.stringify(importPage(ws, facts, deps.pages, ownerId, name, "agent"));
     },
     { floor: "safe" },
     { tags: ["memory"] },
