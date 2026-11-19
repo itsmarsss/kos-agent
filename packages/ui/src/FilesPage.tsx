@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 
 import { api } from "./api.js";
 import { Finder } from "./finder/Finder.js";
+import { useHashParam } from "./hashparams.js";
 import { parentOf } from "./finder/model.js";
 
 /**
@@ -24,6 +25,8 @@ export interface FilesPageProps {
 export function FilesPage({ path = ".", onOpen, onAsk }: FilesPageProps): ReactElement {
   /** The address as a folder, and the file in it it names, once known. */
   const [at, setAt] = useState<{ folder: string; focus?: string } | null>(null);
+  /** The line a search found in the file (`?line=` on the address). */
+  const [line] = useHashParam("line");
   useEffect(() => {
     let cancelled = false;
     if (path === ".") {
@@ -40,5 +43,13 @@ export function FilesPage({ path = ".", onOpen, onAsk }: FilesPageProps): ReactE
     };
   }, [path]);
   if (!at) return <div className="finder finder--loading" aria-busy="true" />;
-  return <Finder path={at.folder} {...(at.focus ? { focus: at.focus } : {})} onNavigate={onOpen} {...(onAsk ? { onAsk } : {})} />;
+  const shown = Number(line);
+  return (
+    <Finder
+      path={at.folder}
+      {...(at.focus ? { focus: at.focus, ...(Number.isInteger(shown) && shown > 0 ? { focusLine: shown } : {}) } : {})}
+      onNavigate={onOpen}
+      {...(onAsk ? { onAsk } : {})}
+    />
+  );
 }

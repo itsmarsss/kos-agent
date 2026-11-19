@@ -41,6 +41,8 @@ export interface FinderProps {
   path?: string;
   /** A file to choose and look at on arrival. */
   focus?: string;
+  /** The line of `focus` to show lit when it is looked at: where a search found it. */
+  focusLine?: number;
   /** Told of each folder it goes to, for the address. */
   onNavigate?: (path: string) => void;
   sidebar?: boolean;
@@ -93,7 +95,7 @@ function droppedPaths(e: DragEvent): string[] | undefined {
 }
 const carriesFiles = (e: DragEvent): boolean => Array.from(e.dataTransfer.types).includes("Files");
 
-export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavigate, sidebar = true, upload, onAsk, onOpenInFiles, onChanged, paused = false }: FinderProps): ReactElement {
+export function Finder({ root = ".", rootName = "Workspace", path, focus, focusLine, onNavigate, sidebar = true, upload, onAsk, onOpenInFiles, onChanged, paused = false }: FinderProps): ReactElement {
   const start: Place = { kind: "folder", path: path && within(path, root) ? path : root };
   const [history, setHistory] = useState<{ list: Place[]; at: number }>({ list: [start], at: 0 });
   const place = history.list[history.at]!;
@@ -781,6 +783,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
         onClose={() => setLooking(false)}
         paused={paused}
         quickLook
+        {...(focus && focusLine !== undefined ? { line: { path: focus, line: focusLine } } : {})}
         actions={
           lookPath ? (
             <>
