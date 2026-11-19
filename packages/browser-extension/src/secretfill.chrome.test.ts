@@ -355,7 +355,6 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", commands: ["selectAll"] })).toMatchObject(refused);
     for (const key of [
       { key: "Insert", code: "Insert", windowsVirtualKeyCode: 45, modifiers: 2 },
-      { key: "Insert", code: "Insert", windowsVirtualKeyCode: 45, modifiers: 8 },
       { key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, modifiers: 8 },
       { key: "k", code: "KeyK", modifiers: 2, commands: ["deleteToEndOfParagraph"] },
       { key: "y", code: "KeyY", modifiers: 2, commands: ["yank"] },
@@ -369,9 +368,11 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     expect(tree).toContain("(hidden)");
     await cdp("DOM.focus", { backendNodeId: byId.get("pw")!.node });
     expect(await send("Input.insertText", { text: "x" })).toMatchObject(refused);
-    // Any editing command on the filled field, a paste or an undo among them.
-    expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "v", code: "KeyV", modifiers: 4, commands: ["paste"] })).toMatchObject(refused);
+    // Any editing command on the filled field, an undo among them; a paste on any tab, which would hand KOS the clipboard.
     expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", modifiers: 4, commands: ["undo"] })).toMatchObject(refused);
+    for (const key of [{ key: "v", code: "KeyV", modifiers: 4, commands: ["paste"] }, { key: "Insert", code: "Insert", windowsVirtualKeyCode: 45, modifiers: 8 }]) {
+      expect(await send("Input.dispatchKeyEvent", { type: "keyDown", ...key })).toMatchObject({ error: expect.objectContaining({ code: "method", message: expect.stringMatching(/paste/) }) });
+    }
     // Another field takes typing and its editing commands, and the page's own address bar takes no script.
     await cdp("DOM.focus", { backendNodeId: byId.get("search")!.node });
     expect(await send("Input.insertText", { text: "shoes" })).toMatchObject({ ok: true });

@@ -115,12 +115,30 @@ export function checkCommand(method: string, params: Record<string, unknown>): v
     const url = params["url"];
     if (typeof url !== "string" || !isWebUrl(url)) throw new CallError("url", "only web pages (http and https) open in your Chrome");
   }
+  if (method === "Input.dispatchKeyEvent" && pastes(params)) throw new CallError("method", "a paste is refused in your Chrome: it would hand KOS whatever is on your clipboard; type the text instead");
   // The browser's own shadow roots hold each field's text: a node found at a point is never one inside them.
   if (method === "DOM.getNodeForLocation") params["includeUserAgentShadowDOM"] = false;
   if (method === "Page.createIsolatedWorld") {
     if (params["worldName"] !== HANDS_WORLD) throw new CallError("method", `the only world KOS may make is ${HANDS_WORLD}`);
     if (params["grantUniveralAccess"] !== undefined && params["grantUniveralAccess"] !== false) throw new CallError("method", "a world KOS makes has no more reach than the page");
   }
+}
+
+/** Modifier bits as Input.dispatchKeyEvent takes them. */
+const CONTROL = 2;
+const META = 4;
+const SHIFT = 8;
+
+/** Whether a key event pastes: by an editing command, Control or Meta with V, or Shift with Insert. */
+function pastes(params: Record<string, unknown>): boolean {
+  const commands = Array.isArray(params["commands"]) ? params["commands"] : [];
+  if (commands.some((c) => typeof c === "string" && /^paste/i.test(c))) return true;
+  const modifiers = typeof params["modifiers"] === "number" ? params["modifiers"] : 0;
+  const key = typeof params["key"] === "string" ? params["key"].toLowerCase() : "";
+  const code = typeof params["code"] === "string" ? params["code"] : "";
+  const vk = params["windowsVirtualKeyCode"];
+  if ((modifiers & (CONTROL | META)) !== 0 && (key === "v" || code === "KeyV" || vk === 86)) return true;
+  return (modifiers & SHIFT) !== 0 && (key === "insert" || code === "Insert" || vk === 45);
 }
 
 /** What a world in a tab is: the page's own or KOS's hands', which KOS may reach; the overlay's, or another's (an extension's), which it may not. */

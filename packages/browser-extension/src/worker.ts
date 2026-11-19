@@ -1787,7 +1787,15 @@ async function pageRead(params: Record<string, unknown>, origin: string): Promis
   if (!(await readable()) && !((await askToRead(panel, new URL(url).host)) && (await readable()))) {
     throw new CallError("permission", "the owner did not let KOS read pages in this Chrome");
   }
+  // The tab may have gone elsewhere while the owner was asked, or while it was read: read only the page asked about, and nothing of a hidden one.
+  const stillThere = async (): Promise<void> => {
+    const now = (await chrome.tabs.get(tab.id!).catch(() => undefined))?.url ?? "";
+    if (isHidden(now, settings.hiddenSites)) throw hiddenError(now);
+    if (!isWebUrl(now) || new URL(now).origin !== new URL(url).origin) throw new CallError("changed", "the tab beside the side panel went to another page while it was read; ask again");
+  };
+  await stillThere();
   const [done] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readPage, args: [PAGE_TEXT] });
+  await stillThere();
   if (!done?.result) throw new CallError("internal", "the page could not be read");
   note(`read ${new URL(url).host} for the side panel`);
   return { ...done.result };
