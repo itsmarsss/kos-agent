@@ -18,7 +18,7 @@ import {
   type EmbeddingProvider,
 } from "../memory/index.js";
 import { createDefaultRouter } from "../models/router.js";
-import { SpendStore } from "../ops/spend.js";
+import { parseRates, RATES_KEY, SpendStore } from "../ops/spend.js";
 import { BuildRegistry } from "../builds/registry.js";
 import { PendingMessages } from "./pending.js";
 import { applyModelSettings, MODEL_SETTINGS_KEY, type ModelSettings, CUSTOM_ENDPOINT_KEY, parseCustomEndpoint } from "../models/settings.js";
@@ -93,6 +93,7 @@ import { sitesModule } from "../tools/sites.js";
 import { createBrowserModule } from "../tools/browser.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
+import { createStatusModule } from "../tools/status.js";
 import { ensureProfile } from "./profile.js";
 import { RETENTION_KEY, SessionStore, primarySessionId, type Retention } from "./session.js";
 import { TurnMade } from "./turnmade.js";
@@ -523,6 +524,14 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     }),
     tasksModule,
     exportModule,
+    // KOS's own health in counts and names, for chats that cannot read its tables.
+    createStatusModule({
+      runs,
+      approvals,
+      spend,
+      rates: () => parseRates(settings.get(RATES_KEY)),
+      jobName: (id) => crons.get(id)?.name,
+    }),
     createSkillsModule({
       promoter,
       // Read on every call, so a toggle in Settings takes effect at once.

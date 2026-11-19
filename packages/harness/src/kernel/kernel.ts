@@ -146,6 +146,7 @@ import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
+import { STATUS_TOOL } from "../tools/status.js";
 import { ARTIFACT_TOOLS } from "../tools/systems.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
@@ -355,9 +356,10 @@ const SURFACE_BRIEF = [
  * The orchestrator's reach, applied per turn rather than stored on the
  * conversation: it is a property of what the orchestrator is, so an edit to
  * the conversation cannot drift it, and it holds for workspaces that predate
- * it. The chats.* tools are restricted and arrive separately as a grant.
+ * it. The chats.* tools are restricted and arrive separately as a grant;
+ * kos.status is here so KOS at the root can say how KOS itself is doing.
  */
-const ORCHESTRATOR_SCOPE = ["memory"];
+const ORCHESTRATOR_SCOPE = ["memory", STATUS_TOOL];
 
 /**
  * What a project's own orchestrator is granted: the root's chats, blobs and
