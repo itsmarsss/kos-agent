@@ -280,7 +280,7 @@ export class PermissionStore {
     const info = this.db
       .prepare(`INSERT INTO permission_rules (tool, scope, project, created_at) VALUES (?, ?, ?, ?)`)
       .run(rule.tool, rule.scope, rule.project, this.now());
-    return { id: Number(info.lastInsertRowid), ...rule, createdAt: this.now() };
+    return { id: Number(info.lastInsertRowid), ...rule, createdAt: this.now(), matches: ruleMatches(rule) };
   }
 
   revoke(id: number): boolean {
