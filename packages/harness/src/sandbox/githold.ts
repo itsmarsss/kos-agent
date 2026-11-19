@@ -123,9 +123,9 @@ export const GIT_CONTROL_WRITES = [
   `/${anyCase(".git")}$`,
 ];
 
-/** Git's global config under a home, which every child reads: HOME is the workspace root. */
+/** Git's global config under a home, which every child reads: HOME is the workspace root. The folder ends in a slash, as a jail's readOnly names one. */
 export function gitGlobalConfig(home: string): string[] {
-  return [join(home, ".gitconfig"), join(home, ".config", "git")];
+  return [join(home, ".gitconfig"), `${join(home, ".config", "git")}/`];
 }
 
 /** Sandbox regex for a repository's info/attributes, which a read-only run does not read. */

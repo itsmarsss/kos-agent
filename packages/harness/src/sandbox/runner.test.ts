@@ -75,6 +75,6 @@ describe("runSandbox", () => {
 
   it("refuses to run at all where there is no jail", async () => {
     const entry = script("ok.mjs", "");
-    await expect(runSandbox({ workspaceRoot: root, entry, jail: { platform: "linux", contained: false } })).rejects.toThrow(/needs a jail/);
+    await expect(runSandbox({ workspaceRoot: root, entry, jail: { platform: "linux", contained: false, bubblewrap: false } })).rejects.toThrow(/needs a jail/);
   });
 });

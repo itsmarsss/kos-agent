@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import { realOf, vaultDir } from "../secrets/vault.js";
+import { bubblewrap, bwrapCommand } from "./bwrap.js";
+import type { JailNat } from "./jailrun.js";
 
 /**
  * How a shell command is kept inside the workspace.
@@ -13,8 +15,9 @@ import { realOf, vaultDir } from "../secrets/vault.js";
  * Mac, where iMessage keeps the host out of the container, the kernel's
  * own sandbox does: the command may read the system and write the
  * workspace, and the owner's home directory, where the keys, the mail and
- * this project's .env live, is not there at all. Anywhere else there is
- * no jail, and the shell is refused rather than run unconfined.
+ * this project's .env live, is not there at all. On bare Linux bubblewrap
+ * does the same with namespaces and bind mounts (see bwrap.ts). Anywhere
+ * else there is no jail, and the shell is refused rather than run unconfined.
  */
 
 export interface JailOptions {
@@ -24,11 +27,15 @@ export interface JailOptions {
   platform?: NodeJS.Platform;
   /** True when the host itself runs in the container, which is the jail. */
   contained?: boolean;
+  /** The bwrap that jails on Linux, or false for none: found and tried once when not given. */
+  bubblewrap?: string | false;
+  /** The NAT that gives a networked bwrap run its own network, or false for none: found when not given. */
+  nat?: JailNat | false;
   /** Where it may write, and read back; the whole workspace by default. */
   writes?: string[];
   /** Under the workspace yet not to be read: KOS's own state, for a program that runs without asking. */
   hidden?: string[];
-  /** Under the workspace yet not to be written: KOS's own settings and database, whatever path, glob or link names them. */
+  /** Under the workspace yet not to be written: KOS's own settings and database, whatever path, glob or link names them; a folder ends in a slash. */
   readOnly?: string[];
   /** Inside a read-only folder yet writable again: KOS's temp and caches under its own state. */
   writableWithin?: string[];
@@ -42,6 +49,7 @@ export interface JailOptions {
    * mach services a plain program needs, so no LaunchServices, pasteboard or
    * other daemon does its bidding. Apple Events, preference writes and the
    * hand-off programs are denied to every jailed program, sealed or not.
+   * Under bubblewrap every run is sealed: its own namespaces, no /run.
    */
   sealed?: boolean;
   /** Mach services a sealed program may look up besides the plain ones: com.apple.dnssd.service to resolve names. */
@@ -95,6 +103,20 @@ export function kosSecretFiles(env: NodeJS.ProcessEnv = process.env): string[] {
 export interface JailedCommand {
   file: string;
   args: string[];
+  /**
+   * Undoes what jailing it put in place, once the program has ended (see
+   * placeholder.ts), and says what it moved out of the workspace after a
+   * run nobody approved (see gitwatch.ts).
+   */
+  release?: () => Released;
+}
+
+/** What a jailed run's release did after it: see gitwatch.ts. */
+export interface Released {
+  /** Git control the run planted, moved to .kos/quarantine (or removed), from the workspace. */
+  quarantined: string[];
+  /** Planted control that could be neither moved nor removed: unapproved runs there are refused while it stands. */
+  quarantineFailed: string[];
 }
 
 /** Quote for a sandbox profile string: backslashes and double quotes. */
@@ -211,9 +233,17 @@ export function isContained(): boolean {
   return process.env.KOS_CONTAINED === "1" || existsSync("/.dockerenv");
 }
 
+/** True where KOS has a jail of its own, not the container's: macOS's sandbox, or a working bubblewrap on Linux. */
+export function ownJail(platform: NodeJS.Platform = process.platform, bwrap?: string | false): boolean {
+  return platform === "darwin" || (platform === "linux" && !!(bwrap ?? bubblewrap()));
+}
+
 /** A program and its arguments, jailed for this platform. */
 export function jailedProgram(file: string, args: string[], options: JailOptions): JailedCommand {
   const platform = options.platform ?? process.platform;
+  // Bubblewrap where it works, the container included: it narrows what the container allows.
+  const bwrap = platform === "linux" ? (options.bubblewrap ?? bubblewrap()) : undefined;
+  if (bwrap) return bwrapCommand(bwrap, file, args, { ...options, secretFiles: options.secretFiles ?? kosSecretFiles() });
   // The container is the jail: network, kosPorts and the rest hold nothing here, so shell.run is never Auto's in it.
   if (options.contained ?? isContained()) {
     return { file, args };
@@ -221,7 +251,7 @@ export function jailedProgram(file: string, args: string[], options: JailOptions
   if (platform === "darwin") {
     return { file: "/usr/bin/sandbox-exec", args: ["-p", sandboxProfile(options), file, ...args] };
   }
-  throw new Error("this needs a jail: run the host in the container (docker compose up), or on macOS");
+  throw new Error("this needs a jail: install bubblewrap (bwrap), run the host in the container (docker compose up), or run on macOS");
 }
 
 /** The process to spawn for a shell command, jailed for this platform. */

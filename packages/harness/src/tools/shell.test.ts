@@ -9,12 +9,15 @@ import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { vaultDir } from "../secrets/vault.js";
 import { Workspace } from "../store/workspace.js";
+import { bubblewrap, natTool } from "../sandbox/bwrap.js";
 import { underAuto } from "../kernel/caller.js";
 import { programOf } from "../risk/rules.js";
 import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
 import { CONFIG_REFUSED, CONTAINER_SECRET_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
+/** KOS's own jail holds it here: macOS's sandbox, or bubblewrap on Linux with a NAT for the runs that use the network. */
+const jailed = onMac || (bubblewrap() !== undefined && natTool() !== undefined);
 
 describe("naming the program a command runs", () => {
   it("is the first word of one plain command", () => {
@@ -74,7 +77,7 @@ describe("a read-only line in the container", () => {
   });
 });
 
-describe.runIf(onMac)("shell.run on macOS", () => {
+describe.runIf(jailed)("shell.run in its own jail", () => {
   let root: string;
   let ws: Workspace;
   let registry: ToolRegistry;
@@ -183,14 +186,14 @@ describe.runIf(onMac)("shell.run on macOS", () => {
       "printf '#!/bin/sh\\ntouch PLANTED\\n' > .git/hooks/pre-commit && echo REACHED",
       "printf '[core]\\n\\thooksPath = x\\n' >> .git/config && echo REACHED",
       "mkdir -p .git/info && echo '* diff=x' > .git/info/attributes && echo REACHED",
-      "mkdir -p .GIT/Hooks/x && echo REACHED",
-      "mkdir -p sub && echo 'gitdir: /tmp/x' > sub/.git && echo REACHED",
+      // A disk that folds case, and a .git made by the run: macOS's patterns hold both, bubblewrap's mounts neither (see bwrap.ts).
+      ...(onMac ? ["mkdir -p .GIT/Hooks/x && echo REACHED", "mkdir -p sub && echo 'gitdir: /tmp/x' > sub/.git && echo REACHED"] : []),
     ]) {
       expect((await inBooks(command)).stdout, command).not.toContain("REACHED");
     }
     expect(readFileSync(join(books, ".git/config"), "utf8")).toBe(config);
     expect(existsSync(join(books, ".git/hooks/pre-commit"))).toBe(false);
-    expect(existsSync(join(books, "sub/.git"))).toBe(false);
+    if (onMac) expect(existsSync(join(books, "sub/.git"))).toBe(false);
     for (const command of [
       "echo '[core] hooksPath = x' > .gitconfig && echo REACHED",
       "mkdir -p .config/git && echo x > .config/git/config && echo REACHED",
@@ -225,7 +228,8 @@ describe.runIf(onMac)("shell.run on macOS", () => {
 
     for (const escape of [join(tmpdir(), `kos-shell-escape-${process.pid}.txt`), `/tmp/kos-shell-escape-${process.pid}.txt`]) {
       const outside = await run({ command: `echo x > ${escape}` });
-      expect(outside.exitCode).not.toBe(0);
+      // macOS refuses the write; under bubblewrap it lands in the run's own /tmp, gone when it ends.
+      if (onMac) expect(outside.exitCode).not.toBe(0);
       expect(existsSync(escape)).toBe(false);
     }
     // TMPDIR is inside the workspace, so a program's scratch lands here.
@@ -238,7 +242,8 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     const r = await run({ command: `cat ${outsideHome}` });
     expect(r.exitCode).not.toBe(0);
     expect(r.stdout).toBe("");
-    expect(r.stderr).toMatch(/not permitted/i);
+    // Denied by macOS's sandbox; under bubblewrap it is not there at all.
+    expect(r.stderr).toMatch(onMac ? /not permitted/i : /no such file/i);
     // HOME is the workspace, so a tool that reads its config reads it there.
     const home = await run({ command: "echo $HOME" });
     expect(home.stdout.trim().endsWith(root.split("/").slice(-1)[0]!)).toBe(true);
@@ -440,7 +445,9 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     for (const path of ["projects/x/.git/hooks/pre-commit", ".gitconfig", "made"]) expect(existsSync(join(root, path)), path).toBe(false);
     const secrets = await held("cat kos.sqlite mcp.json .env; ls .kos");
     expect(secrets.stdout).not.toMatch(/secret/);
-    expect(secrets.stdout).not.toContain("tmp");
+    // macOS hides .kos whole; bubblewrap shows the empty way down to the run's own temp, and nothing else in it.
+    if (onMac) expect(secrets.stdout).not.toContain("tmp");
+    else expect(secrets.stdout.trim()).toBe("tmp");
     const net = await held("/usr/bin/curl -sS -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:9 || /usr/bin/nc -z -w 2 1.1.1.1 443 && echo reached");
     expect(net.stdout).not.toContain("reached");
     // Its own temp folder is writable, and gone afterwards.

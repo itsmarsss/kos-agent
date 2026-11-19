@@ -96,6 +96,11 @@ export const CONTAINER_SECRET_REFUSED =
 /** The workspace's own top-level entries no command may write; .kos stays writable, as the shell's TMPDIR is inside it. */
 const UNWRITTEN = [...RESERVED].filter((name) => name !== ".kos");
 
+/** One of the workspace's own entries as a jail's readOnly names it: a folder with a trailing slash. */
+function ownEntry(root: string, name: string): string {
+  return name === "locks" ? `${join(root, name)}/` : join(root, name);
+}
+
 export type ShellResult = CapturedRun;
 
 /** Asked for by name to let a project's or a blob's command write past its own folder. */
@@ -146,7 +151,7 @@ function autoJail(root: string, writes: string[] | undefined, hidden: string[] |
     workspaceRoot: root,
     ...(writes ? { writes } : {}),
     hidden: [...UNREAD.filter((name) => name !== ".kos").map((name) => join(root, name)), ...(hidden ?? [])],
-    readOnly: [...UNWRITTEN.map((name) => join(root, name)), kos, join(root, ".env"), ...gitGlobalConfig(root)],
+    readOnly: [...UNWRITTEN.map((name) => ownEntry(root, name)), `${kos}/`, join(root, ".env"), ...gitGlobalConfig(root)],
     writableWithin: [join(kos, "tmp"), join(kos, "cache")],
     unwritable: GIT_CONTROL_WRITES,
     unreadable: [GIT_INFO_ATTRIBUTES],
@@ -203,7 +208,7 @@ export async function runShell(
       ? autoJail(opts.workspaceRoot, opts.writes, opts.hidden)
       : {
           workspaceRoot: opts.workspaceRoot,
-          readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
+          readOnly: UNWRITTEN.map((name) => ownEntry(opts.workspaceRoot, name)),
           ...(opts.writes ? { writes: opts.writes } : {}),
           ...(opts.hidden ? { hidden: opts.hidden } : {}),
         };
