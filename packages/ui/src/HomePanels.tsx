@@ -1,16 +1,16 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
-import { summarizeAction } from "@kos/shared";
+import { momentWords, summarizeAction } from "@kos/shared";
 import { CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
-import { clockLabel, dayLabel, hourLabel, padDays, padHours } from "./chartdata.js";
+import { dayLabel, hourLabel, padDays, padHours } from "./chartdata.js";
 import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick } from "./charts.js";
 import { PendingAsk } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
 import { ActivityDot, buildDot, fixLabel } from "./StatusDot.js";
-import { agoWords } from "./schedulewords.js";
+import { agoWords, jobTitle, SYSTEM_JOBS } from "./schedulewords.js";
 
 /**
  * The panels a home page can be built from.
@@ -30,7 +30,7 @@ export function agentSide(a: AgentInfo): string {
   if (t?.activity === "needs-you") return "needs you";
   if (t?.activity === "error") return "failed";
   if (a.job && !a.job.enabled) return "paused";
-  if (a.job?.nextRunAt) return `next ${clockLabel(a.job.nextRunAt)}`;
+  if (a.job?.nextRunAt) return `next ${momentWords(a.job.nextRunAt)}`;
   if (t?.lastSaid) return agoWords(t.updatedAt);
   return "on request";
 }
@@ -65,7 +65,7 @@ const RUN_TONE: Record<string, Tone> = { ok: "ok", error: "danger", running: "ac
 
 /** One run as a tick: its colour is its outcome, its title the rest. */
 function runTick(r: RunRecord): Tick {
-  const what = r.ref ? `${r.kind} ${r.ref}` : r.kind;
+  const what = r.kind === "cron" ? "job" : r.kind === "chat" ? "turn" : r.kind;
   const how = r.error ? `${r.status}: ${r.error}` : r.status;
   return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${agoWords(r.startedAt)}` };
 }
@@ -233,7 +233,7 @@ export function Panel({
       return (
         <div className={`panel ${rows.length ? "panel--bad" : ""}`}>
           <Head
-            title={title ?? "What broke"}
+            title={title ?? "Failed"}
             count={report.failing.length}
             onMore={() => onGo("history")}
           />
@@ -467,13 +467,13 @@ export function Panel({
                   <li key={c.id}>
                     <span className="panel-row">
                       <span className="panel-row-main">
-                        {c.name}
+                        {jobTitle(c.name)}
                         {c.projectSlug && (
                           <span className="panel-row-project"> {data.projects.find((p) => p.slug === c.projectSlug)?.name ?? c.projectSlug}</span>
                         )}
                       </span>
                       {next.has(c.id) ? (
-                        <span className="panel-row-side">{clockLabel(next.get(c.id)!)}</span>
+                        <span className="panel-row-side">{momentWords(next.get(c.id)!)}</span>
                       ) : (
                         <code className="panel-row-side">{c.schedule}</code>
                       )}
@@ -505,28 +505,30 @@ export function Panel({
               {/* The figure first: cost is the number this card is opened
                   for, and it used to show tokens with nothing under them. */}
               <div className="panel-stats">
-                {priced ? (
+                {priced && (
                   <div>
                     <span className="panel-stat panel-stat--lead">${cost < 0.01 && cost > 0 ? "<0.01" : cost.toFixed(2)}</span>
                     <span className="panel-stat-label">{unpriced ? `${unpriced} model${unpriced === 1 ? "" : "s"} unpriced` : "this week"}</span>
                   </div>
-                ) : (
-                  <div>
-                    <button type="button" className="panel-stat panel-stat--link" onClick={() => onGo("settings", "spend")}>
-                      Set rates
-                    </button>
-                    <span className="panel-stat-label">to see the cost</span>
-                  </div>
                 )}
                 <div>
                   <span className="panel-stat">{fmt(input)}</span>
-                  <span className="panel-stat-label">in</span>
+                  <span className="panel-stat-label">tokens in</span>
                 </div>
                 <div>
                   <span className="panel-stat">{fmt(output)}</span>
-                  <span className="panel-stat-label">out</span>
+                  <span className="panel-stat-label">tokens out</span>
                 </div>
               </div>
+              {/* A link under the figures, not a figure among them: drawn as a stat, the words read as a number. */}
+              {!priced && (
+                <p className="panel-note hint">
+                  <button type="button" className="link" onClick={() => onGo("settings", "spend")}>
+                    Set rates
+                  </button>{" "}
+                  to see the cost.
+                </p>
+              )}
               {/* One bar per day of everything sent and received. Input is
                   a hundred times output, so stacking the two drew one. */}
               <Bars
@@ -546,7 +548,6 @@ export function Panel({
 
     case "memory": {
       const mem = data.memory;
-      const jobLabel: Record<string, string> = { "kos.memory": "Read", "kos.dream": "Tidy", "kos.observe": "Condense" };
       const on = mem.jobs.filter((j) => j.enabled);
       const latest = mem.jobs.reduce<number | null>((t, j) => (j.lastRunAt && (!t || j.lastRunAt > t) ? j.lastRunAt : t), null);
       return (
@@ -571,7 +572,7 @@ export function Panel({
               ? "No memory jobs yet."
               : on.length === 0
                 ? `Jobs off${mem.extraction ? "; reading after each turn" : "; nothing reads the log"}.`
-                : `${on.map((j) => jobLabel[j.name] ?? j.name).join(", ")} on${latest ? `, last ran ${agoWords(latest)}` : ", never ran"}.`}
+                : `${on.map((j) => SYSTEM_JOBS[j.name] ?? j.name).join(", ")} on${latest ? `, last ran ${agoWords(latest)}` : ", never ran"}.`}
           </p>
         </div>
       );
@@ -626,7 +627,7 @@ export function Panel({
               onChange={(e) => onChange({ text: e.target.value })}
             />
           ) : panel.text ? (
-            <p className="panel-note">{panel.text}</p>
+            <p className="panel-note hint">{panel.text}</p>
           ) : (
             <Empty inline>Empty note. Press Arrange to write in it.</Empty>
           )}

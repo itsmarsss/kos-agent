@@ -4227,7 +4227,8 @@ li:hover .chats-item-when { opacity: 0; }
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 0.75rem;
-  align-items: start;
+  /* Cards in one row share its height, so the row reads as a row. */
+  align-items: stretch;
 }
 .home-cell { min-width: 0; }
 .home-cell--quarter { grid-column: span 3; }
@@ -4251,6 +4252,7 @@ li:hover .chats-item-when { opacity: 0; }
 .home-add-label {
   display: block;
   margin-bottom: 0.5rem;
+.home-cell > .panel { height: 100%; box-sizing: border-box; }
 }
 .home-add-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .home-add-item {
@@ -4271,19 +4273,6 @@ li:hover .chats-item-when { opacity: 0; }
 .home-add-name { font-size: var(--text-md); }
 .home-add-blurb { color: var(--faint); font-size: var(--text-sm); }
 .panel-stat--lead { color: var(--accent); }
-.panel-stat--link {
-  display: block;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-family: var(--mono);
-  font-size: var(--text-xl);
-  cursor: pointer;
-  text-align: left;
-}
-.panel-stat--link:hover { text-decoration: underline; }
 
 /* A head's actions: small, quiet, each with a glyph, the same height as the
    icon buttons beside them. Bare words at the end of a header bar read as
