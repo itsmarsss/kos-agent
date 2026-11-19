@@ -67,6 +67,11 @@ const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|heic|heif|avif|tiff?|bmp)$/i;
 const TEXT_EXTENSIONS =
   /\.(md|markdown|txt|text|csv|tsv|json|jsonl|ya?ml|toml|ini|cfg|conf|env|log|tex|bib|cls|sty|rst|org|adoc|ts|tsx|js|jsx|mjs|cjs|css|scss|less|html?|xml|svg|sql|sh|bash|zsh|fish|py|rb|go|rs|java|kt|swift|c|h|cpp|hpp|cs|php|pl|lua|r|jl|vue|svelte|astro|gradle|dockerfile|makefile|gitignore|npmrc|lock)$/i;
 
+/** A recording, by type or by name: a voice note from a phone, an audio file. */
+export function isAudio(mediaType: string, name: string): boolean {
+  return mediaType.startsWith("audio/") || (/\.(ogg|oga|opus|mp3|m4a|aac|wav|flac|webm)$/i.test(name) && !mediaType.startsWith("video/"));
+}
+
 export function isImage(mediaType: string): boolean {
   return mediaType.startsWith("image/");
 }
@@ -116,7 +121,11 @@ export async function readAttachments(attachments: Attachment[]): Promise<Attach
       out.push(bytes.byteLength > TEXT_MAX_BYTES ? keptNote(file, bytes, "", `a text file is read in up to ${TEXT_MAX_BYTES / MB} MB`, how) : file);
     } else if (imageTypeOf(bytes) || claimsPicture(file.mediaType, file.name)) out.push(await asPicture(file, bytes));
     else if (isDocument(file.mediaType, file.name)) out.push(await asDocument(file, bytes));
-    else out.push(file);
+    // No model hears a recording: it is kept, and the turn is told where.
+    else if (isAudio(file.mediaType, file.name)) {
+      if (!file.path) throw new Error(`${file.name} is a recording, and it could not be kept in the workspace`);
+      out.push(asText(file, `[${file.name}: a ${megabytes(bytes.byteLength)} recording, kept at ${file.path}. It was not transcribed here.]`));
+    } else out.push(file);
   }
   return out;
 }

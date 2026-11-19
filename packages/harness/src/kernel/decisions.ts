@@ -93,6 +93,20 @@ export interface DecisionsDeps {
 export const DECIDING_SURFACES: ReadonlySet<string> = new Set(["dashboard", "chrome", "mac", "phone", "cli"]);
 
 /**
+ * The surfaces that may lift the kill switch, run a job now, or put a chat
+ * in Auto (throwing the kill switch is the safe direction, open to all): those a secret's ask is decided on, and Discord,
+ * where the sender is the owner's account as Discord proves it. A text
+ * message (SMS, iMessage) is the easiest to pass off as the owner's, so
+ * neither is listed, and nor is any surface added later until it is.
+ */
+export const CONTROL_SURFACES: ReadonlySet<string> = new Set([...DECIDING_SURFACES, "discord"]);
+
+/** Said on a surface outside CONTROL_SURFACES for a command only those may run. */
+export function controlElsewhere(what: string): string {
+  return `${what} is never done from a text message: one is the easiest to pass off as yours. Do it on the dashboard, a paired device or Discord.`;
+}
+
+/**
  * Where a decision is taken. Required on every approval, so a caller that
  * forgets to say is a type error, not a pass; any surface outside
  * DECIDING_SURFACES (a chat channel, one added later) is refused a secret's ask.
