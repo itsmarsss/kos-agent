@@ -1044,10 +1044,12 @@ async function secretPicture(params: Record<string, unknown>, origin: string): P
   return shot;
 }
 
-/** KOS's cursor to a field a secret goes into: in a frame of another process, where that frame is drawn in the tab. */
+/** KOS's cursor to a field a secret goes into: in a frame of another process, where that frame is drawn in the tab; nowhere when the field's frame is not found. */
 async function pointAtField(tab: number, put: SecretPut): Promise<void> {
-  const sessionId = handFrames.sessionOf(tab, put.frame);
-  if (!sessionId) return pointAtNode(tab, { backendNodeId: put.node }, "move");
+  const via = (await tabMap(reachOf(tab)).catch(() => undefined))?.frames.get(put.frame)?.via;
+  if (via === "") return pointAtNode(tab, { backendNodeId: put.node }, "move");
+  const sessionId = via === undefined ? undefined : handFrames.sessionOf(tab, via);
+  if (!sessionId) return;
   const got = (await chrome.debugger.sendCommand({ tabId: tab, sessionId }, "DOM.getContentQuads", { backendNodeId: put.node }).catch(() => undefined)) as { quads?: unknown } | undefined;
   const at = middleOf(got?.quads);
   const inTab = at ? await handFrames.inTab(tab, sessionId, put.frame, at, mainFrames.get(tab)) : undefined;
