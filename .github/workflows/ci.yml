@@ -78,6 +78,11 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # The runner's Homebrew Python refuses pip --user (PEP 668); the home suite installs a wheel that way.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm exec tsc -b
