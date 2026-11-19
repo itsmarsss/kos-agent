@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactElement, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
-import { CloseIcon, Count, Empty, IconButton, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useFocusTrap, useOverlayScroll } from "@kos/kit";
+import { CloseIcon, Count, Empty, IconButton, NavIcon, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useFocusTrap, useOverlayScroll } from "@kos/kit";
 import { timeCard } from "@kos/shared";
 
 import type { TurnRecall as Recall } from "./api.js";
@@ -119,7 +119,7 @@ export function groupRecall(recalled: Recall): RecallGroup[] {
         const words = describeScope(scope);
         return { id: scope, label: words.charAt(0).toUpperCase() + words.slice(1), scoped: false, items: facts.map(claim) };
       }),
-    { id: "moments", label: "Moments", hint: "from the log, close to what was said", scoped: false, items: recalled.events.map((e) => ({ kind: "moment", id: `m${e.id}`, moment: e })) },
+    { id: "moments", label: "Log", hint: "what was said, close to the last message", scoped: false, items: recalled.events.map((e) => ({ kind: "moment", id: `m${e.id}`, moment: e })) },
   ];
   return groups.filter((g) => g.items.length > 0);
 }
@@ -133,17 +133,26 @@ export function itemMatches(item: RecallItem, query: string): boolean {
 
 /** Who a claim is from, as a tag, and what that means. */
 const SOURCES: Record<string, [string, string]> = {
-  owner: ["you", "You said this"],
-  agent: ["KOS", "KOS worked this out"],
-  tool: ["tool", "A tool produced this"],
-  external: ["outside", "From outside KOS: read it with care"],
+  owner: ["from you", "You said this"],
+  agent: ["from KOS", "KOS worked this out"],
+  tool: ["from a tool", "A tool produced this"],
+  external: ["from outside", "From outside KOS: read it with care"],
 };
 
 function roleWord(role: string): string {
   return role === "owner" ? "You" : role === "agent" ? "KOS" : role.charAt(0).toUpperCase() + role.slice(1);
 }
 
-const plural = (n: number, one: string): string => `${n} ${n === 1 ? one : `${one}s`}`;
+const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+
+/** Memory's mark, before the counts: what the chip is about, without a "memory:" label. */
+function MemoryGlyph(): ReactElement {
+  return (
+    <span className="recall-glyph" aria-hidden="true">
+      <NavIcon name="memory" />
+    </span>
+  );
+}
 
 /** The Memory page showing these claims alone, or its log when there are only moments. */
 function memoryHref(recalled: Recall): string {
@@ -170,11 +179,13 @@ export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | n
   if (facts === 0 && moments === 0) {
     return (
       <span className="recall recall--none" title="Nothing in memory matched the last message.">
-        memory: nothing matched
+        <MemoryGlyph />
+        <span className="sr-only">Memory: </span>
+        nothing matched
       </span>
     );
   }
-  const counts = [facts > 0 ? plural(facts, "claim") : null, moments > 0 ? plural(moments, "moment") : null].filter(Boolean).join(" · ");
+  const counts = [facts > 0 ? plural(facts, "claim") : null, moments > 0 ? plural(moments, "log entry", "log entries") : null].filter(Boolean).join(" · ");
 
   return (
     <div className="recall" ref={wrap}>
@@ -186,8 +197,10 @@ export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | n
         aria-haspopup="dialog"
         onClick={() => (open ? close() : setOpenAt(recalled.at))}
         title="What the last turn was given from memory"
+        aria-label={`Memory: ${counts}`}
       >
-        memory: {counts}
+        <MemoryGlyph />
+        {counts}
       </button>
       {open && createPortal(<RecallPanel recalled={recalled} counts={counts} anchor={chip} wrap={wrap} pop={pop} onClose={close} onLeave={leave} />, document.body)}
     </div>

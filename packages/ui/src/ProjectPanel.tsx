@@ -97,7 +97,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
     { n: detail.agents.filter(isProjectAgent).length, one: "Agent" },
     { n: detail.pages.filter((p) => p.trashedAt === undefined).length, one: "Artifact", section: "Artifacts" },
     { n: tables.length, one: "Table", section: "Tables" },
-    { n: detail.crons.length, one: "Job" },
+    { n: detail.crons.length, one: "Schedule" },
   ];
   const jump = (section: string): void => {
     const to = panel.current?.querySelector<HTMLElement>(`section[aria-label="${section}"]`);

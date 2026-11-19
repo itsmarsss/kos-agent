@@ -24,7 +24,7 @@ describe("the Memory page", () => {
     render(<MemoryPage facts={[]} tags={[]} onChanged={() => undefined} />);
     await act(async () => {});
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["Claims", "Decisions", "Pages", "Log", "Jobs", "Callers"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["Claims", "Decisions", "Pages", "Log", "Schedule", "Callers"]);
     expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1, -1, -1, -1]);
     expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(tabs[0]!.id);
     fireEvent.keyDown(tabs[0]!, { key: "ArrowRight" });

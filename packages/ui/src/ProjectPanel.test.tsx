@@ -103,7 +103,7 @@ describe("the project panel", () => {
       crons: [{ id: 1, name: "kitchen.remind", schedule: "0 9 * * *", type: "self_prompt", enabled: true }],
     });
     const figures = await screen.findByRole("list", { name: "What it holds" });
-    expect([...figures.querySelectorAll(".project-stat")].map((f) => f.textContent)).toEqual(["2Agents", "1Artifact", "1Table", "1Job"]);
+    expect([...figures.querySelectorAll(".project-stat")].map((f) => f.textContent)).toEqual(["2Agents", "1Artifact", "1Table", "1Schedule"]);
     // Agents and jobs are the rail's, beside the chat; artifacts and tables are here.
     expect(within(figures).getAllByRole("button").map((b) => b.textContent)).toEqual(["1Artifact", "1Table"]);
     fireEvent.click(within(figures).getByRole("button", { name: "1Table" }));

@@ -5331,6 +5331,10 @@ a.health {
 }
 
 /* Present for a screen reader, absent for everyone else. */
+/* Memory's mark before the recall chip's counts, at the chip's text size. */
+.recall-glyph { display: inline-flex; flex: none; margin-right: 0.3rem; vertical-align: -0.12em; }
+.recall-glyph svg { width: 12px; height: 12px; }
+
 .sr-only {
   position: absolute;
   width: 1px;

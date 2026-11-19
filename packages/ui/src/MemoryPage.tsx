@@ -22,10 +22,10 @@ type Tab = "claims" | "decisions" | "pages" | "log" | "jobs" | "callers";
 
 const TABS: { id: Tab; label: string; blurb: string }[] = [
   { id: "claims", label: "Claims", blurb: "What KOS believes, shared by every chat: true everywhere or in one place, each with where it came from." },
-  { id: "decisions", label: "Decisions", blurb: "What the tidy job could not settle on its own, and what was settled." },
+  { id: "decisions", label: "Decisions", blurb: "What Tidy could not settle on its own, and what was settled." },
   { id: "pages", label: "Pages", blurb: "Memory in prose, written from the claims and yours to edit." },
   { id: "log", label: "Log", blurb: "Everything said, searched by words and by meaning." },
-  { id: "jobs", label: "Jobs", blurb: "The three jobs that read, tidy and condense what is said." },
+  { id: "jobs", label: "Schedule", blurb: "Read, Tidy and Condense: the three jobs that keep memory, and when they run." },
   { id: "callers", label: "Callers", blurb: "Other programs that share memory, and what each may see." },
 ];
 
@@ -104,11 +104,12 @@ export function MemoryPage({
   );
 }
 
-function Group({ title, blurb, children }: { title: string; blurb?: string; children: React.ReactNode }): ReactElement {
+/** A tab's section; `title` is left out where it would only repeat the tab's own name, and kept for its region's name. */
+function Group({ title, shown = true, blurb, children }: { title: string; shown?: boolean; blurb?: string; children: React.ReactNode }): ReactElement {
   return (
-    <section className="mem-group">
+    <section className="mem-group" aria-label={title}>
       <div className="mem-group-head">
-        <h2>{title}</h2>
+        {shown && <h2>{title}</h2>}
         {blurb && <p className="hint">{blurb}</p>}
       </div>
       {children}
@@ -285,7 +286,7 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   return (
     <>
       <Group title="Needs a decision" blurb="Only what KOS was not sure enough to settle itself. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.">
-        {pending.length === 0 && <Empty inline>Nothing waiting. The tidy job settles what it is sure of and leaves here only a contradiction or a promotion it was not; how sure it has to be is in Settings, Behaviour.</Empty>}
+        {pending.length === 0 && <Empty inline>Nothing waiting. Tidy settles what it is sure of and leaves here only a contradiction or a promotion it was not; how sure it has to be is in Settings, Behaviour.</Empty>}
         {pending.map((item) => (
           <MemoryDecision key={item.id} item={item} onResolved={() => { load(); onChanged(); }} />
         ))}
@@ -334,8 +335,8 @@ function PagesTab(): ReactElement {
   }, []);
   useEffect(load, [load]);
   return (
-    <Group title="Pages" blurb={'One for you everywhere, one per project, written by the dream job from current claims. Edit a line in the form "- key: value" and it reads back as your word.'}>
-      {pages.length === 0 && <Empty inline>No pages yet. The dream job writes them; Run now on the Jobs tab if you do not want to wait for 4am.</Empty>}
+    <Group title="Pages" shown={false} blurb={'One for you everywhere, one per project, written by Tidy from current claims. Edit a line in the form "- key: value" and it reads back as your word.'}>
+      {pages.length === 0 && <Empty inline>No pages yet. Tidy writes them; Run now on the Schedule tab if you do not want to wait for 4 AM.</Empty>}
       {edited.length > 0 && (
         <p className="hint">
           Edited since memory wrote them: {edited.join(", ")}.{" "}
@@ -368,7 +369,7 @@ function LogTab({ titles }: { titles: Map<string, string> }): ReactElement {
     return () => clearTimeout(handle);
   }, [query]);
   return (
-    <Group title="Log" blurb="Every message in and out, kept. Searched by words and by meaning at once; shadowed means out of a thread's context, still here.">
+    <Group title="Log" shown={false} blurb="Every message in and out, kept. Searched by words and by meaning at once; shadowed means out of a thread's context, still here.">
       <input className="list-search mem-search" placeholder="Search what was said…" value={query} onChange={(e) => setQuery(e.target.value)} />
       {events.length === 0 && <p className="hint">{query ? "Nothing matches." : "Nothing said yet."}</p>}
       {events.map((e) => (
@@ -408,7 +409,7 @@ function JobsTab(): ReactElement {
   }, []);
   useEffect(load, [load]);
   return (
-    <Group title="Jobs" blurb="Memory is maintained by KOS itself, as scheduled jobs you can read, edit on the Schedule page, switch, and run now. Each runs on the model class it names.">
+    <Group title="Memory jobs" blurb="Memory is maintained by KOS itself, as scheduled jobs you can read, edit on the Schedule page, switch, and run now. Each runs on the model class it names.">
       {unread && <p className="hint">Unread by memory: {unread.count} messages, about {Math.round(unread.chars / 1000)}k characters.</p>}
       {JOBS.map((j) => {
         const job = crons.find((c) => c.name === j.name);
@@ -450,7 +451,7 @@ function CallersTab(): ReactElement {
   }, []);
   useEffect(load, [load]);
   return (
-    <Group title="Callers" blurb="Another program with its own token and its own corner of memory. It reads your global claims only under the tags you grant, writes global only if you say so, and never sees a project or another caller. The token is shown once.">
+    <Group title="Callers" shown={false} blurb="Another program with its own token and its own corner of memory. It reads your global claims only under the tags you grant, writes global only if you say so, and never sees a project or another caller. The token is shown once.">
       {issued && (
         <div className="mem-issued">
           <strong>Token for {issued.name}</strong>
