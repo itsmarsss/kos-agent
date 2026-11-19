@@ -3809,6 +3809,16 @@ export function withWriteKey(html: string, key: string): string {
   return html.includes("</head>") ? html.replace("</head>", `${meta}</head>`) : `${meta}${html}`;
 }
 
+/**
+ * Every dashboard file says it is never to be framed: a page that framed the
+ * dashboard could lay it under its own button and have the owner press
+ * Approve. KOS's own frames are srcdoc and the PDF route, which say their own.
+ */
+const NO_FRAMING: Readonly<Record<string, string>> = {
+  "content-security-policy": "frame-ancestors 'none'",
+  "x-frame-options": "DENY",
+};
+
 function tryStatic(
   staticDir: string,
   urlPath: string,
@@ -3828,7 +3838,7 @@ function tryStatic(
     // A page library is a script a page's frame runs; the app in its place
     // would run as one, so a missing one is missing.
     if (rel.split(/[/\\]/)[0] === "page-lib") {
-      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8", ...NO_FRAMING });
       res.end("not found");
       return true;
     }
@@ -3844,6 +3854,7 @@ function tryStatic(
   // The page itself carries this boot's write key, and is never kept: a cached one would hold a dead key.
   const page = writeKey !== undefined && file === join(root, "index.html");
   res.writeHead(200, {
+    ...NO_FRAMING,
     "content-type": type,
     "cache-control": page ? "no-store" : fingerprinted
       ? "public, max-age=31536000, immutable"

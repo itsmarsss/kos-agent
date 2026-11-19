@@ -19,8 +19,11 @@ followOtherTabs();
 
 // A deck's audience window is the dashboard's own page, drawn alone: no shell, no nav, the slide.
 const audience = audienceRoute(window.location.hash);
+// Framed by another page, the dashboard draws nothing to press: the server's frame-ancestors is the guard, this the fallback.
+const framed = window.top !== window.self;
 const root = document.getElementById("root");
-if (root) {
+if (framed && root) root.textContent = "KOS does not open inside another page.";
+else if (root) {
   createRoot(root).render(
     <StrictMode>
       {/*
