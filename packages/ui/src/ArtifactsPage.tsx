@@ -19,6 +19,7 @@ import { DeckPresenter } from "./DeckPresenter.js";
 import { openAudience, presentSession } from "./presentlink.js";
 import { chatShown, hrefFor } from "./routes.js";
 import { ArtifactPage, type ArtifactHandle, type DeckView, type EditState } from "./widgets/ArtifactPage.js";
+import { Signed } from "./signed.js";
 
 /**
  * Everything KOS has made for the owner, in one place: pages, docs, decks and
@@ -102,7 +103,7 @@ function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary
       <button type="button" className="artifact-card" onClick={onOpen}>
         <span className="artifact-thumb" data-kind={a.artifactKind}>
           {a.capturedAt ? (
-            <img src={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`} alt="" loading="lazy" />
+            <Signed url={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`}>{(src, again) => <img src={src} alt="" loading="lazy" onError={again} />}</Signed>
           ) : a.outline?.length ? (
             <WidgetOutlineThumb outline={a.outline} />
           ) : (

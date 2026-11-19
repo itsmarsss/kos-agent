@@ -127,6 +127,13 @@ export interface FormWidget extends BaseWidget {
   mutate: MutationTarget;
 }
 
+/**
+ * Markup drawn in a sandboxed frame with scripts on and no network: the
+ * artifact pages' policy (default-src 'none'; inline script and style; data:
+ * and blob: images, fonts and media) and no WebRTC. A CDN script, a remote
+ * image, a font from a URL or a fetch does not load: everything it needs is
+ * inline, and the data it shows comes in its markup.
+ */
 export interface CustomHtmlWidget extends BaseWidget {
   type: "custom_html";
   html: string;

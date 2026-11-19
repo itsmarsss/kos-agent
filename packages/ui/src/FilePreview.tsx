@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
@@ -10,6 +10,8 @@ import { ImageView } from "./FileThumb.js";
 import { highlights, tokenize } from "./highlight.js";
 import { isOfficePath, OfficeBody } from "./OfficeView.js";
 import { hrefFor } from "./routes.js";
+import { Signed } from "./signed.js";
+import { agoWords } from "./schedulewords.js";
 
 /**
  * A file, looked at in a window over the page.
@@ -29,17 +31,6 @@ export function bytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function ago(ms: number): string {
-  if (!ms) return "";
-  const secs = Math.round((Date.now() - ms) / 1000);
-  if (secs < 60) return "just now";
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
-
 /** A PDF, by name: shown as itself in the browser's own viewer. */
 export function isPdfPath(path: string): boolean {
   return /\.pdf$/i.test(path);
@@ -54,15 +45,46 @@ export function pdfViewUrl(path: string): string {
 const AUDIO = /\.(mp3|m4a|aac|wav|ogg|oga|flac)$/i;
 const VIDEO = /\.(mp4|m4v|webm|mov)$/i;
 
+/**
+ * A sound or a film, streamed. Its address is signed for long enough to play
+ * through and not renewed while it plays (that would start it over); if it
+ * lapses anyway, the failed read signs it again and the player picks up
+ * where it was.
+ */
+function Player({ kind, path }: { kind: "audio" | "video"; path: string }): ReactElement {
+  const resume = useRef(0);
+  return (
+    <Signed url={api.mediaUrl(path)} renew={false}>
+      {(src, again) => {
+        const common = {
+          controls: true,
+          preload: "metadata" as const,
+          src,
+          onError: (e: SyntheticEvent<HTMLMediaElement>) => {
+            const at = e.currentTarget.currentTime;
+            if (again()) resume.current = at;
+          },
+          onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => {
+            if (!resume.current) return;
+            e.currentTarget.currentTime = resume.current;
+            resume.current = 0;
+          },
+        };
+        return kind === "audio" ? <audio className="preview-audio" {...common} /> : <video className="preview-video" playsInline {...common} />;
+      }}
+    </Signed>
+  );
+}
+
 /** The file's contents, shown for what they are. */
 export function FileBody({ file }: { file: FileContent }): ReactElement {
   // A document, a workbook or a deck is drawn as itself; its words are a Raw away.
   if (isOfficePath(file.path)) return <OfficeBody path={file.path} version={`${file.modifiedAt}:${file.size}`} />;
-  if (AUDIO.test(file.path)) return <audio className="preview-audio" controls preload="metadata" src={api.mediaUrl(file.path)} />;
-  if (VIDEO.test(file.path)) return <video className="preview-video" controls preload="metadata" playsInline src={api.mediaUrl(file.path)} />;
+  if (AUDIO.test(file.path)) return <Player kind="audio" path={file.path} />;
+  if (VIDEO.test(file.path)) return <Player kind="video" path={file.path} />;
   if (file.omitted === "binary") {
     if (previewable(file.path)) return <ImageView path={file.path} />;
-    if (isPdfPath(file.path)) return <iframe className="preview-frame" src={pdfViewUrl(file.path)} title={file.path.split("/").pop() ?? file.path} />;
+    if (isPdfPath(file.path)) return <Signed url={pdfViewUrl(file.path)} renew={false}>{(src) => <iframe className="preview-frame" src={src} title={file.path.split("/").pop() ?? file.path} />}</Signed>;
     return <p className="hint preview-hint">Binary file. Download it, or open the workspace folder.</p>;
   }
   if (file.omitted === "too-large") return <p className="hint preview-hint">Too large to show here. Download it instead.</p>;
@@ -330,7 +352,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                   <span className="preview-meta">
                     {bytes(shown.size)}
                     {shown.language && shown.language !== "text" && shown.omitted !== "binary" ? ` · ${shown.language}` : ""}
-                    {shown.modifiedAt ? ` · ${ago(shown.modifiedAt)}` : ""}
+                    {shown.modifiedAt ? ` · ${agoWords(shown.modifiedAt)}` : ""}
                   </span>
                 )}
                 <span className="preview-acts">

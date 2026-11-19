@@ -2,6 +2,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ASK_SETTLE_MS } from "@kos/kit";
+
 import { AgentTerminal } from "./AgentTerminal.js";
 import { api, type BuildRecord, type HomeData, type PendingAction } from "./api.js";
 import { Panel } from "./HomePanels.js";
@@ -20,6 +22,12 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+
+/** The card has sat on screen long enough for a press to be meant for it (AskCard waits ASK_SETTLE_MS). */
+function settle(): void {
+  const later = Date.now() + ASK_SETTLE_MS;
+  vi.spyOn(Date, "now").mockReturnValue(later);
+}
 
 const STEPS = "Type “hunter2”Press ⌘Q";
 const args = JSON.stringify({ intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] });
@@ -50,6 +58,7 @@ describe("an ask's card", () => {
   it("says a handoff is done or can't be, never kept", () => {
     const onDecide = vi.fn();
     render(<PendingAsk ask={{ ...ask, tool: "browser.handoff", args: JSON.stringify({ reason: "sign in" }) }} deciding={new Set()} onDecide={onDecide} />);
+    settle();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onDecide).toHaveBeenCalledWith(7, true);
   });
@@ -103,6 +112,7 @@ describe("an ask's card", () => {
     const onDecide = vi.fn();
     const event = { kind: "tool" as const, name: "computer.act", summary: "Note: just closing the popup", args: JSON.parse(args) as Record<string, unknown>, pendingId: "7", result: "queued" };
     render(<ToolCall event={event} waiting ask={ask} onDecide={onDecide} />);
+    settle();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(onDecide).toHaveBeenCalledWith("7", true);
     cleanup();
@@ -133,6 +143,7 @@ describe("a request for a secret", () => {
     render(<PendingAsk ask={request} deciding={new Set()} onDecide={onDecide} />);
     expect(screen.getByText("Add an API key KOS calls “Stripe”, for KOS to use without seeing it")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Always/ })).toBeNull();
+    settle();
     fireEvent.click(screen.getByRole("button", { name: "Add it" }));
     // Nothing is approved by the press itself: only a saved secret answers the ask.
     expect(onDecide).not.toHaveBeenCalled();

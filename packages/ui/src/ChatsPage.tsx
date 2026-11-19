@@ -362,7 +362,6 @@ export function ChatsPage({
   useEffect(() => setListOpen(false), [activeId]);
   useDismiss(listOpen, () => setListOpen(false), { away: false, scroll: false, resize: false, escape: "dialog" });
   const [showArchived, setShowArchived] = useState(false);
-  /** The row whose Delete was pressed once; a second press deletes. */
   /** A chat just archived from its header, offered back for a moment. */
   const [undo, setUndo] = useState<{ id: string; title: string } | null>(null);
   useEffect(() => {
@@ -2092,10 +2091,8 @@ export function ChatsPage({
                       }
                       onChange={(e) => setOpening(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          e.currentTarget.form?.requestSubmit();
-                        }
+                        const form = e.currentTarget.form;
+                        composerKeyDown(e, () => form?.requestSubmit());
                       }}
                     />
                     <div className="chats-welcome-actions">
@@ -2659,7 +2656,8 @@ export function ChatsPage({
                         setChatMode(cycled(chatMode));
                         return;
                       }
-                      if (suggestions.length > 0) {
+                      // An input method's keys (a candidate picked with Enter, its list walked with the arrows) are its own.
+                      if (suggestions.length > 0 && !e.nativeEvent.isComposing) {
                         if (e.key === "ArrowDown") {
                           e.preventDefault();
                           setAcCursor((c) => (c + 1) % suggestions.length);

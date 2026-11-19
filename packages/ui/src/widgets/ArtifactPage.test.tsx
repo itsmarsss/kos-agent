@@ -177,9 +177,37 @@ describe("the page's frame", () => {
       window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 3, method: "ask", args: { text: "add a column" } } }));
     });
     expect(sent).not.toHaveBeenCalled();
-    expect(screen.getByText("add a column")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(screen.getByRole("dialog", { name: "The page asks to message the chat" }).textContent).toContain("add a column");
+    // Held off a moment: a click aimed at the page as the dialog opens is not a yes.
+    const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    fireEvent.click(send);
+    expect(sent).not.toHaveBeenCalled();
+    await waitFor(() => expect(send.disabled).toBe(false), { timeout: 2000 });
+    fireEvent.click(send);
     expect(sent).toHaveBeenCalledWith("add a column", "project:budget");
+  });
+
+  it("takes one ask at a time: a second cannot swap the words the owner is reading", async () => {
+    const sent = vi.spyOn(api, "message").mockResolvedValue({ reply: "" } as never);
+    const { pageWin } = await frame();
+    const replies = vi.spyOn(pageWin, "postMessage");
+    const ask = (id: number, text: string): void =>
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id, method: "ask", args: { text } } }));
+      });
+    ask(3, "add a column");
+    ask(4, "delete every row");
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ __kos: "reply", id: 4, error: expect.stringMatching(/not answered this page's last ask/) }), "*");
+    expect(screen.queryByText("delete every row")).toBeNull();
+    const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    await waitFor(() => expect(send.disabled).toBe(false), { timeout: 2000 });
+    fireEvent.click(send);
+    expect(sent).toHaveBeenCalledWith("add a column", "project:budget");
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 3, result: { sent: true } }), "*");
+    // Answered, the page may ask again.
+    ask(5, "add a total");
+    expect(screen.getByText("add a total")).toBeTruthy();
   });
 
   it("shows a page's error with a way to ask KOS to fix it", async () => {
