@@ -266,7 +266,7 @@ describe("memory tools: the project fence", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("forgets a key only in the caller's scope, and in every scope only for Maintenance", async () => {
+  it("forgets a key only in the caller's scope, and in every scope at the root and for Maintenance", async () => {
     for (const scope of ["global", "project:alpha", "project:beta"]) facts.upsert("owner", { key: "city", value: `in ${scope}`, kind: "fact", scope });
     const alpha = await chatIn("alpha");
     expect((await alpha("memory.forget", { key: "city" })).isError).toBe(false);
@@ -276,12 +276,13 @@ describe("memory tools: the project fence", () => {
     // Another project's scope is that project's.
     expect((await alpha("memory.forget", { key: "city", scope: "beta" })).isError).toBe(true);
     expect(facts.get("owner", "city", "project:beta")?.value).toBe("in project:beta");
-    // The root forgets its own scope, global.
+    // The root forgets it everywhere, as Maintenance does.
     expect((await (await chatIn(undefined))("memory.forget", { key: "city" })).isError).toBe(false);
     expect(facts.get("owner", "city", "global")).toBeUndefined();
-    expect(facts.get("owner", "city", "project:beta")?.value).toBe("in project:beta");
-    expect((await (await chatIn("maintenance"))("memory.forget", { key: "city" })).isError).toBe(false);
     expect(facts.get("owner", "city", "project:beta")).toBeUndefined();
+    facts.upsert("owner", { key: "town", value: "x", kind: "fact", scope: "project:beta" });
+    expect((await (await chatIn("maintenance"))("memory.forget", { key: "town" })).isError).toBe(false);
+    expect(facts.get("owner", "town", "project:beta")).toBeUndefined();
   });
 
   it("writes, merges and archives only in the caller's own scope or global", async () => {

@@ -391,8 +391,8 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     async (input) => {
       const key = normalizeKey(str(input, "key"));
       const who = caller();
-      // Maintenance alone forgets a key in every scope at once; anyone else, in a scope it may change.
-      const scope = input.scope !== undefined ? fenced(scopeOf(input.scope)) : who.maintenance ? undefined : who.here;
+      // The root and Maintenance forget a key in every scope at once; anyone else, in a scope it may change.
+      const scope = input.scope !== undefined ? fenced(scopeOf(input.scope)) : who.everywhere ? undefined : who.here;
       const gone = facts.delete(ownerId, key, scope);
       // Forgotten means gone: the words it was drawn from leave the log too,
       // or a search by meaning would hand it straight back.
