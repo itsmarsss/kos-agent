@@ -439,7 +439,10 @@ as `cdp.event` (`tab`, `method`, `params`) only for what the hands listen
 for; of the network, only the requests a page's answer waits on (its
 documents, scripts and data), with their id, kind, url and when they began
 and no headers, and the end of only those. Socket messages are not passed
-on: a step in the owner's Chrome does not wait on them.
+on: a step in the owner's Chrome does not wait on them. Of a frame of
+another process's session, only where its frames went
+(`Page.frameNavigated`), with `frame` naming it, so KOS's worlds there go
+with their documents.
 
 The side panel's calls take no session: they carry the chat, and the page
 beside it when the chat asks.
@@ -494,7 +497,7 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 
 | Event | Data |
 | --- | --- |
-| `cdp.event` | `session`, `tab`, `method`, `params` |
+| `cdp.event` | `session`, `tab`, `frame?` (a frame of another process, for its own session's events), `method`, `params` |
 | `tab.closed` | `session`, `tab` |
 | `tab.handed` | `tab`, `url`, `title`, `focus?` (sent outside a session too; `focus` when the owner spoke from the side panel beside it) |
 | `chat.open` | `{}`: a panel opened on this KOS, and asks to be shown the chat |

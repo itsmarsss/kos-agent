@@ -1043,9 +1043,9 @@ export class BrowserLive {
       for (const [tab, sessionId] of this.sessions) {
         if (sessionId === event.sessionId) this.pages.get(tab)?.handle(event);
       }
-      // A frame of another process: only where its frames went, for the hands' worlds in them.
+      // A frame of another process: heard only for where its frames went, for the hands' worlds in them.
       const child = this.frameSessions.get(event.sessionId);
-      if (child && (event.method === "Page.frameNavigated" || event.method === "Page.frameDetached")) this.pages.get(child.tab)?.handle(event);
+      if (child) this.pages.get(child.tab)?.handle(event, child.frame);
     }
     switch (event.method) {
       case "Target.attachedToTarget":

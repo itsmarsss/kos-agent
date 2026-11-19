@@ -516,6 +516,8 @@ export class OwnerChrome implements BrowserElsewhere {
     if (event.name !== "cdp.event") return;
     const method = String(data["method"] ?? "");
     const params = (typeof data["params"] === "object" && data["params"] !== null ? data["params"] : {}) as Record<string, unknown>;
+    // A frame of another process's own event: where its frames went, never the tab's address.
+    if (typeof data["frame"] === "string") return void b.pages.get(tab)?.handle({ method, params }, data["frame"]);
     if (method === "Page.frameNavigated") {
       const frame = params["frame"] as { parentId?: string; url?: string } | undefined;
       const kept = b.tabs.get(tab);

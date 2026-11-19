@@ -475,9 +475,18 @@ export class Page {
     if (await this.guard(this.gate(stop), stop)) this.note("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
   }
 
-  /** An event from the tab's session. */
-  handle(event: CdpEvent): void {
+  /**
+   * An event from the tab's session, or from the session of a frame of
+   * another process (`part`, that frame's id), of which only where its
+   * frames went is heard: KOS's worlds in them go with their documents.
+   */
+  handle(event: CdpEvent, part?: string): void {
     const p = event.params;
+    if (part !== undefined) {
+      const frame = event.method === "Page.frameNavigated" ? (p["frame"] as { id?: unknown } | undefined)?.id : event.method === "Page.frameDetached" ? p["frameId"] : undefined;
+      if (typeof frame === "string") this.forgetWorld(frame);
+      return;
+    }
     switch (event.method) {
       case "Page.frameStartedLoading":
         if (p["frameId"] === this.mainFrame) {

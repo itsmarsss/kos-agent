@@ -1469,8 +1469,9 @@ async function fromFrames(tab: number, frame: string | undefined, method: string
   const heard = await handFrames.heard(tab, frame, method, params);
   if (method === "Runtime.executionContextCreated") for (const wake of [...worldsMade]) wake();
   // Where a frame of another process went is KOS's hands' to know, for their worlds in it: as a frame of the tab's own process is told.
-  if (method === "Page.frameNavigated" && frame !== undefined && handFrames.has(frame) && session?.tabs.has(tab) && !fromHidden(tab, params)) {
-    tell("cdp.event", { session: session.info.id, tab: String(tab), method, params });
+  const part = frame === undefined ? undefined : handFrames.frameIdOf(frame);
+  if (method === "Page.frameNavigated" && part !== undefined && session?.tabs.has(tab) && !fromHidden(tab, params)) {
+    tell("cdp.event", { session: session.info.id, tab: String(tab), frame: part, method, params });
   }
   if (heard && frame !== undefined && session?.tabs.has(tab)) await fromOverlay(tab, heard.world, heard.payload, frame);
 }

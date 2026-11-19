@@ -172,14 +172,14 @@ describe.skipIf(!findChrome(undefined))("no script on a credential site", { time
     expect(read.text).not.toContain(encodeURIComponent(PASSWORD));
   });
 
-  it("runs no script on the site after the tainted page is left, and a page framing it reaches nothing", async () => {
+  it("runs no script on the site after the tainted page is left, nor on a page framing it", async () => {
     const a = await tabOf("a");
     await fill(a);
     await visit(a, [`${base}/next`], { then: "none" });
     await expect(evaluate(a, "btoa(localStorage.getItem('kept'))")).rejects.toThrow(refused);
-    // A page elsewhere that frames the site runs in another process from it, and reaches nothing of it.
+    // A page elsewhere that frames the site: the site's frame runs in a process of its own, and still no script runs on a page holding it.
     await visit(a, [`${otherBase}/framed`], { then: "none", until: "load" });
-    await expect(evaluate(a, "frames[0].localStorage.getItem('kept')")).rejects.toThrow(/the script threw/);
+    await expect(evaluate(a, "frames[0].localStorage.getItem('kept')")).rejects.toThrow(refused);
     // Elsewhere a script runs, and what it says is masked.
     await visit(a, [`${otherBase}/next`], { then: "none" });
     const said = await evaluate(a, `"said " + ${JSON.stringify(PASSWORD)}`);

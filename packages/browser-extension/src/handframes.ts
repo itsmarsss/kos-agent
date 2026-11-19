@@ -158,6 +158,11 @@ export class HandFrames {
     return undefined;
   }
 
+  /** The id of the frame a frame's session is for. */
+  frameIdOf(session: string): string | undefined {
+    return this.children.get(session)?.frame;
+  }
+
   /** The worlds of a frame's session, as Chrome said it made them. */
   worldsOf(session: string): Worlds | undefined {
     return this.children.get(session)?.worlds;
