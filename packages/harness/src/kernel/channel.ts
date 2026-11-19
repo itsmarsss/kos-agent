@@ -7,6 +7,9 @@ import type { ChannelAdapter } from "../channels/types.js";
 import type { UserMapping } from "../channels/identity.js";
 import type { Kernel } from "./kernel.js";
 
+/** The channels that are a paired device's own panel, whose decider is that device's id. */
+const DEVICE_PANELS: ReadonlySet<string> = new Set(["mac", "chrome", "phone"]);
+
 /** What leads an answer a chat in Auto gave on Discord, SMS or iMessage, where no mode chip shows. */
 export const AUTO_MARK = "(Auto)";
 
@@ -153,8 +156,10 @@ export function connectChannel(
       const mirrored = chat ? options.answeredElsewhere?.(chat) === true : false;
       // Recorded before the first await inside: read back at once, below.
       // The surface is named, so a secret's ask is refused here and said where to decide it.
-      // The decider is named too: a paired device's own id, so a yes from where KOS's hand is can be refused.
-      const run = ctx.approved ? kernel.approve(id, undefined, { remember: ctx.remember === true, surface: ctx.channel, device: ctx.deciderId }) : kernel.deny(id);
+      // A paired device's own panel names the device too, so a yes from where KOS's hand is can be refused. Any other
+      // surface (Discord's buttons among them) names none, and is judged as the dashboard is.
+      const device = DEVICE_PANELS.has(ctx.channel) ? { device: ctx.deciderId } : {};
+      const run = ctx.approved ? kernel.approve(id, undefined, { remember: ctx.remember === true, surface: ctx.channel, ...device }) : kernel.deny(id);
       const recorded = kernel.approvals.get(id)?.status;
       const done = run
         .then(async (res) => {
