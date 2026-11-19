@@ -31,8 +31,12 @@ final class DeviceController {
   var yieldKeys: (() async -> Void)?
   /// Whether KOS for Mac's menu in the menu bar is open: keys then go to it, so none is sent.
   var ownMenuOpen: () -> Bool = { false }
-  /// The dashboards of the KOS this Mac is paired with, by origin: KOS never acts on them, where approvals are decided.
+  /// The KOS this Mac is paired with, each as `host:port`: KOS never acts on their dashboards, where approvals are decided.
   var dashboards: () -> [String] = { [] }
+  /// KOS's own addresses as the live session's KOS named them (session.begin `kosHosts`).
+  private var kosHosts: [String] = []
+  /// Every address of a KOS's dashboard known here.
+  private var ownHosts: [String] { dashboards() + kosHosts }
 
   private var sessions = Sessions()
   private var display: CGDirectDisplayID?
@@ -209,6 +213,7 @@ final class DeviceController {
     }
     let space = Space(display: Rect(frame), maxEdge: edge)
     sessions.idleLimit = TimeInterval(settings.idleMinutes * 60)
+    kosHosts = params.kosHosts ?? []
     let session = try sessions.grant(
       params.session, task: task, requester: params.requester, conversation: params.conversation, minutes: minutes,
       target: target, space: space, now: Date())
@@ -309,6 +314,7 @@ final class DeviceController {
     follower = nil
     display = nil
     secrets.end()
+    kosHosts = []
     overlay.hide()
     if let reason, let origin { emit(.sessionEnded, SessionEndedEvent(session: id, reason: reason), to: origin) }
     onChange?()
@@ -464,8 +470,8 @@ final class DeviceController {
       let scene = secretScene(in: session)
       if scene.own { throw DeviceError(.target, "KOS for Mac itself is in front; a secret is never typed into its windows or its menu.") }
       if scene.hidden { throw DeviceError(.hiddenApp, "\(scene.front?.name ?? "The app in front") is hidden from KOS on this Mac.") }
-      try secrets.refuseOwnPage(focusedIn: scene.pid, dashboards: dashboards())
-      return FocusResult(app: scene.front, field: scene.pid.flatMap { secrets.describe(pid: $0) })
+      try secrets.refuseOwnPage(focusedIn: scene.pid, hosts: ownHosts, browser: Browsers.contains(scene.front?.bundle))
+      return FocusResult(app: scene.front, field: scene.pid.flatMap { secrets.describe(pid: $0, bundle: scene.front?.bundle) })
 
     case .keysSecret:
       // The value is read into a buffer typed from and zeroed after; nothing here logs, shows or answers it.
@@ -473,7 +479,8 @@ final class DeviceController {
       let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       await yieldKeys?()
       do {
-        try secrets.refuseOwnPage(focusedIn: Targets.frontmost()?.processIdentifier, dashboards: dashboards())
+        let front = Targets.frontmost()
+        try secrets.refuseOwnPage(focusedIn: front?.processIdentifier, hosts: ownHosts, browser: Browsers.contains(front?.bundleIdentifier))
         let typed = try await secrets.type(
           p, buffer: SecretBuffer(p.text), live: session.id, scene: { [unowned self] in secretScene(in: session) }, keys: injector)
         Log.session.notice("a secret was typed")
@@ -513,7 +520,12 @@ final class DeviceController {
     }
     // Every field KOS typed a secret into, and a password field in focus, blacked out, read afresh for each shot just
     // before and after it; none is pictured while one in focus cannot be found.
-    let masks: () throws -> [CGRect] = { [secrets] in try secrets.masks(pid: Targets.frontmost()?.processIdentifier).map(\.cg) }
+    let pageMasked = Flag()
+    let masks: () throws -> [CGRect] = { [secrets] in
+      let found = try secrets.masks(pid: Targets.frontmost()?.processIdentifier)
+      if found.pageMasked { pageMasked.on = true }
+      return found.rects.map(\.cg)
+    }
     let take: () async throws -> ScreenCapturer.Shot
     if case .window(let id, _, _, _) = session.target {
       let frame = session.space.display.cg
@@ -532,7 +544,13 @@ final class DeviceController {
     let app = settings.isHidden(front?.bundleIdentifier) ? nil : Targets.describe(front)
     return CaptureResult(
       image: shot.jpeg.base64EncodedString(), mediaType: "image/jpeg", width: shot.width, height: shot.height,
-      cursor: session.space.fromGlobal(Point(Displays.cursor())), app: app, settled: wait > 0 ? true : nil)
+      cursor: session.space.fromGlobal(Point(Displays.cursor())), app: app, settled: wait > 0 ? true : nil,
+      pageMasked: pageMasked.on ? true : nil)
+  }
+
+  /// A yes or no set from inside a closure, read after it.
+  private final class Flag {
+    var on = false
   }
 
   // MARK: Checks
@@ -572,6 +590,7 @@ final class DeviceController {
     let landing = Landing.of(Targets.windows(at: point), me: getpid()) { number in
       NSApp.window(withWindowNumber: number)?.ignoresMouseEvents == true
     }
+    var browser = false
     switch landing {
     case .own:
       throw Landing.ownRefusal
@@ -580,10 +599,11 @@ final class DeviceController {
       if settings.isHidden(app?.bundleIdentifier) {
         throw DeviceError(.hiddenApp, "\(app?.localizedName ?? "That app") is hidden from KOS on this Mac.")
       }
+      browser = Browsers.contains(app?.bundleIdentifier)
     case .nothing:
       break
     }
-    try secrets.refuseOwnPage(at: Point(point), dashboards: dashboards())
+    try secrets.refuseOwnPage(at: Point(point), hosts: ownHosts, browser: browser)
   }
 
   /// KOS's pointer goes through KOS for Mac's own windows, the bar and the chat, to what the session sees under them:
@@ -641,6 +661,6 @@ final class DeviceController {
     if settings.isHidden(front?.bundleIdentifier) {
       throw DeviceError(.hiddenApp, "\(front?.localizedName ?? "The app in front") is hidden from KOS on this Mac.")
     }
-    try secrets.refuseOwnPage(focusedIn: front?.processIdentifier, dashboards: dashboards())
+    try secrets.refuseOwnPage(focusedIn: front?.processIdentifier, hosts: ownHosts, browser: Browsers.contains(front?.bundleIdentifier))
   }
 }
