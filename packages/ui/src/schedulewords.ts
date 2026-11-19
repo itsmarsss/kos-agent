@@ -49,13 +49,6 @@ export function agoWords(ts: number, now = Date.now()): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-/** A file size as people read one. */
-export function sizeWords(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /**
  * KOS's own jobs by the names the owner sees: the memory jobs as Memory >
  * Jobs calls them (Read, Tidy, Condense), the rest in a word. The ids
