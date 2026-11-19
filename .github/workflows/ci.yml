@@ -81,6 +81,23 @@ jobs:
       # The tests import the workspace's packages from their builds.
       - run: pnpm exec tsc -b
 
+      - name: Debug networked run
+        run: |
+          cat > /tmp/t.mjs <<'JS'
+          import { mkdtempSync, realpathSync } from "node:fs";
+          const { jailedCommand } = await import(process.cwd() + "/packages/harness/dist/sandbox/jail.js");
+          const { runCaptured } = await import(process.cwd() + "/packages/harness/dist/sandbox/capture.js");
+          const ws = realpathSync(mkdtempSync("/tmp/ws-"));
+          for (const nat of [{ tool: "pasta", path: "/usr/bin/pasta" }, { tool: "slirp4netns", path: "/usr/bin/slirp4netns" }]) {
+            const t = Date.now();
+            const cmd = jailedCommand("timeout 5 bash -c 'echo > /dev/tcp/1.1.1.1/80' && echo tcp; getent hosts example.com", { workspaceRoot: ws, secretFiles: [], nat });
+            console.log(nat.tool, Date.now() - t, JSON.stringify(await runCaptured(cmd, { cwd: ws, env: { PATH: "/usr/bin:/bin", HOME: ws }, timeoutMs: 30000, maxOutput: 20000 })), Date.now() - t);
+          }
+          JS
+          timeout 120 node /tmp/t.mjs || true
+          ls -la /etc/apparmor.d | grep -i -E "pasta|passt|bwrap|slirp" || true
+          sudo dmesg | grep -i apparmor | tail -20 || true
+
       - name: Jail and tool tests under bubblewrap
         run: pnpm exec vitest run packages/harness/src/sandbox packages/harness/src/tools
         env:
