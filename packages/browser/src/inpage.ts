@@ -712,9 +712,18 @@ export function maskField(this: Element): void {
   for (const [name, value] of Object.entries({ "-webkit-text-security": "disc", color: "transparent", "caret-color": "transparent", "text-shadow": "none" })) el.style.setProperty(name, value, "important");
 }
 
-/** Whether this element has the focus, inside a shadow root or not. */
+/**
+ * Whether this element has the keyboard in its frame, whether or not the
+ * page has the window's focus: it is what has focus, through open shadow
+ * roots, or it is inside a closed one whose host has it, which is taken as
+ * the same.
+ */
 export function isFocused(this: Element): boolean {
-  return this.matches(":focus");
+  let el = document.activeElement;
+  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+  if (el === this) return true;
+  for (let root = this.getRootNode(); root instanceof ShadowRoot; root = root.host.getRootNode()) if (root.host === el) return true;
+  return false;
 }
 
 /** Everything maskRoot did in this frame put back as it was. */
