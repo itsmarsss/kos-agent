@@ -17,6 +17,9 @@
 /** What runs it. Anything else is a program KOS has no interpreter for. */
 export type DaemonRuntime = "node" | "python";
 
+/** What it may reach: this machine only, or past it too. KOS's own ports are refused either way. */
+export type DaemonNetwork = "local" | "open";
+
 export interface Daemon {
   id: number;
   /** The project it belongs to; a daemon is part of one thing, like a site. */
@@ -34,6 +37,14 @@ export interface Daemon {
   port: number | null;
   /** Whether it should be running. Distinct from whether it is. */
   enabled: boolean;
+  /** What it may reach, as the owner approved it. */
+  network: DaemonNetwork;
+  /**
+   * The entry file's hash when the owner approved it, or null for one never
+   * approved since hashes were kept. A daemon whose entry no longer matches
+   * does not start until it is approved again.
+   */
+  codeHash: string | null;
   createdAt: number;
   updatedAt: number;
 }

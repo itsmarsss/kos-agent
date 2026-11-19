@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
-import { enabledServers } from "../modules/workspace.js";
+import { enabledServers, pinModule, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { CronStore } from "../cron/store.js";
 import { Workspace } from "../store/workspace.js";
@@ -67,7 +67,8 @@ describe("modules tools", () => {
     const mcp = createMcpModule({
       workspaceRoot: ws.root,
       secrets: new SecretsRegistry(),
-      config: () => ({ servers: enabledServers(ws, ["hello"], false) }),
+      // Switched on by the owner as it is now.
+      config: () => ({ servers: enabledServers(ws, withModuleEnabled({ enabled: [], disabledBuiltins: [] }, "hello", true, pinModule(ws, readWorkspaceModules(ws).modules[0]!)), false) }),
       report: () => undefined,
     });
     await mcp.activate(toolRegistryContext(tools));

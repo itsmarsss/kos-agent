@@ -115,7 +115,7 @@ export function defineSqlTool(db: Db, ctx: ModuleContext): void {
       name: "sql",
       description:
         "Run one DML statement (SELECT/INSERT/UPDATE/DELETE) against your own project's tables, the ones listed in your prompt with their columns. Use ? placeholders and the params array. DDL is not allowed; use migrate. " +
-        "Nothing else is reachable here: another project's tables are that project's to answer for (chats.handoff to @project:<slug>), the schema is Maintenance's to read, and KOS's own tables (conversations, jobs, pending messages and actions, permissions, memory) are read through cron.list, chats.list and chats.read, tasks.list, blobs.list and memory.recall. " +
+        "Nothing else is reachable here: another project's tables are that project's to answer for (chats.handoff to @project:<slug>), the schema is Maintenance's to read, and KOS's own tables (conversations, jobs, pending messages and actions, permissions, memory) are read through cron.list, chats.list and chats.read, blobs.list and memory.recall, and a tasks list's items through tasks.list with its slug. " +
         "A chat with no project has no tables. When something looks wrong, hand it to Maintenance rather than investigating.",
       inputSchema: {
         type: "object",

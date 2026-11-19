@@ -8,6 +8,7 @@ import { HashingEmbeddingProvider } from "../memory/embeddings.js";
 import { EventLog } from "../memory/events.js";
 import { FactsStore } from "../memory/facts.js";
 import { ObservationStore } from "../memory/observations.js";
+import { PageLog, writePage } from "../memory/pages.js";
 import { ReviewQueue } from "../memory/review.js";
 import type { ModelMessage } from "../models/types.js";
 import { SessionStore } from "../kernel/session.js";
@@ -218,5 +219,122 @@ describe("memory tools: reading the log and citing it", () => {
     const { json } = await call("memory.recall", { query: "pantry sqlite", history: true });
     expect((json!["history"] as { id: number }[]).map((h) => h.id)).toEqual([a]);
     expect((await call("memory.remember", { key: "pantry_db", value: "sqlite", evidence: [a] })).isError).toBe(false);
+  });
+});
+
+describe("memory tools: the project fence", () => {
+  const embedder = new HashingEmbeddingProvider(32);
+  let root: string;
+  let ws: Workspace;
+  let events: EventLog;
+  let facts: FactsStore;
+  let sessions: SessionStore;
+  let busy: string[];
+
+  /** The memory tools as a chat in `project` (none: the root) calls them. */
+  const chatIn = async (project: string | undefined): Promise<(name: string, input?: Record<string, unknown>) => Promise<{ isError: boolean; content: string }>> => {
+    const registry = new ToolRegistry();
+    await createMemoryModule({
+      facts,
+      events,
+      embedder,
+      pages: new PageLog(ws.db),
+      threads: {
+        sessions,
+        conversations: { list: () => [{ id: "chat:a", title: "A", projectSlug: "alpha" }, { id: "chat:b", title: "B", projectSlug: "beta" }] },
+        observations: new ObservationStore(ws.db),
+        busy: () => busy,
+      },
+      ownerId: "owner",
+      currentSource: () => "chat:test",
+      currentProject: () => project,
+      watermark: { get: () => 0, set: () => {} },
+    }).activate(toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => project }));
+    return (name, input = {}) => registry.execute(name, input);
+  };
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-memfence-"));
+    ws = Workspace.open(root);
+    events = new EventLog(ws.db, embedder.dimension, Date.now, embedder.name);
+    facts = new FactsStore(ws.db);
+    sessions = new SessionStore(ws.db, { autoTrim: false, maxChars: 1250 });
+    busy = [];
+  });
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("forgets a key only in the caller's scope, and in every scope at the root and for Maintenance", async () => {
+    for (const scope of ["global", "project:alpha", "project:beta"]) facts.upsert("owner", { key: "city", value: `in ${scope}`, kind: "fact", scope });
+    const alpha = await chatIn("alpha");
+    expect((await alpha("memory.forget", { key: "city" })).isError).toBe(false);
+    expect(facts.get("owner", "city", "project:alpha")).toBeUndefined();
+    expect(facts.get("owner", "city", "global")?.value).toBe("in global");
+    expect(facts.get("owner", "city", "project:beta")?.value).toBe("in project:beta");
+    // Another project's scope is that project's.
+    expect((await alpha("memory.forget", { key: "city", scope: "beta" })).isError).toBe(true);
+    expect(facts.get("owner", "city", "project:beta")?.value).toBe("in project:beta");
+    // The root forgets it everywhere, as Maintenance does.
+    expect((await (await chatIn(undefined))("memory.forget", { key: "city" })).isError).toBe(false);
+    expect(facts.get("owner", "city", "global")).toBeUndefined();
+    expect(facts.get("owner", "city", "project:beta")).toBeUndefined();
+    facts.upsert("owner", { key: "town", value: "x", kind: "fact", scope: "project:beta" });
+    expect((await (await chatIn("maintenance"))("memory.forget", { key: "town" })).isError).toBe(false);
+    expect(facts.get("owner", "town", "project:beta")).toBeUndefined();
+  });
+
+  it("writes, merges and archives only in the caller's own scope or global", async () => {
+    const alpha = await chatIn("alpha");
+    expect((await alpha("memory.remember", { key: "x", value: "mine" })).isError).toBe(false);
+    expect((await alpha("memory.remember", { key: "x", value: "everywhere", scope: "global" })).isError).toBe(false);
+    expect((await alpha("memory.remember", { key: "x", value: "planted", scope: "beta" })).isError).toBe(true);
+    facts.upsert("owner", { key: "y", value: "beta's", kind: "fact", scope: "project:beta" });
+    expect((await alpha("memory.archive", { key: "y", scope: "beta", reason: "r" })).isError).toBe(true);
+    expect((await alpha("memory.merge", { keep: "x", keepScope: "alpha", drop: "y", dropScope: "beta" })).isError).toBe(true);
+    expect(facts.get("owner", "y", "project:beta")?.value).toBe("beta's");
+    expect(facts.get("owner", "x", "project:beta")).toBeUndefined();
+  });
+
+  it("reads back a page as KOS's belief, never the owner's word", async () => {
+    // Any chat can write the page's file; nothing in it says the owner did.
+    writePage(ws, "profile", "- city: Atlantis\n");
+    const root = await chatIn(undefined);
+    expect((await root("memory.import_page", { name: "profile" })).isError).toBe(false);
+    expect(facts.get("owner", "city")).toMatchObject({ value: "Atlantis", trust: "agent" });
+    expect((await (await chatIn("alpha"))("memory.import_page", { name: "beta" })).isError).toBe(true);
+  });
+
+  it("reads and rewrites only its own project's conversations, never one mid-turn, and leaves the log to the root", async () => {
+    const say = (n: number): ModelMessage[] => [
+      { role: "user", content: [{ type: "text", text: `question ${n} ${"x".repeat(80)}` }] },
+      { role: "assistant", content: [{ type: "text", text: `answer ${n}` }] },
+    ];
+    for (const id of ["chat:a", "chat:b"]) sessions.set(id, Array.from({ length: 8 }, (_, i) => say(i + 1)).flat());
+    const alpha = await chatIn("alpha");
+    expect((await alpha("memory.thread", { id: "chat:b" })).isError).toBe(true);
+    expect((await alpha("memory.observe", { id: "chat:b", note: "gone" })).isError).toBe(true);
+    expect(sessions.get("chat:b")).toHaveLength(16);
+    expect(JSON.parse((await alpha("memory.threads")).content).threads.map((t: { id: string }) => t.id)).toEqual(["chat:a"]);
+    expect((await alpha("memory.thread", { id: "chat:a" })).isError).toBe(false);
+    for (const tool of ["memory.unread", "memory.mark_read"]) expect((await alpha(tool, { cursor: 1 })).isError, tool).toBe(true);
+    busy = ["chat:b"];
+    const root = await chatIn(undefined);
+    expect((await root("memory.observe", { id: "chat:b", note: "mid-turn" })).isError).toBe(true);
+    busy = [];
+    expect((await root("memory.observe", { id: "chat:b", note: "after" })).isError).toBe(false);
+    expect((await root("memory.unread")).isError).toBe(false);
+  });
+
+  it("recalls what was said only in the caller's own project", async () => {
+    for (const [text, projectSlug] of [["alpha uses sqlite", "alpha"], ["beta uses sqlite", "beta"]] as const) {
+      const [vec] = await embedder.embed([text]);
+      events.append({ userId: "owner", role: "owner", text, projectSlug }, vec);
+    }
+    const said = async (project: string | undefined): Promise<string[]> =>
+      (JSON.parse((await (await chatIn(project))("memory.recall", { query: "uses sqlite", history: true })).content).history as { text: string }[]).map((h) => h.text).sort();
+    expect(await said("alpha")).toEqual(["alpha uses sqlite"]);
+    expect(await said(undefined)).toEqual(["alpha uses sqlite", "beta uses sqlite"]);
   });
 });
