@@ -1319,7 +1319,9 @@ export class Kernel {
         // here so the agent gets the file's contents or the page's spec
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
-        const mentioned = this.resolveMentions(text, conversation?.id, { ...(guest ? { guest } : {}), owner });
+        // Scrubbed as a tool's result is: a file or a page named here would otherwise show the model a secret files.read masks.
+        const named = this.resolveMentions(text, conversation?.id, { ...(guest ? { guest } : {}), owner });
+        const mentioned = named === null ? null : this.secrets.scrub(named);
         // Where this message's files now live, so the model refers to them
         // by path and anything else can open them later.
         const keptNote = opts.kept?.length

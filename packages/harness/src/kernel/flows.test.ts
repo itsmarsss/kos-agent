@@ -2724,6 +2724,17 @@ describe("mentions in a message", () => {
     expect(model.prompts.at(-1)!).toContain("ship the budget page");
   });
 
+  it("masks a secret's value in a referenced file, as files.read would", async () => {
+    const model = scripted([text("ok")]);
+    root = mkdtempSync(join(tmpdir(), "kos-mention-"));
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry({ STRIPE_KEY: "sk_live_mention_value_123" }), inference: model.inference });
+    writeFileSync(join(root, "config.txt"), "key=sk_live_mention_value_123\n");
+    await kernel.handleMessage("what does @file:config.txt say");
+    const sent = JSON.stringify([model.prompts.at(-1), model.systems.at(-1)]);
+    expect(sent).toContain("key=");
+    expect(sent).not.toContain("sk_live_mention_value_123");
+  });
+
   it("says so when the thing referenced does not exist", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot3(model.inference);
