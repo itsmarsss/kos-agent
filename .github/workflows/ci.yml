@@ -77,6 +77,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The tests import the workspace's packages from their builds.
+      - run: pnpm exec tsc -b
+
       - name: Jail and tool tests under bubblewrap
         run: pnpm exec vitest run packages/harness/src/sandbox packages/harness/src/tools
         env:
