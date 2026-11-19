@@ -10,6 +10,13 @@ message you with buttons to log what ran out. Promote that tracker and it
 becomes a module you can hand to someone else. Tell it something once and it
 will remember, in words you can read and edit.
 
+### Set up with an agent
+
+Point your coding agent (Claude Code, Codex, Cursor) at this repository and
+ask it to set KOS up. It reads [AGENTS.md](AGENTS.md) and follows
+[docs/setup.md](docs/setup.md), a step-by-step runbook with a check for
+each step, and hands you anything that needs your keys or your clicks.
+
 ### By the numbers
 
 | | |
