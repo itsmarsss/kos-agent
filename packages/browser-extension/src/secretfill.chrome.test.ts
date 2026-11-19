@@ -72,6 +72,11 @@ window.watch = () => {
   setInterval(() => { const now = look(); if (now !== last) { note('style:' + now); last = now; } }, 1);
 };</script>`;
 const CARD_PAGE = `<!doctype html><meta charset=utf-8><input id=num autocomplete=cc-number style="font-size:24px;color:#ff00ff">`;
+/** A checkout whose card fields are a payment provider's, in a frame of another site: a process of its own. */
+const CHECKOUT = (crossOrigin: string): string => `<!doctype html><meta charset=utf-8><title>Checkout</title><style>input{font-size:28px;width:380px;height:44px;display:block}</style>
+<input id=email type=email autocomplete=email><iframe id=elements src="${crossOrigin}/elements" style="width:460px;height:260px;border:0;margin-left:20px"></iframe>`;
+const ELEMENTS = `<!doctype html><meta charset=utf-8><style>input{font-size:28px;width:380px;height:44px;display:block;margin:6px;color:#ff00ff}</style>
+<input id=num autocomplete=cc-number><input id=cvc autocomplete=cc-csc><input id=coupon value="magenta words">`;
 /** A page a service worker of its own runs, claimed as soon as it is in. */
 const SW_PAGE = `<!doctype html><meta charset=utf-8><title>Worker</title><input id=wpw type=password style="font-size:24px">
 <script>navigator.serviceWorker.register('/sw/sw.js', { scope: '/sw/' });</script>`;
@@ -138,9 +143,12 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
   const hostRaw = host.publicKey.export({ format: "der", type: "spki" }).subarray(12);
   let site: Server;
   let pay: Server;
+  /** A server of another site than the page's (localhost beside 127.0.0.1): Chrome puts its frames in a process of their own. */
+  let cross: Server;
   let sockets: WebSocketServer;
   let base = "";
   let payBase = "";
+  let crossBase = "";
   let chrome: ChildProcess;
   let profile = "";
   let devtools: Devtools;
@@ -219,6 +227,14 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     });
     await new Promise<void>((r) => pay.listen(0, "127.0.0.1", r));
     payBase = `http://127.0.0.1:${(pay.address() as AddressInfo).port}`;
+    cross = createServer((req, res) => {
+      if (req.url === "/sw/sw.js") return void res.writeHead(200, { "content-type": "text/javascript" }).end(SW);
+      if (req.url === "/sw/elements")
+        return void res.writeHead(200, { "content-type": "text/html" }).end(`${ELEMENTS}<script>navigator.serviceWorker.register('/sw/sw.js', { scope: '/sw/' });</script>`);
+      res.writeHead(200, { "content-type": "text/html" }).end(ELEMENTS);
+    });
+    await new Promise<void>((r) => cross.listen(0, "127.0.0.1", r));
+    crossBase = `http://localhost:${(cross.address() as AddressInfo).port}`;
     site = createServer((req, res) => {
       if (req.url === "/api/devices/pair" && req.method === "POST") {
         res.setHeader("access-control-allow-origin", "*");
@@ -233,6 +249,8 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
       }
       if (req.url === "/other") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Other</title><p>Other");
       if (req.url === "/oracle") return void res.writeHead(200, { "content-type": "text/html" }).end(ORACLE_PAGE);
+      if (req.url === "/checkout") return void res.writeHead(200, { "content-type": "text/html" }).end(CHECKOUT(crossBase));
+      if (req.url === "/checkout-sw") return void res.writeHead(200, { "content-type": "text/html" }).end(CHECKOUT(crossBase).replace("/elements", "/sw/elements"));
       res.writeHead(200, { "content-type": "text/html" }).end(PAGE(payBase));
     });
     sockets = new WebSocketServer({ server: site, path: "/api/devices/socket" });
@@ -299,7 +317,7 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
       await exited;
     }
     sockets?.close();
-    for (const s of [site, pay]) {
+    for (const s of [site, pay, cross]) {
       s?.closeAllConnections();
       s?.close();
     }
@@ -482,6 +500,92 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     const chromePage = history.entries.find((e) => e.url.startsWith("chrome://"));
     expect(chromePage).toBeDefined();
     expect(await call("cdp.send", { tab, method: "Page.navigateToHistoryEntry", params: { entryId: chromePage!.id } })).toMatchObject({ error: { code: "url" } });
+  });
+
+  /** The checkout's frame of another site as KOS's hands reach it: through the extension, by the frame's id, into its own session. */
+  const crossFrame = async (): Promise<{ frame: string; doc: string; origin: string; num: number; cvc: number }> => {
+    const top = (await cdp("Page.getFrameTree"))["frameTree"] as { frame: { loaderId: string } };
+    type Owner = { localName?: string; frameId?: string; contentDocument?: unknown; children?: Owner[] };
+    const owner = (n: Owner | undefined): string | undefined => {
+      if (!n) return undefined;
+      if (n.localName === "iframe" && n.frameId && !n.contentDocument) return n.frameId;
+      for (const c of n.children ?? []) {
+        const got = owner(c);
+        if (got) return got;
+      }
+      return undefined;
+    };
+    const frame = owner((await cdp("DOM.getDocument", { depth: -1, pierce: true }))["root"] as Owner)!;
+    const inFrame = async (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+      const r = await call("cdp.send", { tab, frame, method, params });
+      if (r["error"]) throw new Error(JSON.stringify(r["error"]));
+      return r["result"] as Record<string, unknown>;
+    };
+    const own = (await inFrame("Page.getFrameTree"))["frameTree"] as { frame: { id: string; securityOrigin: string } };
+    const ids = new Map<string, number>();
+    const walk = (n: DomNode | undefined): void => {
+      if (!n) return;
+      const a = n.attributes ?? [];
+      const id = a.indexOf("id");
+      if (id >= 0 && id % 2 === 0) ids.set(a[id + 1]!, n.backendNodeId);
+      for (const c of n.children ?? []) walk(c);
+    };
+    walk((await inFrame("DOM.getDocument", { depth: -1, pierce: true }))["root"] as DomNode);
+    expect(own.frame.id).toBe(frame);
+    return { frame, doc: top.frame.loaderId, origin: own.frame.securityOrigin, num: ids.get("num")!, cvc: ids.get("cvc")! };
+  };
+  /** A value in the frame of another site, read by the test's own session on it, behind KOS's back. */
+  const inCross = async (expression: string): Promise<unknown> => {
+    const { targetInfos } = (await devtools.send("Target.getTargets")) as { targetInfos: { targetId: string; url: string; type: string }[] };
+    const target = targetInfos.find((t) => t.type === "iframe" && t.url.startsWith(crossBase))!;
+    const sessionId = String((await devtools.send("Target.attachToTarget", { targetId: target.targetId, flatten: true }))["sessionId"]);
+    return devtools.evaluate(sessionId, expression);
+  };
+  const openCheckout = async (path = "/checkout"): Promise<void> => {
+    await cdp("Page.navigate", { url: `${base}${path}` });
+    await until(async () => (await crossFrame().catch(() => undefined))?.num !== undefined);
+  };
+
+  it("fills a card into a frame of another site through that frame's own session, on the origin it committed and no other", async () => {
+    await openCheckout();
+    const f = await crossFrame();
+    expect(f.origin).toBe(crossBase);
+    const fillCross = (node: number, value: string, slot: string, over: Record<string, unknown> = {}): Promise<Record<string, unknown>> =>
+      call("secret.fill", { tab, node, frame: f.frame, doc: f.doc, origin: base, frameOrigin: crossBase, slot, value, ...over });
+    // The owner ticked the page's own origin for it, not the provider's: refused before anything goes in.
+    expect(await fillCross(f.num, CARD, "card-number", { frameOrigin: base })).toMatchObject({ error: { code: "origin" } });
+    expect(await inCross("document.getElementById('num').value")).toBe("");
+    expect(await fillCross(f.num, CARD, "card-number")).toMatchObject({ ok: true, result: { filled: true } });
+    expect(await fillCross(f.cvc, "737", "card-cvc")).toMatchObject({ ok: true, result: { filled: true } });
+    expect(await inCross("[document.getElementById('num').value, document.getElementById('cvc').value]")).toEqual([CARD, "737"]);
+    // Only KOS's readings go to the frame's session: going places and input are the tab's.
+    expect(await call("cdp.send", { tab, frame: f.frame, method: "Page.navigate", params: { url: `${base}/other` } })).toMatchObject({ error: { code: "method" } });
+  });
+
+  it("holds the tab to a field in a frame of another site: no script there, no typing into it, its value hidden, and painted out of pictures", async () => {
+    const f = await crossFrame();
+    const refused = { error: expect.objectContaining({ code: "tainted" }) };
+    expect(await call("cdp.send", { tab, frame: f.frame, method: "Runtime.evaluate", params: { expression: "1", replMode: true } })).toMatchObject(refused);
+    const tree = JSON.stringify(await call("cdp.send", { tab, frame: f.frame, method: "Accessibility.getFullAXTree", params: {} }));
+    expect(tree).toContain("(hidden)");
+    expect(tree).not.toContain(CARD);
+    // The keyboard is in the frame's field, which only its own session can say.
+    expect(await call("cdp.send", { tab, frame: f.frame, method: "DOM.focus", params: { backendNodeId: f.num } })).toMatchObject({ ok: true });
+    expect(await call("cdp.send", { tab, method: "Input.insertText", params: { text: "1" } })).toMatchObject(refused);
+    const page = await devtools.attach((u) => u.endsWith("/checkout"));
+    const raw = ((await devtools.send("Page.captureScreenshot", { format: "jpeg", quality: 90 }, page)) as { data: string }).data;
+    const held = (await cdp("Page.captureScreenshot", { format: "jpeg", quality: 90 }))["data"] as string;
+    expect(await pixels(raw, "magenta")).toBeGreaterThan(200);
+    expect(await pixels(held, "magenta")).toBe(0);
+  });
+
+  it("refuses a frame of another site a service worker runs", async () => {
+    await openCheckout("/checkout-sw");
+    await until(async () => (await inCross("!!navigator.serviceWorker.controller").catch(() => false)) === true);
+    const f = await crossFrame();
+    expect(await call("secret.fill", { tab, node: f.num, frame: f.frame, doc: f.doc, origin: base, frameOrigin: crossBase, slot: "card-number", value: CARD })).toMatchObject({ error: { code: "worker" } });
+    expect(await inCross("document.getElementById('num').value")).toBe("");
+    await cdp("Page.navigate", { url: `${base}/other` });
   });
 
   it("sends KOS, its log, its storage and its pages no value", async () => {

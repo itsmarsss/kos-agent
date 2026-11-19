@@ -374,11 +374,7 @@ describe("a saved secret in the owner's Chrome", () => {
 
   it("pictures a page of a credential site through secret.picture, each frame given its own site's patterns and never another's", async () => {
     const { chrome, fake } = await started();
-    fake.answers.set("cdp.send", (p) =>
-      p["method"] === "Page.getFrameTree"
-        ? { ok: true, result: { frameTree: { frame: { id: "F", securityOrigin: "https://github.com" }, childFrames: [{ frame: { id: "G", securityOrigin: "https://ads.example" } }] } } }
-        : { ok: true, result: {} },
-    );
+    fake.answers.set("tab.origins", () => ({ ok: true, result: { origins: ["https://github.com", "https://ads.example"] } }));
     fake.answers.set("secret.picture", () => ({ ok: true, result: { data: "SU1H" } }));
     expect(await chrome.picture("c1", 1024)).toBe("SU1H");
     const asked = fake.calls.find((c) => c.method === "secret.picture")!.params as { masks: Record<string, string[]>; maxEdge: number };
@@ -391,19 +387,25 @@ describe("a saved secret in the owner's Chrome", () => {
     expect(await chrome.picture("c1", 1024)).toBeUndefined();
   });
 
-  it("sends a filled value's pattern only to frames on the origins it was filled on", async () => {
+  it("sends a filled value's pattern only to frames on the origins it was filled on, a frame of another process's among them", async () => {
     const { chrome, fake } = await started({ secrets: { saved: () => [], savedFor: () => [], evalBlocked: () => undefined } });
     const filled = (chrome as unknown as { held: Map<string, { filled: { text: string; digits: boolean; origins?: string[] }[] }> }).held.get("c1")!.filled;
-    filled.push({ text: "4242424242424242", digits: true, origins: ["https://pay.example"] });
-    fake.answers.set("cdp.send", (p) =>
-      p["method"] === "Page.getFrameTree"
-        ? { ok: true, result: { frameTree: { frame: { id: "F", securityOrigin: "https://shop.example" }, childFrames: [{ frame: { id: "G", securityOrigin: "https://pay.example" } }, { frame: { id: "H", securityOrigin: "https://ads.example" } }] } } }
-        : { ok: true, result: {} },
-    );
+    filled.push({ text: "4242424242424242", digits: true, origins: ["https://js.stripe.com"] });
+    // The payment frame runs in a process of its own: the tab's frame tree leaves it out, and the extension names it.
+    fake.answers.set("cdp.send", (p) => (p["method"] === "Page.getFrameTree" ? { ok: true, result: { frameTree: { frame: { id: "F", securityOrigin: "https://shop.example" } } } } : { ok: true, result: {} }));
+    fake.answers.set("tab.origins", () => ({ ok: true, result: { origins: ["https://shop.example", "https://js.stripe.com", "https://ads.example"] } }));
     fake.answers.set("secret.picture", () => ({ ok: true, result: { data: "SU1H" } }));
     expect(await chrome.picture("c1", 1024)).toBe("SU1H");
     const asked = fake.calls.find((c) => c.method === "secret.picture")!.params as { masks: Record<string, string[]> };
-    expect(Object.keys(asked.masks)).toEqual(["https://pay.example"]);
+    expect(Object.keys(asked.masks)).toEqual(["https://js.stripe.com"]);
+    // An extension from before tab.origins is asked the tab's frame tree, as before.
+    fake.answers.set("tab.origins", () => ({ ok: false, code: "bad_request", message: "tab.origins is not something this extension does" }));
+    fake.answers.set("cdp.send", (p) =>
+      p["method"] === "Page.getFrameTree" ? { ok: true, result: { frameTree: { frame: { id: "F", securityOrigin: "https://shop.example" }, childFrames: [{ frame: { id: "G", securityOrigin: "https://js.stripe.com" } }] } } } : { ok: true, result: {} },
+    );
+    await chrome.picture("c1", 1024);
+    const again = fake.calls.filter((c) => c.method === "secret.picture").at(-1)!.params as { masks: Record<string, string[]> };
+    expect(Object.keys(again.masks)).toEqual(["https://js.stripe.com"]);
   });
 
   it("holds a tab the extension says was filled before, in a new session, and masks what was filled there", async () => {
@@ -422,6 +424,7 @@ describe("a saved secret in the owner's Chrome", () => {
     );
     await (page as unknown as { prepare(): Promise<void> }).prepare();
     expect(page.holdsSecret()).toBe(true);
+    fake.answers.set("tab.origins", () => ({ ok: true, result: { origins: ["https://github.com"] } }));
     fake.answers.set("secret.picture", () => ({ ok: true, result: { data: "SU1H" } }));
     await chrome.picture("c1", 1024);
     const asked = fake.calls.filter((c) => c.method === "secret.picture").at(-1)!.params as { masks: Record<string, string[]> };
@@ -467,6 +470,7 @@ describe("a saved secret in the owner's Chrome", () => {
 
   it("pictures a page of no credential site as it always has", async () => {
     const { chrome, fake } = await started();
+    fake.answers.set("tab.origins", () => ({ ok: true, result: { origins: ["https://shop.example"] } }));
     fake.answers.set("cdp.send", (p) =>
       p["method"] === "Page.getFrameTree" ? { ok: true, result: { frameTree: { frame: { id: "F", securityOrigin: "https://shop.example" } } } } : p["method"] === "Page.captureScreenshot" ? { ok: true, result: { data: "SU1H" } } : { ok: true, result: {} },
     );

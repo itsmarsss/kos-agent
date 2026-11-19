@@ -21,7 +21,14 @@
  * to every site, which this extension does not hold, and Chrome gives no way
  * to name a content script's frame in the debugger's terms, which placing
  * its reports in the tab needs.
+ *
+ * KOS's hands reach a frame's session too (a saved card into a payment
+ * frame, a look at what it holds), by the frame's id, and only one whose
+ * Runtime domain is on: a challenge frame is never reached. Its worlds are
+ * told apart as the tab's are (relay.ts Worlds).
  */
+
+import { Worlds } from "./relay.js";
 
 /** Hosts of challenge frames, with the paths that are the challenge where the host serves other things too. */
 const CHALLENGES: readonly { host: string; path?: RegExp }[] = [
@@ -70,10 +77,10 @@ interface Child {
   tab: number;
   /** The session it was attached under: none for the tab's own. */
   parent: string | undefined;
-  /** Its frame's id, which is its target's id. */
+  /** Its frame's id, as its own frame tree says: an extension's debugger names targets by ids of its own, not the frame's. */
   frame: string;
-  /** The frame each of its worlds is in. */
-  worlds: Map<number, string>;
+  /** Its worlds, as Chrome said it made them: which are the page's, KOS's hands' or the overlay's, and the frame each is in. */
+  worlds: Worlds;
   /** Its overlay's worlds, as each said hello. */
   overlays: Set<number>;
   /** Whether the Runtime domain and the overlay are on in it: never on a challenge host. */
@@ -115,15 +122,13 @@ export class HandFrames {
     if (method === "Page.frameNavigated" && frame["id"] === child.frame && typeof frame["url"] === "string") {
       await this.placed({ tabId: tab, sessionId: session }, child, frame["url"]).catch(() => undefined);
     } else if (method === "Runtime.executionContextCreated") {
-      const context = record(params["context"]);
-      const frame = record(context["auxData"])["frameId"];
-      if (typeof context["id"] === "number" && typeof frame === "string") child.worlds.set(context["id"], frame);
+      child.worlds.made(record(params["context"]));
     } else if (method === "Runtime.executionContextDestroyed") {
       const id = Number(params["executionContextId"]);
-      child.worlds.delete(id);
+      child.worlds.destroyed(id, typeof params["executionContextUniqueId"] === "string" ? params["executionContextUniqueId"] : undefined);
       child.overlays.delete(id);
     } else if (method === "Runtime.executionContextsCleared") {
-      child.worlds.clear();
+      child.worlds.cleared();
       child.overlays.clear();
     } else if (method === "Runtime.bindingCalled" && params["name"] === this.install.binding) {
       // The binding is in the overlay's world alone: nothing in the frame's page can call it.
@@ -144,7 +149,18 @@ export class HandFrames {
 
   /** The frame a world of a frame's session is in. */
   frameOf(session: string, world: number): string | undefined {
-    return this.children.get(session)?.worlds.get(world);
+    return this.children.get(session)?.worlds.frameOf(world);
+  }
+
+  /** The session of a tab's frame in a process of its own, by the frame's id, where KOS's hands may reach it: its Runtime domain on, so never a challenge's. */
+  sessionOf(tab: number, frame: string): string | undefined {
+    for (const [id, c] of this.children) if (c.tab === tab && c.frame === frame && c.heard) return id;
+    return undefined;
+  }
+
+  /** The worlds of a frame's session, as Chrome said it made them. */
+  worldsOf(session: string): Worlds | undefined {
+    return this.children.get(session)?.worlds;
   }
 
   /** An expression in the overlay of each of a tab's frames that has a process of its own. */
@@ -205,13 +221,14 @@ export class HandFrames {
       await this.send({ tabId: tab, ...(parent ? { sessionId: parent } : {}) }, "Target.detachFromTarget", { sessionId }).catch(() => undefined);
       return;
     }
-    const child: Child = { tab, parent, frame: info["targetId"], worlds: new Map(), overlays: new Set(), heard: false };
+    const child: Child = { tab, parent, frame: info["targetId"], worlds: new Worlds(), overlays: new Set(), heard: false };
     this.children.set(sessionId, child);
     try {
       // Where it is, first: told as it commits, or asked now if it already has.
       await this.send(target, "Page.enable");
       const tree = record(record(await this.send(target, "Page.getFrameTree"))["frameTree"]);
-      const url = record(tree["frame"])["url"];
+      const { id, url } = record(tree["frame"]);
+      if (typeof id === "string" && id) child.frame = id;
       if (typeof url === "string" && url) await this.placed(target, child, url);
       await this.watch(target);
     } catch {
@@ -225,7 +242,7 @@ export class HandFrames {
     const challenge = isChallenge(url);
     if (challenge && child.heard) {
       child.heard = false;
-      child.worlds.clear();
+      child.worlds.cleared();
       child.overlays.clear();
       await this.send(target, "Runtime.disable").catch(() => undefined);
       return;
