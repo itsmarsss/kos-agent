@@ -2424,8 +2424,9 @@ export class DiscordAdapter implements ChannelAdapter {
 
   /**
    * /inbox: what waits on the owner, each ask as its own card with its own
-   * buttons, to whoever asked alone, so a press settles that one. A secret's
-   * ask has no Approve, as everywhere on Discord.
+   * buttons and the files its card carries, to whoever asked alone, so a
+   * press settles that one. A secret's ask has no Approve, as everywhere on
+   * Discord.
    */
   private async inbox(interaction: { reply(o: unknown): Promise<unknown>; followUp(o: unknown): Promise<unknown> }, pending: ApprovalRequest[]): Promise<void> {
     const shown = pending.slice(0, INBOX_MAX);
@@ -2433,9 +2434,8 @@ export class DiscordAdapter implements ChannelAdapter {
     const head = pending.length === 0 ? "Nothing is waiting on you." : `${pending.length} waiting on you${more ? `; the first ${shown.length} here, every one in the dashboard's Inbox` : ""}.`;
     await interaction.reply({ content: head, flags: MessageFlags.Ephemeral }).catch(() => undefined);
     for (const req of shown) {
-      const card = approvalCard(req, this.dashboardUrl ? { dashboardUrl: this.dashboardUrl } : {});
       await interaction
-        .followUp({ content: this.scrub(card.content), components: [approvalButtons(req, this.dashboardUrl)], flags: MessageFlags.Ephemeral })
+        .followUp({ ...this.askCard(req), components: [approvalButtons(req, this.dashboardUrl)], flags: MessageFlags.Ephemeral })
         .catch(() => undefined);
     }
   }
@@ -3235,24 +3235,24 @@ export class DiscordAdapter implements ChannelAdapter {
     return this.promptOf(id) !== undefined;
   }
 
-  private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
-    const row = approvalButtons(req, this.dashboardUrl);
-    const summary = askSummary(req);
-    // No secret leaves in a card, its words or the call it carries.
+  /**
+   * An ask's card as it is posted, wherever: its words and the call's files
+   * scrubbed, since no secret leaves in a card, and the page a browser
+   * action is aimed at, the thing being approved rather than a description.
+   */
+  private askCard(req: ApprovalRequest): { content: string; files?: { attachment: Buffer; name: string }[] } {
     const scrub = this.scrub;
-    const unscrubbed = approvalCard(req, this.dashboardUrl ? { dashboardUrl: this.dashboardUrl } : {});
-    const card: ApprovalCard = {
-      content: scrub(unscrubbed.content),
-      ...(unscrubbed.files ? { files: unscrubbed.files.map((f) => ({ ...f, attachment: Buffer.from(scrub(f.attachment.toString("utf8")), "utf8") })) } : {}),
-    };
-    // The page a browser action is aimed at, when there is one: the thing
-    // being approved, rather than a description of it.
-    const files = [...(req.picture ? [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] : []), ...(card.files ?? [])];
-    const payload: AskPayload = {
-      content: card.content,
-      components: [row],
-      ...(files.length ? { files } : {}),
-    };
+    const card: ApprovalCard = approvalCard(req, this.dashboardUrl ? { dashboardUrl: this.dashboardUrl } : {});
+    const files = [
+      ...(req.picture ? [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] : []),
+      ...(card.files ?? []).map((f) => ({ ...f, attachment: Buffer.from(scrub(f.attachment.toString("utf8")), "utf8") })),
+    ];
+    return { content: scrub(card.content), ...(files.length ? { files } : {}) };
+  }
+
+  private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
+    const summary = askSummary(req);
+    const payload: AskPayload = { ...this.askCard(req), components: [approvalButtons(req, this.dashboardUrl)] };
     // In a server every ask is in #needs-you, the one place to see all that
     // waits, and also where its chat is read when it has a channel or a
     // thread, so the question sits in the conversation it belongs to. The

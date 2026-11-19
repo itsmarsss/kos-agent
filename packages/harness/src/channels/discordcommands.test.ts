@@ -10,6 +10,7 @@ interface Said {
   content?: string;
   embeds?: EmbedBuilder[];
   flags?: number;
+  files?: { attachment: Buffer; name: string }[];
   components?: { toJSON(): { components: { label?: string; custom_id?: string; url?: string }[] } }[];
 }
 
@@ -36,7 +37,7 @@ function slash(commandName: string, value: string | undefined, user = "owner", e
   return { interaction, replies, edits, followUps, deferred };
 }
 
-function adapterWith(ctx: Partial<SlashContext> = {}, options: { dashboardUrl?: string } = {}): { adapter: DiscordAdapter; ran: { text: string; id: string }[] } {
+function adapterWith(ctx: Partial<SlashContext> = {}, options: { dashboardUrl?: string; scrub?: (text: string) => string } = {}): { adapter: DiscordAdapter; ran: { text: string; id: string }[] } {
   const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ...options });
   adapter.setAuthorizer((id) => id === "owner");
   const ran: { text: string; id: string }[] = [];
@@ -116,6 +117,19 @@ describe("/inbox on Discord", () => {
     await adapter.receiveInteraction({ isButton: () => true, customId: approve, user: { id: "owner", username: "kenny" }, deferUpdate: async () => undefined, editReply: async (p: Said) => void edits.push(p), reply: async () => undefined } as unknown as Interaction);
     expect(decided).toEqual([{ id: "12", approved: true, deciderId: "owner" }]);
     expect(edits[0]!.content).toMatch(/^-# ✅ Approved by kenny <t:\d+:t> · #12$/);
+  });
+
+  it("attaches the call, scrubbed, and the page a long ask carries, so Approve is seen whole", async () => {
+    const long: ApprovalRequest = { id: "14", text: "x", tool: "shell.run", args: { command: `echo hunter2 ${"y".repeat(3000)}` }, picture: Buffer.from("jpeg").toString("base64") };
+    const { adapter } = adapterWith({ pending: () => [long] }, { scrub: (t) => t.replaceAll("hunter2", "[secret]") });
+    const s = slash("inbox", undefined);
+    await adapter.receiveInteraction(s.interaction);
+    const files = s.followUps[0]!.files!;
+    expect(files.map((f) => f.name)).toEqual(["page.jpg", "call.json"]);
+    expect(files[0]!.attachment.toString()).toBe("jpeg");
+    const call = files[1]!.attachment.toString("utf8");
+    expect(call).toContain("[secret]");
+    expect(call).not.toContain("hunter2");
   });
 
   it("says when nothing waits", async () => {
