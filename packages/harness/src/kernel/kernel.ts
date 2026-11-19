@@ -81,7 +81,7 @@ import type { Reach } from "../tools/fence.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 export { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
-import { MemoryExtractor, type ExtractionReport } from "../memory/extractor.js";
+import { MemoryExtractor, STUCK_TRIES, type ExtractionReport } from "../memory/extractor.js";
 import { MEMORY_JOB } from "../memory/job.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
@@ -112,7 +112,7 @@ import { SpendStore } from "../ops/spend.js";
 import { BuildRegistry } from "../builds/registry.js";
 import { sitesBaseUrl } from "../sites/server.js";
 import { PendingMessages, type PendingFlags, type PendingMessage } from "./pending.js";
-import { applyModelSettings, type ModelSettings } from "../models/settings.js";
+import { applyModelSettings, MODEL_SETTINGS_KEY, parseModelSettings, type ModelSettings } from "../models/settings.js";
 import { SettingsStore } from "../store/settings.js";
 import { ModuleLoader, type KosModule, type LoadReport } from "../modules/loader.js";
 import { AuditLog } from "../ops/audit.js";
@@ -156,7 +156,7 @@ import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
-import { SdkOneShot, sdkModelFor, type SdkSpent } from "../chat/sdkname.js";
+import { modelUnavailable, SDK_PROVIDER, SdkOneShot, sdkModelFor, sdkTurnModel, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
 import { Decisions, type DecisionOptions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
@@ -848,6 +848,7 @@ export class Kernel {
       crons: args.crons,
       killSwitch: this.killSwitch,
       selfPromptsPerHour: () => this.behaviour().selfPromptsPerHour,
+      timezone: () => this.profile.timezone,
       enqueue: (work, lane) => this.queue.enqueue(work, lane),
       runs: args.runs,
       health: args.health,
@@ -866,6 +867,9 @@ export class Kernel {
       facts: args.facts,
       inference: args.inference,
       settings: args.settings,
+      // One bad event is passed over after a few runs rather than stopping memory; the owner hears which.
+      onSkipped: (ids) =>
+        this.caretaker.tell(`Memory extraction passed over ${ids.length === 1 ? "an event" : `${ids.length} events`} (${ids.map((id) => `#${id}`).join(", ")}) after ${STUCK_TRIES} runs found no reply it could read. Nothing from ${ids.length === 1 ? "it" : "them"} is remembered; say it again if it matters.`),
     });
     this.afterTurn = new AfterTurn({
       ownerId: args.profile.ownerId,
@@ -1488,7 +1492,9 @@ export class Kernel {
           tools.cutHuge = true;
           /** The calls this turn has written to the chat so far, by id. */
           const told = new Set<string>();
-          const sdkRun = runSdkChat({
+          // The owner's reasoning model when the engine runs that provider; the engine's own default otherwise.
+          const chosen = sdkTurnModel(this.inference.routeFor?.("reasoning"), parseModelSettings(this.settings.get(MODEL_SETTINGS_KEY)).reasoning);
+          const runOn = async (pick: { model?: string; effort?: Effort }): Promise<SdkChatResult> => runSdkChat({
             signal: stop.signal,
             // An aside reads the context chat's history (plus its own earlier
             // asides) rather than its empty session, same as the API path.
@@ -1518,6 +1524,7 @@ export class Kernel {
             system,
             tools,
             cwd: this.workspace.root,
+            ...pick,
             maxTurns: this.behaviour().maxSteps,
             // The owner's own turn on a screen (one they dispatched included) carries on in fresh queries up to its
             // own budget; every other turn (a schedule, a guest, a dispatch or handoff from another chat) stops where
@@ -1555,7 +1562,22 @@ export class Kernel {
             // No tool-start here: the guarded toolbox already emits one for
             // every call, and emitting a second left each bubble with two
             // starts and one end, so half of them never stopped running.
-          }).catch((err: unknown) => {
+          });
+          /*
+           * A model the owner chose that this login cannot run (another plan,
+           * a model since retired) fails the turn before it does anything:
+           * the turn runs again on the engine's own default, and the owner
+           * is told once per model, not on every message.
+           */
+          const sdkRun = runOn(chosen)
+            .then(
+              (r) => (chosen.model && r.calls.length === 0 && modelUnavailable(r.text) ? this.onChosenModelUnavailable(chosen.model, () => runOn({})) : r),
+              (err: unknown) => {
+                if (chosen.model && told.size === 0 && !stop.signal.aborted && modelUnavailable(err instanceof Error ? err.message : String(err))) return this.onChosenModelUnavailable(chosen.model, () => runOn({}));
+                throw err;
+              },
+            )
+            .catch((err: unknown) => {
             /*
              * Failed, not stopped: the steps it wrote stand in the chat with
              * no answer under them, which reads as a turn still running and
@@ -1979,10 +2001,22 @@ export class Kernel {
    * otherwise the default screen model (a workspace with only an OpenAI key
    * routes screen work to OpenAI, which this engine cannot run).
    */
+  /** Chosen models this engine's login could not run, each told to the owner once. */
+  private readonly unavailableTold = new Set<string>();
+
+  /** Tell the owner, once per model, that the engine's default answered instead, and run the turn on it. */
+  private onChosenModelUnavailable(model: string, retry: () => Promise<SdkChatResult>): Promise<SdkChatResult> {
+    if (!this.unavailableTold.has(model)) {
+      this.unavailableTold.add(model);
+      this.caretaker.tell(`The reasoning model you chose, ${model}, is not available on the Claude login KOS's chat engine uses, so its own default model answered. Pick another in Settings, Models, or sign in with a plan that has it.`);
+    }
+    return retry();
+  }
+
   private sdkScreen(): { model: string; effort?: Effort } | undefined {
     const route = this.screenRoute();
     if (!route) return undefined;
-    const spec = route.provider === "anthropic" ? route.spec : SCREEN_SUGGESTION.spec;
+    const spec = route.provider === SDK_PROVIDER ? route.spec : SCREEN_SUGGESTION.spec;
     return { model: spec.model, ...(spec.effort ? { effort: spec.effort } : {}) };
   }
 
@@ -4914,7 +4948,8 @@ export class Kernel {
    */
   private maybeExtract(): void {
     const how = this.behaviour();
-    if (!how.memoryExtraction || this.extractor.busy || this.closed) return;
+    // Stuck on an event no reply could be read for, it waits its turn rather than asking again after every message.
+    if (!how.memoryExtraction || this.extractor.busy || this.extractor.waiting() || this.closed) return;
     if (this.extractor.pending().chars < how.extractEveryChars) return;
     // KOS reads its own memory when the owner has the job on; the fixed
     // extractor is the floor when they have not.
@@ -4979,11 +5014,11 @@ export class Kernel {
     this.secrets.adopt(SecretsRegistry.fromEnv());
   }
 
-  /** Repoint the router at the owner's saved choices, without a restart. */
-  applyModelSettings(settings: ModelSettings): void {
+  /** Repoint the router at the owner's saved choices, without a restart; what could not be applied, as warnings. */
+  applyModelSettings(settings: ModelSettings): string[] {
     const router = this.inference as { setRoute?: unknown; routeFor?: unknown };
-    if (typeof router.setRoute !== "function") return;
-    applyModelSettings(this.inference as Parameters<typeof applyModelSettings>[0], settings);
+    if (typeof router.setRoute !== "function") return [];
+    return applyModelSettings(this.inference as Parameters<typeof applyModelSettings>[0], settings);
   }
 
   /**

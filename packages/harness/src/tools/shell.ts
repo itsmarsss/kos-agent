@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { guestOrigin, turnStop, underAuto } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
 import { foldName, RESERVED } from "../kernel/files.js";
+import { BACKUP_GIT_DIR, DB_SNAPSHOT } from "../ops/backup.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { CONTAINED_BEYOND_AUTO, destructiveCommand } from "../risk/beyondauto.js";
@@ -42,11 +43,15 @@ export const SHELL_MAX_OUTPUT = 20_000;
 
 /** The workspace database named on a command line: the shell's road around the sql fence. */
 export function namesDatabase(command: string): boolean {
-  return /kos\.sqlite/i.test(foldName(command));
+  return /kos\.(snapshot\.)?sqlite/i.test(foldName(command));
 }
 
-/** KOS's database and its journals, which a command run for anyone but Maintenance cannot read at all. */
-const DATABASE_FILES = ["kos.sqlite", "kos.sqlite-wal", "kos.sqlite-shm"];
+/**
+ * KOS's database, its journals and the snapshot's copy of it, and the backup
+ * repo whose objects hold every older copy: what a command run for anyone
+ * but Maintenance cannot read at all.
+ */
+const DATABASE_FILES = ["kos.sqlite", "kos.sqlite-wal", "kos.sqlite-shm", DB_SNAPSHOT, `${DB_SNAPSHOT}.part`, BACKUP_GIT_DIR];
 
 /** Said to a chat that reached for the database with the shell, instead of asking the owner. */
 export const DATABASE_REFUSED =

@@ -63,6 +63,47 @@ describe("a turn on the SDK engine", () => {
     expect(heard.heard).toEqual({ mark: "m1", words: [{ text: "and the third" }] });
   });
 
+  it("runs the turn on the owner's reasoning model when the engine can run it, and on its own default otherwise", async () => {
+    let asked: SdkChatOptions | undefined;
+    sdk.run = async (o) => {
+      asked = o;
+      return answer([], "Done.");
+    };
+    // Nothing chosen: the engine's own default, not a model pinned from KOS's table.
+    await turn("hello");
+    expect(asked?.model).toBeUndefined();
+    expect(asked?.effort).toBeUndefined();
+    kernel.applyModelSettings({ reasoning: { model: "claude-opus-5-5", effort: "max" } });
+    kernel.settings.set("models", { reasoning: { model: "claude-opus-5-5", effort: "max" } });
+    await turn("hello again");
+    expect(asked?.model).toBe("claude-opus-5-5");
+    expect(asked?.effort).toBe("max");
+  });
+
+  it("answers on the engine's default when the chosen model is not on its login, and tells the owner once", async () => {
+    kernel.applyModelSettings({ reasoning: { model: "claude-not-on-plan" } });
+    kernel.settings.set("models", { reasoning: { model: "claude-not-on-plan" } });
+    const tell = vi.spyOn(kernel.caretaker, "tell").mockImplementation(() => undefined);
+    const asked: (string | undefined)[] = [];
+    let thrown = true;
+    sdk.run = async (o) => {
+      asked.push(o.model);
+      if (o.model) {
+        // The engine's two ways of saying it: a failed query, or a reply that is only the complaint.
+        thrown = !thrown;
+        if (!thrown) throw new Error("There's an issue with the selected model (claude-not-on-plan). It may not exist or you may not have access to it.");
+        return answer([], "There's an issue with the selected model (claude-not-on-plan). It may not exist or you may not have access to it.");
+      }
+      return answer([], "Answered.");
+    };
+    await turn("first");
+    await turn("second");
+    expect(asked).toEqual(["claude-not-on-plan", undefined, "claude-not-on-plan", undefined]);
+    expect(kernel.sessions.get(chat).filter((m) => m.role === "assistant").map((m) => (m.content[0] as { text: string }).text)).toEqual(["Answered.", "Answered."]);
+    expect(tell).toHaveBeenCalledTimes(1);
+    expect(tell.mock.calls[0]![0]).toContain("claude-not-on-plan");
+  });
+
   it("keeps each call's own time, where it landed, through the write at the turn's end", async () => {
     const landed = Date.now() - 60_000;
     sdk.run = async (o) => {

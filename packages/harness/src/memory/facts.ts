@@ -321,9 +321,14 @@ export class FactsStore {
     return row ? toFact(row) : undefined;
   }
 
-  /** Every current claim, newest first, in the scopes given or all of them. */
+  /**
+   * Every current claim, newest first, in the scopes given or all of them.
+   * No list is every scope; an empty list is none: a guest with no project
+   * reads nothing of the owner's.
+   */
   all(userId: string, scopes?: ClaimScope[]): Fact[] {
-    const rows = scopes?.length
+    if (scopes?.length === 0) return [];
+    const rows = scopes
       ? (this.db.prepare(
           `SELECT * FROM memory_claims WHERE user_id = ? AND superseded_at IS NULL AND scope IN (${scopes.map(() => "?").join(",")})
            ORDER BY updated_at DESC`,

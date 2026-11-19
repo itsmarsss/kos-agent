@@ -151,7 +151,9 @@ export interface SdkChatOptions {
   system: string;
   tools: ToolBox;
   cwd: string;
+  /** The turn's model and effort; unset, the engine's own defaults. */
   model?: string;
+  effort?: Effort;
   /** Each query's model round trips. */
   maxTurns?: number;
   /** The turn's round trips across every query it carries on in; `maxTurns` unless given. */
@@ -559,9 +561,12 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
          * scrubber and the owner's retention.
          */
         persistSession: false,
-        // Only KOS's tools exist. The built-ins are named individually as well
-        // as excluded by the allow list, because an allow list that grows a
-        // hole is a jail that quietly opens.
+        // Only KOS's tools exist. `tools` is the base set of built-ins, and is
+        // empty but for the hand-on to the screen agent: an allow list only
+        // approves, so a built-in a CLI update adds would be offered past it.
+        // The allow list names KOS's tools exactly, and the built-ins are
+        // also excluded by name, because a jail with one wall quietly opens.
+        tools: split.agent ? HANDOFF_TOOLS : [],
         allowedTools: allowed,
         disallowedTools: split.agent ? BUILTINS.filter((b) => !HANDOFF_TOOLS.includes(b)) : BUILTINS,
         // The allow list is the session's, so the screen agent's own tools
@@ -573,6 +578,7 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
         maxTurns: Math.min(budget, ceiling - used),
         includePartialMessages: true,
         ...(options.model ? { model: options.model } : {}),
+        ...(options.effort ? { effort: options.effort } : {}),
         ...(split.agent
           ? {
               agents: {

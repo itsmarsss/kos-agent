@@ -210,6 +210,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
 
   const daemons = new DaemonStore(workspace.db);
   const permissions = new PermissionStore(workspace.db);
+  // Rules an older build kept that no call can match: cleared or respelled, on the record.
+  permissions.migrateScopes(audit);
   const settings = new SettingsStore(workspace.db);
   const retired = retireBrowserEngine(workspace.root, settings, workspace.db);
   if (retired) console.log(`browser: KOS drives Chrome itself now; the ${retired} server is out of mcp.json, its settings and trusted sites kept`);
@@ -249,7 +251,13 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   );
   const killSwitch = new PersistentKillSwitch(workspace.db);
   const queue = new WorkQueue();
-  const backup = new WorkspaceBackup(workspace.root);
+  const backup = new WorkspaceBackup(workspace.root, undefined, workspace.db);
+  // Before any program runs: an older KOS kept the backup repo at the root, where a chat's shell could read it.
+  try {
+    backup.moveLegacyRepo();
+  } catch (err) {
+    console.warn(`[backup] could not move the backup repo into .kos: ${err instanceof Error ? err.message : String(err)}`);
+  }
   const promoter = new SkillPromoter({
     workspaceRoot: workspace.root,
     backup,
@@ -714,7 +722,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   // Saved model choices are applied before anything runs, so the first turn
   // after a restart uses what the owner picked rather than the default.
   if (router) {
-    applyModelSettings(router, settings.get<ModelSettings>(MODEL_SETTINGS_KEY));
+    for (const warning of applyModelSettings(router, settings.get<ModelSettings>(MODEL_SETTINGS_KEY))) console.warn(`[models] ${warning}`);
   }
   const inference = options.inference ?? router!;
 
