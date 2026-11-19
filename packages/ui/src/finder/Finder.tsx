@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactElement } from "react";
 
-import { CloseIcon, IconButton, NavIcon } from "@kos/kit";
+import { NavIcon } from "@kos/kit";
 
+import { Toast } from "../Toast.js";
 import { api, type Attachment, type DirEntry, type FileSearch, type Project } from "../api.js";
 import { Drawer } from "../Drawer.js";
 import { ProjectMark } from "../ProjectMark.js";
@@ -795,22 +796,19 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
           ) : undefined
         }
       />
-      {notice && (
-        <div className={`ops-toast ops-toast--${notice.tone} finder-toast`} role={notice.tone === "err" ? "alert" : "status"}>
-          <span className="ops-toast-text">{notice.text}</span>
-          {"undo" in notice && notice.undo && (
-            <button type="button" className="btn btn--sm btn--ghost" onClick={notice.undo}>
-              Undo
-            </button>
-          )}
-          <IconButton tone="bare" label="Dismiss" onClick={() => {
-            ops.dismiss();
-            setErrorNote(null);
-          }}>
-            <CloseIcon size={12} title="" />
-          </IconButton>
-        </div>
-      )}
+      <Toast
+        note={
+          notice && {
+            kind: notice.tone,
+            text: notice.text,
+            ...("undo" in notice && notice.undo ? { undo: notice.undo } : {}),
+            onDismiss: () => {
+              ops.dismiss();
+              setErrorNote(null);
+            },
+          }
+        }
+      />
     </div>
   );
 }

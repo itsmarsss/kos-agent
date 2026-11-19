@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, AlertIcon, CheckIcon, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, overlayScroll, spring, StatusDot } from "@kos/kit";
+import { AgentFaces, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, overlayScroll, StatusDot } from "@kos/kit";
 
 import {
   type FailingJob,
@@ -53,6 +53,7 @@ import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { Refreshes } from "./refreshes.js";
 import { HostBanner } from "./HostBanner.js";
+import { Toast } from "./Toast.js";
 import { useReach } from "./reach.js";
 import { agoWords } from "./schedulewords.js";
 
@@ -709,28 +710,7 @@ export function App(): React.ReactElement {
       />
       <main className="ops">
         <HostBanner reach={reach} />
-        <AnimatePresence>
-          {toast && (
-            <m.div
-              key={toast.text}
-              className={`ops-toast ops-toast--${toast.kind}`}
-              role="status"
-              initial={{ opacity: 0, y: -10, x: "-50%", scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
-              exit={{ opacity: 0, y: -6, x: "-50%", scale: 0.98 }}
-              transition={spring}
-            >
-              <span className="ops-toast-icon" aria-hidden="true">
-                {toast.kind === "ok" ? (
-                  <CheckIcon size={12} title="" />
-                ) : (
-                  <AlertIcon size={12} />
-                )}
-              </span>
-              <span className="ops-toast-text">{toast.text}</span>
-            </m.div>
-          )}
-        </AnimatePresence>
+        <Toast note={toast} />
         {/* Wrapped so it unmounts: the panel returned null when closed, which
             skips the exit animation entirely and makes a drawer vanish rather
             than close. */}

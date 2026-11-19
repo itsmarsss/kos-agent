@@ -573,12 +573,12 @@ select {
   border: 1px solid rgba(240, 113, 120, 0.35);
 }
 
-/* A word from KOS about what just happened: a pill at the top, centred,
-   with a mark that says how it went. It used to be a plain box in the
-   corner in the thread's own type size. */
+/* A word from KOS about what just happened (Toast.tsx): one pill at the
+   bottom, centred, with a mark that says how it went and Undo when it can be
+   undone. Approve, archive and the files each drew their own before. */
 .ops-toast {
   position: fixed;
-  top: 0.9rem;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
   left: 50%;
   z-index: 90;
   display: flex;
@@ -604,7 +604,7 @@ select {
   height: 1.25rem;
   border-radius: 50%;
 }
-.ops-toast-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ops-toast-text { min-width: 0; overflow-wrap: anywhere; }
 .ops-toast--ok .ops-toast-icon { background: var(--ok-dim); color: var(--ok); }
 .ops-toast--err { border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
 .ops-toast--err .ops-toast-icon { background: var(--danger-dim); color: var(--danger); }
@@ -6511,17 +6511,6 @@ a.health {
 /* The same circle idle and busy, its dots in its own ink either way. */
 .quickask-send { margin-bottom: 0.05rem; }
 .quickask-send .live-dots i { background: currentColor; }
-.chats-undo {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin: 0.25rem 0 0.5rem;
-  padding: 0.5rem 0.85rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  font-size: var(--text-sm);
-}
 
 /* Inbox: a suggestion KOS raised, calmer than an approval. */
 .inbox-suggestion { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; }
@@ -8098,8 +8087,6 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .finder-menu button:disabled { color: var(--faint); cursor: default; background: none; }
 .finder-menu button:focus-visible { background: var(--panel-2); outline: none; }
 .finder-menu-keys { font: inherit; font-size: var(--text-xs); color: var(--faint); letter-spacing: 0.04em; }
-.finder-toast { top: auto; bottom: 1.25rem; transform: translateX(-50%); padding-right: 0.3rem; }
-.finder-toast .ops-toast-text { white-space: normal; }
 
 /* The trash. */
 .finder-trash { display: flex; flex-direction: column; min-height: 0; }

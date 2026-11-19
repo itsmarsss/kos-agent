@@ -66,6 +66,7 @@ import { Thinking } from "./Thinking.js";
 import { MessageEditor } from "./MessageActions.js";
 import { MessageTurn, type TurnAction } from "./MessageTurn.js";
 import { UnsentNote } from "./UnsentNote.js";
+import { Toast } from "./Toast.js";
 import { useReach } from "./reach.js";
 import { useStable } from "./stable.js";
 
@@ -2039,25 +2040,22 @@ export function ChatsPage({
               />
             </div>
           )}
-          {undo && (
-            <div className="chats-undo" role="status">
-              <span>Archived “{undo.title}”.</span>
-              <button
-                type="button"
-                className="link"
-                onClick={() => {
+          <Toast
+            note={
+              undo && {
+                kind: "ok",
+                text: `Archived “${undo.title}”.`,
+                undo: () => {
                   const back = undo;
                   setUndo(null);
                   void api.archiveConversation(back.id, false).then(() => {
                     onChanged();
                     onOpen(back.id);
                   });
-                }}
-              >
-                Undo
-              </button>
-            </div>
-          )}
+                },
+              }
+            }
+          />
           {!active && (project || agent) ? (
             /* Inside a project there is no landing: the thread is the
                orchestrator's by default, and it is being stood up if it is not
