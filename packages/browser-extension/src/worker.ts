@@ -555,6 +555,9 @@ async function answer(method: string, params: Record<string, unknown>, origin: s
     case "tabs.close": {
       const s = live(params, origin);
       const tab = tabOf(s, params);
+      // Not while the owner has it, nor a tab of theirs on a site hidden from KOS: those are theirs to close.
+      if (s.paused) throw pausedError();
+      if (handed.has(tab) || tab === beside) await refuseHidden(tab);
       await chrome.tabs.remove(tab);
       return {};
     }
@@ -822,15 +825,19 @@ async function listTabs(): Promise<ListedTab[]> {
       ...(id === beside ? { focus: true as const } : {}),
       ...(taint ? { held: { loader: taint.loader, urls: taint.urls } } : {}),
     };
-    // A tab on a hidden site is KOS's to know of, and nothing more.
-    if (isHidden(tab.url ?? "", settings.hiddenSites)) out.push({ id: String(id), url: "", title: "Hidden from KOS", hidden: true, ...mark });
-    else out.push({ id: String(id), url: tab.url ?? "", title: tab.title ?? "", ...mark });
+    // A tab on a hidden site, or on a page that is not on the web (a file, one of Chrome's own), is KOS's to know of, and nothing more.
+    const url = tab.url ?? "";
+    if (isHidden(url, settings.hiddenSites)) out.push({ id: String(id), url: "", title: "Hidden from KOS", hidden: true, ...mark });
+    else if (url && !isWebPage(url)) out.push({ id: String(id), url: "", title: "Not a web page", ...mark });
+    else out.push({ id: String(id), url, title: tab.title ?? "", ...mark });
   }
   return out;
 }
 
 /** A tab of KOS's own, in its window (made the first time, out of the owner's way), grouped as KOS. */
 async function openTab(url: string): Promise<number> {
+  const s = session;
+  if (!s) throw new CallError("no_session", "no session is live in this Chrome");
   if (!isWebUrl(url)) throw new CallError("url", "only web pages (http and https) open in your Chrome");
   if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
   const kept = await chrome.storage.session.get("kosWindow");
@@ -849,8 +856,15 @@ async function openTab(url: string): Promise<number> {
   const groups = await chrome.tabGroups.query({ windowId, title: GROUP });
   const groupId = await chrome.tabs.group({ tabIds: tab.id!, ...(groups[0] ? { groupId: groups[0].id } : { createProperties: { windowId } }) });
   await chrome.tabGroups.update(groupId, { title: GROUP, color: "blue" });
-  session!.tabs.add(tab.id!);
+  // The session may have ended while the tab was made: it is left to the owner, with no debugger on it.
+  if (session !== s) throw new CallError("no_session", "the session ended while the tab opened");
+  s.tabs.add(tab.id!);
   await attach(tab.id!);
+  if (session !== s) {
+    await chrome.debugger.detach({ tabId: tab.id! }).catch(() => undefined);
+    attached.delete(tab.id!);
+    throw new CallError("no_session", "the session ended while the tab opened");
+  }
   return tab.id!;
 }
 
@@ -1276,7 +1290,8 @@ function frameOf(tab: number, quality: number, edge: number): Promise<string | u
 function fromHidden(tab: number, params: Record<string, unknown>): boolean {
   const frame = params["frame"] as { url?: unknown } | undefined;
   const request = params["request"] as { url?: unknown } | undefined;
-  return [tabUrls.get(tab), frame?.url, request?.url, params["documentURL"]].some((u) => typeof u === "string" && isHidden(u, settings.hiddenSites));
+  // A dialog says the address of the frame that opened it as `url`.
+  return [tabUrls.get(tab), frame?.url, request?.url, params["documentURL"], params["url"]].some((u) => typeof u === "string" && isHidden(u, settings.hiddenSites));
 }
 
 // The owner's hands.
