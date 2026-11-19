@@ -2927,6 +2927,30 @@ li:hover .chats-item-when { opacity: 0; }
 .composer-box .hl textarea.hl-area { padding: 0.3rem 0.1rem; border-color: transparent; }
 .composer-box .hl textarea.hl-area:focus { border-color: transparent; }
 .composer-box .sheet-composer-bar { margin-top: 0; gap: 0.3rem; }
+/* One height for every control on the composer's row, from one token: the
+   model, the mode, memory, attach, voice and send were 36, 24, 24, 26 and
+   30 px. The chips are one capsule, the model's too (components.md's
+   `.composer-engine`), and the buttons are circles of the same height. */
+.sheet-composer-bar { --composer-row-h: var(--control-h-sm); }
+.sheet-composer-bar :is(.icon-btn, .send) { width: var(--composer-row-h); height: var(--composer-row-h); }
+.sheet-composer-bar :is(.composer-model .sel-button, .mode-chip, .recall-chip) {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: var(--composer-row-h);
+  min-height: 0;
+  padding-block: 0;
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+/* The mode chip keeps its own colours (lit in Auto); the model and memory take the same quiet fill. */
+.sheet-composer-bar :is(.composer-model .sel-button, .recall-chip) { border: 0; background: var(--panel-2); color: var(--muted); }
+.sheet-composer-bar .composer-engine { box-sizing: border-box; height: var(--composer-row-h); line-height: var(--composer-row-h); padding-block: 0; }
+.sheet-composer-bar .mode-chip button { padding-block: 0; }
+.sheet-composer-bar :is(.composer-model .sel-button:hover:not(:disabled), .recall-chip:hover, .recall-chip.is-open) { color: var(--text); background: var(--line); }
+.sheet-composer-bar .recall-chip { gap: 0.3rem; padding-inline: 0.6rem; }
+.sheet-composer-bar .recall--none { display: inline-flex; align-items: center; gap: 0.3rem; height: var(--composer-row-h); }
 
 .composer.is-over .composer-box { border-color: var(--accent); border-style: dashed; }
 
