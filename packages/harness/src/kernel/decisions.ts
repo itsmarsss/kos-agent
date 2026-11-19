@@ -5,7 +5,7 @@ import type { PermissionContext } from "../ops/permissions.js";
 import { SHARED_LANE } from "../ops/queue.js";
 import { placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, guested, ownership } from "./caller.js";
+import { approvedAs, attendance, caller, guested, ownership } from "./caller.js";
 import { primarySessionId } from "./session.js";
 
 /**
@@ -68,7 +68,11 @@ export interface DecisionsDeps {
     secretSlots: (tool: string) => SecretSlots | undefined;
     /** A yes-and-remember the tool keeps itself (a secret's grant on a site); see ToolRisk.keep. */
     keeps?: (tool: string, input: Record<string, unknown>) => boolean;
+    /** Why the tool refuses this call now, judged inside the asking turn's stores; see ToolRisk.refuse. */
+    refusal?: (tool: string, input: Record<string, unknown>) => Promise<string | undefined>;
   };
+  /** The kill switch: while thrown, no decision runs anything. */
+  halted?: () => boolean;
   secrets: SecretsRegistry;
   queue: { enqueue: <T>(work: () => Promise<T>, lane: string) => Promise<T> };
   /** Run work with a conversation as the current one, so tools attribute to it. */
@@ -162,6 +166,8 @@ export class Decisions {
     const d = this.deps;
     const action = d.approvals.get(id);
     if (!action || action.status !== "pending") return { ok: false, message: `no pending action #${id}` };
+    // Nothing runs while the kill switch is thrown, whoever waits on it: the ask stays for after.
+    if (d.halted?.()) return { ok: false, message: `The kill switch is thrown, so nothing runs: #${id} waits until it is lifted.` };
     const stored = JSON.parse(action.args) as Record<string, unknown>;
     const placing = usesSecret(action.tool, stored);
     // A call that places a secret is approved only where the owner is proved: the dashboard or a paired device, never a chat surface.
@@ -201,16 +207,23 @@ export class Decisions {
     const result = await d.queue.enqueue(async () => {
       // Secrets only in the slots the tool declared, as GuardedTools places them.
       const placed = placeSecrets(action.tool, stored, d.registry.secretSlots(action.tool), d.secrets, { conversationId: action.conversationId, attended: action.attended, guest: action.guest !== null && action.guest !== undefined });
-      // Run as the turn that asked would have: the owner's reach only if it was the owner's own turn, a guest's room's if a guest's.
+      // Run as the turn that asked would have: in its chat, as the caller; the owner's reach only if it was the owner's own turn, a guest's room's if a guest's.
+      const asAsked = <T>(work: () => Promise<T>): Promise<T> =>
+        guested.run(action.guest ?? undefined, () =>
+          attendance.run(action.attended, () =>
+            ownership.run(action.owner && action.attended, () =>
+              d.inConversation(action.conversationId, () => (action.conversationId ? caller.run(action.conversationId, work) : work())),
+            ),
+          ),
+        );
       const ran = "refused" in placed
         ? { content: placed.refused, isError: true }
-        : await guested.run(action.guest ?? undefined, () =>
-            attendance.run(action.attended, () =>
-              ownership.run(action.owner && action.attended, () =>
-                d.inConversation(action.conversationId, () => d.registry.execute(action.tool, placed.input)),
-              ),
-            ),
-          );
+        : await asAsked(async () => {
+            // Judged again now, as the guarded path judges a call: what the tool refuses is not run on an old yes.
+            const refused = await d.registry.refusal?.(action.tool, stored);
+            if (refused) return { content: refused, isError: true };
+            return approvedAs.run({ id, by }, () => d.registry.execute(action.tool, placed.input));
+          });
       // What it answered is scrubbed before the audit and the resumed turn read it.
       const r = { ...ran, content: d.secrets.scrub(ran.content) };
       d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });

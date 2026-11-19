@@ -1,5 +1,6 @@
 import { BLOCKS_GUIDANCE } from "@kos/shared";
 
+import { fenced } from "../context/shelf.js";
 import type { ModelMessage } from "../models/types.js";
 import type { Project } from "../systems/manifest.js";
 import { renderSchemas, type ProjectSchema } from "../systems/schema.js";
@@ -138,7 +139,9 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
     for (const e of events.slice(0, 5)) {
       const when = new Date(e.ts).toISOString().slice(0, 10);
       const where = e.projectSlug ? `, ${e.projectSlug}` : "";
-      mem.push(`- earlier (${when}${where}, ${e.role}): ${e.text.slice(0, 200)}`);
+      // A caller's words are the caller's, whatever role it gave them: named so, and fenced like any outside text.
+      const text = e.text.slice(0, 200);
+      mem.push(e.trust === "external" ? `- earlier (${when}${where}, from the caller ${e.caller}, not the owner): ${fenced("caller", text)}` : `- earlier (${when}${where}, ${e.role}): ${text}`);
     }
     volatile.push(mem.join("\n"));
   }

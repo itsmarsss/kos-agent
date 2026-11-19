@@ -39,6 +39,12 @@ export interface CronJob {
    * thread of the job's own.
    */
   agent: string | null;
+  /**
+   * The tools the chat that scheduled it had, when it was scoped: the job's
+   * actions and its thread's turns have those and no more. Null is
+   * unrestricted, as a job the owner made is.
+   */
+  toolAllow: string[] | null;
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
@@ -57,5 +63,7 @@ export interface CreateCronInput {
   projectSlug?: string;
   task?: "reasoning" | "cheap";
   agent?: string;
+  /** Set when the job is made, never by an edit: see CronJob.toolAllow. */
+  toolAllow?: string[];
   enabled?: boolean;
 }
