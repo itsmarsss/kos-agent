@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CODE_TTL_MS, summarizeAction } from "@kos/shared";
-import type { FieldSpot, SecretFill, Seen } from "@kos/browser";
+import { SecretRefused, type FieldSpot, type SecretFill, type Seen } from "@kos/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
@@ -34,6 +34,7 @@ describe("OneTimeCodes", () => {
   let now = 1_000_000;
   const codes = (): OneTimeCodes => new OneTimeCodes(() => now);
   const here = { surface: "kos-browser" as const, conversationId: "c1", origin: SITE };
+  const PIN = "doc-1 @e7";
 
   it("takes only what a card takes, and hands a code out once, to the ask it came with", () => {
     const held = codes();
@@ -44,24 +45,41 @@ describe("OneTimeCodes", () => {
     const handle = held.claim(1, here)!;
     expect(handle).toMatch(/^otp_[0-9a-f]{8}$/);
     expect(held.claim(1, here)).toBeUndefined();
-    expect(held.value(handle, here)).toBe(CODE);
+    expect(held.value(handle, here, "doc-1 @e7")).toBe(CODE);
+    // Handed out once: never again but as its one retry.
+    expect(held.check(handle, here, "doc-1 @e7")?.code).toBe("used");
+  });
+
+  it("gives a code refused before it went in one retry, into the same field of the same page, and no second", () => {
+    const held = codes();
+    held.offer(1, CODE);
+    const handle = held.claim(1, here)!;
+    expect(held.value(handle, here, "doc-1 @e7")).toBe(CODE);
+    held.refusedBefore(handle, "doc-1 @e7");
+    expect(held.retryOpen(handle, "doc-1 @e7")).toBe(true);
+    expect(held.check(handle, here, "doc-1 @e8")?.code).toBe("origin");
+    expect(held.check(handle, here, "doc-2 @e7")?.code).toBe("origin");
+    expect(held.value(handle, here, "doc-1 @e7")).toBe(CODE);
+    // The retry refused too: spent.
+    held.refusedBefore(handle, "doc-1 @e7");
+    expect(held.check(handle, here, "doc-1 @e7")?.code).toBe("used");
   });
 
   it("refuses another chat, page, browser or app, a code used once, and one past five minutes", () => {
     const held = codes();
     held.offer(1, CODE);
     const handle = held.claim(1, here)!;
-    expect(held.check(handle, { ...here, conversationId: "c2" })?.code).toBe("policy");
-    expect(held.check(handle, { ...here, origin: "https://evil.example" })?.code).toBe("origin");
-    expect(held.check(handle, { ...here, surface: "chrome" })?.code).toBe("origin");
-    expect(held.check(handle, { ...here, surface: "mac", app: SAFARI.bundle })?.code).toBe("origin");
-    expect(held.check("otp_00000000", here)?.code).toBe("secret");
+    expect(held.check(handle, { ...here, conversationId: "c2" }, PIN)?.code).toBe("policy");
+    expect(held.check(handle, { ...here, origin: "https://evil.example" }, PIN)?.code).toBe("origin");
+    expect(held.check(handle, { ...here, surface: "chrome" }, PIN)?.code).toBe("origin");
+    expect(held.check(handle, { ...here, surface: "mac", app: SAFARI.bundle }, PIN)?.code).toBe("origin");
+    expect(held.check("otp_00000000", here, PIN)?.code).toBe("secret");
     held.spend(handle);
-    expect(held.check(handle, here)?.code).toBe("used");
+    expect(held.check(handle, here, PIN)?.code).toBe("used");
     held.offer(2, "777333");
     const late = held.claim(2, here)!;
     now += CODE_TTL_MS;
-    expect(held.check(late, here)?.code).toBe("expired");
+    expect(held.check(late, here, PIN)?.code).toBe("expired");
     held.offer(3, "222444");
     now += CODE_TTL_MS;
     expect(held.claim(3, here)).toBeUndefined();
@@ -115,7 +133,7 @@ describe("a one-time code through the tools", () => {
   let place: SecretPlace;
   let filled: SecretFill[][];
   let refuse: Error | undefined;
-  let mac: { focus: MacFocus; typed: MacSecretParams[] };
+  let mac: { focus: MacFocus; typed: MacSecretParams[]; refuse?: Error };
   let said: string[];
 
   beforeEach(async () => {
@@ -143,6 +161,7 @@ describe("a one-time code through the tools", () => {
             session: () => ({ id: "s1", device: { id: "dev_mac", name: "Studio MacBook" } }),
             focus: async () => structuredClone(mac.focus),
             type: async (_chat, params) => {
+              if (mac.refuse) throw mac.refuse;
               mac.typed.push(params);
               return {};
             },
@@ -239,7 +258,7 @@ describe("a one-time code through the tools", () => {
   });
 
   it("refused before it went in, is kept for one more try on that page alone, without a second ask", async () => {
-    refuse = Object.assign(new Error("the field is covered by something else"), { code: "field" });
+    refuse = new SecretRefused("field", "the field is covered by something else");
     const running = guarded().execute("secrets.fill", askCode());
     await decisions().approve(await pending(), "owner", { surface: "dashboard", code: CODE });
     const first = await running;
@@ -257,9 +276,48 @@ describe("a one-time code through the tools", () => {
     expect(audited.approved_by).toBe(GRANT_DECIDER);
   });
 
+  /** A code asked for and approved whose first try the stand-in page answers with `first`; what the turn was told. */
+  const firstTry = async (first: Error): Promise<{ said: string; handle: string }> => {
+    refuse = first;
+    const running = guarded().execute("secrets.fill", askCode());
+    await decisions().approve(await pending(), "owner", { surface: "dashboard", code: CODE });
+    const said = (await running).content;
+    refuse = undefined;
+    return { said, handle: handleIn(said) };
+  };
+
+  it.each([
+    ["a field that took some of it and then lost the keyboard", new SecretRefused("focus", "the keyboard moved off @e7 while it was typed into", true)],
+    ["a field that did not hold it as given", new SecretRefused("field", "@e7 did not take it as given", true)],
+    ["KOS for Chrome's line timing out on the fill", Object.assign(new Error("KOS for Chrome did not answer in time"), { code: "timeout" })],
+    ["KOS for Chrome going offline on the fill", Object.assign(new Error("the device went offline"), { code: "offline" })],
+    ["anything else", new Error("Target closed")],
+  ])("is spent after %s: it may be on the page", async (_how, error) => {
+    const { said, handle } = await firstTry(error);
+    expect(said).toMatch(/it is spent/);
+    expect((await guarded().execute("secrets.fill", { ...askCode(), secret: handle })).content).toMatch(/was used already/);
+    expect(filled).toHaveLength(0);
+    expect(approvals.pending()).toHaveLength(0);
+  });
+
+  it("gives its one retry only into the field and page it was refused on, and spends it when that is refused too", async () => {
+    const { said, handle } = await firstTry(new SecretRefused("field", "the field is covered by something else"));
+    expect(said).toMatch(/one more try.*into @e7 on this same page only/);
+    // Another field of the page, or the page loaded again: not where the owner's yes was for.
+    expect((await guarded().execute("secrets.fill", { ...askCode(), secret: handle, fields: [{ field: "code", target: "@e9" }] })).content).toMatch(/only into the field it was refused by/);
+    page.doc = "doc-2";
+    expect((await guarded().execute("secrets.fill", { ...askCode(), secret: handle })).content).toMatch(/only into the field it was refused by/);
+    page.doc = "doc-1";
+    refuse = new SecretRefused("field", "the field is still covered");
+    expect((await guarded().execute("secrets.fill", { ...askCode(), secret: handle })).content).toMatch(/is spent: it had its one retry/);
+    refuse = undefined;
+    expect((await guarded().execute("secrets.fill", { ...askCode(), secret: handle })).content).toMatch(/was used already/);
+    expect(filled).toHaveLength(0);
+  });
+
   it("runs out after five minutes", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    refuse = Object.assign(new Error("the page changed"), { code: "changed" });
+    refuse = new SecretRefused("field", "the field is covered by something else");
     const running = guarded().execute("secrets.fill", askCode());
     await decisions().approve(await pending(), "owner", { surface: "dashboard", code: CODE });
     const handle = handleIn((await running).content);
@@ -303,5 +361,39 @@ describe("a one-time code through the tools", () => {
     const again = await guarded().execute("secrets.type", { secret: handleIn(done.content), field: "code" });
     expect(again.content).toMatch(/was used already/);
     expect(dbBytes()).not.toContain(CODE);
+  });
+
+  /** A code typed on the Mac whose first try the Mac answers with `first`; what the turn was told. */
+  const firstType = async (first: Error): Promise<{ said: string; handle: string }> => {
+    mac.refuse = first;
+    const running = guarded().execute("secrets.type", { secret: "code", field: "code", intent: "finish signing in" });
+    await decisions().approve(await pending(), "owner", { surface: "phone", code: CODE });
+    const said = (await running).content;
+    mac.refuse = undefined;
+    return { said, handle: handleIn(said) };
+  };
+
+  it.each([
+    ["stopped part of the way", "partial"],
+    ["no word in time", "timeout"],
+    ["the Mac's line gone", "offline"],
+    ["a refusal it does not name before typing", "failed"],
+  ])("is spent on the Mac after %s", async (_how, code) => {
+    const { said, handle } = await firstType(Object.assign(new Error("the Mac stopped"), { code }));
+    expect(said).toMatch(/it is spent/);
+    expect((await guarded().execute("secrets.type", { secret: handle, field: "code" })).content).toMatch(/was used already/);
+    expect(mac.typed).toHaveLength(0);
+  });
+
+  it("gives a code the Mac turned away before typing one retry, into the same field only", async () => {
+    const { said, handle } = await firstType(Object.assign(new Error("Another app came to the front."), { code: "target" }));
+    expect(said).toMatch(/one more try.*into this same field only/);
+    mac.focus = { app: SAFARI, field: { role: "AXTextField", secure: false, window: "Two-factor", label: "Backup code", origin: SITE } };
+    expect((await guarded().execute("secrets.type", { secret: handle, field: "code" })).content).toMatch(/only into the field it was refused by/);
+    mac.focus = { app: SAFARI, field: { role: "AXTextField", secure: false, window: "Two-factor", label: "Code", origin: SITE } };
+    const retried = await guarded().execute("secrets.type", { secret: handle, field: "code" });
+    expect(retried.content).toMatch(/Typed the one-time code/);
+    expect(approvals.pending()).toHaveLength(0);
+    expect((await guarded().execute("secrets.type", { secret: handle, field: "code" })).content).toMatch(/was used already/);
   });
 });

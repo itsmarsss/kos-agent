@@ -24,6 +24,7 @@ import {
   type PendingAction,
   type ProgressEvent,
 } from "@kos/harness";
+import { SecretRefused } from "@kos/browser";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 
@@ -206,9 +207,9 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
     chrome = pair("Chrome on macOS", "chrome");
     chrome.answers.set("tabs.list", () => ({ ok: true, result: { tabs: [{ id: "88", url: `${SITE}/checkout`, title: "Checkout", handed: true }] } }));
     chrome.answers.set("tabs.open", () => ({ ok: true, result: { tab: "88" } }));
-    // A field that will not take the first code, said in words that hold it: a refusal before anything went in.
+    chrome.answers.set("secret.fill", () => ({ ok: true, result: { filled: true } }));
+    // The page's own check turns the first code away before it is handed on, in words that hold it.
     let refusedOnce = false;
-    chrome.answers.set("secret.fill", (p) => (p["value"] === canary.codes[1] && !refusedOnce && (refusedOnce = true) ? { ok: false, code: "field", message: `the field would not take ${String(p["value"])}` } : { ok: true, result: { filled: true } }));
     mac = pair("Studio MacBook", "macos");
     mac.answers.set("keys.focus", () => ({ ok: true, result: { app: SAFARI, field: { role: "AXTextField", secure: true, window: "Sign in", label: "Password", origin: SITE } } }));
     let typedOnce = false;
@@ -306,7 +307,13 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
       // In the owner's Chrome the value goes over KOS for Chrome's line, as OwnerChrome sends it.
       if (chat === chats.chrome) {
         const put = (ownerChrome as unknown as { putSecret(c: string, t: string, p: Record<string, unknown>): Promise<void> }).putSecret.bind(ownerChrome);
-        for (const fill of fills) await put(chat, "88", { node: 41, frame: "F", doc: fill.expect.doc, origin: fill.expect.origin, frameOrigin: fill.expect.frameOrigin, slot: fill.expect.slot, value: fill.value });
+        for (const fill of fills) {
+          if (fill.value === canary.codes[1] && !refusedOnce && (refusedOnce = true)) throw new SecretRefused("field", `the field would not take ${fill.value}`);
+          // As Page.fillSecret says it: once handed to KOS for Chrome, whatever went wrong may have put it in.
+          await put(chat, "88", { node: 41, frame: "F", doc: fill.expect.doc, origin: fill.expect.origin, frameOrigin: fill.expect.frameOrigin, slot: fill.expect.slot, value: fill.value }).catch((err: unknown) => {
+            throw err instanceof SecretRefused ? new SecretRefused(err.code, err.message, true) : err;
+          });
+        }
       }
       placed.push({ chat, values: fills.map((f) => f.value) });
       const echoed = fills.map((f) => f.value).join(" ");
@@ -428,7 +435,7 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
 
     // The hub sent each value in the one call that places it; every other frame holds none.
     const carrying = frames.filter((f) => leaks(f.text).length > 0).map((f) => JSON.parse(f.text) as { method?: string });
-    expect(carrying.map((f) => f.method)).toEqual(["secret.fill", "secret.fill", "secret.fill", "keys.secret", "keys.secret", "keys.secret"]);
+    expect(carrying.map((f) => f.method)).toEqual(["secret.fill", "secret.fill", "keys.secret", "keys.secret", "keys.secret"]);
 
     // A compaction, a memory pass, an artifact's export and a backup, each over what the turns left.
     const compacted = (await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: { text: "/compact", sessionId: chats.kos } })).body as { reply: string };

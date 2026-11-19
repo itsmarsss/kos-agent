@@ -7,8 +7,10 @@ import { CODE_HANDLE, CODE_TTL_MS, codeProblem, ONE_TIME_CODE, typedCode, type S
  * owner types it into the card of the fill or the type that needs it, the
  * yes hands it here under the ask's id, and the approved call takes it as a
  * handle `otp_<id>` bound to the page or the app it was asked for and the
- * chat that asked. A handle is used once, within CODE_TTL_MS of the yes; a
- * refusal before anything reached the page leaves it for one more try.
+ * chat that asked. A handle is used once, within CODE_TTL_MS of the yes. A
+ * refusal known to come before the value reached the page leaves it for one
+ * more try, and one only, into the same field of the same document (its
+ * pin); anything else spends it.
  *
  * The value is watched for by the scrubber for as long as it is held, and
  * for CODE_TTL_MS after it was used or ran out, so a page that echoes it is
@@ -46,6 +48,10 @@ interface Held {
   /** Until when echoes of it are still taken out. */
   watched: number;
   spent: boolean;
+  /** Times it was handed out to be placed: once, and a second time only for its one retry. */
+  tries: number;
+  /** The field of the document its one retry may go into, once its first try was refused before it went in. */
+  pin?: string;
 }
 
 export class OneTimeCodes {
@@ -71,7 +77,7 @@ export class OneTimeCodes {
     this.sweep();
     for (const [handle, code] of this.held) if (code.approval === approval) this.held.delete(handle);
     const at = this.now();
-    this.held.set(`otp_${randomBytes(4).toString("hex")}`, { value: typedCode(typed), approval, expires: at + CODE_TTL_MS, watched: at + 2 * CODE_TTL_MS, spent: false });
+    this.held.set(`otp_${randomBytes(4).toString("hex")}`, { value: typedCode(typed), approval, expires: at + CODE_TTL_MS, watched: at + 2 * CODE_TTL_MS, spent: false, tries: 0 });
     this.changed();
     return undefined;
   }
@@ -88,23 +94,50 @@ export class OneTimeCodes {
     return undefined;
   }
 
-  /** Whether the code `handle` may go where `at` says, and why not when it may not. */
-  check(handle: string, at: CodeBinding): CodeRefusal | undefined {
+  /**
+   * Whether the code `handle` may go where `at` says, into the field `pin`
+   * names, and why not when it may not. Once handed out it goes again only
+   * as its one retry, into the field it was pinned to.
+   */
+  check(handle: string, at: CodeBinding, pin: string): CodeRefusal | undefined {
     this.sweep();
     const code = this.held.get(handle);
     if (!code?.bound) return { code: "secret", why: `There is no one-time code ${JSON.stringify(handle)}. Ask for one with secret "code".` };
-    if (code.spent) return { code: "used", why: `The one-time code ${handle} was used already; a code goes in once. Ask for a new one with secret "code".` };
+    if (code.spent || (code.tries > 0 && code.pin === undefined)) return { code: "used", why: `The one-time code ${handle} was used already; a code goes in once. Ask for a new one with secret "code".` };
     if (code.expires <= this.now()) return { code: "expired", why: `The one-time code ${handle} ran out (a code is good for ${CODE_TTL_MS / 60_000} minutes). Ask for a new one with secret "code".` };
     const bound = code.bound;
     if (bound.conversationId !== at.conversationId) return { code: "policy", why: `The one-time code ${handle} was given to another chat.` };
     if (bound.surface !== at.surface || (bound.app ?? null) !== (at.app ?? null)) return { code: "origin", why: `The one-time code ${handle} was given for ${placeWords(bound)}, not here.` };
     if ((bound.origin ?? null) !== (at.origin ?? null)) return { code: "origin", why: `The one-time code ${handle} was given for ${bound.origin ?? "a field outside a page"}, not ${at.origin ?? "here"}.` };
+    if (code.pin !== undefined && code.pin !== pin) return { code: "origin", why: `The one-time code ${handle} may go again only into the field it was refused by, on the same page; look again, or ask for a new one.` };
     return undefined;
   }
 
-  /** The value of `handle`, for the one call that places it, when `check` passes. */
-  value(handle: string, at: CodeBinding): string | CodeRefusal {
-    return this.check(handle, at) ?? this.held.get(handle)!.value;
+  /** The value of `handle`, for the one call that places it, when `check` passes: a try counted. */
+  value(handle: string, at: CodeBinding, pin: string): string | CodeRefusal {
+    const refused = this.check(handle, at, pin);
+    if (refused) return refused;
+    const code = this.held.get(handle)!;
+    code.tries += 1;
+    code.pin = undefined;
+    return code.value;
+  }
+
+  /**
+   * Its try refused before the value reached the page or the field: kept
+   * for one retry into `pin` after a first try, spent after a retry.
+   */
+  refusedBefore(handle: string, pin: string): void {
+    const code = this.held.get(handle);
+    if (!code || code.spent) return;
+    if (code.tries === 1) code.pin = pin;
+    else this.spend(handle);
+  }
+
+  /** Whether `handle` has its one retry open, into the field `pin` names. */
+  retryOpen(handle: string, pin: string): boolean {
+    const code = this.held.get(handle);
+    return code !== undefined && !code.spent && code.pin === pin;
   }
 
   /** `handle` used: never again, and watched for a while longer, then dropped. */

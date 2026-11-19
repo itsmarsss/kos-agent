@@ -1,4 +1,4 @@
-import { isSecretSlot, type FieldSpot, type SecretFill, type SecretSlot, type Seen, type Then } from "@kos/browser";
+import { isSecretSlot, SecretRefused, type FieldSpot, type SecretFill, type SecretSlot, type Seen, type Then } from "@kos/browser";
 import { CODE_TTL_MS, ONE_TIME_CODE, SECRET_FIELDS, SECRET_KINDS, secretFieldWords, type AskSecret, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSurface } from "@kos/shared";
 
 import { approvedAs, caller, guestOrigin, isAttended, turn } from "../kernel/caller.js";
@@ -293,6 +293,13 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
   const codeNamed = (input: Record<string, unknown>): string => str(input, "secret")!.toLowerCase();
   /** Where a code fill would go now, as a code is bound to it. */
   const codeAt = (origin: string): CodeBinding => ({ surface: deps.browser.where().surface, conversationId: caller.getStore() ?? "", origin });
+  /** The field a code's one retry is held to: that document's, by its ref. */
+  const codePin = (doc: string, target: string): string => `${doc} ${target}`;
+  /** The code box a call names, when it names one as a code's fill does. */
+  const codeTarget = (input: Record<string, unknown>): string => {
+    const f = Array.isArray(input["fields"]) ? (input["fields"] as { target?: unknown }[])[0] : undefined;
+    return typeof f?.target === "string" ? f.target.trim() : "";
+  };
 
   /**
    * Everything a one-time code's fill must pass before anyone is asked: the
@@ -324,7 +331,7 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
     if (spot.frameOrigin !== spot.origin) throw new Refusal("origin", `${target} is in a frame from ${spot.frameOrigin || "no site"}; a one-time code goes only into the page's own frame. Hand the tab to the owner (browser.handoff) instead.`);
     const handle = codeNamed(input);
     if (handle !== ONE_TIME_CODE) {
-      const refused = deps.codes.check(handle, codeAt(spot.origin));
+      const refused = deps.codes.check(handle, codeAt(spot.origin), codePin(str(input, "doc") ?? spot.doc, target));
       if (refused) throw new Refusal(refused.code, refused.why);
     }
     return { handle, target, spots };
@@ -344,18 +351,24 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
     const yes = approvedAs.getStore();
     const handle = named === ONE_TIME_CODE ? (yes ? codes.claim(yes.id, at) : undefined) : named;
     if (!handle) throw new Error("No code came with the owner's yes; nothing was filled. Hand the tab to the owner (browser.handoff) to type it.");
-    const value = codes.value(handle, at);
+    const pin = codePin(expect.doc, target);
+    const value = codes.value(handle, at, pin);
     if (typeof value !== "string") throw new Error(`Not filled: ${value.why}`);
-    const kept = (): string => `The code is kept as ${handle} for ${codes.minutesLeft(handle)} more minute(s), for ${expect.origin} only: look again, then secrets.fill {secret: "${handle}", fields: [{field: "code", target}]}.`;
     let seen: Seen;
     try {
       seen = await deps.browser.fill([{ ref: target, value, expect: { ...expect, frameOrigin: expect.origin, slot: "text" } }], thenOf(input));
     } catch (err) {
-      const code = (err as { code?: string }).code;
-      // Refused before it went in: the code is still good for one more try. Anything else may have put it in part of the way.
-      if (code && err instanceof Error) throw new Error(`Not filled: ${err.message} ${kept()}`);
+      // Refused by a check made before the value went anywhere: one more try, into this field of this page, if this was the first.
+      if (err instanceof SecretRefused && !err.placed) {
+        codes.refusedBefore(handle, pin);
+        if (codes.retryOpen(handle, pin)) {
+          throw new Error(`Not filled: ${err.message} The code is kept as ${handle} for one more try within ${codes.minutesLeft(handle)} minute(s), into ${target} on this same page only: secrets.fill {secret: "${handle}", fields: [{field: "code", target: "${target}"}]}.`);
+        }
+        throw new Error(`Not filled: ${err.message} The code (${handle}) is spent: it had its one retry. Hand the tab to the owner (browser.handoff) to type a new one.`);
+      }
+      // Anything else may have put some or all of it in the field.
       codes.spend(handle);
-      throw new Error(`Filling the one-time code failed; it is spent. Look at the page, and hand the tab to the owner (browser.handoff) to type a new one.`);
+      throw new Error(`Filling the one-time code (${handle}) failed, and some of it may be in the field; it is spent. Look at the page, and hand the tab to the owner (browser.handoff) to type a new one.`);
     }
     codes.spend(handle);
     const text = `Filled the one-time code (${handle}) on ${expect.origin}, ${placeWords(place)}. It is spent: a code goes in once.\n${seen.text}`.trim();
@@ -585,7 +598,10 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
           granted: (input) => {
             const origin = str(input, "origin");
             // A code given already was the owner's yes for this page: it goes in without a second ask, once.
-            if (namesCode(input)) return origin !== undefined && codeNamed(input) !== ONE_TIME_CODE && deps.codes?.check(codeNamed(input), codeAt(origin)) === undefined;
+            if (namesCode(input)) {
+              const doc = str(input, "doc");
+              return origin !== undefined && doc !== undefined && codeNamed(input) !== ONE_TIME_CODE && deps.codes?.check(codeNamed(input), codeAt(origin), codePin(doc, codeTarget(input))) === undefined;
+            }
             const meta = deps.vault()?.get(str(input, "secret")?.toLowerCase() ?? "");
             if (!meta || !origin) return false;
             // A site's grant covers a secret only into password boxes: a card or a key into a text box asks.

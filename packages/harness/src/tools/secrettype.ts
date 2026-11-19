@@ -190,6 +190,12 @@ interface Judged extends Placed {
   slot: SecretSlot;
 }
 
+/** The Mac's own refusals, each made before any of a value is typed: past the first key a stop is `partial`. */
+const BEFORE_TYPING: ReadonlySet<string> = new Set(["target", "origin", "field", "secret_field", "paused", "no_session", "permission"]);
+
+/** The field a code's one retry is held to: the same field, by what the Mac says of it, on the same page. */
+const codePin = (f: Pick<MacField, "role" | "window" | "label" | "origin">): string => JSON.stringify([f.role, f.window ?? "", f.label ?? "", f.origin ?? ""]);
+
 /** Where a one-time code would be typed, as it is bound to it. */
 const codeAt = (chat: string, app: string, origin: string | undefined): CodeBinding => ({ surface: SURFACE, conversationId: chat, app, ...(origin ? { origin } : {}) });
 
@@ -352,7 +358,7 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
     if (target.frames?.length) throw new Refusal("origin", `The field in ${app.name} is in a frame; a one-time code goes only into a page's own frame. Let the owner type it.`);
     const handle = str(input, "secret")!.toLowerCase();
     if (handle !== ONE_TIME_CODE) {
-      const refused = codes.check(handle, codeAt(chat, app.bundle, target.origin));
+      const refused = codes.check(handle, codeAt(chat, app.bundle, target.origin), codePin(target));
       if (refused) throw new Refusal(refused.code, refused.why);
     }
     return { handle, chat, session, app, target };
@@ -375,7 +381,8 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
     const yes = approvedAs.getStore();
     const handle = named === ONE_TIME_CODE ? (yes ? codes.claim(yes.id, at) : undefined) : named;
     if (!handle) throw new Error("No code came with the owner's yes; nothing was typed. Let the owner type it.");
-    const value = codes.value(handle, at);
+    const pin = codePin(target);
+    const value = codes.value(handle, at, pin);
     if (typeof value !== "string") throw new Error(`Not typed: ${value.why}`);
     try {
       await deps.mac.type(chat, {
@@ -389,12 +396,16 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
       }, summarizeAction(SECRET_TYPE, input));
     } catch (err) {
       const code = (err as { code?: string }).code;
-      // The Mac refused before typing: the code is still good for one more try. Part of the way, or no word in time, it is spent.
-      if (code && code !== PARTIAL && code !== TIMEOUT && err instanceof Error) {
-        throw new Error(`Not typed: ${err.message} The code is kept as ${handle} for ${codes.minutesLeft(handle)} more minute(s), for this app and page only: click into the box, then secrets.type {secret: "${handle}", field: "code"}.`);
+      // The Mac refused before it typed a key: one more try, into this field, if this was the first. Anything else may have typed some of it.
+      if (code && BEFORE_TYPING.has(code) && err instanceof Error) {
+        codes.refusedBefore(handle, pin);
+        if (codes.retryOpen(handle, pin)) {
+          throw new Error(`Not typed: ${err.message} The code is kept as ${handle} for one more try within ${codes.minutesLeft(handle)} minute(s), into this same field only: click into it, then secrets.type {secret: "${handle}", field: "code"}.`);
+        }
+        throw new Error(`Not typed: ${err.message} The code (${handle}) is spent: it had its one retry. Let the owner type a new one.`);
       }
       codes.spend(handle);
-      throw new Error("Typing the one-time code did not finish, so part of it may be in the field; it is spent. Do not submit the form: stop, say so, and let the owner type a new one.");
+      throw new Error(`Typing the one-time code (${handle}) did not finish, so part of it may be in the field; it is spent. Do not submit the form: stop, say so, and let the owner type a new one.`);
     }
     codes.spend(handle);
     return `Typed the one-time code (${handle}) into the ${fieldWords(target)} in ${app.name} on ${session.device.name}. It is spent: a code goes in once. Submit with Return or the form's button, then look.`;
@@ -533,7 +544,8 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
           const bundle = (input["app"] as { bundle?: unknown } | undefined)?.bundle;
           const handle = str(input, "secret")!.toLowerCase();
           const chat = caller.getStore();
-          return handle !== ONE_TIME_CODE && typeof bundle === "string" && chat !== undefined && deps.codes?.()?.check(handle, codeAt(chat, bundle, str(input, "origin"))) === undefined;
+          const target = stampedTarget(input);
+          return handle !== ONE_TIME_CODE && typeof bundle === "string" && chat !== undefined && target !== undefined && deps.codes?.()?.check(handle, codeAt(chat, bundle, str(input, "origin")), codePin(target)) === undefined;
         }
         const meta = metaOf(input);
         const key = grantKey(input);
