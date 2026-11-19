@@ -19,7 +19,7 @@ const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 /** The owner speaking on a surface: what a call in that turn is under. */
 type Spoken = { surface: string; said: string };
 
-function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>; mac?: () => { device: string; app?: string } | undefined; from?: Spoken; stopTurn?: (chat: string) => boolean; asksEachStep?: (chat: string) => boolean; inAuto?: (chat: string) => boolean } = {}) {
+function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>; mac?: () => { device: string; app?: string } | undefined; panelChrome?: () => string | undefined; from?: Spoken; stopTurn?: (chat: string) => boolean; asksEachStep?: (chat: string) => boolean; inAuto?: (chat: string) => boolean } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -67,6 +67,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
       return () => undefined;
     },
     ...(opts.mac ? { panelMac: () => opts.mac!() } : {}),
+    ...(opts.panelChrome ? { panelChrome: () => opts.panelChrome!() } : {}),
     ...(opts.stopTurn ? { stopTurn: opts.stopTurn } : {}),
     ...(opts.asksEachStep ? { asksEachStep: opts.asksEachStep } : {}),
     ...(opts.inAuto ? { inAuto: opts.inAuto } : {}),
@@ -142,6 +143,25 @@ describe("the computer tools", () => {
     expect(escalate({ task: "t" })).toMatch(/without asking/);
     // Such an ask is a session's start: a chat's Auto covers it only where the owner let it start sessions.
     expect(tools.get("computer.start")!.risk!.startsSession).toBe(true);
+  });
+
+  it("ask about the side panel's own Chrome when chrome.start names none and two are online", () => {
+    let panel: string | undefined;
+    const { tools, hub } = setup({ panelChrome: () => panel });
+    const chromes = ["Work Chrome", "Home Chrome"].map((name) => {
+      const fake = new FakeDevice();
+      fake.id = hub.pair({ code: hub.issueCode().code, name, platform: "chrome", publicKey: fake.publicKey }).device;
+      hub.accept(fake.socket);
+      fake.hello({ app: { version: "0.1.0", platform: "chrome", os: "mac" } });
+      return fake;
+    });
+    panel = chromes[0]!.id;
+    chromes[0]!.send({ t: "state", consent: "kos" });
+    const escalate = tools.get("chrome.start")!.risk!.escalate!;
+    // The start would work in the panel's Chrome, which asks nobody: KOS's approvals must.
+    expect(escalate({ task: "t" })).toMatch(/without asking/);
+    panel = chromes[1]!.id;
+    expect(escalate({ task: "t" })).toBe(false);
   });
 
   it("start a session the owner reads by the chat's title, and hand back the screen", async () => {
