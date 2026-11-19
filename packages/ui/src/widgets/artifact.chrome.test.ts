@@ -202,7 +202,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const port = 9400 + Math.floor(Math.random() * 400);
     chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--no-first-run", "--use-mock-keychain", "about:blank"], { stdio: "ignore" });
     let version: { webSocketDebuggerUrl: string } | undefined;
-    for (let i = 0; i < 300 && !version; i++) {
+    for (let i = 0; i < 450 && !version; i++) {
       version = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json() as Promise<{ webSocketDebuggerUrl: string }>).catch(() => undefined);
       if (!version) await pause(100);
     }
@@ -228,7 +228,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     send = (method, params = {}) => raw(method, params, session);
     sendTo = (to, method, params = {}) => raw(method, params, to);
     close = () => ws.close();
-  }, 30_000);
+  }, 60_000);
 
   afterAll(async () => {
     close();
