@@ -99,6 +99,8 @@ public struct AskCodeField: View {
   public var body: some View {
     VStack(alignment: .leading, spacing: 4) {
       KOSField("The code", placeholder: "Type or paste it", text: $code, mono: true, secure: true)
+        // Told it is a one-time code, so the system offers the one a text just brought, and keeps it from the keychain.
+        .textContentType(.oneTimeCode)
         .onSubmit { if OneTimeCode.typed(code) != nil { submit() } }
       Text(AskWords.codeHelp(secret)).font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
     }
