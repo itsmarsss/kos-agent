@@ -27,7 +27,7 @@ import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
-import { ArtifactRail, ArtifactStrip, type RailOwner, useOwnedArtifacts } from "./ArtifactRail.js";
+import { ArtifactRail, ArtifactStrip, type RailOwner, useArtifactTitles, useOwnedArtifacts } from "./ArtifactRail.js";
 import { ArtifactViewer, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
 import { chatIdOf } from "./artifactowner.js";
 import { PANEL_ROOM, usePanelDrawer, useRoomFor } from "./paneldrawer.js";
@@ -559,8 +559,11 @@ export function ChatsPage({
    * build are addressed by id, and an id is not a name. A blob (@blob:, and
    * @agent: from before blobs had their name) is addressed by its name.
    */
+  const artifactTitles = useArtifactTitles();
   const nameFor = (kind: string, id: string): string | undefined => {
     if (kind === "chat") return conversations.find((c) => c.id === id)?.title;
+    // An artifact by its title; its id while the list is still coming.
+    if (kind === "page") return artifactTitles.get(id);
     if (kind === "build") {
       const build = agents.find((b) => String(b.id) === id);
       return build ? build.dir : undefined;

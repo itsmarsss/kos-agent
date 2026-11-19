@@ -21,6 +21,30 @@ export const ownedBy = (owner: RailOwner, a: Pick<PageSummary, "projectSlug" | "
   "blob" in owner ? a.blob === owner.blob && !a.blobRemoved : a.projectSlug === owner.project;
 
 /**
+ * Every artifact's title by its id, read again as each turn ends: what a
+ * reference in KOS's words is called ("October spending memo"), where the
+ * chip showed the id it was written with. Empty until the list has come.
+ */
+export function useArtifactTitles(): ReadonlyMap<string, string> {
+  const [titles, setTitles] = useState<ReadonlyMap<string, string>>(() => new Map());
+  useEffect(() => {
+    let stale = false;
+    const read = (): void =>
+      void api
+        .artifacts()
+        .then((list) => !stale && setTitles(new Map(list.map((a) => [a.id, a.title]))))
+        .catch(() => undefined);
+    read();
+    const stop = onTurnEnd(read);
+    return () => {
+      stale = true;
+      stop();
+    };
+  }, []);
+  return titles;
+}
+
+/**
  * An owner's artifacts, newest first. Read when the owner changes, when
  * `again` does (what is open in place was closed or changed), and when a turn
  * ends, since a turn is what makes one.
