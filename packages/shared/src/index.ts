@@ -330,3 +330,21 @@ export type {
   ViewFormat,
 } from "./officeview.js";
 export { bytesWords } from "./bytes.js";
+export {
+  isSearchKind,
+  marksOfLetters,
+  matchText,
+  oneLine,
+  queryWords,
+  SEARCH_KINDS,
+  SNIPPET_CHARS,
+  snippetOf,
+  type HitKind,
+  type MatchQuality,
+  type SearchHit,
+  type SearchKind,
+  type SearchResults,
+  type SearchTarget,
+  type Snippet,
+  type TextMatch,
+} from "./search.js";

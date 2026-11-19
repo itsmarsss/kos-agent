@@ -3938,8 +3938,9 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .pal-item {
   display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15rem;
   width: 100%;
   padding: 0.4rem 1.1rem;
   text-align: left;
@@ -3953,7 +3954,9 @@ li:hover .chats-item-when { opacity: 0; }
   font-size: var(--text-md);
 }
 .pal-item.is-cursor { background: var(--accent-dim); }
-.pal-label { flex: none; }
+/* A row's name and its hint, on one line; a long name gives way before it runs off. */
+.pal-line { display: flex; align-items: baseline; gap: 0.6rem; min-width: 0; }
+.pal-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-item .pal-label { color: var(--text); }
 .pal-hint {
   flex: 1;
@@ -3964,15 +3967,32 @@ li:hover .chats-item-when { opacity: 0; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A full-text hit: the words around the match under its name, two lines at most. */
+.pal-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+/* Everywhere's last line: what is still being read, or that nothing else holds it. */
+.pal-group-note { margin-left: 0.5rem; color: var(--faint); font-weight: 500; letter-spacing: 0; text-transform: none; }
+.pal-note { margin: 0; padding: 0.4rem 1.1rem; color: var(--faint); font-size: var(--text-sm); }
 .pal-empty { padding: 1.25rem 1.1rem; font-size: var(--text-md); }
 .pal-foot {
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
   padding: 0.5rem 1.1rem;
   border-top: 1px solid var(--line);
   color: var(--faint);
   font-size: var(--text-sm);
 }
+/* A key and what it does stay together; a narrow window puts the next pair on a second row. */
+.pal-foot > span { white-space: nowrap; }
 .pal-foot kbd {
   display: inline-block;
   padding: 0 0.25rem;
@@ -4078,7 +4098,6 @@ li:hover .chats-item-when { opacity: 0; }
 .set-search { padding-bottom: 0.6rem; }
 .set-search-input { width: 100%; }
 .set-results { display: flex; flex-direction: column; gap: 0.15rem; }
-.set-result mark { background: none; color: var(--accent); font-weight: 700; }
 .set-results-none { padding: 0 0.7rem; }
 .is-found { border-radius: var(--radius); animation: set-found 1.8s ease-out; }
 @keyframes set-found {
@@ -4087,6 +4106,20 @@ li:hover .chats-item-when { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .is-found { animation: none; box-shadow: 0 0 0 2px var(--accent); }
+}
+/* A message a search opened its chat at keeps its own corners while it is lit. */
+.bubble.is-found { border-radius: var(--r-md); }
+.bubble--you.is-found { border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg); }
+/* KOS's words sit on no bubble, so a ring hugs the text; they are lit with a tint that fades instead. */
+.bubble--kos.is-found,
+.bubble--system.is-found { animation: found-tint 2.4s ease-out; box-shadow: none; }
+@keyframes found-tint {
+  0%, 35% { background: var(--accent-dim); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bubble--kos.is-found,
+  .bubble--system.is-found { animation: none; background: var(--accent-dim); }
 }
 
 .set-pane { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
@@ -6888,6 +6921,19 @@ a.health {
 .preview-attached .hint { margin: 0; }
 .preview-pre { margin: 0; padding: 0.9rem 1rem; width: 100%; font-family: var(--mono); font-size: var(--text-base); white-space: pre; }
 .preview-md { width: 100%; max-width: 48rem; padding: 1rem 1.25rem; }
+/* A file opened at a line: the line lit across the text, in the text's own line height. */
+.preview-pre--lined { position: relative; z-index: 0; }
+.preview-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(0.9rem + var(--line, 0) * 1lh);
+  height: 1lh;
+  background: var(--accent-dim);
+  border-left: 2px solid var(--accent);
+  pointer-events: none;
+  z-index: -1;
+}
 /* A PDF in the browser's own viewer, as tall as the popup allows. */
 .preview-frame { width: 100%; height: min(78vh, 60rem); border: 0; background: var(--bg); display: block; }
 .preview-extracted { width: 100%; }

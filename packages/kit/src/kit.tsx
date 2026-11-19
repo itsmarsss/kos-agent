@@ -111,6 +111,26 @@ export function Empty({ title, inline = false, className, children }: { title?: 
 }
 
 /**
+ * Words with the stretches a search matched marked: `marks` are [start, end)
+ * offsets into `text`, as the host's search gives them. Drawn as elements,
+ * so text from a chat or a file is never read as markup.
+ */
+export function Marked({ text, marks }: { text: string; marks: readonly (readonly [number, number])[] }): ReactElement {
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const [start, end] of [...marks].sort((a, b) => a[0] - b[0])) {
+    const s = Math.max(start, at);
+    const e = Math.min(end, text.length);
+    if (e <= s) continue;
+    if (s > at) parts.push(text.slice(at, s));
+    parts.push(<mark key={s} className="marked">{text.slice(s, e)}</mark>);
+    at = e;
+  }
+  if (at < text.length) parts.push(text.slice(at));
+  return <>{parts}</>;
+}
+
+/**
  * Where something will be while it loads: a quiet block in its shape, with a
  * slow sheen (none for those who asked for less motion). A list draws a few
  * in the shape of its rows or cards, so nothing jumps when they arrive.

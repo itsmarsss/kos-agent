@@ -25,6 +25,7 @@ export const MessageTurn = memo(function MessageTurn({
   linkFor,
   busy,
   onTurn,
+  found = false,
 }: {
   event: Extract<ChatEvent, { kind: "message" }>;
   /** Which of the owner's turns it is, by position, or -1 for one that is not theirs to change. */
@@ -35,9 +36,11 @@ export const MessageTurn = memo(function MessageTurn({
   busy: boolean;
   /** Edit, retry or fork one of the owner's turns. Kept to one identity by the thread, so a message redraws only when it changes. */
   onTurn: (what: TurnAction, turn: number) => void;
+  /** The message a search opened the chat at: lit where it sits. */
+  found?: boolean;
 }): ReactElement {
   const bubble = e.text && (
-    <div className={`bubble bubble--${e.role}`}>
+    <div className={`bubble bubble--${e.role}${found ? " is-found" : ""}`}>
       {e.quote && <QuoteLine text={e.quote.text} from={e.quote.from} />}
       <ChatWords role={e.role} text={e.text} actions={actions} />
     </div>

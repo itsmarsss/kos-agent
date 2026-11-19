@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
@@ -98,7 +98,7 @@ function Unshown({ path, why }: { path: string; why: string }): ReactElement {
 }
 
 /** The file's contents, shown for what they are; `raw` is the text as it is on disk, for a file drawn from its text. */
-export function FileBody({ file, raw = false }: { file: FileContent; raw?: boolean }): ReactElement {
+export function FileBody({ file, raw = false, line }: { file: FileContent; raw?: boolean; line?: number }): ReactElement {
   // A document, a workbook or a deck is drawn as itself; its words are a Raw away.
   if (isOfficePath(file.path)) return <OfficeBody path={file.path} version={`${file.modifiedAt}:${file.size}`} />;
   if (AUDIO.test(file.path)) return <Player kind="audio" path={file.path} />;
@@ -111,6 +111,8 @@ export function FileBody({ file, raw = false }: { file: FileContent; raw?: boole
   if (file.omitted === "too-large") return <Unshown path={file.path} why="Too large to show here." />;
   if (file.text === undefined) return <p className="hint preview-hint">Nothing to show.</p>;
   if (!raw && isSvgPath(file.path)) return <img className="files-image files-image--svg" src={svgDataUrl(file.text)} alt={file.path.split("/").pop() ?? file.path} />;
+  // A line asked for is the file's own line: shown as written, not reflowed (pretty JSON) or drawn (markdown).
+  if (line !== undefined) return <LinedText file={file} line={line} />;
   const text = !raw && /\.json$/i.test(file.path) ? prettyJson(file.text) : file.text;
   if (file.language === "markdown") {
     return (
@@ -119,19 +121,35 @@ export function FileBody({ file, raw = false }: { file: FileContent; raw?: boole
       </div>
     );
   }
+  return <pre className="preview-pre">{coloured(text, file.language)}</pre>;
+}
+
+/** Text in its language's colours, where it has them. */
+function coloured(text: string, language: FileContent["language"]): ReactNode {
+  if (!highlights(language)) return text;
+  return tokenize(text, language).map((t, i) =>
+    t.kind === "plain" ? (
+      t.text
+    ) : (
+      <span key={i} className={`tok tok--${t.kind}`}>
+        {t.text}
+      </span>
+    ),
+  );
+}
+
+/**
+ * The text as it is on disk with one line lit and scrolled to: where a
+ * search found it. The band is drawn in the text's own line height, so it
+ * sits on the line however the density scales the type.
+ */
+function LinedText({ file, line }: { file: FileContent; line: number }): ReactElement {
+  const band = useRef<HTMLSpanElement>(null);
+  useEffect(() => band.current?.scrollIntoView({ block: "center" }), [line, file.path]);
   return (
-    <pre className="preview-pre">
-      {highlights(file.language)
-        ? tokenize(text, file.language).map((t, i) =>
-            t.kind === "plain" ? (
-              t.text
-            ) : (
-              <span key={i} className={`tok tok--${t.kind}`}>
-                {t.text}
-              </span>
-            ),
-          )
-        : text}
+    <pre className="preview-pre preview-pre--lined">
+      <span ref={band} className="preview-line" aria-hidden="true" style={{ "--line": Math.max(0, line - 1) } as CSSProperties} />
+      {coloured(file.text ?? "", file.language)}
     </pre>
   );
 }
@@ -260,9 +278,11 @@ export interface FilePreviewProps {
   locals?: Record<string, LocalFile>;
   /** Opened as Quick Look from a file list: Space closes it too, and the up and down arrows step as well. */
   quickLook?: boolean;
+  /** A line of `line.path` to show lit: where a search found it. */
+  line?: { path: string; line: number };
 }
 
-export function FilePreview({ path, siblings = [], onStep, onClose, actions, paused = false, locals, quickLook = false }: FilePreviewProps): ReactElement | null {
+export function FilePreview({ path, siblings = [], onStep, onClose, actions, paused = false, locals, quickLook = false, line }: FilePreviewProps): ReactElement | null {
   const [file, setFile] = useState<FileContent | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The words instead of the document; back to the file on every step.
@@ -414,7 +434,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                     {attachedHint && <p className="hint">Kept in the workspace once sent.</p>}
                   </div>
                 )}
-                {shown && (!local || (!local.src && local.text !== undefined)) && (raw && rawable && path ? drawn ? <FileBody file={shown} raw /> : <RawBody path={path} /> : <FileBody file={shown} />)}
+                {shown && (!local || (!local.src && local.text !== undefined)) && (raw && rawable && path ? drawn ? <FileBody file={shown} raw /> : <RawBody path={path} /> : <FileBody file={shown} {...(line && line.path === shown.path ? { line: line.line } : {})} />)}
               </div>
             </m.div>
           </div>

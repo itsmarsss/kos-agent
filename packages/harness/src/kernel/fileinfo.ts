@@ -1,6 +1,8 @@
 import { closeSync, constants, fstatSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 
+import { matchText, oneLine, snippetOf } from "@kos/shared";
+
 import { imageTypeOf, pictureSize } from "../files/headers.js";
 import { isPdf, pdfPages } from "../files/pdftext.js";
 import { isZip, readZip } from "../files/zip.js";
@@ -85,44 +87,70 @@ export function searchNames(ws: Workspace, dir: unknown, query: string): NameSea
 export interface ContentHit extends DirEntry {
   /** The first line that matched, and its number. */
   line: number;
+  /** That line on one line, cut around the match. */
   text: string;
+  /** Where in `text` the query matched, as [start, end) offsets. */
+  marks: [number, number][];
+}
+
+export interface ContentsOptions {
+  /** How long it may read before it answers with what it found, ms. */
+  budgetMs?: number;
+  /** Who is asking: a newer search in the same lane ends the one before; another lane's is left alone. */
+  lane?: string;
+  /** Ends the search early; it answers empty, marked truncated. */
+  signal?: AbortSignal;
 }
 
 /** How long a contents search may read before it answers with what it found. */
 const CONTENTS_MS = 3000;
-/** Contents searches run in the viewer's child, one at a time; a newer one ends the one before. */
-const searches = defaultJobs(1);
-let latest: AbortController | undefined;
+/** How much of a matched line comes back. */
+const LINE_CHARS = 200;
+/** Contents searches run in the viewer's child, a lane each (the Files page, the palette), so neither waits on the other's. */
+const searches = defaultJobs(2);
+const latest = new Map<string, AbortController>();
+
+/** A path through a hidden name anywhere (a .env in a project): the walk's own listing never shows one, so neither does its search. */
+const throughHidden = (path: string): boolean => path.split("/").some((s) => s.startsWith("."));
 
 /**
  * Text files under `dir` holding `query`, any case: search.grep's own
- * reader, run off KOS's event loop. The search a newer one supersedes (the
- * next keystroke) is stopped, and answers empty.
+ * reader, run off KOS's event loop. The search a newer one in its lane
+ * supersedes (the next keystroke) is stopped, and answers empty.
  */
-export async function searchContents(ws: Workspace, dir: unknown, query: string): Promise<{ entries: ContentHit[]; truncated: boolean }> {
+export async function searchContents(ws: Workspace, dir: unknown, query: string, options: ContentsOptions = {}): Promise<{ entries: ContentHit[]; truncated: boolean }> {
   const rel = relOf(dir);
   const target = ws.resolve(rel);
   const q = query.trim();
   if (!q) return { entries: [], truncated: false };
-  latest?.abort();
+  const lane = options.lane ?? "files";
+  latest.get(lane)?.abort();
   const mine = new AbortController();
-  latest = mine;
+  latest.set(lane, mine);
+  const stop = (): void => mine.abort();
+  options.signal?.addEventListener("abort", stop);
+  if (options.signal?.aborted) mine.abort();
   let result: ScanResult;
   try {
-    result = (await searches({ op: "contents", root: ws.root, target, pattern: q.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&"), budgetMs: CONTENTS_MS, skipTop: [...RESERVED] }, mine.signal)) as ScanResult;
+    result = (await searches({ op: "contents", root: ws.root, target, pattern: q.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&"), budgetMs: options.budgetMs ?? CONTENTS_MS, skipTop: [...RESERVED] }, mine.signal)) as ScanResult;
   } catch (err) {
     if (mine.signal.aborted) return { entries: [], truncated: true };
     throw err;
   } finally {
-    if (latest === mine) latest = undefined;
+    options.signal?.removeEventListener("abort", stop);
+    if (latest.get(lane) === mine) latest.delete(lane);
   }
+  // Stopped while it read in-process, where there is no child to end: what it found is not wanted.
+  if (mine.signal.aborted) return { entries: [], truncated: true };
   const byPath = new Map<string, ContentHit>();
   for (const hit of result.hits) {
     // Folded spellings of the workspace's own names are left out here as well as by name in the child.
-    if (byPath.has(hit.path) || isReservedName(hit.path.split("/")[0]!)) continue;
+    if (byPath.has(hit.path) || isReservedName(hit.path.split("/")[0]!) || throughHidden(hit.path)) continue;
     try {
       const st = statSync(join(ws.root, hit.path));
-      byPath.set(hit.path, { name: basename(hit.path), path: hit.path, kind: "file", size: st.size, modifiedAt: st.mtimeMs, line: hit.line, text: hit.text.trim().slice(0, 200) });
+      const line = oneLine(hit.text);
+      const shown = snippetOf(line, matchText(line, q)?.marks ?? [], LINE_CHARS);
+      byPath.set(hit.path, { name: basename(hit.path), path: hit.path, kind: "file", size: st.size, modifiedAt: st.mtimeMs, line: hit.line, text: shown.text, marks: shown.marks });
     } catch {
       // Gone since the search read it.
     }
