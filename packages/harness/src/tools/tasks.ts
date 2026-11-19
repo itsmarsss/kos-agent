@@ -1,11 +1,18 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { projectTable, slugify } from "../systems/identifiers.js";
+import { reachesAll } from "../kernel/caretaker.js";
+import { maintains, reachable } from "./fence.js";
+import { reachOf } from "./sql.js";
 
 /**
  * First-party multi-instance tasks module. Blueprint = this module; each
  * "list" is a project instance with a namespaced `items` table. Tools are
- * instance-parameterized via project slug.
+ * instance-parameterized via project slug, and fenced: a list is changed
+ * and read by its own project's chats, the turn that made it, Maintenance,
+ * and the root (its chats, Discord DMs and its schedules), which reaches
+ * every chat and blob as well. Another project's chats, a blob and a
+ * guest's words reach none but their own. A new list is made at the root.
  */
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -26,8 +33,12 @@ function ensureInstanceSchema(
   if (!migrator || !manifest) {
     throw new Error("tasks module requires migrator and manifest");
   }
-  if (!manifest.get(slug)) {
+  const project = manifest.get(slug);
+  if (!project) {
     throw new Error(`unknown project instance: ${slug}`);
+  }
+  if (project.module !== "tasks") {
+    throw new Error(`${slug} is not a tasks list: its tables are its own project's, reached through sql in its chats`);
   }
   // Idempotent: create_table fails if exists — check via sqlite_master.
   const phys = itemsTable(slug);
@@ -53,6 +64,25 @@ function ensureInstanceSchema(
   });
 }
 
+/** Whether this chat may read and change the list: its own project's, made this turn, Maintenance's or the root's. */
+function inReach(ctx: ModuleContext, slug: string): boolean {
+  const reach = reachOf(ctx);
+  return maintains(reach) || reachable(reach).includes(slug) || (reachesAll(reach.project, reach.guest) && !reach.blob);
+}
+
+function refuseOutsideReach(ctx: ModuleContext, slug: string): void {
+  if (inReach(ctx, slug)) return;
+  throw new Error(`the ${slug} list is not this chat's to read or change: hand it to the list's own chat with chats.handoff to @project:${slug}, saying what to add or tick off`);
+}
+
+/** The slug of a list a call names, refused unless this chat reaches it, with its table there. */
+function listIn(ctx: ModuleContext, input: Record<string, unknown>): string {
+  const slug = str(input, "instance");
+  refuseOutsideReach(ctx, slug);
+  ensureInstanceSchema(ctx, slug);
+  return slug;
+}
+
 function defineTasksTools(ctx: ModuleContext): void {
   const services = requireServices(ctx);
   const { db, manifest, pages } = services;
@@ -74,6 +104,10 @@ function defineTasksTools(ctx: ModuleContext): void {
       },
     },
     (input) => {
+      const reach = reachOf(ctx);
+      if (reach.project || reach.blob || reach.guest) {
+        throw new Error("a new list is made at the root, not from a project's or a blob's chat: ask KOS at the root, or keep the items in this project's own tables");
+      }
       const name = str(input, "name");
       const wantPage = input.withPage !== false;
       // Idempotent: same display name or slug returns the existing list.
@@ -86,6 +120,8 @@ function defineTasksTools(ctx: ModuleContext): void {
               p.slug === slugify(name)),
         );
       if (existing) {
+        // Another chat's list is named, not opened: its own chat adds to it.
+        if (!inReach(ctx, existing.slug)) return JSON.stringify({ ...existing, alreadyExisted: true });
         ensureInstanceSchema(ctx, existing.slug);
         if (wantPage && pages && pages.list(existing.slug).length === 0) {
           writeTasksPage(pages, existing.slug, existing.name);
@@ -102,6 +138,8 @@ function defineTasksTools(ctx: ModuleContext): void {
           ? { description: input.description }
           : {}),
       });
+      // The turn that makes a list may fill it, as the turn that makes a project may.
+      ctx.services?.turnMade?.note(project.slug);
       ensureInstanceSchema(ctx, project.slug);
       if (wantPage && pages) {
         writeTasksPage(pages, project.slug, project.name);
@@ -128,8 +166,7 @@ function defineTasksTools(ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const slug = str(input, "instance");
-      ensureInstanceSchema(ctx, slug);
+      const slug = listIn(ctx, input);
       const title = str(input, "title");
       const table = itemsTable(slug);
       const info = db
@@ -159,8 +196,7 @@ function defineTasksTools(ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const slug = str(input, "instance");
-      ensureInstanceSchema(ctx, slug);
+      const slug = listIn(ctx, input);
       const table = itemsTable(slug);
       const includeDone = input.includeDone === true;
       const rows = includeDone
@@ -191,8 +227,7 @@ function defineTasksTools(ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const slug = str(input, "instance");
-      ensureInstanceSchema(ctx, slug);
+      const slug = listIn(ctx, input);
       const id = Number(input.id);
       if (!Number.isInteger(id)) throw new Error("id must be an integer");
       const done = input.done === false ? 0 : 1;

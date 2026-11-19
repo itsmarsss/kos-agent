@@ -39,6 +39,9 @@ import {
   setMcpServerEnabled,
   updateModule,
   updateSkill,
+  MODULES_KEY,
+  parseModuleSettings,
+  repinModule,
   upsertMcpServers,
   withSkillEnabled,
   type McpServerConfig,
@@ -440,7 +443,11 @@ async function cmdModule(rootDir: string, rest: string[], flags: Record<string, 
     }
     if (sub === "update" && arg) {
       const made = await updateModule(ws, arg);
-      console.log(`updated ${made.name}${made.origin ? ` from ${made.origin}` : ""}; restart its server from Settings if it is on`);
+      // Your own update: a module that was on stays on, pinned as it is now.
+      const settings = new SettingsStore(ws.db);
+      const repinned = repinModule(ws, parseModuleSettings(settings.get(MODULES_KEY)), made.name);
+      if (repinned) settings.set(MODULES_KEY, repinned);
+      console.log(`updated ${made.name}${made.origin ? ` from ${made.origin}` : ""}${repinned ? "; still on, pinned as it is now: restart its server from Settings, or kos restart" : ""}`);
       return;
     }
     if (sub === "remove" && arg) {
