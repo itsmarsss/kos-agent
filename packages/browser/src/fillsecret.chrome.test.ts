@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ChromeHost, findChrome } from "./chrome.js";
 import { act, evaluate, fieldSpots, fillSecrets, look, stepsOf, visit, type Tab } from "./hands.js";
 import { BrowserLive, DEFAULT_CONFIG } from "./live.js";
-import { SecretRefused, type FillExpect, type Session } from "./page.js";
+import { SecretRefused, type FillExpect, type SecretPut, type Session } from "./page.js";
 import type { SecretSlot } from "./taint.js";
 
 /**
@@ -257,6 +257,28 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     expect((await refused(pw, { ...right, doc: "another document" })).code).toBe("changed");
     expect(await peek("document.getElementById('pw').value")).toBe("");
     for (const message of [(await refused(pw, { ...right, origin: "https://example.com" })).message]) expect(message).not.toContain(PASSWORD);
+  });
+
+  it("hands the value to a browser that puts it in itself, after its own checks, and holds the page as its own fill does", async () => {
+    const seen = await open();
+    const pw = refOf(seen, "Password");
+    const right = await expectFor(pw, "password");
+    // As KOS for Chrome's page is made (OwnerChrome): the value goes to the extension, which puts it in.
+    const puts: (Omit<SecretPut, "value"> & { given: boolean })[] = [];
+    const own = tab.page as unknown as { putSecret?: (put: SecretPut) => Promise<void> };
+    own.putSecret = async ({ value, ...put }) => void puts.push({ ...put, given: value === PASSWORD });
+    try {
+      await expect(fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: { ...right, origin: "https://example.com" } }], "none")).rejects.toMatchObject({ code: "origin" });
+      expect(puts).toEqual([]);
+      await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: right }], "none");
+      expect(puts).toEqual([{ node: expect.any(Number), frame: expect.any(String), doc: right.doc, origin: base, frameOrigin: base, slot: "password", given: true }]);
+      // Nothing of the Page's own put it in, and the page is held to the secret all the same.
+      expect(await peek("document.getElementById('pw').value")).toBe("");
+      await expect(evaluate(tab, "1")).rejects.toThrow(/browser\.eval is refused: a secret was filled/);
+    } finally {
+      delete own.putSecret;
+      await visit(tab, [`${base}/next`], { then: "none" });
+    }
   });
 
   it("refuses a field of the wrong kind, a hidden one and one that cannot be written", async () => {

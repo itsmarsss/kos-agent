@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { attendance, openDatabase, origin, ownership, type AuditEntry, type ModuleContext, type ToolRisk } from "@kos/harness";
 
-import { jpegEdge, OwnerChrome, relayLine, type Relay } from "./chrome.js";
+import { SecretRefused, type SecretPut } from "@kos/browser";
+
+import { jpegEdge, OwnerChrome, relayLine, type PageSecrets, type Relay } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
 import { DeviceError } from "./link.js";
@@ -20,7 +22,7 @@ import { computerModule } from "./tools.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 type Handler = (input: Record<string, unknown>) => unknown;
 
-function setup(opts: { panel?: () => string | undefined; audit?: (entry: AuditEntry) => void } = {}) {
+function setup(opts: { panel?: () => string | undefined; audit?: (entry: AuditEntry) => void; secrets?: PageSecrets; scrub?: (text: string) => string } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -28,8 +30,9 @@ function setup(opts: { panel?: () => string | undefined; audit?: (entry: AuditEn
     beginTimeoutMs: 200,
     callTimeoutMs: 500,
     log: () => undefined,
+    ...(opts.scrub ? { scrub: opts.scrub } : {}),
   });
-  const chrome = new OwnerChrome(hub);
+  const chrome = new OwnerChrome(hub, opts.secrets);
   const tools = new Map<string, Handler>();
   const risks = new Map<string, ToolRisk | undefined>();
   const ctx: ModuleContext = {
@@ -328,5 +331,72 @@ describe("a tab's commands through the extension", () => {
     const line = relayLine(relay, "88");
     await expect(line.batch!(calls(2), false)).rejects.toThrow("session required");
     await expect(line.batch!(calls(2), false)).rejects.toThrow("session required");
+  });
+});
+
+describe("a saved secret in the owner's Chrome", () => {
+  const PASSWORD = "Pw-canary-9x7q";
+  const OTHER = "Other-site-canary";
+  const put: SecretPut = { node: 41, frame: "F", doc: "L1", origin: "https://github.com", frameOrigin: "https://github.com", slot: "password", value: PASSWORD };
+  /** The host's word on the vault: a value for github.com's pages, another for another site's. */
+  const secrets: PageSecrets = {
+    saved: () => [{ text: PASSWORD, digits: false }, { text: OTHER, digits: false }],
+    savedFor: (origins) => (origins.some((o) => o.endsWith("github.com")) ? [{ text: PASSWORD, digits: false }] : origins.some((o) => o.endsWith("other.example")) ? [{ text: OTHER, digits: false }] : []),
+    evalBlocked: () => undefined,
+  };
+  const started = async (over: Parameters<typeof setup>[0] = {}) => {
+    const all = setup({ secrets, scrub: (t) => t.replaceAll(PASSWORD, "[secret]").replaceAll(OTHER, "[secret]"), ...over });
+    const fake = all.pairChrome();
+    await attendance.run(true, () => all.tools.get("chrome.start")!({ task: "sign in" }));
+    await all.chrome.tab("c1");
+    return { ...all, fake };
+  };
+  const putIn = (chrome: OwnerChrome, p: SecretPut): Promise<void> => (chrome as unknown as { putSecret(c: string, t: string, p: SecretPut): Promise<void> }).putSecret("c1", "88", p);
+
+  it("sends the value in secret.fill alone, unscrubbed there and nowhere else", async () => {
+    const { chrome, fake } = await started();
+    fake.answers.set("secret.fill", () => ({ ok: true, result: { filled: true } }));
+    await putIn(chrome, put);
+    const fills = fake.calls.filter((c) => c.method === "secret.fill");
+    expect(fills.map((c) => c.params)).toEqual([expect.objectContaining({ tab: "88", node: 41, frame: "F", doc: "L1", origin: "https://github.com", frameOrigin: "https://github.com", slot: "password", value: PASSWORD })]);
+    expect(JSON.stringify(fake.calls.filter((c) => c.method !== "secret.fill"))).not.toContain(PASSWORD);
+  });
+
+  it("says the extension's refusals as KOS's own, and an extension from before secret.fill as unreachable", async () => {
+    const { chrome, fake } = await started();
+    fake.answers.set("secret.fill", () => ({ ok: false, code: "origin", message: "the page is on https://evil.example now" }));
+    await expect(putIn(chrome, put)).rejects.toSatisfy((e) => e instanceof SecretRefused && e.code === "origin" && /evil\.example/.test(e.message));
+    fake.answers.set("secret.fill", () => ({ ok: false, code: "bad_request", message: "secret.fill is not something this extension does" }));
+    await expect(putIn(chrome, put)).rejects.toMatchObject({ code: "unreachable" });
+    fake.answers.set("secret.fill", () => ({ ok: false, code: "paused", message: "the owner has taken over this tab" }));
+    await expect(putIn(chrome, put)).rejects.toMatchObject({ code: "paused" });
+  });
+
+  it("pictures a page of a credential site through secret.picture, each frame given its own site's patterns and never another's", async () => {
+    const { chrome, fake } = await started();
+    fake.answers.set("cdp.send", (p) =>
+      p["method"] === "Page.getFrameTree"
+        ? { ok: true, result: { frameTree: { frame: { id: "F", securityOrigin: "https://github.com" }, childFrames: [{ frame: { id: "G", securityOrigin: "https://ads.example" } }] } } }
+        : { ok: true, result: {} },
+    );
+    fake.answers.set("secret.picture", () => ({ ok: true, result: { data: "SU1H" } }));
+    expect(await chrome.picture("c1", 1024)).toBe("SU1H");
+    const asked = fake.calls.find((c) => c.method === "secret.picture")!.params as { masks: Record<string, string[]>; maxEdge: number };
+    expect(Object.keys(asked.masks)).toEqual(["https://github.com"]);
+    expect(asked.masks["https://github.com"]!.join("")).toContain("canary");
+    expect(JSON.stringify(asked)).not.toContain("Other");
+    expect(fake.calls.some((c) => c.method === "cdp.send" && (c.params["params"] as { method?: string } | undefined)?.method === "Page.captureScreenshot")).toBe(false);
+    // An extension from before secret.picture shows no picture of it at all.
+    fake.answers.set("secret.picture", () => ({ ok: false, code: "bad_request", message: "secret.picture is not something this extension does" }));
+    expect(await chrome.picture("c1", 1024)).toBeUndefined();
+  });
+
+  it("pictures a page of no credential site as it always has", async () => {
+    const { chrome, fake } = await started();
+    fake.answers.set("cdp.send", (p) =>
+      p["method"] === "Page.getFrameTree" ? { ok: true, result: { frameTree: { frame: { id: "F", securityOrigin: "https://shop.example" } } } } : p["method"] === "Page.captureScreenshot" ? { ok: true, result: { data: "SU1H" } } : { ok: true, result: {} },
+    );
+    expect(await chrome.picture("c1", 1024)).toBe("SU1H");
+    expect(fake.calls.some((c) => c.method === "secret.picture")).toBe(false);
   });
 });
