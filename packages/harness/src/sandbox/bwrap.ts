@@ -358,14 +358,17 @@ export function bwrapCommand(bwrap: string, file: string, args: string[], option
     const networked = options.network !== false && options.network !== "local";
     const nat = networked ? (options.nat === undefined ? natTool() : options.nat || undefined) : undefined;
     const prlimit = findTrusted("prlimit");
+    const mkfifo = findTrusted("mkfifo") ?? "/usr/bin/mkfifo";
     const { dir, seccomp } = scratch();
     const plan: JailPlan = {
       bwrap,
-      args: [...BASE, ...(refusesUserns ? NO_USERNS : []), ...systemArgs(), ...prefix, ...laid, ...sealed(laid)],
+      // A NAT joins the sandbox's user namespace from outside, which --disable-userns swaps for a nested one as the run starts: there the seccomp filter alone refuses more.
+      args: [...BASE, ...(refusesUserns && !nat ? NO_USERNS : []), ...systemArgs(), ...prefix, ...laid, ...sealed(laid)],
       sources,
       seccomp,
       scratch: dir,
       networked,
+      mkfifo,
       ...(nat ? { nat } : {}),
       ...(prlimit ? { prlimit } : {}),
       command: [file, ...args],

@@ -38,6 +38,8 @@ export interface JailPlan {
   /** True when the run has the network: through nat, or not at all. */
   networked: boolean;
   nat?: JailNat;
+  /** mkfifo, for the gate a networked run waits on until its NAT is up. */
+  mkfifo: string;
   /** prlimit, to cap what the run can take; absent where there is none. */
   prlimit?: string;
   command: string[];
@@ -134,6 +136,18 @@ function childPid(stream: NodeJS.ReadableStream): Promise<number> {
   });
 }
 
+/** Wait until bwrap has mapped the sandbox's user namespace: a NAT that joins it sooner cannot enter its network. */
+async function mapped(pid: number): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    try {
+      if (["uid_map", "gid_map"].every((map) => readFileSync(`/proc/${pid}/${map}`, "utf8").trim())) return;
+    } catch {
+      return;
+    }
+    await new Promise((done) => setTimeout(done, 10));
+  }
+}
+
 export async function runPlan(plan: JailPlan): Promise<number> {
   if (plan.networked && !plan.nat) fail(NEEDS_NAT);
   const scratch = mkdtempSync(join(plan.scratch, "run-"));
@@ -147,16 +161,22 @@ export async function runPlan(plan: JailPlan): Promise<number> {
     args.push("--seccomp", String(at(plan.sources.length)));
     const stdio: StdioOptions = ["inherit", "inherit", "inherit", ...fds];
     let info = -1;
-    let block = -1;
+    let gate = "";
     if (plan.nat) {
       const resolv = join(scratch, "resolv.conf");
       writeFileSync(resolv, `nameserver ${plan.nat.tool === "pasta" ? PASTA_DNS : SLIRP_DNS}\n`);
       fds.push(openExact(resolv, false));
       stdio.push(fds[fds.length - 1]!);
       args.push("--ro-bind-fd", String(stdio.length - 1), "/etc/resolv.conf");
+      // bwrap waits on a FIFO, not a pipe of Node's: those are non-blocking past the first three, and it would not wait.
+      gate = join(scratch, "gate");
+      const made = spawnSync(plan.mkfifo, ["-m", "600", gate], { stdio: "ignore", timeout: 5000 });
+      if (made.status !== 0) throw new Error("could not make the gate a networked run waits on");
+      fds.push(openSync(gate, constants.O_RDWR));
+      stdio.push(fds[fds.length - 1]!);
+      const block = stdio.length - 1;
       info = stdio.length;
-      block = info + 1;
-      stdio.push("pipe", "pipe");
+      stdio.push("pipe");
       args.push("--info-fd", String(info), "--block-fd", String(block));
     }
     const [file, ...rest] = plan.prlimit ? [plan.prlimit, ...LIMITS, plan.bwrap] : [plan.bwrap];
@@ -174,13 +194,21 @@ export async function runPlan(plan: JailPlan): Promise<number> {
     });
     if (plan.nat) {
       const pid = await childPid(child.stdio[info] as NodeJS.ReadableStream);
-      try {
-        stopNat = await startNat(plan.nat, pid, scratch);
-      } catch (err) {
-        child.kill("SIGKILL");
-        fail((err as Error).message);
+      await mapped(pid);
+      // Now and then the NAT is refused the sandbox's namespaces while bwrap is still setting it up; the sandbox waits, so it is tried again.
+      for (let tries = 1; !stopNat; tries++) {
+        try {
+          stopNat = await startNat(plan.nat, pid, scratch);
+        } catch (err) {
+          if (tries < 5) {
+            await new Promise((done) => setTimeout(done, 50 * tries));
+            continue;
+          }
+          child.kill("SIGKILL");
+          fail((err as Error).message);
+        }
       }
-      (child.stdio[block] as NodeJS.WritableStream).end("go");
+      writeFileSync(gate, "go");
     }
     return await ended;
   } finally {
