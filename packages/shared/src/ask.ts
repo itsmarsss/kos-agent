@@ -144,7 +144,7 @@ export function askPlace(input: Pick<AskInput, "tool" | "args" | "rule" | "yours
 }
 
 /**
- * Why an ask asks, as a phrase to lead with a capital: the rule's own
+ * Why an ask asks, as a phrase to lead with a capital (unless it leads with a host): the rule's own
  * words, less what the place already says ("on docs.google.com", "in your
  * Chrome"). Nothing when all it says is that the tool is risky.
  */
@@ -154,7 +154,9 @@ export function askRisk(reason: string | null | undefined): string | undefined {
     .replace(/^on \S+$/i, "")
     .replace(/^risky tool$/i, "")
     .trim();
-  return said ? upperFirst(said) : undefined;
+  if (!said) return undefined;
+  // A host name keeps its own case: "example.com is not on the allowed hosts", never "Example.com".
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\s|$)/.test(said) ? said : upperFirst(said);
 }
 
 /** What a destination scope ("to:discord:channel:12", "to:project:garden") names, by the name the caller knows it by. */
