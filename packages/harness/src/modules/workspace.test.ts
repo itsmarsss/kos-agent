@@ -11,6 +11,7 @@ import {
   parseModuleSettings,
   pinModule,
   readWorkspaceModules,
+  repinModule,
   runnableModules,
   scaffoldModule,
   serverFor,
@@ -151,6 +152,11 @@ describe("modules in a workspace", () => {
     expect(adopted).toEqual(["linked"]);
     expect(runnableModules(ws, settings)).toEqual(["linked"]);
     expect(adoptUnpinned(ws, settings).adopted).toEqual([]);
+    // The owner's own update keeps one that was on running as it is now; one that was off stays off.
+    writeFileSync(join(dir, "server.mjs"), "// updated");
+    expect(runnableModules(ws, settings)).toEqual([]);
+    expect(runnableModules(ws, repinModule(ws, settings, "linked")!)).toEqual(["linked"]);
+    expect(repinModule(ws, { enabled: [], disabledBuiltins: [] }, "linked")).toBeUndefined();
   });
 
   it.runIf(process.platform === "darwin")("jails a module's server away from KOS's own files and its own folder", () => {

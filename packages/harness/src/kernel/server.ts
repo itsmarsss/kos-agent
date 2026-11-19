@@ -61,7 +61,7 @@ import type { BlobJob } from "../tools/agents.js";
 import { saidText, type ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
-import { MODULES_KEY, parseModuleSettings, pinModule, readWorkspaceModules, runnableModules, withModuleEnabled, type ModulePin } from "../modules/workspace.js";
+import { MODULES_KEY, parseModuleSettings, pinModule, readWorkspaceModules, repinModule, runnableModules, withModuleEnabled, type ModulePin } from "../modules/workspace.js";
 import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled, type SkillSettings } from "../skills/settings.js";
@@ -1333,9 +1333,8 @@ export async function handleApiRequest(
     try {
       const made = await updateModule(kernel.workspace, name);
       // The owner's own update: a module that was on stays on as it is now.
-      const settings = parseModuleSettings(kernel.settings.get(MODULES_KEY));
-      const updated = readWorkspaceModules(kernel.workspace).modules.find((m) => m.manifest.name === name);
-      if (updated && settings.enabled.includes(name)) kernel.settings.set(MODULES_KEY, withModuleEnabled(settings, name, true, pinModule(kernel.workspace, updated)));
+      const repinned = repinModule(kernel.workspace, parseModuleSettings(kernel.settings.get(MODULES_KEY)), name);
+      if (repinned) kernel.settings.set(MODULES_KEY, repinned);
       // A running server serves the old code until it is brought up again.
       const status = await kernel.mcp.reload();
       return ok({ updated: made.name, origin: made.origin, ...(status[name] ?? {}) });

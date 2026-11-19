@@ -182,6 +182,16 @@ export function adoptUnpinned(ws: Workspace, settings: ModuleSettings): { settin
   return { settings: next, adopted };
 }
 
+/**
+ * The owner's own update of a module: one that was on stays on, pinned as
+ * its folder is now. Gives the settings to keep, or nothing when it was off.
+ */
+export function repinModule(ws: Workspace, settings: ModuleSettings, name: string): ModuleSettings | undefined {
+  if (!settings.enabled.includes(name)) return undefined;
+  const module = readWorkspaceModules(ws).modules.find((m) => m.manifest.name === name);
+  return module ? withModuleEnabled(settings, name, true, pinModule(ws, module)) : undefined;
+}
+
 /** The modules that are on and unchanged since the owner switched them on: the ones that run. */
 export function runnableModules(ws: Workspace, settings: ModuleSettings): string[] {
   return readWorkspaceModules(ws).modules.filter((m) => standingPin(ws, m, settings)).map((m) => m.manifest.name);
