@@ -1,6 +1,6 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { AskSecret, ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
+import type { AskSecret, CallOutcome, ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
 
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
@@ -632,6 +632,8 @@ export type ChatEvent =
       isError?: boolean;
       /** Set when the call is waiting on approval rather than having run. */
       pendingId?: string;
+      /** How a held call ended (denied, lapsed, approved), from its result or the decision that followed; absent while undecided. */
+      outcome?: CallOutcome;
       /** A picture of what this step saw (a browser tab, a computer's screen), at /api/frames/:id. */
       frameId?: number;
       /** When it began, epoch ms, for a call still running. */
@@ -654,6 +656,8 @@ export interface DirEntry {
   kind: "dir" | "file";
   size: number;
   modifiedAt: number;
+  /** One of the workspace's own files (kos.sqlite, profile.json): listed, never renamed, moved or trashed. */
+  reserved?: true;
 }
 
 export interface FileContent {

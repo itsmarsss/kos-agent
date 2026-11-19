@@ -294,7 +294,10 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       setEditing(made);
     }
   };
-  const trashChosen = (paths = sel.paths): void => {
+  /** What is chosen, less KOS's own files, which nothing here may change. */
+  const changeable = (paths: string[]): string[] => paths.filter((p) => !byPath.get(p)?.reserved);
+  const trashChosen = (given = sel.paths): void => {
+    const paths = changeable(given);
     if (!paths.length) return;
     setLooking(false);
     void ops.trash(paths).then(() => setSel(EMPTY_SELECTION));
@@ -314,14 +317,18 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
     if (one?.kind === "dir") items.push({ label: "Open", act: () => openEntry(one), keys: "⌘↓" });
     if (one?.kind === "file") items.push({ label: "Quick Look", act: () => openEntry(one), keys: "Space" });
     items.push({ label: "Get Info", act: () => setInfoPath(one ? one.path : paths[0] ?? null), keys: "⌘I", disabled: !one });
-    items.push({ label: "Rename", act: () => one && setEditing(one.path), divided: true, disabled: !one, keys: "↩" });
-    items.push({ label: "Duplicate", act: () => void ops.duplicate(paths), keys: "⌘D" });
-    items.push({ label: "Move to…", act: () => setMoving(paths) });
+    // KOS's own files are looked at, never changed: no rename, duplicate, move or trash.
+    const kept = entries.some((e) => e.reserved);
+    if (!kept) {
+      items.push({ label: "Rename", act: () => one && setEditing(one.path), divided: true, disabled: !one, keys: "↩" });
+      items.push({ label: "Duplicate", act: () => void ops.duplicate(paths), keys: "⌘D" });
+      items.push({ label: "Move to…", act: () => setMoving(paths) });
+    }
     if (filesChosen.length) items.push({ label: filesChosen.length > 1 ? `Download ${filesChosen.length} files` : "Download", act: () => ops.download(filesChosen.map((e) => e.path)) });
     items.push({ label: paths.length > 1 ? "Copy paths" : "Copy path", act: () => ops.copyPath(paths) });
     if (onAsk) items.push({ label: "Ask KOS about this", act: () => onAsk(paths), divided: true });
     if (onOpenInFiles && one) items.push({ label: "Show in Files", act: () => onOpenInFiles(one.path), ...(onAsk ? {} : { divided: true }) });
-    items.push({ label: "Move to Trash", act: () => trashChosen(paths), danger: true, divided: true, keys: "⌘⌫" });
+    if (!kept) items.push({ label: "Move to Trash", act: () => trashChosen(paths), danger: true, divided: true, keys: "⌘⌫" });
     return items;
   };
   const folderItems = (): MenuItem[] => [
@@ -336,7 +343,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
 
   const dropInto = (dir: string): ReturnType<RowHandlers["drop"]> => ({
     onDragOver: (e) => {
-      if (!carriesPaths(e) && !carriesFiles(e)) return;
+      if (byPath.get(dir)?.reserved || (!carriesPaths(e) && !carriesFiles(e))) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = carriesPaths(e) ? "move" : "copy";
@@ -388,9 +395,13 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       void ops.rename(entry.path, name).then((to) => to && setSel(only(to)));
     },
     drag: (entry) => ({
-      draggable: true,
+      draggable: !entry.reserved,
       onDragStart: (e) => {
-        const paths = sel.paths.includes(entry.path) ? sel.paths : [entry.path];
+        const paths = changeable(sel.paths.includes(entry.path) ? sel.paths : [entry.path]);
+        if (!paths.length) {
+          e.preventDefault();
+          return;
+        }
         dragging = crypto.randomUUID();
         e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ token: dragging, paths }));
         e.dataTransfer.setData("text/plain", paths.join("\n"));
@@ -450,7 +461,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       handled();
       return;
     }
-    if (e.key === "Enter" && !meta && leadEntry && !looking) {
+    if (e.key === "Enter" && !meta && leadEntry && !looking && !leadEntry.reserved) {
       handled();
       setEditing(leadEntry.path);
       return;
@@ -482,7 +493,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
     }
     if (meta && e.key.toLowerCase() === "d") {
       handled();
-      void ops.duplicate(sel.paths);
+      const paths = changeable(sel.paths);
+      if (paths.length) void ops.duplicate(paths);
       return;
     }
     if (meta && e.shiftKey && e.key.toLowerCase() === "n") {

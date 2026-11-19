@@ -6916,7 +6916,7 @@ button.project-stat:focus-visible { outline: 2px solid var(--accent); outline-of
 .agent-kv b { font-size: var(--text-md); color: var(--text); font-weight: 600; }
 .agent-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.2rem; }
 .agent-foot { display: flex; justify-content: space-between; gap: 0.4rem; padding-top: 0.1rem; }
-.unread-dot { display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--ok, #3dd68c); vertical-align: middle; }
+.unread-dot { display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--accent); vertical-align: middle; }
 /* A face beside the three things that may be set about it. */
 .brand .blob { margin-right: 0.4rem; vertical-align: -0.2em; }
 /* The landing's badge was a star in an accent box; a face needs no box. */
@@ -7903,6 +7903,9 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .finder-row.is-selected, .finder-crow.is-selected { background: var(--finder-chosen-idle); }
 .finder-main:focus-within .finder-row.is-selected, .finder-main:focus-within .finder-crow.is-selected { background: var(--finder-chosen); }
 .finder-crow.is-chosen:not(.is-selected) { background: var(--finder-chosen-idle); }
+/* KOS's own files: listed, greyed, never changed. */
+:is(.finder-row, .finder-crow, .finder-tile)[data-reserved] { color: var(--muted); }
+:is(.finder-row, .finder-crow, .finder-tile)[data-reserved] :is(.finder-icon, svg, img) { opacity: 0.55; }
 :is(.finder-row, .finder-crow, .finder-tile).is-drop { background: var(--accent-dim); box-shadow: inset 0 0 0 1.5px var(--accent); }
 
 /* Icons. */
