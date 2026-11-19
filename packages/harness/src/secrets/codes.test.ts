@@ -215,6 +215,7 @@ describe("a one-time code through the tools", () => {
     const ask = approvals.get(id)!;
     expect(ask.secret).toMatchObject({ handle: "code", kind: "code", label: "One-time code", origin: SITE, code: true, remember: [], targets: [{ field: "code", label: "Authentication code", type: "text" }] });
     expect(summarizeAction(ask.tool, ask.args)).toBe("Fill a one-time code you type on this card");
+    expect(ask.reason).toBe(`puts a one-time code into a page on ${SITE}`);
     expect(await decisions().approve(id, "owner", { surface: "dashboard" })).toMatchObject({ ok: false, message: expect.stringMatching(/Type the code/) });
     expect(await decisions().approve(id, "owner", { surface: "dashboard", code: "12" })).toMatchObject({ ok: false });
     expect(await decisions().approve(id, "owner", { surface: "discord", code: CODE })).toMatchObject({ ok: false, message: expect.stringMatching(/never decided here/) });

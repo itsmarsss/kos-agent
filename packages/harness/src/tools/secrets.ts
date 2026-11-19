@@ -581,7 +581,7 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
               ...(place.device ? { device: place.device.name, deviceId: place.device.id } : {}),
             };
           },
-          why: (input) => `puts a saved secret into a page${typeof input["origin"] === "string" ? ` on ${input["origin"]}` : ""}`,
+          why: (input) => `puts ${namesCode(input) ? "a one-time code" : "a saved secret"} into a page${typeof input["origin"] === "string" ? ` on ${input["origin"]}` : ""}`,
           granted: (input) => {
             const origin = str(input, "origin");
             // A code given already was the owner's yes for this page: it goes in without a second ask, once.

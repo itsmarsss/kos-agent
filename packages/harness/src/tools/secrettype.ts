@@ -525,7 +525,7 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
       },
       why: (input) => {
         const app = (input["app"] as { name?: unknown } | undefined)?.name;
-        return `types a saved secret on your Mac${typeof app === "string" ? ` into ${app}` : ""}`;
+        return `types ${namesCode(input) ? "a one-time code" : "a saved secret"} on your Mac${typeof app === "string" ? ` into ${app}` : ""}`;
       },
       granted: (input) => {
         // A code given already was the owner's yes for this app and page: it goes in without a second ask, once.
