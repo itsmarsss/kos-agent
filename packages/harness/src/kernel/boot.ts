@@ -233,6 +233,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   });
   const supervisor = new DaemonSupervisor({
     workspaceRoot: workspace.root,
+    // Read before every start, so a restart due after a stop or a removal leaves it down.
+    current: (id) => daemons.get(id),
     // A daemon that has given up is news: it was running unattended, and
     // nobody is looking at a log they do not know to open.
     onCrash: (_daemon, reason) => kernelRef?.caretaker.tell(reason),
