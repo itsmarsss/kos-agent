@@ -689,6 +689,13 @@ async function cmdRestart(
   const host = listenHost(flags.host);
   const port = listenPort(flags.port);
   if (!(await waitForPortFree(host, port))) {
+    // A host that exits non-zero on its way down is brought straight back by launchd's KeepAlive, on the new build: that is the restart.
+    const service = await serviceState(SERVICE_LABEL);
+    const baseUrl = `http://${host}:${port}`;
+    if (service.loaded && service.workspace === rootDir && (await waitForDaemon(baseUrl, dashboardToken()))) {
+      console.log(`KOS restarted under launchd on ${baseUrl}`);
+      return;
+    }
     console.error(
       `port ${port} is still in use; something other than this workspace's host may be holding it`,
     );
