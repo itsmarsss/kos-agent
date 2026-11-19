@@ -285,6 +285,22 @@ export class SessionStore {
   }
 
   /**
+   * The chats whose kept words may hold `word`, now or in a stretch set
+   * aside: a cheap first pass over the stored JSON before a search reads
+   * each chat in full. Undefined when the word could be spelled otherwise
+   * there (escaped in JSON, or a letter SQLite does not lower), so the
+   * caller reads every chat instead; never a chat left out that holds it.
+   */
+  mentioning(word: string): Set<string> | undefined {
+    const needle = word.toLowerCase();
+    if (needle === "" || !/^[\x20-\x7e]+$/.test(needle) || /["\\/]/.test(needle)) return undefined;
+    const rows = this.db
+      .prepare(`SELECT id FROM chat_sessions WHERE instr(lower(messages_json), ?) > 0 UNION SELECT id FROM chat_session_earlier WHERE instr(lower(messages_json), ?) > 0`)
+      .all(needle, needle) as { id: string }[];
+    return new Set(rows.map((r) => r.id));
+  }
+
+  /**
    * Each message new to the chat stamped with now. One kept before messages
    * kept their time comes out of get() as 0, so it is never stamped with a
    * later turn's time; one a turn made has no time until it is written here.
