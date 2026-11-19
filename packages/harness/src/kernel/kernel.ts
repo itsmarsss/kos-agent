@@ -1821,8 +1821,8 @@ export class Kernel {
         this.conversations.moveToProject(id, job.projectSlug ?? null);
         for (const [threadId, bound] of Object.entries(this.threadBindings())) if (bound === id) this.unbindThread(threadId);
       }
-      // Its turns have the tools the chat that made the job had, and no more.
-      if (JSON.stringify(thread.toolAllow ?? null) !== JSON.stringify(job.toolAllow)) this.conversations.configure(id, { toolAllow: job.toolAllow });
+      // Its turns have the tools the chat that made the job had, and no more; a job made unscoped leaves the scope the owner set.
+      if (job.toolAllow !== null && JSON.stringify(thread.toolAllow ?? null) !== JSON.stringify(job.toolAllow)) this.conversations.configure(id, { toolAllow: job.toolAllow });
     } else {
       this.conversations.create({
         id,

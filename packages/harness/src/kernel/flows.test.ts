@@ -1102,6 +1102,12 @@ describe("KOS end-to-end flows", () => {
     expect(ran.ok).toBe(false);
     expect(ran.error).toMatch(/not available/);
     expect(kernel.conversations.get(`cron:${scoped.id}`)?.toolAllow).toEqual(["notify"]);
+    // A job made unscoped leaves alone the scope the owner gave its thread.
+    const open = kernel.crons.create({ name: "open", schedule: "0 3 * * *", type: "actions", actions: [{ tool: "cron.list", args: {} }], enabled: true });
+    await kernel.fireCron(open.id);
+    kernel.conversations.configure(`cron:${open.id}`, { toolAllow: ["cron"] });
+    await kernel.fireCron(open.id);
+    expect(kernel.conversations.get(`cron:${open.id}`)?.toolAllow).toEqual(["cron"]);
   });
 
   it("gives a fixed-actions job a thread too, with what it actually ran", async () => {
