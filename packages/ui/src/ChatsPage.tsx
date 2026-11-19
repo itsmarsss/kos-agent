@@ -452,10 +452,6 @@ export function ChatsPage({
   activeIdRef.current = activeId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useAutoGrow(inputRef, draft);
-  // Opening a chat puts the cursor in its box: that is what you came to do.
-  useEffect(() => {
-    if (activeId && !narrow) inputRef.current?.focus();
-  }, [activeId, narrow]);
 
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   // The server's channels, so "#name" in a chat is coloured and chipped as
@@ -518,6 +514,16 @@ export function ChatsPage({
   const inlineScroll = useOverlayScroll<HTMLDivElement>();
 
   const active = conversations.find((c) => c.id === activeId);
+  // Opening a chat puts the cursor in its box: that is what you came to do. Keyed on the chat being drawn, not
+  // on its id alone: the box is not there until the list has the chat, and focus was left on the page. Not over
+  // something else that has the focus (a dialog, a field), and not on a phone, where it would raise the keyboard.
+  const shownId = active?.id;
+  useEffect(() => {
+    if (!shownId || narrow) return;
+    const held = document.activeElement;
+    if (held && held !== document.body && !held.closest(".side, .chats-list")) return;
+    inputRef.current?.focus({ preventScroll: true });
+  }, [shownId, narrow]);
   const [chatMode, setChatMode] = useChatMode(active, onChanged);
   /*
    * A turn is running here, on both accounts.
@@ -2227,7 +2233,13 @@ export function ChatsPage({
                       {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? [])}
                     </p>
                   )}
-                  {active.brief && <p className="chats-brief">{active.brief}</p>}
+                  {(() => {
+                    // A project's orchestrator and Maintenance carry KOS's own prompt as their brief, written for
+                    // the model: their line is the project's description, or none. Any other chat's brief is the
+                    // owner's own, set in Configure.
+                    const line = active.kind === "project" ? (projects.find((p) => p.slug === active.projectSlug)?.description ?? null) : active.brief;
+                    return line ? <p className="chats-brief">{line}</p> : null;
+                  })()}
                   {/* Counts are not something anyone came here to read. Only
                       the tool scope is said, and only when it is not the
                       default, because that is a capability the chat lacks. */}
@@ -2263,7 +2275,8 @@ export function ChatsPage({
                     <GearIcon />
                     <span className="head-act-label">{editing ? "Close" : "Configure"}</span>
                   </button>
-                  {active.kind !== "orchestrator" && (
+                  {/* KOS's own thread and Maintenance are KOS's: neither is archived. */}
+                  {active.kind !== "orchestrator" && !(active.kind === "project" && projects.find((p) => p.slug === active.projectSlug)?.type === "system") && (
                     <button
                       type="button"
                       className="head-act"
@@ -2659,6 +2672,8 @@ export function ChatsPage({
                   <textarea
                     className="hl-area"
                     ref={inputRef}
+                    // Where the focus goes after the last ask here is decided from the keyboard.
+                    data-after-ask=""
                     rows={1}
                     value={draft}
                     // On a narrow window the hints ran out of the box: who it goes to is the part to keep.
