@@ -420,6 +420,10 @@ and Forget sit on a row under the pointer; a row opens the whole claim.
   reads your calendar and mail once those servers are added under Settings
   > MCP servers (the Google Calendar and Gmail picks, each with a one-time
   sign-in step it spells out), and until then says what it could not read.
+  A job that reports on KOS itself (what failed overnight, what is waiting
+  on you, what was spent) reads it with `kos.status` rather than `sql`,
+  which keeps KOS's own tables to Maintenance; a fixed-calls job can call
+  it, and a job held to an allow-list reaches it by naming it.
 - **Builds**: coding sub-agents, each confined to one folder. New build asks
   for the folder and the task.
 

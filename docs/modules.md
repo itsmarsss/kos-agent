@@ -63,11 +63,19 @@ queue, the permission rules, memory, the audit log. A chat reaches the
 tables of the project it belongs to through `sql` and `export.query`,
 and nothing else: not another project's (a refusal says whose the table
 is and to hand the question there), not KOS's own (read through the
-tools for the job, `cron.list`, `chats.list` and `chats.read`,
-`tasks.list`, `blobs.list`, `memory.recall`, `discord.threads`), and not
+tools for the job, `cron.list`, `kos.status`, `chats.list` and
+`chats.read`, `tasks.list`, `blobs.list`, `memory.recall`,
+`discord.threads`), and not
 the schema itself (`sqlite_master`, `PRAGMA`). A chat with no project has
 no tables; it asks KOS at the root, which routes the question to the
-project that owns the data. The turn that made a project is the
+project that owns the data. `kos.status` is KOS's health in
+summaries, for any chat but a guest's: over the last 24 hours (`hours`,
+up to 168) the runs by kind, ok and failed, each failed job with its id,
+name, time and the first line of its error; how many approvals are
+waiting and the oldest one's tool and age; and tokens per model with the
+cost at your rates under Settings, null for a model with none, and a
+total. It carries counts and names only: no message text, no tool
+arguments, no chat's ids. The turn that made a project is the
 exception: it may build what it made, its tables (`systems.migrate`) and
 its rows, as the project's own chats may, until that turn ends. The reach
 is held in memory for the running turn and never stored; the next turn in

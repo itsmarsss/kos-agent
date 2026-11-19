@@ -35,6 +35,19 @@ describe("RunsLog", () => {
     expect(rec?.durationMs).toBe(500);
   });
 
+  it("reads a window whole, oldest first, from when each run started", () => {
+    runs.start("chat", "a");
+    clock = 2000;
+    const inside = runs.start("cron", "1");
+    clock = 3000;
+    runs.finish(inside, "error", "boom");
+    runs.start("chat", "b");
+    expect(runs.since(2000).map((r) => [r.kind, r.ref, r.status])).toEqual([
+      ["cron", "1", "error"],
+      ["chat", "b", "running"],
+    ]);
+  });
+
   it("knows one thing's finished runs, newest first, and how many there were", () => {
     const first = runs.start("cron", "7");
     runs.finish(first, "ok");
