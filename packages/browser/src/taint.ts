@@ -1,11 +1,11 @@
 import { HIDDEN_VALUE } from "./snapshot.js";
 
 /**
- * A page a secret was filled into, until its document changes: which fields
- * hold one, in which frame, and the values themselves, so what KOS reads
- * back from the page (its text, its outline, its title, a dialog) and the
- * pictures it takes of it show none of them, even where the page echoes
- * what was typed. The values live here only as long as the document does.
+ * A tab a secret was filled into: which fields of the document hold one,
+ * in which frame, until the document changes; and the values themselves,
+ * for the tab's life, so what KOS reads back from it (its text, its
+ * outline, its title, a dialog, a later page's address) and the pictures
+ * it takes of it show none of them, even where a page echoes one.
  */
 
 /** Where a secret may go in a form: what kind of field, as fillSecret checks it. */
@@ -46,12 +46,12 @@ export interface FilledValue {
   digits: boolean;
 }
 
+/** The fields of one document a secret is in: what refuses scripts, copies and selectors until the document changes. */
 export interface Taint {
   /** The main frame's document it holds for. */
   loader: string;
   /** Tainted fields, by backend node, with the frame each is in. */
   nodes: Map<number, string>;
-  values: FilledValue[];
 }
 
 /** Shorter than this, a value is not looked for in text: two digits would mask half a page. */

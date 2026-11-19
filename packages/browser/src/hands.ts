@@ -346,7 +346,8 @@ export async function fillSecrets(tab: Tab, fills: SecretFill[], then: Then, opt
     await page.ready();
     try {
       for (const fill of fills) await page.fillSecret(fill.ref, fill.value, fill.expect);
-      return await seeAfter(tab, then, undefined, options);
+      // Filled whatever the look after says: a page that cannot be seen now does not undo the fill.
+      return await seeAfter(tab, then, undefined, options).catch((err: unknown) => ({ text: `The page could not be looked at afterwards: ${err instanceof Error ? err.message : String(err)}`, images: [] }));
     } finally {
       await page.release();
     }

@@ -3,7 +3,7 @@ import * as inpage from "./inpage.js";
 import { parseKeys, type KeyPress } from "./keys.js";
 import { controlsOf, HIDDEN_VALUE, holdsValue, indexOf, INDEX_MAX, Refs, secretField, treeOf, type AxNode, type Control, type PageIndex } from "./snapshot.js";
 import { WAIT_FOR_MS, type Step } from "./steps.js";
-import { isDigitSlot, isSecretSlot, unechoed, type SecretSlot, type Taint } from "./taint.js";
+import { isDigitSlot, isSecretSlot, unechoed, type FilledValue, type SecretSlot, type Taint } from "./taint.js";
 
 /**
  * One tab's hands.
@@ -218,10 +218,12 @@ export interface FieldSpot {
   origin: string;
   frameOrigin: string;
   doc: string;
+  /** What the field is, for the ask: its label, its type, and where and how its form sends. */
+  field: { label: string; type: string; action?: string; method?: string };
 }
 
 /** What a secret's fill must find, as the owner approved it, and what kind of field it goes into. */
-export interface FillExpect extends FieldSpot {
+export interface FillExpect extends Omit<FieldSpot, "field"> {
   slot: SecretSlot;
 }
 
@@ -234,7 +236,7 @@ export interface FillExpect extends FieldSpot {
  */
 export class SecretRefused extends Error {
   constructor(
-    readonly code: "ref" | "changed" | "origin" | "field" | "unreachable",
+    readonly code: "ref" | "changed" | "origin" | "field" | "unreachable" | "focus",
     message: string,
   ) {
     super(message);
@@ -244,7 +246,7 @@ export class SecretRefused extends Error {
 
 /** Said to a script, a copy or a typing step aimed at a page holding a secret KOS filled. */
 export const TAINTED =
-  "a secret was filled into this page, so scripts in it, copying from or selecting a secret field and typing into one are refused until a new page loads";
+  "a secret was filled into this page, so scripts in it, copying from or selecting a secret field, typing into one, and aiming at anything but an @ref (a selector, a text, a wait for words) are refused until a new page loads";
 
 /** A frame's origin as KOS checks it: http or https and a host. A blank, sandboxed or data frame has none. */
 const CHECKED_ORIGIN = /^https?:\/\/[^/\s]+$/;
@@ -296,8 +298,10 @@ export class Page {
   private stop: AbortSignal | undefined;
   /** Elements resolved for this call, by node, and the document they were resolved in. */
   private objects = { loader: "", ids: new Map<number, string>() };
-  /** The secrets filled into this page, until its document changes. */
+  /** The fields of this document a secret was filled into, until it changes. */
   private taint: Taint | undefined;
+  /** Every value filled in this tab, for as long as the tab lives: a later page may echo one (a GET form's address, a confirmation). */
+  private readonly filled: FilledValue[] = [];
   /** Masked pictures under way, in turn. */
   private pictures: Promise<unknown> = Promise.resolve();
 
@@ -494,6 +498,7 @@ export class Page {
   /** What can be acted on, each with its ref; `scope` limits it to the part of the page a CSS selector names. */
   async index(scope?: string): Promise<Look> {
     this.freshDocument();
+    if (scope) this.refsOnly(`looking within ${scope}`);
     const found = await this.found(this.mainFrame, scope ?? null, { left: FRAMES_MAX });
     if (found) return { index: this.cleanIndex(indexOf(found.controls, found.total, this.refs)), unread: found.unread, ...(found.closed ? { closed: found.closed } : {}) };
     // No world of KOS's own on this tab (a KOS for Chrome from before there was one): the tree it was read from before.
@@ -504,6 +509,7 @@ export class Page {
 
   /** The whole page as an outline, each element with its ref. */
   async tree(scope?: string): Promise<{ text: string; cut: boolean; unread: string[] }> {
+    if (scope) this.refsOnly(`looking within ${scope}`);
     const { nodes, unread } = await this.nodes(scope);
     const tree = treeOf(nodes, this.refs);
     return { ...tree, text: this.clean(tree.text), unread };
@@ -511,6 +517,7 @@ export class Page {
 
   /** The page's words, or the words of what a selector names, with the links among them. */
   async read(selector?: string): Promise<string> {
+    if (selector) this.refsOnly(`reading ${selector}`);
     const got = await this.value<{ text: string; links: { text: string; href: string }[]; matched: number } | null>(
       `(${inpage.readPage.toString()})(${JSON.stringify(selector ?? null)})`,
     );
@@ -627,18 +634,23 @@ export class Page {
     const node = this.refNode(ref);
     const frame = await this.frameOf(node);
     const frames = await this.frameTree();
-    return { origin: frames.get(this.mainFrame)?.origin ?? "", frameOrigin: frames.get(frame)?.origin ?? "", doc: this.life.loader };
+    const field = await this.callIn<FieldSpot["field"]>(frame, node, inpage.fieldInfo);
+    return { origin: frames.get(this.mainFrame)?.origin ?? "", frameOrigin: frames.get(frame)?.origin ?? "", doc: this.life.loader, field };
   }
 
   /**
    * A secret into the field a ref names, as approved: the ref from this
    * document's last look, the page and the field's frame on the origins in
    * `expect`, each frame around the field drawn and in view, and the field
-   * one `expect.slot` may go into (inpage.fillable). Then it is focused,
-   * its text selected and the value inserted as typing, and checked to hold
-   * it without reading it back. A secret's field is marked, so the page is
-   * tainted until its document changes (see TAINTED). Nothing thrown holds
-   * the value.
+   * one `expect.slot` may go into (inpage.fillable). The value is set on
+   * that node itself, through the native setter and the events typing
+   * raises, so it cannot land wherever the focus is; only a page that
+   * refuses that gets real typing, and then only while the field has the
+   * keyboard before and after, or it is refused as `focus`. It is checked
+   * to hold the value without reading it back. A secret's field is marked,
+   * so the page is tainted until its document changes (see TAINTED), and
+   * the value is masked in what KOS reads and pictures of the tab from
+   * then on. Nothing thrown holds the value.
    */
   async fillSecret(ref: string, value: string, expect: FillExpect): Promise<void> {
     const node = this.refNode(ref);
@@ -659,23 +671,30 @@ export class Page {
       at = parent;
     }
     await this.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: node }).catch(() => undefined);
-    const why = await this.callIn<string>(frame, node, inpage.fillable, [{ value: expect.slot }]);
+    const secret = isSecretSlot(expect.slot);
+    const why = await this.callIn<string>(frame, node, inpage.fillable, [{ value: expect.slot }, { value: secret }]);
     if (why) throw new SecretRefused("field", `${ref}: ${why}`);
     const digits = isDigitSlot(expect.slot);
+    const args: CallArg[] = [{ value }, { value: digits }];
+    // Marked before it goes in: a field that took part of it holds a secret too, and so may the page.
+    if (secret) {
+      await this.callIn(frame, node, inpage.taint);
+      const fresh: Taint = { loader: this.life.loader, nodes: new Map() };
+      (this.tainted() ?? (this.taint = fresh)).nodes.set(node, frame);
+      if (!this.filled.some((v) => v.text === value)) this.filled.push({ text: value, digits });
+    }
+    let held = false;
     await this.acting(async () => {
+      held = await this.callIn<boolean>(frame, node, inpage.putValue, args);
+      if (held) return;
+      // The page wants keys: typed only while the field has the keyboard, checked on both sides of the typing.
       await this.send("DOM.focus", { backendNodeId: node });
       await this.callIn(frame, node, inpage.selectAll);
+      if (!(await this.callIn<boolean>(frame, node, inpage.hasKeyboard))) throw new SecretRefused("focus", `${ref} would not keep the keyboard (the page moved it elsewhere); nothing was typed`);
       await this.send("Input.insertText", { text: value }, INPUT_MS);
-      // Marked before it is checked: a field that took part of it holds a secret too.
-      if (isSecretSlot(expect.slot)) {
-        await this.callIn(frame, node, inpage.taint);
-        const fresh: Taint = { loader: this.life.loader, nodes: new Map(), values: [] };
-        const taint = this.tainted() ?? (this.taint = fresh);
-        taint.nodes.set(node, frame);
-        if (!taint.values.some((v) => v.text === value)) taint.values.push({ text: value, digits });
-      }
+      if (!(await this.callIn<boolean>(frame, node, inpage.hasKeyboard))) throw new SecretRefused("focus", `the keyboard moved off ${ref} while it was typed into; look at the page before anything else`);
+      held = await this.callIn<boolean>(frame, node, inpage.holds, args);
     }, TYPED_MS);
-    const held = (await this.callIn<boolean>(frame, node, inpage.holds, [{ value }, { value: digits }])) || (await this.callIn<boolean>(frame, node, inpage.putValue, [{ value }, { value: digits }]));
     if (!held) throw new SecretRefused("field", `${ref} did not take it as given (it may format or limit what goes in); look to see what it holds`);
   }
 
@@ -687,7 +706,7 @@ export class Page {
    * taken rather than one that shows a secret.
    */
   masked<T>(shoot: () => Promise<T>): Promise<T> {
-    if (!this.tainted()) return shoot();
+    if (this.filled.length === 0) return shoot();
     // One at a time: two pictures at once would each put back what the other masked, mid-shot.
     const next = this.pictures.then(() => this.maskedNow(shoot));
     this.pictures = next.catch(() => undefined);
@@ -695,20 +714,23 @@ export class Page {
   }
 
   private async maskedNow<T>(shoot: () => Promise<T>): Promise<T> {
-    const taint = this.tainted();
-    if (!taint) return shoot();
     const undo: (() => Promise<unknown>)[] = [];
     try {
-      for (const [node, frame] of taint.nodes) {
-        const before = await this.callIn<string>(frame, node, inpage.maskField);
-        undo.push(() => this.callIn(frame, node, inpage.unmaskField, [{ value: before }]));
-      }
-      for (const frame of new Set([this.mainFrame, ...taint.nodes.values()])) {
+      // Every frame KOS can reach: a value may be copied into any text box or echoed into any text of any of them.
+      for (const frame of (await this.frameTree()).keys()) {
         const context = await this.world(frame);
-        if (context === undefined) throw new Error("no world of KOS's own to mask the page from");
-        const masked = await this.send("Runtime.callFunctionOn", { functionDeclaration: inpage.maskEchoes.toString(), executionContextId: context, arguments: [{ value: taint.values }], returnByValue: true });
-        if (masked["exceptionDetails"]) throw new Error("the page could not be masked");
-        undo.push(() => this.send("Runtime.callFunctionOn", { functionDeclaration: inpage.unmaskEchoes.toString(), executionContextId: context }));
+        // A frame KOS cannot enter (another process) held no field it filled; the page itself must be masked, or there is no picture.
+        if (context === undefined) {
+          if (frame === this.mainFrame) throw new Error("no world of KOS's own to mask the page from");
+          continue;
+        }
+        const call = (fn: (...args: never[]) => unknown, args: CallArg[] = []): Promise<Record<string, unknown>> =>
+          this.send("Runtime.callFunctionOn", { functionDeclaration: fn.toString(), executionContextId: context, arguments: args, returnByValue: true });
+        undo.push(() => call(inpage.unmaskEntries));
+        undo.push(() => call(inpage.unmaskEchoes));
+        for (const masked of [await call(inpage.maskEntries), await call(inpage.maskEchoes, [{ value: this.filled }])]) {
+          if (masked["exceptionDetails"]) throw new Error("the page could not be masked");
+        }
       }
       return await shoot();
     } finally {
@@ -724,12 +746,16 @@ export class Page {
 
   /** Text read from the page with every secret filled into it said as hidden, where the page echoes one. */
   private clean(text: string): string {
-    const taint = this.tainted();
-    return taint ? unechoed(text, taint.values) : text;
+    return this.filled.length ? unechoed(text, this.filled) : text;
   }
 
   private cleanIndex(index: PageIndex): PageIndex {
-    return this.tainted() ? { ...index, lines: index.lines.map((line) => this.clean(line)) } : index;
+    return this.filled.length ? { ...index, lines: index.lines.map((line) => this.clean(line)) } : index;
+  }
+
+  /** While the page holds a secret, only a ref names what to act on or read: a selector or a text could find the secret by guessing at it. */
+  private refsOnly(what: string): void {
+    if (this.tainted()) throw new Error(`${what} is refused: ${TAINTED}`);
   }
 
   /** Whether a key would copy, cut or select all from a field holding a secret: the one with the keyboard in a frame KOS filled. */
@@ -1068,6 +1094,7 @@ export class Page {
       return `waited ${what}ms`;
     }
     const [kind, value] = "text" in what ? (["text", what.text] as const) : "selector" in what ? (["selector", what.selector] as const) : (["gone", what.gone] as const);
+    this.refsOnly(`waiting for ${kind === "selector" ? value : "words"}`);
     const check = `(${inpage.present.toString()})(${JSON.stringify(kind)}, ${JSON.stringify(value)})`;
     const limit = what.ms ?? WAIT_FOR_MS;
     const end = this.now() + limit;
@@ -1089,6 +1116,7 @@ export class Page {
       if (node === undefined) throw new Error(`there is no @${ref[1]} on this page; refs come from the last look, and a new page has new ones`);
       return node;
     }
+    this.refsOnly(`aiming at ${target}`);
     const byText = textSelector(target);
     const expression = byText ? `(${inpage.byText.toString()})(${JSON.stringify(byText.base)}, ${JSON.stringify(byText.text)})` : `document.querySelector(${JSON.stringify(target)})`;
     const found = await this.send("Runtime.evaluate", { expression, objectGroup: GROUP }, EVAL_MS);

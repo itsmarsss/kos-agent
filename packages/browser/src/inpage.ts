@@ -529,7 +529,7 @@ export function controls(scope: string | null, max: number): Element[] {
  * says card number. It must be drawn (at least 8 by 8, not see-through),
  * in view and the topmost thing at its middle, enabled and writable.
  */
-export function fillable(this: Element, slot: string): string {
+export function fillable(this: Element, slot: string, secret: boolean): string {
   if (!(this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement)) return "not a text field";
   const type = this instanceof HTMLInputElement ? this.type.toLowerCase() : "textarea";
   const TEXTUAL = ["text", "email", "tel", "url", "search", "number", "textarea"];
@@ -559,14 +559,19 @@ export function fillable(this: Element, slot: string): string {
       case "card-exp-year":
       case "card-name":
         return ["text", "tel", "number"].includes(type);
+      // A key or a note goes only where the page says one goes, as a card number does.
       case "token":
+        return type === "password" || (TEXTUAL.includes(type) && /token|api.?key|secret|access.?key|key/.test(said));
       case "text":
-        return type === "password" || TEXTUAL.includes(type);
+        return type === "password" || (TEXTUAL.includes(type) && /secret|note|recovery|phrase|seed|key|code/.test(said));
       default:
         return slot.startsWith("address-") && ["text", "textarea"].includes(type);
     }
   })();
   if (!fits) return `a ${type} field does not take a ${slot.replace("-", " ")}`;
+  // A form sent by GET puts every field in the address, where history, logs and the next page's referrer keep it.
+  const form = this.form;
+  if (form && form.getAttribute("method")?.toLowerCase() === "get" && secret) return "the form sends what is typed in the address (method=get)";
   if (this.disabled) return "the field is disabled";
   if (this.readOnly) return "the field is read-only";
   const box = this.getBoundingClientRect();
@@ -610,24 +615,44 @@ export function taint(this: Element): void {
   (g.kosTainted ??= new WeakSet()).add(this);
 }
 
-/** A field's text made unseeable for a picture; its style attribute before (JSON, null for none), to put back. */
-export function maskField(this: Element): string {
-  const el = this as HTMLElement;
-  const before = JSON.stringify(el.getAttribute("style"));
-  el.style.setProperty("-webkit-text-security", "disc", "important");
-  el.style.setProperty("color", "transparent", "important");
-  el.style.setProperty("caret-color", "transparent", "important");
-  el.style.setProperty("text-shadow", "none", "important");
-  return before;
+/**
+ * Every place text is typed on this frame's page (inputs that take text,
+ * textareas, anything contenteditable), through open shadow roots, made
+ * unseeable for a picture: a page may copy a secret into any of them (a
+ * preview, a show-password toggle). What each had in its style attribute
+ * is kept in this world, for unmaskEntries. Answers how many.
+ */
+export function maskEntries(): number {
+  const g = globalThis as unknown as { kosMasked?: { el: HTMLElement; before: string | null }[] };
+  const kept = (g.kosMasked = [] as { el: HTMLElement; before: string | null }[]);
+  const NOT_TEXT = /^(hidden|checkbox|radio|button|submit|reset|image|file|range|color)$/;
+  const walk = (root: Document | ShadowRoot): void => {
+    for (const el of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+      const entry = (el instanceof HTMLInputElement && !NOT_TEXT.test(el.type)) || el instanceof HTMLTextAreaElement || el.isContentEditable;
+      if (entry) {
+        kept.push({ el, before: el.getAttribute("style") });
+        el.style.setProperty("-webkit-text-security", "disc", "important");
+        el.style.setProperty("color", "transparent", "important");
+        el.style.setProperty("caret-color", "transparent", "important");
+        el.style.setProperty("text-shadow", "none", "important");
+      }
+      if (el.shadowRoot) walk(el.shadowRoot);
+    }
+  };
+  walk(document);
+  return kept.length;
 }
 
-/** A field's style attribute as it was before maskField. */
-export function unmaskField(this: Element, before: string): void {
-  const was = JSON.parse(before) as string | null;
-  // Read first: Chrome writes a style changed through el.style to the attribute only when it is next read, which would put an empty one back after the remove.
-  this.getAttribute("style");
-  if (was === null) this.removeAttribute("style");
-  else this.setAttribute("style", was);
+/** Each entry maskEntries masked, its style attribute as it was. */
+export function unmaskEntries(): void {
+  const g = globalThis as unknown as { kosMasked?: { el: HTMLElement; before: string | null }[] };
+  for (const { el, before } of g.kosMasked ?? []) {
+    // Read first: Chrome writes a style changed through el.style to the attribute only when it is next read, which would put an empty one back after the remove.
+    el.getAttribute("style");
+    if (before === null) el.removeAttribute("style");
+    else el.setAttribute("style", before);
+  }
+  g.kosMasked = [];
 }
 
 /**
@@ -641,17 +666,25 @@ export function maskEchoes(values: { text: string; digits: boolean }[]): number 
   const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const patterns = values.filter((v) => v.text.length > 0).map((v) => new RegExp(v.digits ? v.text.replace(/\D/g, "").split("").map(escape).join("[\\s.\\-]?") : escape(v.text), "g"));
   const ranges: Range[] = [];
-  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const text = (node as Text).data;
-    for (const pattern of patterns) {
-      pattern.lastIndex = 0;
-      for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
-        const range = document.createRange();
-        range.setStart(node, m.index);
-        range.setEnd(node, m.index + m[0].length);
-        ranges.push(range);
-        if (m[0].length === 0) pattern.lastIndex++;
+  // Open shadow roots are walked as they are met.
+  const roots: Node[] = [document.documentElement];
+  for (let i = 0; i < roots.length; i++) {
+    const walker = document.createTreeWalker(roots[i]!, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node instanceof Element) {
+        if (node.shadowRoot && !roots.includes(node.shadowRoot)) roots.push(node.shadowRoot);
+        continue;
+      }
+      const text = (node as Text).data;
+      for (const pattern of patterns) {
+        pattern.lastIndex = 0;
+        for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
+          const range = document.createRange();
+          range.setStart(node, m.index);
+          range.setEnd(node, m.index + m[0].length);
+          ranges.push(range);
+          if (m[0].length === 0) pattern.lastIndex++;
+        }
       }
     }
   }
@@ -675,4 +708,20 @@ export function focusedHere(): Element | null {
   let el = document.activeElement;
   while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
   return el;
+}
+
+/** Whether this field has the keyboard: it is what has focus in its frame, and the frame's page has it. */
+export function hasKeyboard(this: Element): boolean {
+  let el = document.activeElement;
+  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+  return el === this && document.hasFocus();
+}
+
+/** What a field is, for an ask: its label, its type, and where its form sends what is typed, and how. */
+export function fieldInfo(this: Element): { label: string; type: string; action?: string; method?: string } {
+  const el = this as HTMLInputElement;
+  const label = (Array.from(el.labels ?? [], (l) => l.textContent ?? "").join(" ") || el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.name || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const type = this instanceof HTMLInputElement ? this.type.toLowerCase() : this.localName;
+  const form = el.form;
+  return { label, type, ...(form ? { action: form.action, method: (form.getAttribute("method") ?? "").toLowerCase() || "unset" } : {}) };
 }

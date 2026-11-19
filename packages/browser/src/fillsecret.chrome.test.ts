@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,6 +45,7 @@ describe.skipIf(!findChrome(undefined))("filling a secret in KOS's own Chrome", 
 <label>Locked <input id=ro type=password readonly></label>
 <label>Tiny <input id=tiny type=password style="width:2px;height:2px;padding:0;border:0"></label>
 <label>Ghost <input id=ghost type=password style="opacity:0"></label>
+<label>Nickname <input id=nick></label>
 <div style="font-size:40px">You typed <span id=echo style="color:${MAGENTA}"></span></div>
 <iframe id=payframe src="${payBase}/card" style="width:420px;height:160px;border:0"></iframe>
 <script>document.getElementById('pw').addEventListener('input', (e) => { document.getElementById('echo').textContent = e.target.value; document.title = 'typed ' + e.target.value; });</script>`,
@@ -55,6 +56,31 @@ describe.skipIf(!findChrome(undefined))("filling a secret in KOS's own Chrome", 
     if (req.url === "/card") return html(page("Card", `<label>Card number <input id=num autocomplete=cc-number></label><label>Note <input id=note></label>`));
     if (req.url === "/magenta") return html(page("Magenta", `<div style="background:${MAGENTA};width:300px;height:200px"></div>`));
     if (req.url === "/next") return html(page("Next", `<p>Signed in.</p>`));
+    // A page that copies the password into another box, a textarea and a box in a shadow root, and can show it as text.
+    if (req.url === "/mirror")
+      return html(
+        page(
+          "Mirror",
+          `<label>Password <input id=pw type=password></label><button id=show onclick="const p = document.getElementById('pw'); p.type = p.type === 'password' ? 'text' : 'password'">Show password</button>
+<label>Mirror <input id=mirror></label><textarea id=area style="color:${MAGENTA};font-size:28px"></textarea><div id=host></div>
+<script>const inner = document.getElementById('host').attachShadow({ mode: 'open' }); inner.innerHTML = '<input id=deep style="color:${MAGENTA};font-size:28px">';
+document.getElementById('pw').addEventListener('input', (e) => { const v = e.target.value; document.getElementById('mirror').value = v; document.getElementById('area').value = v; inner.getElementById('deep').value = v; });</script>`,
+        ),
+      );
+    // A page that takes the keyboard off the password field the moment it gets it; with ?keys, one that also throws away a value no key typed.
+    if (req.url?.startsWith("/decoy"))
+      return html(
+        page(
+          "Decoy",
+          `<label>Password <input id=pw type=password></label><label>Comment <input id=decoy></label>
+<script>const pw = document.getElementById('pw'); pw.addEventListener('focus', () => document.getElementById('decoy').focus());
+${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTrusted) pw.value = ''; });" : ""}</script>`,
+        ),
+      );
+    // Keys only, and nothing in the way: typed for real.
+    if (req.url === "/keys") return html(page("Keys", `<label>Password <input id=pw type=password></label><script>const pw = document.getElementById('pw'); pw.addEventListener('input', (e) => { if (!e.isTrusted) pw.value = ''; });</script>`));
+    if (req.url === "/getform") return html(page("Get", `<form method=get action="/echo"><label>Password <input id=pw type=password name=pw></label></form>`));
+    if (req.url?.startsWith("/echo")) return html(page("Echo", `<p>You sent ${decodeURIComponent(req.url.split("=")[1] ?? "")}</p>`));
     html(login());
   };
 
@@ -111,11 +137,7 @@ describe.skipIf(!findChrome(undefined))("filling a secret in KOS's own Chrome", 
     payBase = `http://127.0.0.1:${portOf(pay)}`;
     scratch = mkdtempSync(join(tmpdir(), "kos-fill-"));
     profile = join(scratch, "profile");
-    // A mock keychain: under a test's HOME, Chrome would ask the owner's Mac for one.
-    const binary = join(scratch, "chrome.sh");
-    writeFileSync(binary, `#!/bin/sh\nexec ${JSON.stringify(findChrome(undefined))} --use-mock-keychain "$@"\n`);
-    chmodSync(binary, 0o755);
-    host = new ChromeHost({ port: 10_000 + Math.floor(Math.random() * 200), profileDir: profile, launch: () => ({ binary, windowSize: { width: 1100, height: 900 } }) });
+    host = new ChromeHost({ port: 10_000 + Math.floor(Math.random() * 200), profileDir: profile, launch: () => ({ windowSize: { width: 1100, height: 900 } }) });
     live = new BrowserLive({ config: () => DEFAULT_CONFIG, chrome: host });
     const id = await live.tabFor("fill");
     tab = { page: await live.page(id), capture: (w) => live.capture(id, w) };
@@ -139,7 +161,7 @@ describe.skipIf(!findChrome(undefined))("filling a secret in KOS's own Chrome", 
   it("says where a field is by the browser's own frames: the page's origin and the frame's", async () => {
     const seen = await open();
     const [top, framed] = await fieldSpots(tab, [refOf(seen, "Password"), refOf(seen, "Card number")]);
-    expect(top).toMatchObject({ origin: base, frameOrigin: base });
+    expect(top).toMatchObject({ origin: base, frameOrigin: base, field: { label: "Password", type: "password" } });
     expect(framed).toMatchObject({ origin: base, frameOrigin: payBase });
     expect(framed!.doc).toBe(top!.doc);
     await expect(fieldSpots(tab, ["@e999"])).rejects.toMatchObject({ code: "ref" });
@@ -211,6 +233,7 @@ describe.skipIf(!findChrome(undefined))("filling a secret in KOS's own Chrome", 
       ["Tiny", "password", /hidden \(too small/],
       ["Ghost", "password", /hidden/],
       ["Note", "card-number", /does not take a card number/],
+      ["Nickname", "token", /does not take a token/],
     ];
     for (const [label, slot, why] of cases) {
       const ref = refOf(seen, label);
@@ -247,4 +270,56 @@ describe.skipIf(!findChrome(undefined))("filling a secret in KOS's own Chrome", 
     expect(await magentaIn(raw)).toBeGreaterThan(200);
     expect(await magentaIn(masked!)).toBeLessThan(20);
   });
+
+  const fillPassword = async (path: string): Promise<string> => {
+    const seen = (await visit(tab, [`${base}${path}`], { then: "look", until: "load" })).text;
+    const pw = refOf(seen, "Password");
+    await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: await expectFor(pw, "password") }], "none");
+    return seen;
+  };
+
+  it("masks a secret a page copies into another box, a textarea, a shadow root, or shows as text", async () => {
+    const seen = await fillPassword("/mirror");
+    expect(await peek("document.getElementById('area').value")).toBe(PASSWORD);
+    await act(tab, stepsOf([{ click: refOf(seen, "Show password") }]), "none");
+    expect(await peek("document.getElementById('pw').type")).toBe("text");
+    const masked = await tab.capture(1000);
+    const said = (await look(tab, "look")).text + (await look(tab, "snapshot")).text;
+    expect(said).not.toContain(PASSWORD);
+    await visit(tab, [`${base}/next`], { then: "none" });
+    expect(await magentaIn(masked!)).toBeLessThan(20);
+  });
+
+  it("puts the value on the field itself, wherever the page moves the keyboard", async () => {
+    await fillPassword("/decoy");
+    expect(await peek("document.getElementById('pw').value")).toBe(PASSWORD);
+    expect(await peek("document.getElementById('decoy').value")).toBe("");
+  });
+
+  it("types for real only while the field has the keyboard, and refuses when the page takes it", async () => {
+    await fillPassword("/keys");
+    expect(await peek("document.getElementById('pw').value")).toBe(PASSWORD);
+    const err = await fillPassword("/decoy?keys").catch((e: unknown) => e as SecretRefused);
+    expect(err).toMatchObject({ code: "focus" });
+    expect(await peek("document.getElementById('decoy').value")).toBe("");
+  });
+
+  it("refuses a form that sends in the address, and masks a value a later page echoes", async () => {
+    await expect(fillPassword("/getform")).rejects.toMatchObject({ code: "field", message: expect.stringMatching(/method=get/) });
+    await fillPassword("/");
+    const echoed = await visit(tab, [`${base}/echo?x=${PASSWORD}`], { then: "read" });
+    expect(echoed.text).toContain("You sent (hidden)");
+    expect(echoed.text).toContain("URL: " + `${base}/echo?x=(hidden)`);
+    // The first line repeats the address the caller gave; everything read from the page is masked.
+    expect(echoed.text.split("\n").slice(1).join("\n")).not.toContain(PASSWORD);
+  });
+
+  it("takes only refs while the page holds a secret: no selector, no scope, no wait for words", async () => {
+    await fillPassword("/");
+    await expect(act(tab, stepsOf([{ click: "#pw" }]), "none")).rejects.toThrow(/aiming at #pw is refused/);
+    await expect(act(tab, stepsOf([{ wait: { text: "pw-" } }]), "none")).rejects.toThrow(/waiting for words is refused/);
+    await expect(look(tab, "look", "#pw")).rejects.toThrow(/looking within #pw is refused/);
+    await expect(look(tab, "read", "body")).rejects.toThrow(/refused/);
+  });
 });
+
