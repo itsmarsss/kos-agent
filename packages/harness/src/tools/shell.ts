@@ -65,7 +65,7 @@ export function namesHarnessConfig(command: string): boolean {
 
 /** Said to a chat that reached for the harness's settings with the shell. */
 export const CONFIG_REFUSED =
-  "mcp.json, profile.json and daemon.json are KOS's own settings, which the shell does not touch: read one with files.read. The owner changes them from the dashboard or the kos command.";
+  "mcp.json, profile.json and daemon.json are KOS's own settings, which no tool reads or writes. The owner changes them from the dashboard or the kos command.";
 
 /** The workspace's own top-level entries no command may write; .kos stays writable, as the shell's TMPDIR is inside it. */
 const UNWRITTEN = [...RESERVED].filter((name) => name !== ".kos");
