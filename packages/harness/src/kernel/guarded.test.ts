@@ -174,6 +174,13 @@ describe("GuardedTools", () => {
       expect((await tools.execute("browser.act", { actions: [{ click: "@next" }] })).content).toBe(`${AUTO_PREFIX}\ndone`);
     });
 
+    it("asks when the check for a checkout fails, rather than reading the failure as no checkout", async () => {
+      risky("browser.act");
+      const tools = auto({ beyondAutoNow: async () => { throw new Error("page gone"); } });
+      expect((await tools.execute("browser.act", { actions: [{ click: "@next" }] })).content).toMatch(/Queued for approval/);
+      expect(approvals.pending().at(-1)?.reason).toMatch(/^asked though the chat is in Auto: could not check the page for a checkout/);
+    });
+
     it("says on the card why a chat in Auto asked, and offers no remembered yes: a tool's own rule, a write into another project", async () => {
       registry.register({ name: "shop.pay", description: "p", inputSchema: { type: "object" } }, () => "paid", { floor: "risky", beyondAuto: () => "spends money" });
       registry.register({ name: "files.write", description: "w", inputSchema: { type: "object" } }, () => "written", { floor: "safe", reach: () => ({ why: "outside this project, in the books project", beyondAuto: "writes into another project" }) });

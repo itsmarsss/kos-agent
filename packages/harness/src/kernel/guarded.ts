@@ -521,7 +521,7 @@ export class GuardedTools implements ToolBox {
       const mode = this.deps.chatMode?.();
       const covered = autoCovers({ mode, assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
       // Why Auto held back after all, from what the call would act on: said on the card, so the owner knows why it asked.
-      const heldBack = covered ? await this.deps.beyondAutoNow?.(name, input).catch(() => undefined) : undefined;
+      const heldBack = covered ? await this.deps.beyondAutoNow?.(name, input).catch(() => "could not check the page for a checkout") : undefined;
       // Why a chat in Auto asks anyway, from its rules or what the call acts on: the card says so and offers no remembered yes.
       const beyond = heldBack ?? (mode?.mode === "auto" ? assessment.beyondAuto : undefined);
       if (covered && !heldBack) {
