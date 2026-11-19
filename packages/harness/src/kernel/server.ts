@@ -3158,7 +3158,13 @@ export async function handleApiRequest(
   /** Read everything new now, whatever the toggle says: the owner asked. */
   if (method === "POST" && path === "/api/memory/extract") {
     if (kernel.extractor.busy) return { status: 409, body: { error: "the extractor is already running" } };
-    const report = await kernel.extractMemory();
+    let report: Awaited<ReturnType<typeof kernel.extractMemory>>;
+    try {
+      report = await kernel.extractMemory();
+    } catch (err) {
+      // What was read is kept; what could not be is read again next time.
+      return { status: 502, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
     return ok({ ...report, claims: report.claims.map((c) => ({ key: c.key, value: c.value, scope: c.scope, trust: c.trust, replaced: c.supersedes !== null })) });
   }
 

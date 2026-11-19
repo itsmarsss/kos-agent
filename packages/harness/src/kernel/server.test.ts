@@ -2169,8 +2169,15 @@ describe("handleApiRequest", () => {
     // is what clears the pending count.
     expect(before.body).toMatchObject({ enabled: true, running: false });
     expect((before.body as { pending: { count: number } }).pending.count).toBeGreaterThan(0);
-    // The stub model answers "hi", not JSON: a read that proposes nothing.
+    // The stub model answers "hi", not JSON: nothing is read, and nothing is passed over.
+    const failed = await handleApiRequest(kernel, { method: "POST", path: "/api/memory/extract" });
+    expect(failed.status).toBe(502);
+    expect((failed.body as { error: string }).error).toMatch(/cut off or unreadable/);
+    expect(((await handleApiRequest(kernel, { method: "GET", path: "/api/memory/extract" })).body as { pending: { count: number } }).pending.count).toBeGreaterThan(0);
+    // Answered in JSON, every batch is read: one that proposes nothing.
+    vi.spyOn(stub, "generate").mockResolvedValue({ content: [{ type: "text", text: '{"ops":[]}' }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
     const ran = await handleApiRequest(kernel, { method: "POST", path: "/api/memory/extract" });
+    vi.restoreAllMocks();
     expect(ran.status).toBe(200);
     expect(ran.body).toMatchObject({ proposed: 0, added: 0 });
     expect((ran.body as { events: number }).events).toBeGreaterThan(0);
