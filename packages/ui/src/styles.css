@@ -611,6 +611,8 @@ select {
 .ops-toast-text { min-width: 0; overflow-wrap: anywhere; }
 .ops-toast--ok .ops-toast-icon { background: var(--ok-dim); color: var(--ok); }
 .ops-toast--err { border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
+.ops-toast--warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line-strong)); }
+.ops-toast--warn .ops-toast-icon { background: var(--warn-dim); color: var(--warn); }
 .ops-toast--err .ops-toast-icon { background: var(--danger-dim); color: var(--danger); }
 
 /* KOS not there for this tab: a pill held at the top of the page, over it

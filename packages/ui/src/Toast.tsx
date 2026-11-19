@@ -8,7 +8,7 @@ import { AlertIcon, CheckIcon, CloseIcon, IconButton, spring } from "@kos/kit";
 
 /** A word from KOS about what just happened, and the way to take it back when there is one. */
 export interface ToastNote {
-  kind: "ok" | "err";
+  kind: "ok" | "warn" | "err";
   text: string;
   undo?: () => void;
   /** Shown with a close of its own, for a note that stays until it is read. */

@@ -58,7 +58,7 @@ import { Toast } from "./Toast.js";
 import { useReach } from "./reach.js";
 import { agoWords, jobTitle } from "./schedulewords.js";
 
-type Toast = { kind: "ok" | "err"; text: string } | null;
+type Toast = { kind: "ok" | "warn" | "err"; text: string } | null;
 
 /** "in 25m", "in 3h, 9:00 AM", "Tomorrow 9:00 AM": when a job fires next, at a glance, on the reader's clock. */
 function whenNext(at: number): string {
@@ -221,7 +221,7 @@ export function App(): React.ReactElement {
     link.href = faceDataUrl(kosLook, mood);
   }, [kosLook, status?.pendingApprovals, status?.halted]);
 
-  const flash = (kind: "ok" | "err", text: string): void => {
+  const flash = (kind: "ok" | "warn" | "err", text: string): void => {
     setToast({ kind, text });
     window.setTimeout(() => setToast(null), 3200);
   };
@@ -396,6 +396,12 @@ export function App(): React.ReactElement {
       // held for another decision still waiting.
       // Asked to remember one that keeps nothing: said, and never called remembered.
       const kept = remember && !("remembered" in res && res.remembered === false);
+      // The decision stood, and the chat that asked could not carry on from it: said in the warn tone, apart.
+      if (res.resumed === false) {
+        flash("warn", `${approved ? "Approved" : "Denied"} #${id}. The chat could not carry on: ${res.resumeError ?? "it stopped"}`);
+        await refresh();
+        return;
+      }
       flash("ok", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
       await refresh();
     } catch (err) {

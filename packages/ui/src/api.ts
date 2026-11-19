@@ -1759,7 +1759,7 @@ export const api = {
     post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
   /** Approve; with remember, the same shape stops asking. */
   approve: (id: number, remember = false) =>
-    post<{ ok: boolean; message: string; reply?: string; remembered?: boolean }>("/api/approve", {
+    post<{ ok: boolean; message: string; reply?: string; remembered?: boolean; resumed?: false; resumeError?: string }>("/api/approve", {
       id,
       ...(remember ? { remember: true } : {}),
     }),
@@ -1777,7 +1777,7 @@ export const api = {
   permissions: () => get<{ rules: PermissionRule[] }>("/api/permissions"),
   revokePermission: (id: number) => post<{ id: number; revoked: boolean }>("/api/permissions/revoke", { id }),
   deny: (id: number) =>
-    post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
+    post<{ ok: boolean; message: string; reply?: string; resumed?: false; resumeError?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
   message: (text: string, sessionId?: string, attachments?: Attachment[]) =>
     post<{
