@@ -897,6 +897,12 @@ export class Page {
     return this.taintedUrls.has(urlKey(this.url)) ? { loader: this.life.loader, nodes: new Map() } : undefined;
   }
 
+  /** Whether a field may hold a secret KOS filled: one it filled, or any on a page a secret was in come back to, where which is not known. */
+  private heldField(node: number): boolean {
+    const taint = this.tainted();
+    return taint !== undefined && (taint.nodes.size === 0 || taint.nodes.has(node));
+  }
+
   /** Whether this tab holds a secret KOS filled in its page now. */
   holdsSecret(): boolean {
     return this.tainted() !== undefined;
@@ -1622,7 +1628,7 @@ export class Page {
       }
       const node = nodes[i]?.backendNodeId;
       if (node === undefined || item.closed) continue;
-      const value = item.value !== undefined && this.tainted()?.nodes.has(node) ? HIDDEN_VALUE : item.value;
+      const value = item.value !== undefined && this.heldField(node) ? HIDDEN_VALUE : item.value;
       controls.push({ node, role: item.role, name: item.name, states: item.states, ...(value !== undefined ? { value } : {}), ...(item.dialog !== undefined ? { dialog: item.dialog } : {}), ...(item.more ? { more: item.more } : {}) });
     }
     return { controls, total, unread, closed };
@@ -1678,12 +1684,11 @@ export class Page {
   private async hideSecrets(nodes: AxNode[]): Promise<void> {
     const valued = nodes.filter((n) => n.backendDOMNodeId !== undefined && holdsValue(n));
     if (valued.length === 0) return;
-    const filled = this.tainted()?.nodes;
     const described = await this.many(valued.map((n) => ({ method: "DOM.describeNode", params: { backendNodeId: n.backendDOMNodeId } })), true);
     for (const [i, d] of described.entries()) {
       const flat = d instanceof Error ? undefined : (d["node"] as { attributes?: string[] } | undefined)?.attributes;
       const attributes = Object.fromEntries((flat ?? []).flatMap((v, j, all) => (j % 2 === 0 ? [[v.toLowerCase(), all[j + 1] ?? ""]] : [])));
-      if (!flat || secretField(attributes) || filled?.has(valued[i]!.backendDOMNodeId!)) valued[i]!.value = { value: HIDDEN_VALUE };
+      if (!flat || secretField(attributes) || this.heldField(valued[i]!.backendDOMNodeId!)) valued[i]!.value = { value: HIDDEN_VALUE };
     }
   }
 

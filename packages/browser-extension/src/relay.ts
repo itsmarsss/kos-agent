@@ -88,6 +88,15 @@ export function isWebUrl(url: string): boolean {
   return /^https?:\/\//i.test(url) || url === "about:blank";
 }
 
+/**
+ * A page a tab may be on for KOS to drive it: a web address or a blank
+ * page, a blob of a web page's own, or the page Chrome shows for one that
+ * would not load. Not one of Chrome's own pages or an extension's.
+ */
+export function isWebPage(url: string): boolean {
+  return isWebUrl(url) || /^blob:https?:\/\//i.test(url) || url.startsWith("chrome-error://chromewebdata/");
+}
+
 /** The world KOS's hands make for their page-side scripts (WORLD in packages/browser/src/page.ts): the one world KOS may make. */
 export const HANDS_WORLD = "kos-hands";
 
@@ -106,6 +115,8 @@ export function checkCommand(method: string, params: Record<string, unknown>): v
     const url = params["url"];
     if (typeof url !== "string" || !isWebUrl(url)) throw new CallError("url", "only web pages (http and https) open in your Chrome");
   }
+  // The browser's own shadow roots hold each field's text: a node found at a point is never one inside them.
+  if (method === "DOM.getNodeForLocation") params["includeUserAgentShadowDOM"] = false;
   if (method === "Page.createIsolatedWorld") {
     if (params["worldName"] !== HANDS_WORLD) throw new CallError("method", `the only world KOS may make is ${HANDS_WORLD}`);
     if (params["grantUniveralAccess"] !== undefined && params["grantUniveralAccess"] !== false) throw new CallError("method", "a world KOS makes has no more reach than the page");

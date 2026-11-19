@@ -182,21 +182,27 @@ export function heldNow(taint: TabTaint | undefined, loader: string, url: string
 /** What a field holding a secret is said to hold, as KOS's hands say it (HIDDEN_VALUE in packages/browser/src/snapshot.ts). */
 const HIDDEN_VALUE = "(hidden)";
 
-type AxAnswer = { nodeId?: string; backendDOMNodeId?: number; childIds?: string[]; value?: { type?: string; value?: unknown } };
+/** Roles whose value is what is typed in them (VALUED in packages/browser/src/snapshot.ts, less the slider). */
+const TEXT_ROLES: ReadonlySet<string> = new Set(["textbox", "searchbox", "combobox", "spinbutton"]);
+
+type AxAnswer = { nodeId?: string; backendDOMNodeId?: number; role?: { value?: unknown }; childIds?: string[]; value?: { type?: string; value?: unknown } };
 
 /**
  * The page's accessibility tree with each field a secret is in said to hold
  * "(hidden)", and what is inside it (the browser's own editor, whose text is
- * the value) left out: the tree says what a field holds.
+ * the value) left out: the tree says what a field holds. On a page a secret
+ * was in come back to (`held` with no fields), which field holds it again is
+ * not known, so every text box is.
  */
-export function hiddenValues(method: string, answer: Record<string, unknown>, held: readonly Marked[]): Record<string, unknown> {
-  if (method !== "Accessibility.getFullAXTree" || held.length === 0 || !Array.isArray(answer["nodes"])) return answer;
-  const filled = new Set(held.map((m) => m.node));
+export function hiddenValues(method: string, answer: Record<string, unknown>, held: { nodes: readonly Marked[] } | undefined): Record<string, unknown> {
+  if (method !== "Accessibility.getFullAXTree" || !held || !Array.isArray(answer["nodes"])) return answer;
+  const filled = new Set(held.nodes.map((m) => m.node));
+  const hides = (n: AxAnswer): boolean => (held.nodes.length === 0 ? TEXT_ROLES.has(String(n.role?.value ?? "")) : n.backendDOMNodeId !== undefined && filled.has(n.backendDOMNodeId));
   const nodes = answer["nodes"] as AxAnswer[];
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
   const inside: string[] = [];
   for (const n of nodes) {
-    if (n.backendDOMNodeId === undefined || !filled.has(n.backendDOMNodeId)) continue;
+    if (!hides(n)) continue;
     if (n.value) n.value = { type: n.value.type ?? "string", value: HIDDEN_VALUE };
     inside.push(...(n.childIds ?? []));
     n.childIds = [];

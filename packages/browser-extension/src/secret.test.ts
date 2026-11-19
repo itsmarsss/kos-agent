@@ -143,11 +143,17 @@ describe("what the browser says a field holds", () => {
       { nodeId: "4", name: { value: "4242424242424242" } },
       { nodeId: "5", backendDOMNodeId: 50, value: { type: "string", value: "owner" } },
     ];
-    const answer = hiddenValues("Accessibility.getFullAXTree", { nodes: structuredClone(nodes) }, [{ frame: "F", node: 41 }]);
+    const answer = hiddenValues("Accessibility.getFullAXTree", { nodes: structuredClone(nodes) }, { nodes: [{ frame: "F", node: 41 }] });
     expect(JSON.stringify(answer)).not.toContain("4242");
     expect((answer["nodes"] as { nodeId: string }[]).map((n) => n.nodeId)).toEqual(["1", "2", "5"]);
     expect(answer["nodes"]).toContainEqual(expect.objectContaining({ nodeId: "2", value: { type: "string", value: "(hidden)" }, childIds: [] }));
     expect(answer["nodes"]).toContainEqual(expect.objectContaining({ nodeId: "5", value: { type: "string", value: "owner" } }));
-    expect(hiddenValues("Accessibility.getFullAXTree", { nodes }, [])["nodes"]).toBe(nodes);
+    expect(hiddenValues("Accessibility.getFullAXTree", { nodes }, undefined)["nodes"]).toBe(nodes);
+    // A page a secret was in come back to: every text box's value, since which holds it again is not known.
+    const back = hiddenValues("Accessibility.getFullAXTree", { nodes: structuredClone(nodes) }, { nodes: [] });
+    expect(JSON.stringify(back)).not.toContain("4242");
+    expect(back["nodes"]).toContainEqual(expect.objectContaining({ nodeId: "5", value: { type: "string", value: "owner" } }));
+    const box = { nodeId: "6", backendDOMNodeId: 60, role: { value: "searchbox" }, value: { type: "string", value: "typed" } };
+    expect(hiddenValues("Accessibility.getFullAXTree", { nodes: [structuredClone(box)] }, { nodes: [] })["nodes"]).toEqual([{ ...box, value: { type: "string", value: "(hidden)" }, childIds: [] }]);
   });
 });

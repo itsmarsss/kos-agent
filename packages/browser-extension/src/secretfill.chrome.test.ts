@@ -385,6 +385,12 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     expect(await send("Runtime.evaluate", step)).toMatchObject({ ok: true });
     await cdp("Page.navigate", { url: `${base}/login` });
     expect(await send("Runtime.evaluate", step)).toMatchObject({ error: expect.objectContaining({ code: "tainted" }) });
+    // Which field holds it again is not known: every text box's value is hidden from the tree.
+    const back = await devtools.attach((u) => u.endsWith("/login"));
+    await devtools.evaluate(back, "document.getElementById('search').value = 'restored-canary'");
+    const tree = JSON.stringify(await cdp("Accessibility.getFullAXTree"));
+    expect(tree).toContain("(hidden)");
+    expect(tree).not.toContain("restored-canary");
     await cdp("Page.navigate", { url: `${base}/other` });
     expect(await send("Runtime.evaluate", step)).toMatchObject({ ok: true });
   });
@@ -409,6 +415,22 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     await cdp("Page.navigate", { url: `${base}/moved` });
     expect(await send("Runtime.evaluate", step)).toMatchObject({ error: expect.objectContaining({ code: "tainted" }) });
     await cdp("Page.navigate", { url: `${base}/other` });
+  });
+
+  it("drives no page of Chrome's own or an extension's, gone to or stepped back to", async () => {
+    const page = await devtools.attach((u) => u.endsWith("/other"));
+    await devtools.send("Page.navigate", { url: "chrome://version/" }, page).catch(() => undefined);
+    await until(async () => ((await call("cdp.send", { tab, method: "Page.getFrameTree", params: {} }))["error"] as { code?: string } | undefined)?.code === "url");
+    expect(await call("cdp.send", { tab, method: "Page.getFrameTree", params: {} })).toMatchObject({ error: { code: "url" } });
+    expect(await call("cdp.send", { tab, method: "Page.navigate", params: { url: `${base}/other` } })).toMatchObject({ error: { code: "url" } });
+    // The owner goes back to the web; a step forward to Chrome's page is refused by where it goes.
+    const there = await devtools.attach((u) => u.startsWith("chrome://version"));
+    await devtools.send("Page.navigate", { url: `${base}/other` }, there);
+    await until(async () => (await call("cdp.send", { tab, method: "Page.getFrameTree", params: {} }))["ok"] === true);
+    const history = (await cdp("Page.getNavigationHistory")) as { entries: { id: number; url: string }[] };
+    const chromePage = history.entries.find((e) => e.url.startsWith("chrome://"));
+    expect(chromePage).toBeDefined();
+    expect(await call("cdp.send", { tab, method: "Page.navigateToHistoryEntry", params: { entryId: chromePage!.id } })).toMatchObject({ error: { code: "url" } });
   });
 
   it("sends KOS, its log, its storage and its pages no value", async () => {

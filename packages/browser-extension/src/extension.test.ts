@@ -13,7 +13,7 @@ import { CURSOR } from "./cursorlook.js";
 import { installOverlay } from "./overlay.js";
 import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
-import { checkCommand, forwarded, isWebUrl, Worlds } from "./relay.js";
+import { checkCommand, forwarded, isWebPage, isWebUrl, Worlds } from "./relay.js";
 import { GRACE_MS, Session } from "./session.js";
 import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf, themeOf } from "./settings.js";
 
@@ -85,6 +85,19 @@ describe("what reaches a tab", () => {
       expect(() => checkCommand("Page.navigate", { url })).toThrow(/only web pages/);
     }
     expect(isWebUrl("about:blank")).toBe(true);
+  });
+
+  it("drives a tab only while it is on a web page, a web page's blob or Chrome's page for one that would not load", () => {
+    for (const url of ["https://example.com/", "about:blank", "blob:https://example.com/0f1e", "chrome-error://chromewebdata/"]) expect(isWebPage(url)).toBe(true);
+    for (const url of ["chrome://settings/", "chrome-extension://abc/popup.html", "file:///etc/passwd", "devtools://devtools/x", "view-source:https://example.com", "blob:chrome-extension://abc/1"]) expect(isWebPage(url)).toBe(false);
+  });
+
+  it("never finds a node inside the browser's own shadow roots, which hold each field's text", () => {
+    for (const asked of [{ x: 1, y: 1 }, { x: 1, y: 1, includeUserAgentShadowDOM: true }]) {
+      const params: Record<string, unknown> = { ...asked };
+      checkCommand("DOM.getNodeForLocation", params);
+      expect(params["includeUserAgentShadowDOM"]).toBe(false);
+    }
   });
 
   it("lets KOS make only its hands' own world, with no more reach than the page", () => {

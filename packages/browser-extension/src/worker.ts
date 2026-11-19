@@ -14,7 +14,7 @@ import { readPage } from "./page.js";
 import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
-import { changesPage, checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
+import { changesPage, checkCommand, forwarded, isInput, isWebPage, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
 import { FILLED_PAGE, TAINTS_KEY, editsField, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type TabTaint } from "./secret.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
@@ -1035,7 +1035,7 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   if (aim && "node" in aim) await pointAtNode(tab, aim.node, aim.how);
   if (method === "Page.getNavigationHistory") return withoutHidden(answer);
   // What the browser says a field holds stays here: its own shadow roots, and the tree's value of a field a secret is in.
-  return hiddenValues(method, withoutFieldText(method, answer), heldOn(tab)?.nodes ?? []);
+  return hiddenValues(method, withoutFieldText(method, answer), heldOn(tab));
 }
 
 /**
@@ -1046,16 +1046,26 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
  */
 async function refuseHidden(tab: number): Promise<void> {
   const t = await chrome.tabs.get(tab).catch(() => undefined);
-  for (const url of [attached.has(tab) ? tabUrls.get(tab) : undefined, t?.url, t?.pendingUrl]) {
+  const urls = [attached.has(tab) ? tabUrls.get(tab) : undefined, t?.url, t?.pendingUrl];
+  for (const url of urls) {
     if (url && isHidden(url, settings.hiddenSites)) throw hiddenError(url);
+  }
+  // Nor a page of Chrome's own or an extension's that a page went to by itself: KOS drives only the web.
+  for (const url of urls) {
+    if (url && !isWebPage(url)) throw notWebError();
   }
 }
 
-/** Refused when the history entry a command would go back or forward to is on a hidden site. */
+function notWebError(): CallError {
+  return new CallError("url", "the tab is on a page that is not a web address (one of Chrome's own or an extension's); KOS drives only web pages, so the owner takes it from here");
+}
+
+/** Refused when the history entry a command would go back or forward to is on a hidden site, or is not a web page. */
 async function refuseHiddenEntry(tab: number, entryId: unknown): Promise<void> {
   const history = (await chrome.debugger.sendCommand({ tabId: tab }, "Page.getNavigationHistory", {})) as { entries?: { id?: unknown; url?: unknown }[] } | undefined;
   const url = history?.entries?.find((e) => e.id === entryId)?.url;
-  if (typeof url === "string" && isHidden(url, settings.hiddenSites)) throw hiddenError(url);
+  if (typeof url !== "string" || !isWebPage(url)) throw notWebError();
+  if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
 }
 
 /** A tab's history with the entries on hidden sites nameless: there, and nothing more. */
