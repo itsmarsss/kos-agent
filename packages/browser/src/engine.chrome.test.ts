@@ -100,10 +100,10 @@ describe.skipIf(!chrome)("the hands on a real Chrome", () => {
   afterAll(async () => {
     await live?.shutdown();
     await host?.waitGone();
-    host?.stop();
+    await host?.stop();
     server?.closeAllConnections();
     server?.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
   it("visits a page and sees its controls, with a picture", async () => {

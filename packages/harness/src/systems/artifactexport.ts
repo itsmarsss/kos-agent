@@ -85,6 +85,8 @@ export class ExportUnavailable extends ExportRefusal {}
 const NO_BUILD = /the dashboard's build has no/;
 /** What ChromeHost says when it finds no Chrome to start. */
 const NO_CHROME = /no Chrome found/;
+/** What ChromeHost says when the Chrome it started never answered on its port: a machine too busy, for now. */
+const NOT_STARTED = /did not answer on its port in time/;
 
 export interface ExporterOptions {
   load: (id: string) => { page: HtmlPage; title: string } | undefined;
@@ -431,6 +433,7 @@ export class ArtifactExporter {
       return work(browser.cdp, job);
     }).catch((err: unknown) => {
       if (NO_CHROME.test(String(err))) throw new ExportUnavailable("KOS's Chrome is not available on this machine, so it cannot draw this artifact to export it; install Chrome, or export a doc as Markdown or a sheet as CSV");
+      if (NOT_STARTED.test(String(err))) throw new ExportRefusal("KOS's Chrome did not start in time, so there is nothing to export; try again");
       // The Chrome went from under the work (a crash, a stop): said in words, and the next export starts a fresh one.
       if (!job.aborted && (job.browserGone || BROWSER_GONE.test(String(err)))) throw new ExportRefusal("KOS's Chrome stopped while it drew the artifact, so there is nothing to export; try again");
       throw err;

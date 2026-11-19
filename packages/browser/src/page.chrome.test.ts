@@ -176,12 +176,12 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
   afterAll(async () => {
     await live?.shutdown();
     await host?.waitGone();
-    host?.stop();
+    await host?.stop();
     for (const s of [server, other]) {
       s?.closeAllConnections();
       s?.close();
     }
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
   const timed = async <T>(work: () => Promise<T>): Promise<{ value: T; ms: number }> => {

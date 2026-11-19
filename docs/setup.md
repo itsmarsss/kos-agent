@@ -49,7 +49,8 @@ Read these before anything else and keep to them throughout.
 4. **Never commit `.env`**, a vault file, a key file or anything under
    `~/.kos`. `.env` is git-ignored; keep it that way.
 5. **Do not open the user's ports to the network** (`KOS_HOST` other than
-   `127.0.0.1`) unless they ask, and then set `KOS_DASHBOARD_TOKEN` too.
+   `127.0.0.1`) unless they ask. KOS refuses to start beyond loopback
+   without `KOS_DASHBOARD_TOKEN`.
 6. **Run every check.** A step is done when its check passes, not when its
    command returned.
 
@@ -59,7 +60,7 @@ Read these before anything else and keep to them throughout.
 | --- | --- | --- |
 | macOS (14 or later for KOS for Mac), or Linux | `uname -s`, and on a Mac `sw_vers -productVersion` | `Darwin` or `Linux`, and the macOS version |
 | git | `git --version` | `git version 2.x` |
-| Node 20 or newer (22 is what CI and the container use) | `node -v` | `v20.x` or later |
+| Node 22.5 or newer (for `node:sqlite`; 22 is what CI and the container use) | `node -v` | `v22.5` or later |
 | pnpm 9.15.4 (pinned in `package.json`) | `pnpm -v` | `9.15.4` |
 | ripgrep, for the search tool | `rg --version` | `ripgrep x.y.z` |
 | Google Chrome, for KOS's browser (optional) | macOS: `ls "/Applications/Google Chrome.app"`; Linux: `command -v google-chrome google-chrome-stable chromium` | the path |
@@ -120,8 +121,9 @@ If `~/.local/bin` is not on the PATH, add
 
 Check: `command -v kos` prints `~/.local/bin/kos` (expanded).
 
-The CLI reads `.env` from the current directory first, then from the
-repository root, so it works from anywhere once `.env` is in the root.
+The CLI reads `.env` from the repository root only (or the file
+`KOS_ENV_FILE` names), so it works from anywhere, and a `.env` in the
+current directory is never picked up.
 
 ## 4. Configuration and models
 
@@ -212,8 +214,14 @@ Open `http://127.0.0.1:4317` in the user's browser. It lands in a chat.
 Stop the foreground host with Ctrl-C (it prints `shutting down…`).
 
 `kos start` without `--foreground` starts the same host detached, logging
-to `<workspace>/.kos/daemon.log`; `kos stop` and `kos restart` manage it.
-For anything lasting, use the service below instead.
+to `<workspace>/.kos/daemon.log` (rotated past 10 MB, three kept as
+`daemon.log.1` to `.3`); `kos stop` and `kos restart` manage it. Where the
+host runs is kept in `~/.kos/run/`, outside the workspace, and `kos stop`
+signals only a pid that answers as this workspace's KOS. A host shuts
+down within 8 s: daemons first, then each surface; the log names anything
+that did not stop. A restart from Settings keeps the flags the host was
+started with (`--no-discord`, `--sites-port`). For anything lasting, use
+the service below instead.
 
 ### 5b. The service (macOS)
 
@@ -258,7 +266,11 @@ In the container, keys go in `.env` on the host followed by
 `docker compose up -d`, not in Settings, Providers (the container's own
 copy of the file does not last). The `kos` command runs inside it as
 `docker compose exec kos node packages/cli/dist/main.js <args>`. The
-container has no Chrome, so KOS's own browser is off there. The vault
+container has no Chrome, so KOS's own browser is off there. Discord is
+off too: the image runs `serve`, which implies `--no-discord`, and the log
+says "Discord: off". To run the bot in the container, uncomment the
+`command:` line in docker-compose.yml (`serve --discord`, which refuses to
+start without the Discord keys in `.env`). The vault
 in the container needs `KOS_VAULT_KEY` and `KOS_VAULT_ALLOW_SHARED_UID=1`
 in `.env` (see [secrets.md](secrets.md), In the container).
 
@@ -553,13 +565,19 @@ machine needs `KOS_BROWSER_PORT`.
 
 - `Discord: skipped` in the log: `KOS_SECRET_DISCORD` or
   `KOS_OWNER_DISCORD` is empty.
-- A token or intent error: the token was reset (copy it again) or Message
-  Content Intent is off in the portal.
+- `Discord: not started (...)` in the log, and Discord listed as failing
+  on the dashboard's health: a token or intent error means the token was
+  reset (copy it again) or Message Content Intent is off in the portal.
+  Fix it, then `kos restart`: a login refused for its token or intents is
+  not tried again. One the network failed is, after 30 s, then doubling up
+  to 15 min (`Discord: trying again in ...`).
 - Timeouts, `ENOTFOUND` or `ECONNRESET` for discord.com or
   gateway.discord.gg: a network filter (a school, office or DNS filter, a
   firewall) blocks Discord. Check with `curl -sI https://discord.com/api/v10/gateway`;
   if that fails, use another network or have the user allow Discord.
-  The dashboard and every other surface keep working meanwhile.
+  The dashboard, every other surface and the schedule keep working
+  meanwhile; a surface that fails to start (Discord, SMS, a device panel)
+  is logged and shown as failing, and the rest of the host starts.
 
 **Dashboard 403 after a restart.** "A change to KOS needs this boot's write
 key": reload the tab. With `KOS_DASHBOARD_TOKEN` set (always in Docker),
