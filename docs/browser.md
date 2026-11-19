@@ -96,6 +96,34 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   what it said. A crashed tab is loaded again. Calls on one tab run one
   at a time.
 
+- **Secrets.** `Page.fillSecret(ref, value, expect)` is the one way a
+  saved secret goes into a page (the `secrets.fill` tool, see
+  docs/secrets.md), apart from `fill`: the ref must be from this
+  document's last look; the page's origin and the origin of the frame the
+  field is in, read from the browser's own DOM tree and frame tree, must be
+  the ones approved; each frame around the field must be drawn and in
+  view; and the field (`inpage.fillable`, in KOS's own world) must be an
+  input of a type the secret fits (a password only into `type=password`, a
+  card number only where its autocomplete or label says so), at least 8 by
+  8, not see-through, in view and on top at its middle, enabled and
+  writable. Then it is focused, selected and the value inserted as typing,
+  and checked to hold it by a yes or no from KOS's world, never read back.
+  A field in a frame of another process (most payment frames on the web)
+  is out of reach: the fill says so, and the owner takes the tab. Nothing
+  thrown holds the value.
+- **A tainted page.** Once a secret is in (a password, a card's number,
+  expiry or CVC, a token, a note; not a username, a name or an address),
+  the page is tainted until its document changes: its secret fields read
+  as `(hidden)` in the index and the outline, every place the page echoes a
+  filled value (its text, its title, a dialog) reads as `(hidden)` too,
+  `browser.eval` is refused, and so are Meta or Ctrl with c, x or a while a
+  secret field has the keyboard and typing or filling into one. Every
+  picture of it (what the model is shown, an approval's, a kept frame)
+  is taken with the secret fields' text made unseeable and every echo of a
+  value painted over (a CSS highlight, `kos-secret`), one picture at a
+  time, and put back after; a page that cannot be masked is not pictured.
+  The owner's own screencast of the tab is not masked.
+
 ## Watching and taking over
 
 The dashboard watches a tab as a screencast, up to 30 frames a second,
@@ -126,5 +154,11 @@ not instructions.
 `engine.chrome.test.ts` drives a real headless Chrome against pages it
 serves: a form filled, picked, checked and sent by refs, a confirm
 answered both ways, a covered click refused, a link followed and gone
-back from, a page that never finishes loading. It is skipped where no
-Chrome is installed.
+back from, a page that never finishes loading. `fillsecret.chrome.test.ts`
+fills a login and a card in a frame of another origin, and is refused a
+wrong origin or frame, a page changed since, a field of the wrong kind, a
+hidden, tiny or read-only one; checks what a tainted page hands back and
+refuses, and counts the magenta of the secrets in its pictures. They are
+skipped where no Chrome is installed, and run Chrome with
+`--use-mock-keychain`, since under a test's HOME it would ask the Mac for
+a keychain.
