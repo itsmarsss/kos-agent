@@ -973,7 +973,10 @@ async function secretPicture(params: Record<string, unknown>, origin: string): P
   await refuseHidden(tab);
   await attach(tab);
   stillIn(s, tab);
-  return picture(tab, params, masks);
+  const shot = await picture(tab, params, masks);
+  // As a lone picture is: a page that went to a hidden site meanwhile gives KOS nothing of it.
+  await refuseHidden(tab);
+  return shot;
 }
 
 async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
