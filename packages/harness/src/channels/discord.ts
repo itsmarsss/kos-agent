@@ -1205,11 +1205,13 @@ export class DiscordAdapter implements ChannelAdapter {
       if (since) await this.readMissed(roomId, since);
     } finally {
       this.catchingUp.delete(roomId);
-      // Read: the place moves past what was heard live meanwhile, too.
-      const live = this.reading.get(roomId);
-      this.reading.delete(roomId);
-      if (live) this.cursors?.advance(roomId, live);
     }
+    // Read: the place moves past what was heard live meanwhile, too. Not
+    // read, it stays where the reading stopped, and the room stays to be
+    // read, so the next catch-up reads what this one could not.
+    const live = this.reading.get(roomId);
+    this.reading.delete(roomId);
+    if (live) this.cursors?.advance(roomId, live);
   }
 
   private readonly catchingUp = new Set<string>();

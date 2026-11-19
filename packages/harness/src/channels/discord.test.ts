@@ -2646,6 +2646,27 @@ describe("catching up after a drop or a restart", () => {
     expect(cursors.dm1).toBe("903");
   });
 
+  it("keeps a room's place when reading it fails, and reads it on the next catch-up", async () => {
+    const dm = room("dm1", [{ id: "911", author: "owner" }, { id: "912", author: "owner" }]);
+    const fetch = (dm.channel.messages as { fetch: (o: { limit: number }) => Promise<unknown> }).fetch;
+    let down = true;
+    let refused = 0;
+    dm.channel.messages = { fetch: async (o: { limit: number }) => (down ? (refused++, Promise.reject(new Error("Service Unavailable"))) : fetch(o)) };
+    const cursors: Record<string, string> = { dm1: "910" };
+    const { adapter, heard } = adapterOver({ dm1: dm.channel }, cursors);
+    const up = adapter.onUp();
+    await up;
+    await vi.waitFor(() => expect(refused).toBe(1));
+    await vi.waitFor(() => expect((adapter as unknown as { catchingUp: Set<string> }).catchingUp.size).toBe(0));
+    // A live message while the room is still to be read does not carry its place past what was missed.
+    await adapter.receiveMessage({ ...(dm.messages[1] as unknown as Record<string, unknown>), id: "913", content: "said 913" } as unknown as Message);
+    expect(cursors.dm1).toBe("910");
+    down = false;
+    await adapter.catchUp();
+    expect(heard.map((m) => m.text)).toEqual(["said 913", "said 911", "said 912"]);
+    expect(cursors.dm1).toBe("913");
+  });
+
   it("moves a room's place only once the harness has taken the message", async () => {
     const dm = room("dm1", []);
     const cursors: Record<string, string> = { dm1: "500" };
