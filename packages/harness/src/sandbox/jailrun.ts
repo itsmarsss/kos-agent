@@ -12,9 +12,10 @@ import { join } from "node:path";
  * checks the opened file is the one named, then hands bwrap the descriptor,
  * so nothing swapped in after the jail was planned is what gets mounted. It
  * passes the seccomp filter the same way. And for a run with the network it
- * starts bwrap blocked, gives the sandbox's own network namespace a NAT of
- * its own through pasta or slirp4netns, with the host's loopback out of
- * reach, and only then lets it go on.
+ * first makes a user and network namespace of the run's own (unshare),
+ * gives it a NAT through pasta or slirp4netns with the host's loopback out
+ * of reach, and only then, inside it, starts bwrap, which shares that
+ * network and nothing of the host's.
  *
  * Self-contained: it imports nothing of KOS, so it runs from its source
  * (type-stripped) or its build alike.
@@ -40,6 +41,8 @@ export interface JailPlan {
   nat?: JailNat;
   /** mkfifo, for the gate a networked run waits on until its NAT is up. */
   mkfifo: string;
+  /** unshare, which makes a networked run's own namespaces. */
+  unshare: string;
   /** prlimit, to cap what the run can take; absent where there is none. */
   prlimit?: string;
   command: string[];
@@ -81,7 +84,7 @@ function fail(message: string): never {
   process.exit(126);
 }
 
-/** Start the NAT on the sandbox's namespaces, and resolve once it is ready; the result stops it. */
+/** Start the NAT on a process's namespaces, and resolve once it is ready; the result stops it. */
 async function startNat(nat: JailNat, pid: number, scratch: string): Promise<() => void> {
   if (nat.tool === "pasta") {
     const pidFile = join(scratch, "pasta.pid");
@@ -123,103 +126,117 @@ async function startNat(nat: JailNat, pid: number, scratch: string): Promise<() 
   };
 }
 
-/** Read bwrap's info: the sandbox's pid, once it exists. */
-function childPid(stream: NodeJS.ReadableStream): Promise<number> {
-  return new Promise((resolve, reject) => {
-    let text = "";
-    stream.on("data", (d: Buffer) => {
-      text += d.toString();
-      const m = /"child-pid"\s*:\s*(\d+)/.exec(text);
-      if (m) resolve(Number(m[1]));
-    });
-    stream.once("end", () => reject(new Error("bwrap ended before it said where the sandbox is")));
+/** Map a process's new user namespace to the owner's own ids, one to one, with no setgroups. */
+function mapIds(pid: number): void {
+  const uid = process.getuid?.() ?? 0;
+  const gid = process.getgid?.() ?? 0;
+  writeFileSync(`/proc/${pid}/setgroups`, "deny");
+  writeFileSync(`/proc/${pid}/uid_map`, `${uid} ${uid} 1\n`);
+  writeFileSync(`/proc/${pid}/gid_map`, `${gid} ${gid} 1\n`);
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
+
+/** Wait until a process is in a user namespace other than this one: unshare has made it. */
+async function unshared(pid: number): Promise<void> {
+  const own = readlinkSync("/proc/self/ns/user");
+  for (let i = 0; i < 500; i++) {
+    if (readlinkSync(`/proc/${pid}/ns/user`) !== own) return;
+    await sleep(10);
+  }
+  throw new Error("unshare did not make the run's namespaces in time");
+}
+
+/** Run a child to its end, passing on the signals that would end this process; resolves to a shell's exit code. */
+function supervise(child: ReturnType<typeof spawn>): Promise<number> {
+  const forward = (signal: NodeJS.Signals): void => {
+    child.kill(signal);
+  };
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(signal, forward);
+  return new Promise<number>((resolve) => {
+    child.once("error", (err) => fail(`${err.message}`));
+    // A shell's convention for a program ended by a signal: 128 and its number.
+    child.once("close", (code, signal) => resolve(code ?? 128 + (signal ? os.signals[signal] : 0)));
   });
 }
 
-/** Wait until bwrap has mapped the sandbox's user namespace: a NAT that joins it sooner cannot enter its network. */
-async function mapped(pid: number): Promise<void> {
-  for (let i = 0; i < 200; i++) {
+/**
+ * A networked run, outside: namespaces of its own through unshare, holding
+ * this helper again, which waits at the gate; mapped, given its NAT, and
+ * only then let through.
+ */
+async function networked(plan: JailPlan & { nat: JailNat }): Promise<number> {
+  const scratch = mkdtempSync(join(plan.scratch, "run-"));
+  let stopNat: (() => void) | undefined;
+  try {
+    const gate = join(scratch, "gate");
+    if (spawnSync(plan.mkfifo, ["-m", "600", gate], { stdio: "ignore", timeout: 5000 }).status !== 0) throw new Error("could not make the gate a networked run waits on");
+    const inner = spawn(plan.unshare, ["--user", "--net", "--", process.execPath, ...process.execArgv, process.argv[1]!, "--inner", gate, JSON.stringify(plan)], { stdio: "inherit" });
+    const ended = supervise(inner);
     try {
-      if (["uid_map", "gid_map"].every((map) => readFileSync(`/proc/${pid}/${map}`, "utf8").trim())) return;
-    } catch {
-      return;
+      await unshared(inner.pid!);
+      mapIds(inner.pid!);
+      // Now and then the NAT is refused the namespaces while they settle; the run waits, so it is tried again.
+      for (let tries = 1; !stopNat; tries++) {
+        try {
+          stopNat = await startNat(plan.nat, inner.pid!, scratch);
+        } catch (err) {
+          if (tries >= 5) throw err;
+          await sleep(50 * tries);
+        }
+      }
+    } catch (err) {
+      // Not let through without its network: ended, and only then reported, so nothing it holds outlives the helper.
+      inner.kill("SIGKILL");
+      await ended;
+      fail((err as Error).message);
     }
-    await new Promise((done) => setTimeout(done, 10));
+    writeFileSync(gate, "go");
+    return await ended;
+  } finally {
+    stopNat?.();
+    rmSync(scratch, { recursive: true, force: true });
   }
 }
 
-export async function runPlan(plan: JailPlan): Promise<number> {
-  if (plan.networked && !plan.nat) fail(NEEDS_NAT);
+/** bwrap itself: every source opened exactly and handed over by descriptor, the filter too. */
+async function jailed(plan: JailPlan): Promise<number> {
   const scratch = mkdtempSync(join(plan.scratch, "run-"));
   const fds: number[] = [];
-  let stopNat: (() => void) | undefined;
   try {
     for (const source of plan.sources) fds.push(openExact(source.path, source.dir));
     fds.push(openExact(plan.seccomp, false));
     const at = (i: number): number => 3 + i;
     const args = plan.args.map((a) => (typeof a === "number" ? String(at(a)) : a));
     args.push("--seccomp", String(at(plan.sources.length)));
-    const stdio: StdioOptions = ["inherit", "inherit", "inherit", ...fds];
-    let info = -1;
-    let gate = "";
     if (plan.nat) {
       const resolv = join(scratch, "resolv.conf");
       writeFileSync(resolv, `nameserver ${plan.nat.tool === "pasta" ? PASTA_DNS : SLIRP_DNS}\n`);
       fds.push(openExact(resolv, false));
-      stdio.push(fds[fds.length - 1]!);
-      args.push("--ro-bind-fd", String(stdio.length - 1), "/etc/resolv.conf");
-      // bwrap waits on a FIFO, not a pipe of Node's: those are non-blocking past the first three, and it would not wait.
-      gate = join(scratch, "gate");
-      const made = spawnSync(plan.mkfifo, ["-m", "600", gate], { stdio: "ignore", timeout: 5000 });
-      if (made.status !== 0) throw new Error("could not make the gate a networked run waits on");
-      fds.push(openSync(gate, constants.O_RDWR));
-      stdio.push(fds[fds.length - 1]!);
-      const block = stdio.length - 1;
-      info = stdio.length;
-      stdio.push("pipe");
-      args.push("--info-fd", String(info), "--block-fd", String(block));
+      // The network is the run's own namespace, which this helper is already in.
+      args.push("--share-net", "--ro-bind-fd", String(at(fds.length - 1)), "/etc/resolv.conf");
     }
+    const stdio: StdioOptions = ["inherit", "inherit", "inherit", ...fds];
     const [file, ...rest] = plan.prlimit ? [plan.prlimit, ...LIMITS, plan.bwrap] : [plan.bwrap];
     const child = spawn(file!, [...rest, ...args, ...plan.command], { stdio });
-    for (const fd of fds) closeSync(fd);
-    fds.length = 0;
-    const forward = (signal: NodeJS.Signals): void => {
-      child.kill(signal);
-    };
-    for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(signal, forward);
-    const ended = new Promise<number>((resolve) => {
-      child.once("error", (err) => fail(`bwrap did not start: ${err.message}`));
-      // A shell's convention for a program ended by a signal: 128 and its number.
-      child.once("close", (code, signal) => resolve(code ?? 128 + (signal ? os.signals[signal] : 0)));
-    });
-    if (plan.nat) {
-      const pid = await childPid(child.stdio[info] as NodeJS.ReadableStream);
-      await mapped(pid);
-      // Now and then the NAT is refused the sandbox's namespaces while bwrap is still setting it up; the sandbox waits, so it is tried again.
-      for (let tries = 1; !stopNat; tries++) {
-        try {
-          stopNat = await startNat(plan.nat, pid, scratch);
-        } catch (err) {
-          if (tries < 5) {
-            await new Promise((done) => setTimeout(done, 50 * tries));
-            continue;
-          }
-          child.kill("SIGKILL");
-          fail((err as Error).message);
-        }
-      }
-      writeFileSync(gate, "go");
-    }
-    return await ended;
+    for (const fd of fds.splice(0)) closeSync(fd);
+    return await supervise(child);
   } finally {
     for (const fd of fds) closeSync(fd);
-    stopNat?.();
     rmSync(scratch, { recursive: true, force: true });
   }
 }
 
-if (process.argv[1] && /jailrun\.[jt]s$/.test(process.argv[1]) && process.argv[2]) {
-  runPlan(JSON.parse(process.argv[2]) as JailPlan).then(
+export async function runPlan(plan: JailPlan): Promise<number> {
+  if (plan.networked && !plan.nat) fail(NEEDS_NAT);
+  return plan.nat ? networked({ ...plan, nat: plan.nat }) : jailed(plan);
+}
+
+if (process.argv[1] && /jailrun\.[jt]s$/.test(process.argv[1])) {
+  const [first, gate, inner] = process.argv.slice(2);
+  // Inside a networked run's namespaces: through the gate once the NAT is up, then into bwrap.
+  const run = first === "--inner" && gate && inner ? (readFileSync(gate), jailed(JSON.parse(inner) as JailPlan)) : first ? runPlan(JSON.parse(first) as JailPlan) : undefined;
+  run?.then(
     (code) => process.exit(code),
     (err: Error) => fail(err.message),
   );
