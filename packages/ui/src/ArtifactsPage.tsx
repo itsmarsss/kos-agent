@@ -103,7 +103,7 @@ function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary
       <button type="button" className="artifact-card" onClick={onOpen}>
         <span className="artifact-thumb" data-kind={a.artifactKind}>
           {a.capturedAt ? (
-            <Signed url={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`}>{(src) => <img src={src} alt="" loading="lazy" />}</Signed>
+            <Signed url={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`}>{(src, again) => <img src={src} alt="" loading="lazy" onError={again} />}</Signed>
           ) : a.outline?.length ? (
             <WidgetOutlineThumb outline={a.outline} />
           ) : (

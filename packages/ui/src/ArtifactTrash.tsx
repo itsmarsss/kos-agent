@@ -35,7 +35,7 @@ export function TrashList({
           <button type="button" className="trash-row-open" onClick={() => onOpen(a.id)}>
             <span className="trash-thumb" aria-hidden="true">
               {a.capturedAt ? (
-                <Signed url={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`}>{(src) => <img src={src} alt="" loading="lazy" />}</Signed>
+                <Signed url={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`}>{(src, again) => <img src={src} alt="" loading="lazy" onError={again} />}</Signed>
               ) : (
                 <NavIcon name={a.artifactKind} />
               )}

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
@@ -45,15 +45,46 @@ export function pdfViewUrl(path: string): string {
 const AUDIO = /\.(mp3|m4a|aac|wav|ogg|oga|flac)$/i;
 const VIDEO = /\.(mp4|m4v|webm|mov)$/i;
 
+/**
+ * A sound or a film, streamed. Its address is signed for long enough to play
+ * through and not renewed while it plays (that would start it over); if it
+ * lapses anyway, the failed read signs it again and the player picks up
+ * where it was.
+ */
+function Player({ kind, path }: { kind: "audio" | "video"; path: string }): ReactElement {
+  const resume = useRef(0);
+  return (
+    <Signed url={api.mediaUrl(path)} renew={false}>
+      {(src, again) => {
+        const common = {
+          controls: true,
+          preload: "metadata" as const,
+          src,
+          onError: (e: SyntheticEvent<HTMLMediaElement>) => {
+            const at = e.currentTarget.currentTime;
+            if (again()) resume.current = at;
+          },
+          onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => {
+            if (!resume.current) return;
+            e.currentTarget.currentTime = resume.current;
+            resume.current = 0;
+          },
+        };
+        return kind === "audio" ? <audio className="preview-audio" {...common} /> : <video className="preview-video" playsInline {...common} />;
+      }}
+    </Signed>
+  );
+}
+
 /** The file's contents, shown for what they are. */
 export function FileBody({ file }: { file: FileContent }): ReactElement {
   // A document, a workbook or a deck is drawn as itself; its words are a Raw away.
   if (isOfficePath(file.path)) return <OfficeBody path={file.path} version={`${file.modifiedAt}:${file.size}`} />;
-  if (AUDIO.test(file.path)) return <Signed url={api.mediaUrl(file.path)}>{(src) => <audio className="preview-audio" controls preload="metadata" src={src} />}</Signed>;
-  if (VIDEO.test(file.path)) return <Signed url={api.mediaUrl(file.path)}>{(src) => <video className="preview-video" controls preload="metadata" playsInline src={src} />}</Signed>;
+  if (AUDIO.test(file.path)) return <Player kind="audio" path={file.path} />;
+  if (VIDEO.test(file.path)) return <Player kind="video" path={file.path} />;
   if (file.omitted === "binary") {
     if (previewable(file.path)) return <ImageView path={file.path} />;
-    if (isPdfPath(file.path)) return <Signed url={pdfViewUrl(file.path)}>{(src) => <iframe className="preview-frame" src={src} title={file.path.split("/").pop() ?? file.path} />}</Signed>;
+    if (isPdfPath(file.path)) return <Signed url={pdfViewUrl(file.path)} renew={false}>{(src) => <iframe className="preview-frame" src={src} title={file.path.split("/").pop() ?? file.path} />}</Signed>;
     return <p className="hint preview-hint">Binary file. Download it, or open the workspace folder.</p>;
   }
   if (file.omitted === "too-large") return <p className="hint preview-hint">Too large to show here. Download it instead.</p>;

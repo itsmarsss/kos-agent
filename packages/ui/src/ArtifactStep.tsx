@@ -124,7 +124,7 @@ export function ArtifactStep({ art }: { art: WrittenArtifact }): ReactElement {
     <div className={`artifact-step${trashed ? " is-trashed" : ""}`}>
       <button type="button" className="artifact-step-thumb" data-kind={art.artifactKind} tabIndex={-1} aria-hidden="true" onClick={() => open(art.id)}>
         {!missing ? (
-          <Signed url={`/api/artifacts/${encodeURIComponent(art.id)}/thumb?theme=${theme}&v=${Math.round(art.updatedAt ?? 0)}&try=${tries}`}>{(src) => <img src={src} alt="" loading="lazy" onError={() => setMissing(true)} />}</Signed>
+          <Signed url={`/api/artifacts/${encodeURIComponent(art.id)}/thumb?theme=${theme}&v=${Math.round(art.updatedAt ?? 0)}&try=${tries}`}>{(src, again) => <img src={src} alt="" loading="lazy" onError={() => again() || setMissing(true)} />}</Signed>
         ) : (
           <NavIcon name={art.artifactKind} />
         )}
