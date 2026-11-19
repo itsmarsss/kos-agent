@@ -320,7 +320,7 @@ own.close();`;
         expect(out.self, tool).toBe("own");
         expect(out.host, tool).toBe("refused");
         expect(out.world, tool).not.toBe("refused");
-        expect(await run("getent hosts example.com >/dev/null && echo named", { nat: { tool, path } }), tool).toBe("named");
+        expect(await run("getent hosts example.com >/dev/null && echo named", { network: true, nat: { tool, path } }), tool).toBe("named");
       }
       const none = await captured("echo ran", { network: true, nat: false });
       expect(none.stdout).toBe("");
