@@ -264,6 +264,17 @@ describe("a phone's asks of the dashboard, answered", () => {
     ]);
   });
 
+  it("hands a one-time code typed on the phone's card to the decision, and writes down only that one came", async () => {
+    const { ask, decided, audited } = relay();
+    await ask({ call: 10, method: "POST", path: "/api/approve", body: { id: 44, code: "481926" } });
+    expect(decided).toEqual([{ id: "44", approved: true, deciderId: "dev_phone", code: "481926" }]);
+    expect(audited.map((e) => e.args)).toEqual([{ device: "dev_phone", method: "POST", path: "/api/approve", body: { id: 44, code: "(typed on the card)" } }]);
+    expect(JSON.stringify(audited)).not.toContain("481926");
+    expect(post("/api/approve", { id: 44, code: 481926 })).toEqual(BAD_BODY);
+    expect(post("/api/approve", { id: 44, code: "x".repeat(65) })).toEqual(BAD_BODY);
+    expect(post("/api/deny", { id: 44, code: "481926" })).toEqual(BAD_BODY);
+  });
+
   it("says so when there is nothing to decide with", async () => {
     const { ask, audited, replies } = relay(undefined, false);
     await ask({ call: 9, method: "POST", path: "/api/deny", body: { id: 42 } });

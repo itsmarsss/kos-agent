@@ -29,9 +29,12 @@ export function scrubbedLabel(name: string, last4?: string): string {
 
 /**
  * How a value is looked for: `exact` as it is and encoded; `digits` (a card
- * number) by its digits alone, whatever spaces, dashes or dots run between.
+ * number) by its digits alone, whatever spaces, dashes or dots run between;
+ * `code` (a one-time code) as exact, but as it is only where no letter or
+ * digit stands beside it, so a six-digit code is not found inside a
+ * timestamp or an id.
  */
-export type ScanMode = "exact" | "digits";
+export type ScanMode = "exact" | "digits" | "code";
 
 /** A watched value: its name in a label, the value, and how it is looked for (exact when left out). */
 export type Watched = [name: string, value: string] | [name: string, value: string, mode: ScanMode];
@@ -102,13 +105,18 @@ interface State {
 interface Needle {
   text: string;
   name: string;
+  /** Found only where no letter or digit stands beside it. */
+  bounded?: boolean;
 }
 
 interface Match {
   start: number;
   end: number;
   name: string;
+  bounded?: boolean;
 }
+
+const WORD_CHAR = /[\p{L}\p{N}]/u;
 
 /**
  * Aho-Corasick over every needle, so a long result is read once however many
@@ -165,7 +173,7 @@ class Automaton {
       at = this.states[at]!.next.get(ch) ?? 0;
       for (let hit = this.states[at]!.ends !== undefined ? at : this.states[at]!.out; hit > 0; hit = this.states[hit]!.out) {
         const needle = this.needles[this.states[hit]!.ends!]!;
-        found.push({ start: offset - needle.text.length, end: offset, name: needle.name });
+        found.push({ start: offset - needle.text.length, end: offset, name: needle.name, ...(needle.bounded ? { bounded: true } : {}) });
       }
     }
     return found;
@@ -174,7 +182,10 @@ class Automaton {
   /** `text` with each found needle replaced, and which secrets were found how often. */
   replace(text: string): { text: string; hits: Map<string, number> } {
     const hits = new Map<string, number>();
-    const found = this.find(text).sort((a, b) => a.start - b.start || b.end - a.end);
+    const alone = (m: Match): boolean => !m.bounded || !(WORD_CHAR.test(text[m.start - 1] ?? "") || WORD_CHAR.test(text[m.end] ?? ""));
+    const found = this.find(text)
+      .filter(alone)
+      .sort((a, b) => a.start - b.start || b.end - a.end);
     if (found.length === 0) return { text, hits };
     let out = "";
     let from = 0;
@@ -223,7 +234,7 @@ export class Scrubber {
       }
       const plain = [value, JSON.stringify(value).slice(1, -1)];
       for (const text of needlesOf(value)) {
-        needles.push({ text, name });
+        needles.push({ text, name, ...(mode === "code" && text === value ? { bounded: true } : {}) });
         reach = Math.max(reach, plain.includes(text) ? text.length : Math.min(text.length, STREAM_REACH));
       }
     }

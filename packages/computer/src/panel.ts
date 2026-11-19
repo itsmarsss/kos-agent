@@ -656,7 +656,8 @@ export class DevicePanel implements ChannelAdapter {
       case "chat.decide":
         if (typeof data["approval"] === "string" && typeof data["approved"] === "boolean") {
           const remember = data["approved"] && data["remember"] === true;
-          void this.decisions?.({ id: data["approval"], approved: data["approved"], deciderId: device, ...(remember ? { remember } : {}) });
+          const code = data["approved"] && typeof data["code"] === "string" ? { code: data["code"] } : {};
+          void this.decisions?.({ id: data["approval"], approved: data["approved"], deciderId: device, ...(remember ? { remember } : {}), ...code });
         }
         return;
       case "chat.mode": {

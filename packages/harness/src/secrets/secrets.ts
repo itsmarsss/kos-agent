@@ -1,5 +1,6 @@
 import { registrableDomain, SECRET_FIELDS, type SecretFieldName } from "@kos/shared";
 
+import { OneTimeCodes } from "./codes.js";
 import { MIN_SCANNED, Scrubber, STREAM_REACH, type Watched } from "./scrub.js";
 import { SHAPE_REACH, scrubShapes } from "./shapes.js";
 import type { SecretCaller } from "./inject.js";
@@ -82,11 +83,14 @@ export class SecretsRegistry {
   private hits = 0;
   private vault: Vault | undefined;
   private unwatchVault: (() => void) | undefined;
+  /** The one-time codes the owner types on a card, held in memory alone and looked for while held (codes.ts). */
+  readonly codes = new OneTimeCodes();
 
   constructor(entries: Record<string, string> = {}, bindings: Record<string, SecretBinding> = {}, watched: Record<string, string> = {}) {
     this.map = new Map(Object.entries(entries));
     this.bindings = new Map(Object.entries(bindings));
     this.watched = new Map(Object.entries(watched));
+    this.codes.onChange(() => (this.scrubber = undefined));
   }
 
   /** Build a registry from environment variables. */
@@ -282,7 +286,7 @@ export class SecretsRegistry {
     return () => this.siteListeners.delete(listener);
   }
 
-  private maskedOf(scanned: Watched[], vaulted: Set<Watched>): { all: BrowserValue[]; bySite: Map<string, BrowserValue[]> } {
+  private maskedOf(scanned: Watched[], vaulted: Set<Watched>, codeSites: Map<Watched, string>): { all: BrowserValue[]; bySite: Map<string, BrowserValue[]> } {
     const all: BrowserValue[] = [];
     const bySite = new Map<string, BrowserValue[]>();
     for (const entry of scanned) {
@@ -290,7 +294,8 @@ export class SecretsRegistry {
       const value = { text, digits: mode === "digits" };
       all.push(value);
       const meta = vaulted.has(entry) ? this.vault?.get(name.split(".")[0] ?? "") : undefined;
-      for (const domain of new Set([...(meta?.use.web.origins ?? []), ...(meta?.use.web.frames ?? [])].map(siteDomain))) {
+      const sites = meta ? [...meta.use.web.origins, ...meta.use.web.frames] : codeSites.has(entry) ? [codeSites.get(entry)!] : [];
+      for (const domain of new Set(sites.map(siteDomain))) {
         if (domain) bySite.set(domain, [...(bySite.get(domain) ?? []), value]);
       }
     }
@@ -310,10 +315,17 @@ export class SecretsRegistry {
     if (!this.scrubber) {
       // One read of the vault's values, for the scrubber and the browser both: no second copy is decrypted.
       const vaulted = this.vault?.scanned() ?? [];
+      // A code held for a page is shown to that page's site alone, to mask its pictures, as a vault value is.
+      const codeSites = new Map<Watched, string>();
+      const codes = this.codes.watched().map(({ handle, value, origin }) => {
+        const entry: Watched = [`${handle}.code`, value, "code"];
+        if (origin) codeSites.set(entry, origin);
+        return entry;
+      });
       // Every value the scrubber looks for, by name: secrets first, so a shared value keeps its secret's name.
-      const scanned: Watched[] = [...this.map, ...vaulted, ...this.watched, ...this.kept];
+      const scanned: Watched[] = [...this.map, ...vaulted, ...codes, ...this.watched, ...this.kept];
       this.scrubber = new Scrubber(scanned, (name, count) => this.counted(name, count));
-      this.masked = this.maskedOf(scanned, new Set(vaulted));
+      this.masked = this.maskedOf(scanned, new Set(vaulted), codeSites);
     }
     return this.scrubber;
   }

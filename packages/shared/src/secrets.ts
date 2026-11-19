@@ -128,7 +128,8 @@ export type SecretRemember = "turn" | "site";
 export interface AskSecret {
   handle: string;
   label: string;
-  kind: SecretKind;
+  /** "code" for a one-time code the owner types into the card itself (ONE_TIME_CODE). */
+  kind: SecretKind | "code";
   /** The fields it fills, or would be allowed for. */
   fields: SecretFieldName[];
   /** The page's real origin, read from the tab, never from the model. */
@@ -149,4 +150,41 @@ export interface AskSecret {
   formAction?: string;
   /** The app it is typed into on a Mac (secrets.type); its field is the one target, as Accessibility names it. */
   app?: { name: string; bundle: string };
+  /**
+   * A one-time code: the card offers a masked input, and a yes sends what
+   * the owner typed with it, held in the host's memory alone (docs/secrets.md,
+   * One-time codes).
+   */
+  code?: true;
+}
+
+/**
+ * The secret a fill or a type names for a one-time code the owner types on
+ * the card. A code is never saved: a yes turns it into a handle `otp_<id>`
+ * that is used once, within CODE_TTL_MS, on the page or app it was asked for.
+ */
+export const ONE_TIME_CODE = "code";
+
+/** A one-time code's handle, as the host gives it out. */
+export const CODE_HANDLE = /^otp_[0-9a-f]{8}$/;
+
+/** How long a code typed on a card may be used. */
+export const CODE_TTL_MS = 5 * 60_000;
+
+/** The shortest and longest code a card takes: shorter would match ordinary words and could not be taken out of what KOS reads back. */
+export const CODE_MIN = 6;
+export const CODE_MAX = 32;
+
+/** A code as typed, spaces taken out: "123 456" is 123456. */
+export function typedCode(raw: string): string {
+  return raw.replace(/\s+/g, "");
+}
+
+/** Why what the owner typed is not a code a card takes, or undefined when it is: 6 to 32 letters, digits or dashes. */
+export function codeProblem(raw: string): string | undefined {
+  const typed = typedCode(raw);
+  if (typed.length < CODE_MIN) return `A code here is ${CODE_MIN} or more characters; type a shorter one on the page yourself.`;
+  if (typed.length > CODE_MAX) return `A code is at most ${CODE_MAX} characters.`;
+  if (!/^[A-Za-z0-9-]+$/.test(typed)) return "A code is letters, digits and dashes.";
+  return undefined;
 }

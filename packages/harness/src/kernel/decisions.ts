@@ -93,6 +93,8 @@ export interface DecisionsDeps {
    * after a device acted for KOS. Read at each such yes; none, and none is.
    */
   handsOn?: (device: string | undefined, conversationId: string | null) => string | undefined;
+  /** Where a yes hands the one-time code the owner typed on the card (secrets/codes.ts). */
+  codes?: { offer: (approval: number, typed: string) => string | undefined };
 }
 
 /**
@@ -131,6 +133,8 @@ export interface DecisionOptions {
   device?: string;
   /** A typed /approve rather than a card's button: never enough for a secret's ask. */
   typed?: boolean;
+  /** The one-time code the owner typed into the card of an ask for one. Held in memory, never stored or logged. */
+  code?: string;
 }
 
 /** Said on a chat surface for an ask that places a secret, in place of its buttons or a typed decision. */
@@ -208,6 +212,11 @@ export class Decisions {
     if (!awaited && action.tool.startsWith(SECRETS_PREFIX)) {
       d.approvals.lapse(id, decidedBy ?? d.ownerId);
       return { ok: false, message: `#${id} lapsed: KOS was no longer waiting on it, so nothing was done. Ask KOS again.` };
+    }
+    // An ask for a one-time code is a yes only with the code: the ask stays until one comes with it.
+    if (action.secret?.code) {
+      const refused = d.codes ? (options.code === undefined ? "Type the code into the card first." : d.codes.offer(id, options.code)) : "One-time codes are not taken here.";
+      if (refused) return { ok: false, message: `#${id} was not approved: ${refused}` };
     }
     d.approvals.approve(id, decidedBy ?? d.ownerId);
 

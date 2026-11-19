@@ -6,6 +6,7 @@
 import { placePath, reachWords, type FileHome } from "./filehome.js";
 import { showInvisible } from "./invisible.js";
 import { keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
+import { CODE_HANDLE, ONE_TIME_CODE } from "./secrets.js";
 
 const MAX_VALUE = 120;
 const MAX_FIELDS = 6;
@@ -424,7 +425,7 @@ export interface ActionHome {
 
 /** One-line summary for a tool + args, with names for the ids the caller can name. */
 /** A secret's field as a card says it: "card number", "billing city", "expiry month". */
-const SECRET_FIELD_WORDS: Record<string, string> = { number: "card number", cvc: "CVC", name: "name on card", text: "note", token: "token" };
+const SECRET_FIELD_WORDS: Record<string, string> = { number: "card number", cvc: "CVC", name: "name on card", text: "note", token: "token", code: "one-time code" };
 export function secretFieldWords(field: string): string {
   const [head = "", part] = field.split(".");
   const word = SECRET_FIELD_WORDS[head] ?? head;
@@ -467,11 +468,16 @@ export function summarizeAction(
   };
   switch (tool) {
     case "secrets.fill": {
+      if (a.secret === ONE_TIME_CODE) return "Fill a one-time code you type on this card";
+      if (typeof a.secret === "string" && CODE_HANDLE.test(a.secret)) return `Fill the one-time code you gave (${a.secret})`;
       const fields = Array.isArray(a.fields) ? a.fields.map((f) => (f && typeof f === "object" ? String((f as { field?: unknown }).field ?? "") : "")).filter(Boolean) : [];
       return `Fill ${listWords([...new Set(fields)].map(secretFieldWords)) || "a secret"} from ${secretNamed(a)}`;
     }
     case "secrets.type": {
       const app = a.app && typeof a.app === "object" ? (a.app as { name?: unknown }).name : undefined;
+      const into = typeof app === "string" && app ? ` into ${app}` : "";
+      if (a.secret === ONE_TIME_CODE) return `Type a one-time code you type on this card${into}`;
+      if (typeof a.secret === "string" && CODE_HANDLE.test(a.secret)) return `Type the one-time code you gave (${a.secret})${into}`;
       const field = typeof a.field === "string" && a.field.trim() ? secretFieldWords(a.field.trim()) : "a secret";
       return `Type ${field} from ${secretNamed(a)}${typeof app === "string" && app ? ` into ${app}` : ""}`;
     }

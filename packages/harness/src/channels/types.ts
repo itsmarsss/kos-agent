@@ -431,6 +431,8 @@ export interface ApprovalDecision {
   deciderId: string;
   /** Approve, and stop asking for this shape. */
   remember?: boolean;
+  /** The one-time code typed into the card of an ask for one; held in memory, never stored or logged. */
+  code?: string;
 }
 
 /**

@@ -1074,10 +1074,15 @@ describe("a Chrome's side panel", () => {
     chrome.event("chat.decide", { approval: "10", approved: true, remember: true });
     // A no is never remembered, whatever comes with it.
     chrome.event("chat.decide", { approval: "11", approved: false, remember: true });
+    // A one-time code typed on the card comes with a yes, and only a yes.
+    chrome.event("chat.decide", { approval: "12", approved: true, code: "481926" });
+    chrome.event("chat.decide", { approval: "14", approved: false, code: "481926" });
     await flush();
     expect(decided).toEqual([
       { id: "10", approved: true, deciderId: chrome.id, remember: true },
       { id: "11", approved: false, deciderId: chrome.id },
+      { id: "12", approved: true, deciderId: chrome.id, code: "481926" },
+      { id: "14", approved: false, deciderId: chrome.id },
     ]);
     await panel.settleApproval("10", "approved");
     expect(chrome.calls.filter((c) => c.method === "chat.settled").at(-1)).toEqual({ method: "chat.settled", params: { approval: "10", outcome: "approved" } });

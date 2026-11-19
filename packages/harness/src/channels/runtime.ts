@@ -81,6 +81,8 @@ export interface DecisionContext {
   pendingId: string;
   approved: boolean;
   remember?: boolean;
+  /** The one-time code typed into the card of an ask for one. */
+  code?: string;
 }
 
 /** Handles an approve/deny decision that already passed the identity gate, and says how the ask went. */
@@ -373,6 +375,7 @@ export class ChannelRuntime {
         pendingId: decision.id,
         approved: decision.approved,
         ...(decision.remember ? { remember: true } : {}),
+        ...(decision.approved && decision.code !== undefined ? { code: decision.code } : {}),
       });
     } catch {
       // The decision path has no reply channel of its own; never surface the

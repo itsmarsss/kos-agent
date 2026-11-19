@@ -159,7 +159,7 @@ export function connectChannel(
       // A paired device's own panel names the device too, so a yes from where KOS's hand is can be refused. Any other
       // surface (Discord's buttons among them) names none, and is judged as the dashboard is.
       const device = DEVICE_PANELS.has(ctx.channel) ? { device: ctx.deciderId } : {};
-      const run = ctx.approved ? kernel.approve(id, undefined, { remember: ctx.remember === true, surface: ctx.channel, ...device }) : kernel.deny(id);
+      const run = ctx.approved ? kernel.approve(id, undefined, { remember: ctx.remember === true, surface: ctx.channel, ...device, ...(ctx.code !== undefined ? { code: ctx.code } : {}) }) : kernel.deny(id);
       const recorded = kernel.approvals.get(id)?.status;
       const done = run
         .then(async (res) => {
