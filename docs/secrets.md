@@ -66,7 +66,9 @@ Record, sealed whole (metadata included):
   have no policy.
 - An ask that places a secret is never decided on Discord, SMS or iMessage:
   those surfaces are told "decide on the dashboard or a paired device", and a
-  press there decides nothing.
+  press there decides nothing; a Discord that reconnects is not sent its
+  card. A fill in the owner's Chrome is also decided in KOS for Chrome's
+  side panel beside the page, its card carrying the secret's block.
 - The hint never holds enough of a value to matter: a card's last four, a
   key's last four when it is longer than twelve, eight dots for a login.
 
@@ -268,22 +270,25 @@ call's arguments, its result, the audit, a progress event or a log.
 | `secrets.request` | `{kind, label?, why}` | risky, asks always |
 | `secrets.allow_site` | `{secret, why}` | risky, asks always |
 
-`secrets.fill` puts fields of a secret into the form on the caller's tab
-in KOS's own Chrome (the owner's Chrome comes with KOS for Chrome). A
-field is a kind's field (`password`, `username`, `number`, `expiry`,
+`secrets.fill` puts fields of a secret into the form on the caller's tab,
+in KOS's own Chrome or, while the turn works there, the owner's Chrome
+through KOS for Chrome ([browser-extension.md](browser-extension.md#saved-secrets)).
+A field is a kind's field (`password`, `username`, `number`, `expiry`,
 `cvc`, `name`, `token`, `text`), `expiry.month` and `expiry.year` for two
 boxes, or a billing part (`billing.line1`, `billing.city`, ...); a target
 is the form field's `@ref` from the last look. Before anyone is asked it
 is refused, and recorded as `refused:<code>`, when the vault is not open,
 the turn may not use the secret (a guest's, an unattended one without
-`unattended`, a chat `chats` leaves out), the tab is not in KOS's own
-browser, a ref is not of this page's last look, the page's origin is not
+`unattended`, a chat `chats` leaves out), the tab has no page yet, a ref
+is not of this page's last look, the page's origin is not
 in `use.web.origins`, a field's frame is neither the page's origin nor in
 `use.web.frames`, or an unattended turn has no grant on the site. The
 harness stamps the call with the secret's label, the page's origin, each
-field's frame origin and the document, all read from the tab and the
-vault, never taken from the model; the fill refuses if any of them has
-changed when it runs (Page.fillSecret, docs/browser.md), and records what
+field's frame origin, the document and the browser it is in (`surface`,
+and the device's name for the owner's Chrome, which the card shows), all
+read from the tab and the vault, never taken from the model; the fill
+refuses if any of them has changed when it runs (Page.fillSecret,
+docs/browser.md, and in the owner's Chrome the extension's own checks too), and records what
 each target is (its label, its type, where its form sends). Any of those
 keys the model passed is dropped. It answers with the page as
 `browser.act` does, its secret fields `(hidden)`; a look that fails after
@@ -334,7 +339,8 @@ method, one it does not know, or a submit button with `formmethod=get`)
 is refused, not warned about. Narration reads "Fill username and
 password from GitHub (github-login-9xq1)".
 
-Each fill is a row in `secret_uses` (`surface: kos-browser`): `filled`,
+Each fill is a row in `secret_uses` (`surface: kos-browser`, or `chrome`
+with the device's id): `filled`,
 `denied`, `expired`, `refused:<code>` or `failed`, with the approval and
 who decided.
 

@@ -244,8 +244,79 @@ session, unattended work off unless allowed. In addition:
   instead, so a session is always allowed by someone.
 - **Hidden sites stay hidden**: refused for opening and for every command
   while a tab is on one, and left out of the tab list and of the events.
+- **What a field holds stays here.** A read of the DOM comes back without
+  the browser's own shadow roots, whose text is each field's value, and a
+  field a saved secret was filled into is said to hold `(hidden)` in the
+  accessibility tree, with the editor inside it left out.
+- **A saved secret is the extension's to put in** (Saved secrets, below).
 - The keys: the extension's is made in the browser (WebCrypto Ed25519),
   kept in its own storage and never exported.
+
+## Saved secrets
+
+`secrets.fill` works in the owner's Chrome as in KOS's own browser
+([secrets.md](secrets.md#the-tools)), with the same ask, grants, policy and
+`secret_uses` row (`surface: chrome`, with the device). KOS's hands check
+the page first, as they do at home (the ref from the last look, the
+document, the page's origin and the field's frame, each frame around it
+drawn, the field of the right kind), and mark the field. Then the value
+goes in one call, `secret.fill`, the only one that carries one; the
+scrubber that cleans every other frame KOS sends a device leaves it be.
+
+The extension checks again, by what Chrome itself says of the tab (its
+frame tree and DOM, through the debugger), never the page's word: the page
+is on the origin approved and is https or this machine, its document is
+the one approved, the field is in the frame approved and that frame is on
+the frame origin approved, every frame around it is drawn and in view, no
+service worker runs the field's frame or the page, and the field is one
+the secret may go into (`fillable`: the right type, drawn, in view, on
+top, enabled, writable, not in a form sent by GET). These checks and the
+fill run in a world of the extension's own, `kos-secret`, which none of
+KOS's commands can reach. The value is set through the native setter and
+the events typing raises, on that node; only a page that refuses that is
+typed into, and then only while the field has the keyboard before and
+after. The field is checked to hold the value without reading it back,
+and the answer is `{ filled: true }`. The value is dropped from the call
+once read and never logged (the log says `secret.fill: filled`, or
+refused and the code); no error holds it.
+
+From then until the tab's document changes, and again whenever a document
+a secret was in is come back to (back, forward, a reload), the extension
+holds the tab, whoever's session it is in: KOS's script step (a
+`Runtime.evaluate` in the page's console mode or by unique context),
+Ctrl or Meta with A, C or X and the copy, cut and select-all commands,
+drags, and typing while a filled field has the keyboard are refused
+(`tainted`). Every picture of a held tab is taken afresh with the filled
+fields made unseeable (or, on a page come back to, every text box of the
+main frame), and `secret.picture` masks it as KOS's own browser does:
+each frame's text boxes unseeable and each place the page echoes a value
+painted over, by patterns KOS sends for that frame's origin only (the
+values filled in the conversation and the saved ones for that site). KOS
+sends a picture through `secret.picture` whenever there is a value to mask;
+an extension from before it shows no picture of such a page. The tab
+holds are kept in session storage, so they outlive the worker's sleeps.
+
+Where it differs from KOS's own browser, it fails closed:
+
+- **Service workers.** KOS clears a credential site's workers in its own
+  profile; it never clears the owner's site data. So a page a service
+  worker runs takes no fill in the owner's Chrome at all (`worker`), a
+  site's own worker included; the owner fills that one themselves.
+- **Scripts on credential sites.** KOS's script step does not run in the
+  owner's Chrome (the extension does not pass on `Runtime.enable`, which
+  it needs), so no document there is one a script of KOS's ran in; on a
+  held tab the extension refuses it anyway.
+- **Refs only.** Aiming by selector or text on a held page is refused by
+  KOS's hands in the host, as at home; the extension cannot tell a ref
+  from a selector in a command.
+- **Copy keys** are refused on the whole held tab, not only on a filled
+  field, and a filled field in a frame counts as having the keyboard while
+  its frame's focus is on it.
+- **What the page says.** A page that echoes a value into its own words
+  (its title, a dialog, its text) sends it to KOS as any read of the page
+  does; KOS's hands clean it out of everything they hand on, as at home.
+- **Frames of another process** (many payment frames) are refused
+  (`unreachable`); hand the tab to the owner.
 
 ## Protocol
 
@@ -268,6 +339,8 @@ before it reloads ([computer.md](computer.md#builds-and-updates)).
 | `tabs.close` | `session`, `tab` | `{}` |
 | `cdp.send` | `session`, `tab`, `method`, `params?` | the command's result |
 | `cdp.batch` | `session`, `tab`, `calls [{ method, params? }]` (1 to 100), `parallel?` | `results [{ result } or { error { code, message } }]`: in order, up to the first that fails, or all side by side when `parallel`; each checked as `cdp.send` checks one, as it is sent |
+| `secret.fill` | `session`, `tab`, `node` (backend node id), `frame`, `doc` (the main frame's loader), `origin`, `frameOrigin`, `slot` (`password`, `username`, `card-number`, `card-expiry`, `card-exp-month`, `card-exp-year`, `card-cvc`, `card-name`, `address-*`, `token`, `text`), `value` | `filled: true`; refused with `origin`, `changed`, `field`, `unreachable`, `worker`, `focus`, `paused`, `hidden_site`, `tab` or `no_session`, never with the value |
+| `secret.picture` | `session`, `tab`, `masks { <origin>: [pattern] }` (at most 500), `format?`, `quality?`, `maxEdge?` | `data`: the picture, masked (Saved secrets, above) |
 
 A batch is refused as a whole, with nothing after sent, when at any
 command in it the owner has taken the tab over (`paused`), the session has
@@ -448,6 +521,7 @@ when it changes elsewhere.
 
 Error codes beyond the device protocol's: `tab` (not a tab of the session),
 `method` (not on the list), `url` (not the web), `hidden_site` (the owner
-hid it). A tab on a hidden site is listed as `{ id, url: "", title: "Hidden
+hid it), `tainted` (the tab holds a saved secret), and a fill's own
+(`secret.fill`). A tab on a hidden site is listed as `{ id, url: "", title: "Hidden
 from KOS", hidden: true }`. Unpairing sends `{ "t": "unpair" }` first, as
 KOS for Mac does.

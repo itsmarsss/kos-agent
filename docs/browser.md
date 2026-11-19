@@ -118,7 +118,12 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   back.
   A field in a frame of another process (most payment frames on the web)
   is out of reach: the fill says so, and the owner takes the tab. Nothing
-  thrown holds the value.
+  thrown holds the value. A Page made with `putSecret` (the owner's
+  Chrome, through KOS for Chrome) hands the value to it after these
+  checks instead of setting it itself: the extension checks again on its
+  side, puts it in and sees that the field holds it
+  (docs/browser-extension.md, Saved secrets). The page is tainted the
+  same way either way.
 - **A tainted page.** Once a secret is in (a password, a card's number,
   expiry or CVC, a token, a note; not a username, a name or an address),
   the page is tainted until its document changes: its secret fields read
