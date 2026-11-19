@@ -1,4 +1,3 @@
-import { spawn as nodeSpawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createNetServer } from "node:net";
@@ -20,13 +19,15 @@ import { Vault } from "./vault.js";
 /**
  * A secret filled into KOS's own Chrome leaves no trace of its value
  * (design section 11): a scripted turn lists the secrets, fills a login on
- * the page and a card in a payment frame of another origin, looks at the
- * page as a picture, an outline and its text, and tries a script, which is
- * refused. The page echoes whatever is typed into its text, its title and
- * its console, and draws it in magenta. Afterwards no canary is in any table, the
- * transcript, a progress event, a model request, a tool result, the
- * conversation's messages or what KOS printed, and no picture KOS kept or
- * sent shows the magenta. Skipped where no Chrome is installed.
+ * the page and a card in a payment frame of another origin, shows the
+ * password with the page's own toggle, looks at the page as a picture, an
+ * outline and its text, and tries a script, which is refused. The page
+ * echoes whatever is typed into its text, its title and its console,
+ * copies the password into another box and a textarea, and draws it in
+ * magenta. Afterwards no canary is in any table, the transcript, a
+ * progress event, a model request, a tool result, the conversation's
+ * messages or what KOS printed, and no picture KOS kept or sent shows the
+ * magenta. Skipped where no Chrome is installed.
  */
 
 const rand = (n: number): string => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => (b % 36).toString(36)).join("");
@@ -80,6 +81,9 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
         `<label>Username <input id=user autocomplete=username></label>
 <label>Password <input id=pw type=password autocomplete=current-password></label>
 <label>Confirm <input id=honey type=password style="position:absolute;left:-9999px"></label>
+<button id=show onclick="const p = document.getElementById('pw'); p.type = p.type === 'password' ? 'text' : 'password'">Show password</button>
+<label>Preview <input id=mirror style="color:${MAGENTA}"></label><textarea id=area style="color:${MAGENTA};font-size:26px"></textarea>
+<script>document.getElementById('pw').addEventListener('input', (e) => { document.getElementById('mirror').value = e.target.value; document.getElementById('area').value = e.target.value; });</script>
 <div id=echo style="color:${MAGENTA};font-size:30px"></div>
 <iframe src="${payBase}/card" style="width:440px;height:140px;border:0"></iframe>${ECHO}`,
       ),
@@ -91,7 +95,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
   const readRefs = (messages: ModelMessage[]): void => {
     for (const block of messages.flatMap((m) => m.content)) {
       if (block.type !== "tool_result") continue;
-      for (const m of block.content.matchAll(/textbox "([^"]+)"[^\n]*@(e\d+)/g)) if (!refs.has(m[1]!)) refs.set(m[1]!, `@${m[2]}`);
+      for (const m of block.content.matchAll(/(?:textbox|button) "([^"]+)"[^\n]*@(e\d+)/g)) if (!refs.has(m[1]!)) refs.set(m[1]!, `@${m[2]}`);
     }
   };
   const refOf = (label: string): string => {
@@ -135,12 +139,15 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
           case 3:
             return call({ secret: visa, fields: [{ field: "number", target: refOf("Card number") }], intent: "pay" }, "secrets.fill");
           case 4:
-            return call({}, "browser.look");
+            // The page's own show-password toggle, which turns the field into plain text.
+            return call({ actions: [{ click: refOf("Show password") }], intent: "show the password" }, "browser.act");
           case 5:
-            return call({ then: "snapshot" }, "browser.look");
+            return call({}, "browser.look");
           case 6:
-            return call({ then: "read" }, "browser.look");
+            return call({ then: "snapshot" }, "browser.look");
           case 7:
+            return call({ then: "read" }, "browser.look");
+          case 8:
             return call({ code: "document.getElementById('pw').value" }, "browser.eval");
           default:
             return step([{ type: "text", text: "Signed in and the card is in." }], "end_turn");
@@ -153,8 +160,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
       secrets,
       inference,
       profileOverrides: { name: "Kenny", timezone: "UTC" },
-      // A mock keychain: under a test's HOME, Chrome would ask the owner's Mac for one.
-      chrome: { port, spawn: ((command: string, args: string[], options: object) => nodeSpawn(command, ["--use-mock-keychain", ...args], options)) as typeof nodeSpawn },
+      chrome: { port },
     });
     kernel.progress.subscribe((event) => events.push(JSON.parse(JSON.stringify(event)) as ProgressEvent));
     for (const stream of [process.stdout, process.stderr]) {
@@ -197,7 +203,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     expect(leaks(said)).toHaveLength(1);
     const res = await kernel.handleMessage(said, { owner: true, sessionId: chat.id });
     // The turn holds on each ask in the background, as a dashboard turn does, and carries on once it is approved.
-    await vi.waitFor(() => expect(requests.some((r) => JSON.stringify(r.messages).includes('"toolUseId":"leak-8"'))).toBe(true), { timeout: 90_000, interval: 200 });
+    await vi.waitFor(() => expect(requests.some((r) => JSON.stringify(r.messages).includes('"toolUseId":"leak-9"'))).toBe(true), { timeout: 90_000, interval: 200 });
     await vi.waitFor(() => expect(events.some((e) => e.kind === "turn-end" && e.conversationId === res.sessionId)).toBe(true), { timeout: 30_000, interval: 200 });
     clearInterval(approver);
 
@@ -207,6 +213,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     expect(sent).toContain("Filled card number from Visa");
     expect(sent).toContain('textbox \\"Password\\" = \\"(hidden)\\"');
     expect(sent).toContain("browser.eval is refused: a secret was filled into this page");
+    expect(sent).toMatch(/clicked @e\d+/);
     expect(vault.list().flatMap((s) => kernel.secretUses.list(s.handle).map((u) => `${s.label}:${u.outcome}`)).sort()).toEqual(["Shop login:filled", "Visa:filled"]);
 
     // The model was sent no value, in words or pictures: every tool result, every request.
