@@ -106,6 +106,40 @@ describe("a turn on the SDK", () => {
     expect(Object.keys(options["mcpServers"] as object)).toEqual(["kos"]);
   });
 
+  it("offers none of Claude Code's built-ins: KOS's own tools are named, and the base set is empty", async () => {
+    run.queries = [];
+    run.script = steps(1, "notify");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["notify", "files.read"], () => ({ content: "ok" })), cwd: process.cwd() });
+    const options = run.queries[0]!.options;
+    // An allow list only approves; the base set is what exists. Empty, no built-in is offered, whatever a CLI update adds.
+    expect(options["tools"]).toEqual([]);
+    expect(options["allowedTools"]).toEqual(["mcp__kos__notify", "mcp__kos__files_read"]);
+    expect(options["disallowedTools"]).toEqual(expect.arrayContaining(["Bash", "Read", "Write", "Task"]));
+  });
+
+  it("offers only the hand-on built-in when screen work goes to a subagent", async () => {
+    run.queries = [];
+    run.script = steps(1, "files_read");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["computer.act", "files.read"], () => ({ content: "ok" })), cwd: process.cwd(), screen: { model: "claude-sonnet-5-5" } });
+    const options = run.queries[0]!.options;
+    expect(options["tools"]).toEqual(["Task", "Agent"]);
+    expect(options["allowedTools"]).toEqual(["mcp__kos__files_read", "Task", "Agent"]);
+    expect(options["disallowedTools"]).not.toContain("Task");
+    expect(options["disallowedTools"]).toContain("Bash");
+  });
+
+  it("asks the engine for the turn's model and effort when given them, and leaves its defaults when not", async () => {
+    run.queries = [];
+    run.script = steps(1, "notify");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["notify"], () => ({ content: "ok" })), cwd: process.cwd(), model: "claude-opus-5-5", effort: "max" });
+    expect(run.queries[0]!.options).toMatchObject({ model: "claude-opus-5-5", effort: "max" });
+    run.queries = [];
+    run.script = steps(1, "notify");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["notify"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(run.queries[0]!.options["model"]).toBeUndefined();
+    expect(run.queries[0]!.options["effort"]).toBeUndefined();
+  });
+
   it("writes no transcript to disk, in the workspace or the owner's home", async () => {
     run.queries = [];
     run.script = steps(1, "notify");

@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { query, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import { ONLY_OWN_MCP, credentials } from "../builds/runner.js";
+import type { Effort } from "../models/provider.js";
 import type { Route } from "../models/router.js";
+import type { TaskModelSetting } from "../models/settings.js";
 import type { SdkModelUsage } from "./sdkchat.js";
 
 /**
@@ -21,7 +23,7 @@ import type { SdkModelUsage } from "./sdkchat.js";
  */
 
 /** The provider whose models the engine runs. */
-const SDK_PROVIDER = "anthropic";
+export const SDK_PROVIDER = "anthropic";
 /** The engine's own name for its smallest model, used when the owner's cheap model is another provider's. */
 const SDK_SMALLEST = "haiku";
 /** One-shots running at once, past which another is refused rather than queued: each is a process. */
@@ -33,6 +35,25 @@ export const MAX_IN_FLIGHT = 2;
  */
 export function sdkModelFor(cheap: Route | undefined): string {
   return cheap?.provider === SDK_PROVIDER ? cheap.spec.model : SDK_SMALLEST;
+}
+
+/**
+ * What a chat turn on the engine runs on: what the owner chose for the
+ * reasoning route, when its provider is the engine's. Nothing chosen, or a
+ * model the engine cannot run (another provider's), and the engine's own
+ * defaults answer, as before: KOS's table is not pinned over them unasked.
+ */
+export function sdkTurnModel(reasoning: Route | undefined, chosen: TaskModelSetting | undefined): { model?: string; effort?: Effort } {
+  if (!reasoning || reasoning.provider !== SDK_PROVIDER) return {};
+  return {
+    ...(chosen?.model ? { model: reasoning.spec.model } : {}),
+    ...(chosen?.effort && reasoning.spec.effort ? { effort: reasoning.spec.effort } : {}),
+  };
+}
+
+/** What the engine says when the model it was given is not one its login can run: in a thrown error or as the whole reply. */
+export function modelUnavailable(text: string): boolean {
+  return /\bmodel\b/i.test(text) && /(not[ _]found|not available|isn't available|may not exist|does not exist|not have access|no access|invalid model|unsupported model)/i.test(text);
 }
 
 /** What an ask spent, by model, and with which provider: known from the result, or from the answer as it streamed. */

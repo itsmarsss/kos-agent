@@ -95,7 +95,7 @@ describe("PageStore mutation targets", () => {
     ws = Workspace.open(root);
     const manifest = new ProjectManifest(ws.db);
     manifest.createProject({ name: "Budget Tracker", type: "budget" });
-    ws.db.exec(`CREATE TABLE budget_tracker_expenses (id INTEGER PRIMARY KEY, amount REAL)`);
+    new Migrator(ws.db, manifest).migrate("budget_tracker", { op: "create_table", table: "expenses", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "amount", type: "REAL" }] });
     pages = new PageStore(ws.db, ws, manifest);
   });
 
@@ -131,12 +131,34 @@ describe("PageStore mutation targets", () => {
       /systems\.migrate first/,
     );
   });
+
+  it("refuses a target on a table the project did not make: KOS's own, or one made by hand", () => {
+    // Only checked to exist, a form on permission_rules or crons wrote KOS's own rows when the owner pressed save.
+    for (const table of ["permission_rules", "crons", "settings"]) {
+      expect(() => pages.write("budget_tracker", form(table))).toThrow(/not a table of project "budget_tracker"/);
+    }
+    ws.db.exec(`CREATE TABLE budget_tracker_loose (id INTEGER PRIMARY KEY, amount REAL)`);
+    expect(() => pages.write("budget_tracker", form("budget_tracker_loose"))).toThrow(/not a table of project/);
+  });
+
+  it("refuses a widget query reading KOS's own tables", () => {
+    const page = (query: string): unknown => ({ id: "p", title: "P", widgets: [{ type: "table", title: "T", query }] });
+    ws.db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY, detail TEXT)`);
+    for (const [sql, table] of [["SELECT * FROM audit_log", "audit_log"], ["SELECT spec_json FROM schema_migrations", "schema_migrations"], ["SELECT e.* FROM budget_tracker_expenses e JOIN pages p ON 1", "pages"]] as const) {
+      expect(() => pages.write("budget_tracker", page(sql))).toThrow(`widget[0].query: it reads "${table}", which is not a table of project "budget_tracker"`);
+    }
+    expect(() => pages.write("budget_tracker", page("SELECT name FROM sqlite_master"))).toThrow(/cannot run here/);
+    expect(pages.write("budget_tracker", page("SELECT SUM(amount) AS total FROM budget_tracker_expenses")).id).toBe("p");
+    expect(pages.specMayWrite("budget_tracker", "permission_rules")).toBe(false);
+    expect(pages.specMayWrite("budget_tracker", "budget_tracker_expenses")).toBe(true);
+  });
 });
 
 describe("PageStore project boundaries", () => {
   let root: string;
   let ws: Workspace;
   let pages: PageStore;
+  let migrator: Migrator;
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "kos-pages-proj-"));
@@ -144,8 +166,9 @@ describe("PageStore project boundaries", () => {
     const manifest = new ProjectManifest(ws.db);
     manifest.createProject({ name: "Budget Tracker", type: "budget" });
     manifest.createProject({ name: "Workout Log", type: "tracker" });
-    ws.db.exec(`CREATE TABLE budget_tracker_expenses (id INTEGER PRIMARY KEY, amount REAL)`);
-    ws.db.exec(`CREATE TABLE workout_log_sets (id INTEGER PRIMARY KEY, reps INTEGER)`);
+    migrator = new Migrator(ws.db, manifest);
+    migrator.migrate("budget_tracker", { op: "create_table", table: "expenses", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "amount", type: "REAL" }] });
+    migrator.migrate("workout_log", { op: "create_table", table: "sets", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "reps", type: "INTEGER" }] });
     pages = new PageStore(ws.db, ws, manifest);
   });
 
@@ -175,7 +198,7 @@ describe("PageStore project boundaries", () => {
   });
 
   it("does not mistake a similarly named table for another project", () => {
-    ws.db.exec(`CREATE TABLE budget_tracker_workout_log_notes (id INTEGER PRIMARY KEY)`);
+    migrator.migrate("budget_tracker", { op: "create_table", table: "workout_log_notes", columns: [{ name: "id", type: "INTEGER", primaryKey: true }] });
     expect(
       pages.write(
         "budget_tracker",
