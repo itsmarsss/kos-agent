@@ -567,8 +567,11 @@ at once, four from one address; one beyond that is answered 503.
 ```
 
 answers `{ "device": "dev_...", "hostKey": "<base64, 32 bytes>", "protocol": 1 }`.
-A wrong code is a 403. After ten wrong codes in ten minutes every open code
-is void.
+A wrong code is a 403. Wrong codes are counted by where they came from (an
+address on the Wi-Fi listener; a page's origin, else the address a proxy
+gives, on KOS's own port): ten from one source in ten minutes shut that
+source out for the rest of them, and ten from three sources or more void
+every open code. A device already paired is a 409, its code left unspent.
 
 The pairing link is `kos-device://pair?url=<KOS address>&code=<code>`, and a
 link for a phone over Wi-Fi adds `&pin=<pin>`, the certificate the phone pins
