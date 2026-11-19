@@ -494,6 +494,21 @@ describe("a session", () => {
     expect(logged.at(-1)).toMatch(/ended: offline, by its line did not come back$/);
   });
 
+  it("hears a Hand back made while the line was down from the hello, and lets steps through again", async () => {
+    const { hub } = setup({ lineGraceMs: 20_000, handBackWaitMs: 5_000 });
+    const fake = await chromeOnline(hub);
+    const session = await hub.begin({ conversation: "a", device: hub.find("Chrome")!, task: "t", requester: "r", minutes: 5 });
+    fake.send({ t: "event", name: "session.paused", data: { session: session.id, reason: "owner" } });
+    expect(hub.sessionOf("a")?.paused).toBe(true);
+    const waiting = hub.untilHandedBack("a");
+    fake.drop();
+    const back = new FakeDevice(fake.id, fake.key);
+    hub.accept(back.socket);
+    back.hello({ ...CHROME_APP, session: { id: session.id, paused: false } });
+    expect(await waiting).toBe(true);
+    expect(await hub.act("a", "screen.capture", {})).toMatchObject({ image: "SU1H" });
+  });
+
   it("holds a step taken while the line is down until the device is back with the session, and refuses it when it comes back without", async () => {
     const { hub } = setup({ lineGraceMs: 20_000 });
     const fake = await chromeOnline(hub);

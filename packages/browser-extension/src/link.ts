@@ -29,8 +29,8 @@ export interface Hello {
   build?: Build;
   /** How Chrome says it was installed: `development` (Load unpacked) is the one kind a reload brings new code to. */
   install?: string;
-  /** The session this Chrome still holds for this KOS, or lost while away from it and why (held.ts). */
-  session?: { id: string; ended?: EndReason };
+  /** The session this Chrome still holds for this KOS, or lost while away from it and why (held.ts), and whether the owner has it now. */
+  session?: { id: string; ended?: EndReason; paused?: boolean };
 }
 
 export interface LinkOptions {

@@ -309,6 +309,8 @@ const saveTaints = (): Promise<void> => chrome.storage.session.set({ [TAINTS_KEY
 function hello(id: string): Hello {
   const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform;
   const kept = helloSession(lastSession, id);
+  // Whether the owner holds it now: a Hand back pressed while the line was down is heard this way.
+  const live = kept && !kept.ended && session?.info.id === kept.id ? { ...kept, paused: session.paused } : kept;
   return {
     app: { version: chrome.runtime.getManifest().version, platform: "chrome", os: platform || "unknown" },
     consent: asksFirst(settings, id) ? "device" : "kos",
@@ -316,7 +318,7 @@ function hello(id: string): Hello {
     displays: [],
     ...(build ? { build } : {}),
     ...(installType ? { install: installType } : {}),
-    ...(kept ? { session: kept } : {}),
+    ...(live ? { session: live } : {}),
   };
 }
 
@@ -448,8 +450,9 @@ function backOnLine(id: string): void {
   clearTimeout(lineWait);
   lineWait = undefined;
   note("the session goes on across the new line");
-  // What KOS may have missed meanwhile: the owner taking over.
+  // What KOS may have missed meanwhile: the owner taking over, or handing back.
   if (session.paused) tell("session.paused", { session: session.info.id, reason: "owner" });
+  else tell("session.resumed", { session: session.info.id });
 }
 
 const lines = new Lines<Link>({

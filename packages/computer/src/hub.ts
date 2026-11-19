@@ -349,6 +349,8 @@ export class DeviceHub {
     for (const s of [...this.sessions.values()]) {
       if (s.device !== id) continue;
       if (claim?.id === s.id && !claim.ended) {
+        // The owner may have handed it back, or taken it, while the line was down; ready() then wakes whoever waits on it.
+        if (claim.paused !== undefined) s.paused = claim.paused;
         this.log(`devices: session ${s.id} on ${this.named(id)} goes on across the new line`);
         continue;
       }
