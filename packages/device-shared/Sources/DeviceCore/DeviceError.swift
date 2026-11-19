@@ -9,6 +9,14 @@ public enum ErrorCode: String, Codable, Sendable {
   case hiddenApp = "hidden_app"
   case badRequest = "bad_request"
   case `internal`
+  /// keys.secret: the app in front is not the one approved, or not one the secret allows, or is KOS for Mac.
+  case target
+  /// keys.secret: the page in the browser in front is not on the site approved.
+  case origin
+  /// keys.secret: the field with focus is not a text field of the kind the secret goes into, or not the one approved.
+  case field
+  /// A field KOS typed a secret into is in the way: focused and not found for a picture, or asked to copy or type.
+  case secretField = "secret_field"
 }
 
 /// A call refused: the code KOS reads and the sentence the owner reads.

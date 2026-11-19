@@ -12,6 +12,10 @@ public enum CallMethod: String, CaseIterable, Sendable {
   case pointerScroll = "pointer.scroll"
   case keysType = "keys.type"
   case keysPress = "keys.press"
+  /// What field has focus, never what it holds: the stamp a secret's ask is approved against.
+  case keysFocus = "keys.focus"
+  /// A saved secret typed into that field, once the owner approved it (docs/secrets.md).
+  case keysSecret = "keys.secret"
 }
 
 public enum EventName: String, Sendable {
