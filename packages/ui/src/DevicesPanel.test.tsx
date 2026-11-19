@@ -2,8 +2,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, type PairedDevice } from "./api.js";
-import { buildWords, canUpdate, describeDevice, DevicesPanel, pairingLink, phoneLink, updateWords } from "./DevicesPanel.js";
+import { api, type PairedDevice, type PushStatus } from "./api.js";
+import { buildWords, canUpdate, describeDevice, DevicesPanel, pairingLink, phoneLink, pushStanding, pushWords, updateWords } from "./DevicesPanel.js";
+import { secretsApi } from "./secrets.js";
 
 afterEach(() => {
   cleanup();
@@ -203,5 +204,39 @@ describe("the Devices panel", () => {
     expect(await screen.findByText("4F2A 91C3 77D0 1B5E")).toBeTruthy();
     expect(screen.getByText(/enter https:\/\/192\.168\.1\.20:4319 and this code/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy phone link" })).toBeTruthy();
+  });
+});
+
+describe("a phone's notifications", () => {
+  const phone: PairedDevice = { id: "dev_p", name: "iPhone", platform: "ios", kind: "phone", pairedAt: 0, lastSeen: 0, online: false };
+  const settings = { keyId: "", teamId: "", topic: "", secret: "" };
+  const off: PushStatus = { configured: false, settings };
+  const on: PushStatus = { configured: true, source: "settings", settings: { keyId: "ABC123DEFG", teamId: "DEF123GHIJ", topic: "com.you.kos-phone", secret: "apns-7k2q" } };
+
+  it("say on the phone's row whether push is on, and that it is not configured without a key", () => {
+    expect(pushWords(phone, off)).toBe("Push not configured");
+    expect(pushWords({ ...phone, push: { on: true, env: "sandbox" } }, off)).toBe("Push ready on the iPhone; KOS has no APNs key yet");
+    expect(pushWords({ ...phone, push: { on: false } }, on)).toMatch(/^Push off/);
+    expect(pushWords({ ...phone, push: { on: true, env: "production" } }, on)).toBe("Push on");
+    expect(pushWords({ ...phone, push: { on: true, env: "sandbox" } }, on)).toBe("Push on, a build from Xcode");
+    expect(pushWords(laptop, on)).toBeUndefined();
+  });
+
+  it("say where push stands: what is wrong first, where it is set, or how to get a key", () => {
+    expect(pushStanding({ ...off, problem: "Push needs the team ID." })).toBe("Push needs the team ID.");
+    expect(pushStanding({ ...on, source: "env" })).toMatch(/KOS_APNS_\*/);
+    expect(pushStanding(off)).toMatch(/Apple developer account/);
+  });
+
+  it("keep the key's names on the Devices page, and pick the .p8 from the vault's secrets", async () => {
+    vi.spyOn(api, "devices").mockResolvedValue({ devices: [{ ...phone, push: { on: true, env: "sandbox" } }], settings: { askMinutes: 15, unattended: false, lan: false, autoUpdate: true }, push: off });
+    vi.spyOn(secretsApi, "list").mockResolvedValue([]);
+    const setPush = vi.spyOn(api, "setPush").mockResolvedValue({ ...off, settings: { ...settings, keyId: "ABC123DEFG" } });
+    render(<DevicesPanel />);
+    expect(await screen.findByText(/Push ready on the iPhone/)).toBeTruthy();
+    const keyId = screen.getByPlaceholderText("ABC123DEFG");
+    fireEvent.change(keyId, { target: { value: " ABC123DEFG " } });
+    fireEvent.keyDown(keyId, { key: "Enter" });
+    await waitFor(() => expect(setPush).toHaveBeenCalledWith({ keyId: "ABC123DEFG" }));
   });
 });

@@ -388,6 +388,8 @@ export interface PairedDevice {
   /** Connected from the computer KOS runs on. */
   local?: boolean;
   update?: DeviceUpdate;
+  /** A phone's: whether it gave KOS a token to push asks to, and for which of APNs' gateways. */
+  push?: { on: boolean; env?: "sandbox" | "production" };
   session?: { conversation: string; title: string; task: string; until: number; paused: boolean; target?: { kind: "screen" | "window" | "tabs"; app?: string; title?: string } };
 }
 
@@ -412,6 +414,22 @@ export interface LanStatus {
   pin: string;
   words: string;
   error?: string;
+}
+
+/** The owner's APNs key as Settings names it: never the key, which is a vault secret named by `secret`. */
+export interface PushSettings {
+  keyId: string;
+  teamId: string;
+  topic: string;
+  secret: string;
+}
+
+/** Where pushing asks to phones stands: on once an APNs key is given, from the host's environment or from Settings. */
+export interface PushStatus {
+  configured: boolean;
+  source?: "env" | "settings";
+  problem?: string;
+  settings: PushSettings;
 }
 
 export interface DeviceCode {
@@ -1767,7 +1785,8 @@ export const api = {
   createCaller: (name: string, readTags: string[], writeGlobal: boolean) =>
     post<{ caller: CallerInfo; token: string }>("/api/callers", { name, readTags, writeGlobal }),
   revokeCaller: (id: number) => post<{ id: number; revoked: boolean }>("/api/callers/revoke", { id }),
-  devices: () => get<{ devices: PairedDevice[]; settings: ComputerSettings; lan?: LanStatus }>("/api/devices"),
+  devices: () => get<{ devices: PairedDevice[]; settings: ComputerSettings; lan?: LanStatus; push?: PushStatus }>("/api/devices"),
+  setPush: (patch: Partial<PushSettings>) => post<PushStatus>("/api/devices/push", patch),
   setComputerSettings: (patch: Partial<ComputerSettings>) => post<ComputerSettings>("/api/devices/settings", patch),
   deviceCode: () => post<DeviceCode>("/api/devices/pairings"),
   renameDevice: (id: string, name: string) => post<PairedDevice>("/api/devices/rename", { id, name }),
