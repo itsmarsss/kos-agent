@@ -28,7 +28,14 @@ const MAX_VALUE = 300;
 export interface ExtractorState {
   /** The last event id the extractor has read. */
   lastEventId: number;
+  /** The one event no reply could be read for, how many runs have tried it, and when the last did. */
+  stuck?: { id: number; tries: number; at: number };
 }
+
+/** Runs on one unreadable event before it is passed over: past this, one bad event would stop memory for good. */
+export const STUCK_TRIES = 3;
+/** How long the trigger waits after the first failed try on a stuck event; doubled for each one after. */
+const STUCK_WAIT_MS = 10 * 60_000;
 
 export interface ExtractorDeps {
   ownerId: string;
@@ -37,6 +44,9 @@ export interface ExtractorDeps {
   inference: Inference;
   settings: { get: <T>(key: string) => T | undefined; set: (key: string, value: unknown) => unknown };
   batchChars?: number;
+  now?: () => number;
+  /** Told of events passed over unread after STUCK_TRIES runs, so the owner hears of it. */
+  onSkipped?: (ids: number[]) => void;
 }
 
 export interface ExtractionReport {
@@ -46,6 +56,8 @@ export interface ExtractionReport {
   added: number;
   superseded: number;
   rejected: number;
+  /** Events passed over unread: no reply on them could be read in STUCK_TRIES runs. */
+  skipped: number[];
   claims: Fact[];
 }
 
@@ -88,6 +100,9 @@ function normalizeKey(raw: unknown): string | undefined {
   return key || undefined;
 }
 
+/** A reply in prose that there is nothing to keep: "No new facts.", "Nothing worth remembering." */
+const NOTHING_TO_KEEP = /\b(no (new )?(facts?|claims?|memor(y|ies)|information)|nothing (new|worth|to (keep|remember|add|store)))\b/i;
+
 /** What the model said, read strictly. Anything malformed is simply not a proposal. */
 export function parseProposals(text: string): Proposal[] {
   return readProposals(text) ?? [];
@@ -99,7 +114,7 @@ export function parseProposals(text: string): Proposal[] {
  * nothing is worth keeping. A malformed op in a readable list is dropped.
  */
 function readProposals(text: string): Proposal[] | undefined {
-  if (!text.trim()) return [];
+  if (!text.trim() || (!text.includes("{") && NOTHING_TO_KEEP.test(text))) return [];
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end <= start) return undefined;
@@ -194,7 +209,25 @@ export class MemoryExtractor {
 
   state(): ExtractorState {
     const raw = this.deps.settings.get<Partial<ExtractorState>>(EXTRACTOR_KEY);
-    return { lastEventId: typeof raw?.lastEventId === "number" ? raw.lastEventId : 0 };
+    const lastEventId = typeof raw?.lastEventId === "number" ? raw.lastEventId : 0;
+    const stuck = raw?.stuck;
+    // A stuck event the watermark has since passed (the memory job read it) is stuck no more.
+    const valid = stuck && typeof stuck.id === "number" && typeof stuck.tries === "number" && typeof stuck.at === "number" && stuck.id > lastEventId;
+    return { lastEventId, ...(valid ? { stuck: { id: stuck.id, tries: stuck.tries, at: stuck.at } } : {}) };
+  }
+
+  /** Stuck on an event and not yet due to try it again: the trigger leaves it alone meanwhile. */
+  waiting(): boolean {
+    const stuck = this.state().stuck;
+    return stuck !== undefined && this.now() < stuck.at + STUCK_WAIT_MS * 2 ** (stuck.tries - 1);
+  }
+
+  private now(): number {
+    return (this.deps.now ?? Date.now)();
+  }
+
+  private save(state: ExtractorState): void {
+    this.deps.settings.set(EXTRACTOR_KEY, state);
   }
 
   /** What has been said since the extractor last read: how many events, how much text. */
@@ -211,14 +244,18 @@ export class MemoryExtractor {
   async run(options: { maxBatches?: number } = {}): Promise<ExtractionReport> {
     if (this.running) throw new Error("the extractor is already running");
     this.running = true;
-    const report: ExtractionReport = { batches: 0, events: 0, proposed: 0, added: 0, superseded: 0, rejected: 0, claims: [] };
+    const report: ExtractionReport = { batches: 0, events: 0, proposed: 0, added: 0, superseded: 0, rejected: 0, skipped: [], claims: [] };
     try {
       const batchChars = this.deps.batchChars ?? BATCH_CHARS;
       const maxBatches = options.maxBatches ?? 20;
-      while (report.batches < maxBatches) {
-        const batch = this.nextBatch(batchChars);
-        if (batch.length === 0) break;
-        await this.read(batch, report);
+      try {
+        while (report.batches < maxBatches) {
+          const batch = this.nextBatch(batchChars);
+          if (batch.length === 0) break;
+          await this.read(batch, report);
+        }
+      } finally {
+        if (report.skipped.length) this.deps.onSkipped?.(report.skipped);
       }
       return report;
     } finally {
@@ -239,16 +276,28 @@ export class MemoryExtractor {
    * reply cut off at its token limit, or one with no reading it, is never
    * taken as "nothing to keep": the batch is read again in halves, down to
    * one event, and one that still cannot be read ends the run where it is,
-   * to be read again on the next.
+   * to be read again on the next. After STUCK_TRIES runs on the same one it
+   * is passed over and told, so one bad event does not stop memory for good.
    */
   private async read(batch: MemoryEvent[], report: ExtractionReport): Promise<void> {
+    const last = batch[batch.length - 1]!.id;
     if (await this.extract(batch, report)) {
       report.batches++;
       report.events += batch.length;
-      this.deps.settings.set(EXTRACTOR_KEY, { lastEventId: batch[batch.length - 1]!.id } satisfies ExtractorState);
+      this.save({ lastEventId: last });
       return;
     }
-    if (batch.length === 1) throw new Error(`the extractor's reply on event #${batch[0]!.id} was cut off or unreadable; it is read again on the next run`);
+    if (batch.length === 1) {
+      const before = this.state().stuck;
+      const tries = before?.id === last ? before.tries + 1 : 1;
+      if (tries >= STUCK_TRIES) {
+        report.skipped.push(last);
+        this.save({ lastEventId: last });
+        return;
+      }
+      this.save({ lastEventId: this.state().lastEventId, stuck: { id: last, tries, at: this.now() } });
+      throw new Error(`the extractor's reply on event #${last} was cut off or unreadable; it is read again on the next run`);
+    }
     const half = Math.ceil(batch.length / 2);
     await this.read(batch.slice(0, half), report);
     await this.read(batch.slice(half), report);

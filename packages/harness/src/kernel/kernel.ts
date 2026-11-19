@@ -81,7 +81,7 @@ import type { Reach } from "../tools/fence.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 export { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
-import { MemoryExtractor, type ExtractionReport } from "../memory/extractor.js";
+import { MemoryExtractor, STUCK_TRIES, type ExtractionReport } from "../memory/extractor.js";
 import { MEMORY_JOB } from "../memory/job.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
@@ -865,6 +865,9 @@ export class Kernel {
       facts: args.facts,
       inference: args.inference,
       settings: args.settings,
+      // One bad event is passed over after a few runs rather than stopping memory; the owner hears which.
+      onSkipped: (ids) =>
+        this.caretaker.tell(`Memory extraction passed over ${ids.length === 1 ? "an event" : `${ids.length} events`} (${ids.map((id) => `#${id}`).join(", ")}) after ${STUCK_TRIES} runs found no reply it could read. Nothing from ${ids.length === 1 ? "it" : "them"} is remembered; say it again if it matters.`),
     });
     this.afterTurn = new AfterTurn({
       ownerId: args.profile.ownerId,
@@ -4909,7 +4912,8 @@ export class Kernel {
    */
   private maybeExtract(): void {
     const how = this.behaviour();
-    if (!how.memoryExtraction || this.extractor.busy || this.closed) return;
+    // Stuck on an event no reply could be read for, it waits its turn rather than asking again after every message.
+    if (!how.memoryExtraction || this.extractor.busy || this.extractor.waiting() || this.closed) return;
     if (this.extractor.pending().chars < how.extractEveryChars) return;
     // KOS reads its own memory when the owner has the job on; the fixed
     // extractor is the floor when they have not.
