@@ -7748,14 +7748,18 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder-nav { display: flex; align-items: center; gap: 0.1rem; min-width: 0; flex: 1 1 10rem; }
 .finder-title { margin: 0 0 0 0.4rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-lg); font-weight: 600; }
 .finder-tools { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 0.3rem; }
-.finder-sortby .sel-button { height: 1.9rem; min-width: 8rem; padding: 0 0.6rem; font-size: var(--text-base); }
-.finder-title .finder-places .sel-button { height: 1.9rem; padding: 0 0.6rem; font-size: var(--text-lg); font-weight: 600; border-color: transparent; background: none; }
+.finder-sortby .sel-button { min-width: 8rem; padding: 0 0.6rem; font-size: var(--text-base); }
+/* Every control in the bar one small height and the icon buttons square,
+   where the views, the icons, the sort and the search sat at 23 to 30px. */
+:is(.finder-nav, .finder-tools) :is(.chips button, .sel-button, .finder-search) { height: var(--control-h-sm); box-sizing: border-box; }
+:is(.finder-nav, .finder-tools) .chips button { display: inline-flex; align-items: center; }
+:is(.finder-nav, .finder-tools) > .icon-btn { width: var(--control-h-sm); height: var(--control-h-sm); }
+.finder-title .finder-places .sel-button { padding: 0 0.6rem; font-size: var(--text-lg); font-weight: 600; border-color: transparent; background: none; }
 .finder-search {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   width: 12rem;
-  height: 1.9rem;
   padding: 0 0.55rem;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
@@ -8033,7 +8037,7 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
   .finder { --finder-row: 2.6rem; }
   .finder-toolbar { padding: 0.45rem 0.5rem; }
   .finder-tools { flex: 1 1 100%; justify-content: flex-start; }
-  .finder-search { order: 10; flex: 1 1 100%; width: auto; height: 2.1rem; }
+  .finder-search { order: 10; flex: 1 1 100%; width: auto; }
   .finder-list-head { display: none; }
   .finder-row { grid-template-columns: minmax(0, 1fr) auto; margin: 0 0.25rem; border-radius: 0; }
   .finder-row:nth-child(even) { background: none; }
