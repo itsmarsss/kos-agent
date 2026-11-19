@@ -1541,7 +1541,7 @@ export function ChatsPage({
               <input
                 className="chats-search"
                 value={query}
-                placeholder="Search agents…"
+                placeholder="Search chats"
                 onChange={(e) => setQuery(e.target.value)}
               />
             </div>
@@ -1576,7 +1576,7 @@ export function ChatsPage({
               )}
             </div>
             <div className="label chats-group-head">
-              <span>Agents</span>
+              <span>Chats</span>
               {/* Like New chat: the thread opens empty and the first message
                   names it. A form asking for a name, a brief and a task first
                   was three fields in the way of saying what you wanted. */}
@@ -2221,7 +2221,6 @@ export function ChatsPage({
                     {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
                     {active.title}
                     {active.kind === "project" && <span className="chats-role">orchestrator</span>}
-                    {active.kind === "chat" && active.projectSlug && !active.role && <span className="chats-role">agent</span>}
                     {(active.kind === "agent" || active.role) && <span className="chats-role">blob</span>}
                   </h1>
                   {/* Inside the project the rail lists the agents, so the count
@@ -2358,18 +2357,18 @@ export function ChatsPage({
                   />
                   <div className="rename-actions">
                     <button
-                      type="submit"
-                      className="btn btn--primary"
-                      disabled={!renaming?.title.trim()}
-                    >
-                      Rename
-                    </button>
-                    <button
                       type="button"
                       className="btn"
                       onClick={() => setRenaming(null)}
                     >
                       Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn--primary"
+                      disabled={!renaming?.title.trim()}
+                    >
+                      Rename
                     </button>
                   </div>
                 </form>
