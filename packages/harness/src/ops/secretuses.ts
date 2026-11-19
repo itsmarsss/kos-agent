@@ -77,6 +77,7 @@ function toUse(r: Row): SecretUseRow {
     fields: JSON.parse(r.fields) as string[],
     outcome: r.outcome,
     ...(r.conversation_id ? { conversationId: r.conversation_id } : {}),
+    ...(r.device_id ? { deviceId: r.device_id } : {}),
     ...(r.origin ? { origin: r.origin } : {}),
     ...(r.frame_origin ? { frameOrigin: r.frame_origin } : {}),
     ...(r.app ? { app: r.app } : {}),

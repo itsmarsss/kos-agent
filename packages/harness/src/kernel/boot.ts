@@ -444,12 +444,13 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       newTab: () => (kernelRef ? kernelRef.newBrowserTab() : Promise.reject(new Error("not booted"))),
       watch: (input) => (kernelRef ? kernelRef.watchPage(input) : Promise.reject(new Error("not booted"))),
     }),
-    // The owner's secrets: listed by handle, filled into KOS's own browser, never seen.
+    // The owner's secrets: listed by handle, filled into KOS's own browser or the owner's Chrome, never seen.
     createSecretsModule({
       vault: () => secrets.attached(),
       uses: secretUses,
       browser: {
         unready: () => (kernelRef ? kernelRef.secretFillUnready() : "KOS is still starting"),
+        where: () => kernelRef?.secretPlace() ?? { surface: "kos-browser" },
         url: () => kernelRef?.browserUrl(),
         spots: (refs) => (kernelRef ? kernelRef.secretSpots(refs) : Promise.reject(new Error("not booted"))),
         fill: (fills, then) => (kernelRef ? kernelRef.fillSecretsHere(fills, then) : Promise.reject(new Error("not booted"))),
