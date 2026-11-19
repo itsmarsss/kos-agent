@@ -34,6 +34,8 @@ const SAID_KEEP = 600;
 import {
   BrowserLive,
   ChromeHost,
+  fieldSpots,
+  fillSecrets,
   launchFor,
   opensElsewhere,
   parseBrowserConfig,
@@ -45,8 +47,12 @@ import {
   type BrowserDownload,
   type BrowserStatus,
   type ChromeOptions,
+  type FieldSpot,
   type Page,
+  type SecretFill,
+  type Seen,
   type Tab,
+  type Then,
 } from "@kos/browser";
 import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, mcpBrowserStep, PAY_BUTTON, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
 
@@ -728,6 +734,11 @@ export class Kernel {
         config,
         downloadsDir,
         onDownload: (download) => this.placeDownload(download),
+        // The vault's values and sites, read from the registry at each use: cleaned from every tab's words, shown only to their own sites' pages, no script on a credential site.
+        saved: () => args.secrets.browserValues(),
+        savedFor: (origins) => args.secrets.pageValues(origins),
+        evalBlocked: (origin) => args.secrets.evalBlocked(origin),
+        workerSites: () => [...args.secrets.listedDomains()],
         chrome: new ChromeHost({
           port: BROWSER_PORT,
           profileDir: this.workspace.resolve(".kos/browser-profile"),
@@ -737,6 +748,8 @@ export class Kernel {
           ...args.chrome,
         }),
       });
+      // A site newly listed for a secret may already have a worker planted on it: cleared before anything is filled there.
+      args.secrets.onSitesListed((domains) => void this.browser.purgeWorkers(domains));
       this.idleSweep = setInterval(() => this.sweepIdleTabs(), IDLE_SWEEP_MS);
       this.idleSweep.unref?.();
     }
@@ -4422,6 +4435,33 @@ export class Kernel {
     return { page: await this.browser.page(tab), capture: (maxEdge) => this.browser.capture(tab, maxEdge) };
   }
 
+  /**
+   * Why a secret cannot be filled where the caller browses, if it cannot:
+   * it has no tab yet, or works in the owner's Chrome, where a fill goes
+   * through KOS for Chrome (not yet).
+   */
+  secretFillUnready(): string | undefined {
+    const conversationId = this.callerConversationId ?? "root";
+    if (this.away(conversationId)) return "secrets.fill works in KOS's own browser for now, not the owner's Chrome. Hand the tab to the owner with browser.handoff to sign in there.";
+    if (!this.browser.tabOf(conversationId)) return "Your tab has no page yet. Open the page with browser.visit and look for the fields' refs first.";
+    return undefined;
+  }
+
+  /** The address of the caller's tab, in whichever browser it works. */
+  browserUrl(): string | undefined {
+    return this.spotOf(this.callerConversationId ?? "root")?.url;
+  }
+
+  /** Where the fields refs name are on the caller's page (KOS's own browser). */
+  async secretSpots(refs: string[]): Promise<FieldSpot[]> {
+    return fieldSpots(await this.browserTab(), refs);
+  }
+
+  /** Secrets into the caller's page (KOS's own browser), then the page as `then` says. */
+  async fillSecretsHere(fills: SecretFill[], then: Then): Promise<Seen> {
+    return fillSecrets(await this.browserTab(), fills, then);
+  }
+
   /** Which browser the caller's tab is in, in words for a result. */
   browserWhere(): string {
     const conversationId = this.callerConversationId ?? "root";
@@ -4712,7 +4752,9 @@ export class Kernel {
    * (see SeenPages), rather than another taken on the same line to the tab.
    */
   private async browserPicture(tool: string, conversationId?: string): Promise<string | undefined> {
-    const context = conversationId ? this.browserContext(tool, conversationId) : undefined;
+    // A secret's ask is about the page too: it shows the page, masked like every picture of a page holding a secret.
+    const onPage = tool === "secrets.fill" || tool === "secrets.allow_site" ? `${BROWSER_PREFIX}look` : tool;
+    const context = conversationId ? this.browserContext(onPage, conversationId) : undefined;
     if (!conversationId || !context) return undefined;
     const seen = this.seen.picture(conversationId, this.spotOf(conversationId), context.browser?.site);
     if (seen) return seen;

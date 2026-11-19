@@ -1,4 +1,4 @@
-import { hasSecretRef } from "@kos/shared";
+import { usesSecret } from "@kos/shared";
 
 import type { ApprovalRequest } from "./types.js";
 
@@ -9,5 +9,5 @@ import type { ApprovalRequest } from "./types.js";
  * chat's Auto never covers.
  */
 export function offersAlways(req: ApprovalRequest): boolean {
-  return req.rule !== undefined && req.beyondAuto !== true && !(req.asksAlways ?? hasSecretRef(req.args ?? {}));
+  return req.rule !== undefined && req.beyondAuto !== true && !(req.asksAlways ?? usesSecret(req.tool ?? "", req.args ?? {}));
 }

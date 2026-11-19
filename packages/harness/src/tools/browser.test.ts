@@ -46,6 +46,10 @@ class ScriptedPage implements Session {
         if (params["replMode"]) return { result: { type: "number", value: 42 } };
         return { result: {} };
       }
+      // The page's own context, reported as Runtime is turned on, as Chrome does.
+      case "Runtime.enable":
+        this.page.handle({ method: "Runtime.executionContextCreated", params: { context: { id: 1, uniqueId: "u1", origin: "null", auxData: { isDefault: true, frameId: "F" } } } });
+        return {};
       case "Accessibility.getFullAXTree":
         return { nodes: structuredClone(this.tree) };
       case "Page.getLayoutMetrics":
@@ -111,9 +115,9 @@ describe("what each tool costs in trust", () => {
       ["browser.new_tab", { url: "http://localhost:4318/" }],
       ["browser.watch", { url: "http://[::1]:4317/api/status" }],
     ] as const) {
-      expect(registry.refusal(name, input), name).toBe(KOS_PAGE_REFUSED);
+      expect(await registry.refusal(name, input), name).toBe(KOS_PAGE_REFUSED);
     }
-    expect(registry.refusal("browser.visit", { url: "http://127.0.0.1:5173/" })).toBeUndefined();
+    expect(await registry.refusal("browser.visit", { url: "http://127.0.0.1:5173/" })).toBeUndefined();
   });
 
   it("refuses to work a tab that is on KOS's own dashboard, and leaves one a redirect took there", async () => {

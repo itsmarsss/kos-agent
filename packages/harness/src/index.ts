@@ -14,7 +14,7 @@ export { SECRET_FIELDS, SECRET_KINDS, SECRET_REQUIRED, type SecretFieldName, typ
 export * from "./modules/index.js";
 export { JailError, resolvePath } from "./jail/index.js";
 export { Workspace, openDatabase, DB_FILENAME, type Db } from "./store/index.js";
-export { hasSecretRef, scrubDeep, SecretsRegistry, secretsRoutes, Vault, VaultError, vaultDir, type SecretMeta } from "./secrets/index.js";
+export { hasSecretRef, scrubDeep, usesSecret, SecretsRegistry, secretsRoutes, Vault, VaultError, vaultDir, type SecretMeta } from "./secrets/index.js";
 export { SecretUses } from "./ops/secretuses.js";
 export * from "./models/index.js";
 export * from "./risk/index.js";

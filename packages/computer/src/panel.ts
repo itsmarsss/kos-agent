@@ -1,6 +1,5 @@
 import {
   HOST_KEYS,
-  hasSecretRef,
   parseChatCommand,
   TurnNarrator,
   type ApprovalHandler,
@@ -16,7 +15,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { ASK, askView, parseChatMode, runningTail, stepMechanics, summarizeAction, type ChatMode } from "@kos/shared";
+import { ASK, askView, parseChatMode, runningTail, stepMechanics, summarizeAction, usesSecret, type ChatMode } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
@@ -935,10 +934,10 @@ const ASK_MAX = 200_000;
  */
 function approvalOf(req: ApprovalRequest): Record<string, unknown> {
   const args = req.args === undefined ? "" : typeof req.args === "string" ? req.args : JSON.stringify(req.args);
-  const asksAlways = req.asksAlways ?? hasSecretRef(req.args ?? {});
+  const asksAlways = req.asksAlways ?? usesSecret(req.tool ?? "", req.args ?? {});
   const view =
     req.tool && req.args !== undefined
-      ? askView({ tool: req.tool, args: req.args, reason: req.reason ?? null, rule: req.rule ?? null, ...(req.yours ? { yours: true } : {}), asksAlways, ...(req.beyondAuto ? { beyondAuto: true } : {}), ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS })
+      ? askView({ tool: req.tool, args: req.args, reason: req.reason ?? null, rule: req.rule ?? null, ...(req.yours ? { yours: true } : {}), asksAlways, ...(req.beyondAuto ? { beyondAuto: true } : {}), ...(req.secret ? { secret: req.secret } : {}), ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS })
       : undefined;
   const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args, HOST_KEYS) : undefined;
   const whole = args.length + JSON.stringify(view?.steps ?? []).length + (mechanics?.length ?? 0) > ASK_MAX;

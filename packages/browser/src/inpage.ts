@@ -403,7 +403,9 @@ export function controls(scope: string | null, max: number): Element[] {
   /** What a control holds; a secret field's never, nor its length, only that it holds something. */
   const valueOf = (el: Element, role: string, name: string): string | undefined => {
     if (!VALUED.has(role)) return undefined;
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value && secret(el, name) ? "(hidden)" : el.value;
+    // A field KOS filled with a secret (fillSecret's mark, in this world) is hidden whatever it is called.
+    const filled = (globalThis as unknown as { kosTainted?: WeakSet<Element> }).kosTainted?.has(el) === true;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value && (filled || secret(el, name)) ? "(hidden)" : el.value;
     // A box typed into that is no input (contenteditable): what it holds is its text.
     if (el instanceof HTMLElement && el.isContentEditable && secret(el, name)) return el.textContent?.trim() ? "(hidden)" : "";
     if (el instanceof HTMLSelectElement) {
@@ -517,4 +519,224 @@ export function controls(scope: string | null, max: number): Element[] {
   if (!root) return Object.assign([], { kos: JSON.stringify({ missing: true }) });
   visit(root, undefined);
   return Object.assign(els, { kos: JSON.stringify({ items, total }) });
+}
+
+/**
+ * Why a field may not take a secret of `slot`, or "" when it may. Run in
+ * KOS's own world, on the field the ref names, after it was scrolled to.
+ * Only an input or a textarea of a type the slot fits: a password only into
+ * type=password, a card number only where its autocomplete or its label
+ * says card number. It must be drawn (at least 8 by 8, not see-through),
+ * in view and the topmost thing at its middle, enabled and writable.
+ */
+export function fillable(this: Element, slot: string, secret: boolean): string {
+  if (!(this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement)) return "not a text field";
+  const type = this instanceof HTMLInputElement ? this.type.toLowerCase() : "textarea";
+  const TEXTUAL = ["text", "email", "tel", "url", "search", "number", "textarea"];
+  const said = [
+    this.getAttribute("autocomplete") ?? "",
+    this.name,
+    this.id,
+    this.getAttribute("placeholder") ?? "",
+    this.getAttribute("aria-label") ?? "",
+    ...Array.from(this.labels ?? [], (l) => l.textContent ?? ""),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const auto = (this.getAttribute("autocomplete") ?? "").toLowerCase().split(/\s+/);
+  const fits = ((): boolean => {
+    switch (slot) {
+      case "password":
+        return type === "password";
+      case "username":
+        return ["text", "email", "tel"].includes(type);
+      case "card-number":
+        return ["text", "tel", "number"].includes(type) && (auto.includes("cc-number") || /card.?(number|no)|cc.?num|credit.?card|debit.?card/.test(said));
+      case "card-cvc":
+        return ["text", "tel", "number", "password"].includes(type);
+      case "card-expiry":
+      case "card-exp-month":
+      case "card-exp-year":
+      case "card-name":
+        return ["text", "tel", "number"].includes(type);
+      // A key or a note goes only where the page says one goes, as a card number does.
+      case "token":
+        return type === "password" || (TEXTUAL.includes(type) && /token|api.?key|secret|access.?key|key/.test(said));
+      case "text":
+        return type === "password" || (TEXTUAL.includes(type) && /secret|note|recovery|phrase|seed|key|code/.test(said));
+      default:
+        return slot.startsWith("address-") && ["text", "textarea"].includes(type);
+    }
+  })();
+  if (!fits) return `a ${type} field does not take a ${slot.replace("-", " ")}`;
+  // A form sent by GET puts every field in the address, where history, logs and the next page's referrer keep it.
+  // As the browser reads the form: no method, or one it does not know, is GET; and so is a submit button's formmethod=get.
+  const form = this.form;
+  const byGet = (el: Element): boolean => (el instanceof HTMLButtonElement || (el instanceof HTMLInputElement && /^(submit|image)$/.test(el.type))) && el.formMethod === "get";
+  if (secret && form && (form.method === "get" || Array.from(form.elements).some(byGet))) return "the form sends what is typed in the address (GET)";
+  if (this.disabled) return "the field is disabled";
+  if (this.readOnly) return "the field is read-only";
+  const box = this.getBoundingClientRect();
+  if (box.width < 8 || box.height < 8) return "the field is hidden (too small to see)";
+  if (!this.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return "the field is hidden";
+  const x = box.left + box.width / 2;
+  const y = box.top + box.height / 2;
+  if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return "the field is out of view";
+  const top = document.elementFromPoint(x, y);
+  if (top !== this && !(top && this.contains(top)) && !(this.labels && Array.from(this.labels).some((l) => l === top || l.contains(top!)))) return "the field is covered by something else";
+  return "";
+}
+
+/** Whether a frame's element (an iframe) is drawn and in view, as a field must be: run on the frame's owner, in its parent's world. */
+export function frameShown(this: Element): boolean {
+  const box = this.getBoundingClientRect();
+  if (box.width < 8 || box.height < 8 || !this.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false;
+  return box.right > 0 && box.bottom > 0 && box.left < innerWidth && box.top < innerHeight;
+}
+
+/** Whether the field holds `value`, by its digits alone for a number a page may space: the value is never read back out. */
+export function holds(this: Element, value: string, digits: boolean): boolean {
+  const now = (this as HTMLInputElement).value ?? "";
+  return digits ? now.replace(/\D/g, "") === value.replace(/\D/g, "") : now === value;
+}
+
+/** The value set through the native setter and the events typing raises, for a field typing did not fill; whether it holds it now. */
+export function putValue(this: Element, value: string, digits: boolean): boolean {
+  const el = this as HTMLInputElement | HTMLTextAreaElement;
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, value);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  const now = el.value;
+  return digits ? now.replace(/\D/g, "") === value.replace(/\D/g, "") : now === value;
+}
+
+/** The field marked as holding a secret, in this world, where the page cannot see or clear the mark. */
+export function taint(this: Element): void {
+  const g = globalThis as unknown as { kosTainted?: WeakSet<Element> };
+  (g.kosTainted ??= new WeakSet()).add(this);
+}
+
+/**
+ * One root of a frame's page (its document, or a shadow root, open or
+ * closed) made safe to picture, run on that root in KOS's own world. Every
+ * place text is typed (inputs that take text, textareas, anything
+ * contenteditable) and every select is made unseeable, since a page may
+ * copy a secret into any of them; text that holds a filled value (each of
+ * `patterns`, a RegExp source) is painted over with a CSS highlight
+ * (`kos-secret`), SVG text that holds one is not drawn, and neither is a
+ * ::before or ::after of an element whose attributes hold one (content:
+ * attr()); placeholders are not drawn either. How to put each back is kept
+ * in this world, for unmaskAll. Answers how many things were masked.
+ */
+export function maskRoot(this: Document | ShadowRoot, patterns: string[]): number {
+  const g = globalThis as unknown as { kosUndo?: (() => void)[] };
+  const undo = (g.kosUndo ??= []);
+  const found = patterns.map((p) => new RegExp(p, "g"));
+  const holds = (text: string): boolean =>
+    found.some((p) => {
+      p.lastIndex = 0;
+      return p.test(text);
+    });
+  const NOT_TEXT = /^(hidden|checkbox|radio|button|submit|reset|image|file|range|color)$/;
+  let masked = 0;
+  const restyle = (el: HTMLElement | SVGElement, props: Record<string, string>): void => {
+    const before = el.getAttribute("style");
+    undo.push(() => {
+      // Read first: Chrome writes a style changed through el.style to the attribute only when it is next read, which would put an empty one back after the remove.
+      el.getAttribute("style");
+      if (before === null) el.removeAttribute("style");
+      else el.setAttribute("style", before);
+    });
+    for (const [name, value] of Object.entries(props)) el.style.setProperty(name, value, "important");
+    masked++;
+  };
+  const style = document.createElement("style");
+  style.textContent =
+    "::placeholder{color:transparent!important}::highlight(kos-secret){color:transparent;background-color:#000;text-shadow:none}" +
+    "[data-kos-masked]::before,[data-kos-masked]::after{content:none!important}";
+  (this instanceof Document ? (this.head ?? this.documentElement) : this).append(style);
+  undo.push(() => style.remove());
+  const ranges: Range[] = [];
+  const walker = document.createTreeWalker(this, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node instanceof Element) {
+      const el = node;
+      if ((el instanceof HTMLInputElement && !NOT_TEXT.test(el.type)) || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)) {
+        restyle(el as HTMLElement, { "-webkit-text-security": "disc", color: "transparent", "caret-color": "transparent", "text-shadow": "none" });
+      } else if (el instanceof HTMLSelectElement) {
+        restyle(el, { color: "transparent", "text-shadow": "none" });
+      } else if (el instanceof SVGTextContentElement && holds(el.textContent ?? "")) {
+        restyle(el, { fill: "transparent", stroke: "transparent" });
+      }
+      if (Array.from(el.attributes).some((a) => holds(a.value))) {
+        el.setAttribute("data-kos-masked", "");
+        undo.push(() => el.removeAttribute("data-kos-masked"));
+        masked++;
+      }
+      continue;
+    }
+    const text = (node as Text).data;
+    for (const pattern of found) {
+      pattern.lastIndex = 0;
+      for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
+        const range = document.createRange();
+        range.setStart(node, m.index);
+        range.setEnd(node, m.index + m[0].length);
+        ranges.push(range);
+        if (m[0].length === 0) pattern.lastIndex++;
+      }
+    }
+  }
+  if (ranges.length > 0) {
+    // A maplike and a setlike the DOM types leave out.
+    const registry = CSS.highlights as unknown as Map<string, Highlight>;
+    const highlight = registry.get("kos-secret") ?? new Highlight();
+    for (const range of ranges) (highlight as unknown as Set<AbstractRange>).add(range);
+    registry.set("kos-secret", highlight);
+    masked += ranges.length;
+  }
+  return masked;
+}
+
+/** Everything maskRoot did in this frame put back as it was. */
+export function unmaskAll(): void {
+  const g = globalThis as unknown as { kosUndo?: (() => void)[] };
+  for (const step of (g.kosUndo ?? []).reverse()) {
+    try {
+      step();
+    } catch {
+      // Gone from the page: nothing to put back.
+    }
+  }
+  g.kosUndo = [];
+  (CSS.highlights as unknown as Map<string, Highlight>).delete("kos-secret");
+}
+
+/** Whether a service worker runs this field's frame: what it sends goes through the worker. */
+export function workerControlled(this: Element): boolean {
+  return Boolean(navigator.serviceWorker?.controller);
+}
+
+/** The element that has the keyboard in this frame, through open shadow roots. */
+export function focusedHere(): Element | null {
+  let el = document.activeElement;
+  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+  return el;
+}
+
+/** Whether this field has the keyboard: it is what has focus in its frame, and the frame's page has it. */
+export function hasKeyboard(this: Element): boolean {
+  let el = document.activeElement;
+  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+  return el === this && document.hasFocus();
+}
+
+/** What a field is, for an ask: its label, its type, and where its form sends what is typed, and how. */
+export function fieldInfo(this: Element): { label: string; type: string; action?: string; method?: string } {
+  const el = this as HTMLInputElement;
+  const label = (Array.from(el.labels ?? [], (l) => l.textContent ?? "").join(" ") || el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.name || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const type = this instanceof HTMLInputElement ? this.type.toLowerCase() : this.localName;
+  const form = el.form;
+  return { label, type, ...(form ? { action: form.action, method: (form.getAttribute("method") ?? "").toLowerCase() || "unset" } : {}) };
 }

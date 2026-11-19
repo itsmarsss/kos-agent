@@ -9,7 +9,7 @@ import { basename, dirname, extname, join, normalize, relative, resolve, sep } f
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { askView, hasSecretRef, isExportFormat, outlineOf, parseChatMode, stepMechanics, summarizeAction, type AskView, type ChatMode, type WidgetOutline } from "@kos/shared";
+import { askView, isExportFormat, outlineOf, parseChatMode, stepMechanics, summarizeAction, usesSecret, type AskView, type ChatMode, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -310,7 +310,7 @@ function conversationLabeller(
  * words with its ids named, and, where those words are the model's account
  * of a step, the actions it would take. A yes is given for those.
  */
-interface PendingCard extends PendingAction, AskView {
+interface PendingCard extends Omit<PendingAction, "secret">, AskView {
   asksAlways?: true;
   asker?: string;
   summary: string;
@@ -331,10 +331,11 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   const where = kernel.actionHome(a.conversationId);
   const mechanics = stepMechanics(a.tool, a.args, HOST_KEYS);
   // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
-  const asksAlways = hasSecretRef(parsedArgs(a.args));
-  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, ...(a.beyondAuto ? { beyondAuto: true } : {}), names, where, platform: HOST_KEYS });
+  const asksAlways = usesSecret(a.tool, parsedArgs(a.args));
+  const { secret, ...action } = a;
+  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, ...(a.beyondAuto ? { beyondAuto: true } : {}), secret, names, where, platform: HOST_KEYS });
   return {
-    ...a,
+    ...action,
     // It places a secret: asked about every time, never remembered.
     ...(asksAlways ? { asksAlways: true } : {}),
     asker: kernel.askerOf(a.conversationId)?.name,

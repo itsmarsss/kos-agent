@@ -2,7 +2,8 @@ export { CdpClient, type CdpEvent, type CdpListener, type CdpSocket } from "./cd
 export { BLACK_HOLE, ChromeHost, chromeArgs, findChrome, sealedArgs, type ChromeLaunch, type ChromeOptions, type ChromeState } from "./chrome.js";
 export { KEEP_DAYS, keptSessionCookies, type CdpCookie } from "./cookies.js";
 export { downloadsFolder, safeName, settleDownload, uniquePath } from "./downloads.js";
-export { PICTURE, STEPS_MAX, VISIT_MAX, act, evaluate, fenced, leftSite, look, opensElsewhere, readAt, seeAfter, stepsOf, urlFor, visit, type ActOptions, type SeeOptions, type Seen, type Tab, type Then } from "./hands.js";
+export { PICTURE, STEPS_MAX, VISIT_MAX, act, evaluate, fenced, fieldSpots, fillSecrets, leftSite, look, opensElsewhere, readAt, seeAfter, stepsOf, visit, type ActOptions, type SecretFill, type SeeOptions, type Seen, type Tab, type Then } from "./hands.js";
+export { urlFor } from "./address.js";
 export { parseKeys, type KeyPress } from "./keys.js";
 export {
   BrowserLive,
@@ -23,7 +24,8 @@ export {
   type BrowserTab,
 } from "./live.js";
 export { sweepProfiles, type SweepOptions, type SweepResult } from "./profiles.js";
-export { Page, sendEach, type Call, type Look, type PageLimits, type PageOptions, type Session } from "./page.js";
+export { Page, SecretRefused, TAINTED, sendEach, type Call, type FieldSpot, type FillExpect, type Look, type PageLimits, type PageOptions, type Session } from "./page.js";
+export { isSecretSlot, type SecretSlot } from "./taint.js";
 export { INDEX_MAX, Refs, TREE_MAX, indexOf, treeOf, type AxNode, type PageIndex } from "./snapshot.js";
 export { STEP_KEYS, WAIT_MAX_MS, parseStep, touchesPage, type Step } from "./steps.js";
 export { probe as probeArtifact, type ProbeResult, type ProbedElement } from "./artifactprobe.js";

@@ -243,12 +243,12 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(r.truncated).toBe(true);
   });
 
-  it("tells a command naming KOS's own settings at the root why, and leaves the same names elsewhere alone", () => {
+  it("tells a command naming KOS's own settings at the root why, and leaves the same names elsewhere alone", async () => {
     for (const command of ["echo '{}' > mcp.json", "cp evil.json ./MCP.json", "sed -i '' s/a/b/ profile.json", "rm daemon.json", "cat mcp.json"]) {
-      expect(registry.refusal("shell.run", { command }), command).toBe(CONFIG_REFUSED);
+      expect(await registry.refusal("shell.run", { command }), command).toBe(CONFIG_REFUSED);
     }
     for (const command of ["cat .mcp.json", "cat sites/app/profile.json", "cat ~/.docker/daemon.json", "cat sites/app/package.json"]) {
-      expect(registry.refusal("shell.run", { command }), command).toBeUndefined();
+      expect(await registry.refusal("shell.run", { command }), command).toBeUndefined();
     }
   });
 
@@ -283,13 +283,13 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(namesDatabase("sqlite3 -readonly kos.sqlite '.schema crons'")).toBe(true);
     expect(namesDatabase("cp kos.sqlite backup/")).toBe(true);
     expect(namesDatabase("ls")).toBe(false);
-    expect(registry.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toBe(DATABASE_REFUSED);
-    expect(registry.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toContain("cron.list");
-    expect(registry.refusal("shell.run", { command: "git status" })).toBeUndefined();
+    expect(await registry.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toBe(DATABASE_REFUSED);
+    expect(await registry.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toContain("cron.list");
+    expect(await registry.refusal("shell.run", { command: "git status" })).toBeUndefined();
     const maintenance = new ToolRegistry();
     const ctx = toolRegistryContext(maintenance, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => "maintenance" });
     await createShellModule({ timeoutSeconds: 5 }).activate(ctx);
-    expect(maintenance.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toBeUndefined();
+    expect(await maintenance.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toBeUndefined();
     expect(maintenance.classify("shell.run", { command: "sqlite3 -readonly kos.sqlite .tables" }).tier).toBe("risky");
   });
 
@@ -306,8 +306,8 @@ describe.runIf(onMac)("shell.run on macOS", () => {
   it("keeps the database unreadable however it is spelled, to everyone but Maintenance", async () => {
     const spellings = ["cat KOS.SQLITE", "cat kos.\u017fqlite", "strings Kos.Sqlite", "cat kos.sql*"];
     // The courtesy refusal folds case and the long s; a glob slips past it.
-    expect(spellings.map((command) => registry.refusal("shell.run", { command }))).toEqual([DATABASE_REFUSED, DATABASE_REFUSED, DATABASE_REFUSED, undefined]);
-    expect(registry.refusal("shell.run", { command: "cat mcp.j\u017fon" })).toBe(CONFIG_REFUSED);
+    expect(await Promise.all(spellings.map((command) => registry.refusal("shell.run", { command })))).toEqual([DATABASE_REFUSED, DATABASE_REFUSED, DATABASE_REFUSED, undefined]);
+    expect(await registry.refusal("shell.run", { command: "cat mcp.j\u017fon" })).toBe(CONFIG_REFUSED);
     // The sandbox is what holds, for every spelling.
     const hidden = ["kos.sqlite", "kos.sqlite-wal", "kos.sqlite-shm"].map((name) => join(ws.root, name));
     for (const command of spellings) {

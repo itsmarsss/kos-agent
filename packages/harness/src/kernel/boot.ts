@@ -48,6 +48,7 @@ import { createMcpModule, readMcpConfig } from "../tools/mcp.js";
 import { retireBrowserEngine } from "../ops/browsersettings.js";
 import { adoptFixes } from "./caretaker.js";
 import { createModulesModule } from "../tools/modules.js";
+import { createSecretsModule } from "../tools/secrets.js";
 import { EventBus } from "../modules/events.js";
 import { MODULES_KEY, enabledServers, parseModuleSettings } from "../modules/workspace.js";
 import { BUILTIN_FEATURES } from "../modules/builtins.js";
@@ -442,6 +443,19 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       useTab: (tab) => (kernelRef ? kernelRef.useBrowserTab(tab) : Promise.reject(new Error("not booted"))),
       newTab: () => (kernelRef ? kernelRef.newBrowserTab() : Promise.reject(new Error("not booted"))),
       watch: (input) => (kernelRef ? kernelRef.watchPage(input) : Promise.reject(new Error("not booted"))),
+    }),
+    // The owner's secrets: listed by handle, filled into KOS's own browser, never seen.
+    createSecretsModule({
+      vault: () => secrets.attached(),
+      uses: secretUses,
+      browser: {
+        unready: () => (kernelRef ? kernelRef.secretFillUnready() : "KOS is still starting"),
+        url: () => kernelRef?.browserUrl(),
+        spots: (refs) => (kernelRef ? kernelRef.secretSpots(refs) : Promise.reject(new Error("not booted"))),
+        fill: (fills, then) => (kernelRef ? kernelRef.fillSecretsHere(fills, then) : Promise.reject(new Error("not booted"))),
+      },
+      onDecided: (listener) => approvals.onDecided(listener),
+      tellOwner: (text) => void services.notify?.({ text, target: { kind: "owner" } }).catch(() => undefined),
     }),
     createBuildsModule({
       approvals,

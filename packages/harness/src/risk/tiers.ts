@@ -1,3 +1,5 @@
+import type { AskSecret } from "@kos/shared";
+
 /**
  * Risk tiers. The model never assesses its own risk; the harness computes it in
  * code from a static per-tool floor plus deterministic argument-escalation
@@ -31,7 +33,7 @@ export interface ToolRisk {
    * yes is to them and the call can check they still hold when it runs: the
    * hash of a script the owner is asked to keep.
    */
-  stamp?: (input: Record<string, unknown>) => Record<string, unknown>;
+  stamp?: (input: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
   /**
    * Arguments the harness refuses outright, with the reason the model
    * reads, or false. Checked before the tier, so a refused call never
@@ -39,7 +41,7 @@ export interface ToolRisk {
    * on a road around it (the shell opening the database), refuses there
    * as the sql tool does rather than asking the owner to let it through.
    */
-  refuse?: (input: Record<string, unknown>) => string | false;
+  refuse?: (input: Record<string, unknown>) => string | false | Promise<string | false>;
   /**
    * Arguments a chat's Auto mode never lets through, with the reason in the
    * owner's words, or false: money spent, something deleted outside the
@@ -51,6 +53,17 @@ export interface ToolRisk {
    * (a secret's use). Only the tool's own grants may.
    */
   asksAlways?: boolean;
+  /**
+   * For a tool that asks every time: whether this call runs without asking
+   * on a yes the tool keeps itself (a secret's grant on a site, or for the
+   * rest of a turn), never a permission rule or Auto. Still audited.
+   * Judged inside the turn's stores.
+   */
+  granted?: (input: Record<string, unknown>) => boolean;
+  /** The secret an ask about this call places, for its card: never a value. */
+  secret?: (input: Record<string, unknown>) => AskSecret | undefined;
+  /** A yes-and-remember the tool keeps itself, in place of a permission rule: true when it kept one. */
+  keep?: (input: Record<string, unknown>) => boolean;
   /**
    * The call starts a session on one of the owner's devices. Auto covers it
    * only where the owner also let Auto start sessions; a device that asks on

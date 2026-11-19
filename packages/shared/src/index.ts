@@ -65,6 +65,7 @@ export {
   actionSteps,
   detailLines,
   formatApprovalPrompt,
+  secretFieldWords,
   stepActions,
   stepMechanics,
   stepText,
@@ -75,16 +76,20 @@ export {
 
 export { formatDuration, waitWords } from "./duration.js";
 
-export { hasSecretRef } from "./secretref.js";
+export { hasSecretRef, usesSecret } from "./secretref.js";
+export { registrableDomain } from "./domain.js";
 export {
   SECRET_FIELDS,
   SECRET_KINDS,
   SECRET_REQUIRED,
+  SECRET_TOOLS,
+  type AskSecret,
   type SecretBilling,
   type SecretFieldName,
   type SecretGrant,
   type SecretKind,
   type SecretPolicy,
+  type SecretRemember,
   type SecretSummary,
   type SecretSurface,
   type SecretUse,

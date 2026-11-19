@@ -39,7 +39,7 @@ export { Tex } from "./Tex.js";
 export { MessageTime, TAPPED_MS, TimeCard, TimeLine, Timed, useTimeReveal, useToday, type TimeRevealProps } from "./ChatTime.js";
 export { Tooltip, type TooltipAnchorProps, type TooltipProps } from "./Tooltip.js";
 export { Countdown, QuoteLine, quoteSource, Card, Chips, Collapse, Count, Empty, type CardProps, type ChipOption, DrawerRow, Elapsed, formatElapsed, IconButton, IconLink, Pill, PictureViewer, Section, Skeleton, StatusDot, StepPicture, StepTime, Switch, Tag, WorkingDots, type DotState, type IconButtonProps, type Tone } from "./kit.js";
-export { AskCard, AskDetails, AskStepList, type AskCardProps } from "./AskCard.js";
+export { AskCard, AskDetails, AskSecretBlock, AskStepList, type AskCardProps } from "./AskCard.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";
 export { isModeKey, ModeChip } from "./ModeChip.js";
 export { useFocusTrap } from "./useFocusTrap.js";

@@ -8,7 +8,8 @@
 import { actionSteps, summarizeAction, type ActionHome, type ActionNames, type StepLine } from "./format-action.js";
 import { placePath } from "./filehome.js";
 import { showInvisible } from "./invisible.js";
-import { hasSecretRef } from "./secretref.js";
+import { usesSecret } from "./secretref.js";
+import type { AskSecret } from "./secrets.js";
 import type { KeyPlatform } from "./keys.js";
 
 /** What a yes-and-remember keeps: the tool or its family, the scope it covers, the project it holds in. */
@@ -41,6 +42,8 @@ export interface AskView {
   alwaysTip?: string;
   /** Why there is no remembered yes, when the ask could otherwise have one: "Secrets always ask". */
   alwaysNote?: string;
+  /** The secret a secrets tool would place, and where: drawn as its own block on the card. */
+  secret?: AskSecret;
   /**
    * Set by the host on a device's copy of an ask too big to send whole: its
    * arguments and steps are left out, so the card offers no Approve and
@@ -56,8 +59,10 @@ export interface AskInput {
   rule?: AskRule | null;
   /** A browser ask in the owner's own Chrome, not KOS's. */
   yours?: boolean;
-  /** It always asks (it places a secret): no remembered yes, whatever its rule. Read from the arguments when not said. */
+  /** It always asks (it places a secret): no remembered yes, whatever its rule. Read from the tool and its arguments when not said. */
   asksAlways?: boolean;
+  /** The secret block a secrets tool's ask carries: its "always" is a grant on the origin, offered where the secret's policy says so. */
+  secret?: AskSecret | null;
   /** Asked though the chat is in Auto, for what Auto never covers: no remembered yes, and the card says why. */
   beyondAuto?: boolean;
   names?: ActionNames;
@@ -250,7 +255,10 @@ export function askView(input: AskInput): AskView {
   // A shell command's folder is its place line, so its title is the command alone.
   const titled = { ...a, intent: undefined, ...(tool === "shell.run" ? { cwd: undefined } : {}) };
   const title = steps ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, where, platform);
-  const always = !(input.asksAlways ?? hasSecretRef(a));
+  const always = !(input.asksAlways ?? usesSecret(tool, a));
+  const secret = input.secret ?? undefined;
+  // A secret whose policy is "site" offers its own remembered yes: a grant on this origin, kept in the vault.
+  const site = secret?.origin && secret.remember.includes("site") ? hostOf(secret.origin) : undefined;
   return {
     title,
     ...(intent ? { said: showInvisible(intent) } : {}),
@@ -259,12 +267,18 @@ export function askView(input: AskInput): AskView {
     ...(risk ? { risk } : {}),
     // A call that places a secret is asked about every time: nothing is remembered for it, so nothing is offered.
     // Nor for what a chat's Auto never covers, asked in one: the owner decides it each time.
-    ...(!always
-      ? { alwaysNote: "Secrets always ask" }
-      : input.beyondAuto
-        ? { alwaysNote: BEYOND_AUTO_NOTE }
-        : rule
-          ? { always: alwaysWords(rule.scope, names), alwaysTip: alwaysTip(rule, names) }
-          : {}),
+    ...(secret ? { secret } : {}),
+    ...(site
+      ? {
+          always: `Approve, and always on ${site}`,
+          alwaysTip: `Approves this, and from now on ${secret!.label} is filled on ${secret!.origin} without asking; each use is still recorded. Take it back on the Secrets page.`,
+        }
+      : !always
+        ? { alwaysNote: "Secrets always ask" }
+        : input.beyondAuto
+          ? { alwaysNote: BEYOND_AUTO_NOTE }
+          : rule
+            ? { always: alwaysWords(rule.scope, names), alwaysTip: alwaysTip(rule, names) }
+            : {}),
   };
 }

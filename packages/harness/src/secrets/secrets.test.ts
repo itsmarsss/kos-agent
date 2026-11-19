@@ -119,6 +119,37 @@ describe("SecretsRegistry over a vault", () => {
     expect(reg.inVault("stripe")).toBe(false);
   });
 
+  it("keeps scripts off every site a secret may be filled on, by registrable domain, its frames too", () => {
+    vault.add({ label: "Shop", kind: "login", values: { password: "pw-shop-0001" }, use: { web: { origins: ["https://login.shop.example", "https://*.acme.co.uk"], frames: ["https://pay.stripe.com"] } } });
+    for (const origin of ["https://shop.example", "https://www.shop.example:8443", "https://acme.co.uk", "https://js.stripe.com"]) expect({ origin, why: reg.evalBlocked(origin) }).toEqual({ origin, why: "a saved secret may be filled on this site" });
+    for (const origin of ["https://example.com", "https://other.co.uk", "null", ""]) expect({ origin, why: reg.evalBlocked(origin) }).toEqual({ origin, why: undefined });
+  });
+
+  it("tells of each site the vault newly lists, once", () => {
+    const told: string[][] = [];
+    reg.onSitesListed((domains) => void told.push(domains));
+    vault.add({ label: "Shop", kind: "login", values: { password: "pw-shop-0003" }, use: { web: { origins: ["https://login.shop.example"], frames: [] } } });
+    vault.add({ label: "Shop 2", kind: "login", values: { password: "pw-shop-0004" }, use: { web: { origins: ["https://www.shop.example"], frames: ["https://pay.stripe.com"] } } });
+    expect(told).toEqual([["shop.example"], ["stripe.com"]]);
+  });
+
+  it("shows a page only the vault's values for its own site, never the harness's keys", () => {
+    vault.add({ label: "Shop", kind: "login", values: { password: "pw-shop-0005" }, use: { web: { origins: ["https://shop.example"], frames: [] } } });
+    expect(reg.pageValues(["https://www.shop.example"])).toEqual([{ text: "pw-shop-0005", digits: false }]);
+    expect(reg.pageValues(["https://example.com", "null"])).toEqual([]);
+    expect(reg.browserValues()).toContainEqual({ text: "sk-env-stripe-value-123", digits: false });
+    expect(reg.pageValues(["https://api.stripe.com"])).toEqual([]);
+  });
+
+  it("hands the browser the scrubber's values, a card by its digits, made again only when the vault changes", () => {
+    const values = reg.browserValues();
+    expect(values).toContainEqual({ text: "sk_live_vaulted_0123456789", digits: false });
+    expect(values).toContainEqual({ text: "4111111111111111", digits: true });
+    expect(reg.browserValues()).toBe(values);
+    vault.add({ label: "New", kind: "login", values: { password: "pw-new-0002" } });
+    expect(reg.browserValues()).toContainEqual({ text: "pw-new-0002", digits: false });
+  });
+
   it("binds a vault key to its http hosts", () => {
     expect(reg.hostsOf(key)).toEqual(["api.stripe.com"]);
     expect(reg.hostsOf(card)).toBeUndefined();
@@ -228,6 +259,9 @@ describe("SecretsRegistry over a locked vault", () => {
       ].join("\n");
       const masked = reg.mask(text);
       expect(masked.shut).toBe(true);
+      // Which sites hold a secret cannot be read: no script runs on any.
+      expect(reg.evalBlocked("https://example.com")).toMatch(/vault is locked.*ask the owner to unlock it/);
+      expect(reg.evalBlocked("about:blank")).toBeUndefined();
       expect(masked.text).toContain(`[secret ${login}.password]`);
       expect(masked.text).toContain(`[secret ${key}.token]`);
       expect(masked.text).toContain("[secret card ••1111]");

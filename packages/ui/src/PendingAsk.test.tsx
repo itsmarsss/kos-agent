@@ -7,6 +7,7 @@ import { api, type BuildRecord, type HomeData, type PendingAction } from "./api.
 import { Panel } from "./HomePanels.js";
 import { InboxPage } from "./InboxPage.js";
 import { PendingAsk, pendingView } from "./PendingAsk.js";
+import { secretsApi } from "./secrets.js";
 import { ToolCall } from "./ToolCall.js";
 
 /**
@@ -121,3 +122,25 @@ describe("an ask's card", () => {
     expect(pendingView({ ...ask, asksAlways: true, rule: { tool: "computer.act", scope: null, project: null } }).always).toBeUndefined();
   });
 });
+
+describe("a request for a secret", () => {
+  const request: PendingAction = { id: 9, tool: "secrets.request", args: JSON.stringify({ kind: "apikey", label: "Stripe", why: "to read the balance", since: 1 }), reason: null, summary: "", conversationId: null, requestedAt: Date.now() };
+
+  it("opens the new secret's sheet with its kind and label, and answers once it is saved", async () => {
+    vi.spyOn(secretsApi, "status").mockResolvedValue({ state: "ready", slots: ["keyfile"], scrubbed: 0 });
+    const add = vi.spyOn(secretsApi, "create").mockResolvedValue({ handle: "stripe-0a1b" });
+    const onDecide = vi.fn();
+    render(<PendingAsk ask={request} deciding={new Set()} onDecide={onDecide} />);
+    expect(screen.getByText("Add an API key KOS calls “Stripe”, for KOS to use without seeing it")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Always/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add it" }));
+    // Nothing is approved by the press itself: only a saved secret answers the ask.
+    expect(onDecide).not.toHaveBeenCalled();
+    expect((screen.getByLabelText("Label", { exact: false }) as HTMLInputElement).value).toBe("Stripe");
+    fireEvent.change(screen.getByLabelText(/^Token/), { target: { value: "sk_test_from_the_sheet_000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add secret" }));
+    await vi.waitFor(() => expect(onDecide).toHaveBeenCalledWith(9, true));
+    expect(add.mock.calls[0]![0]).toMatchObject({ kind: "apikey", label: "Stripe" });
+  });
+});
+

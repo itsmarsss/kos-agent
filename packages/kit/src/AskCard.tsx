@@ -1,8 +1,8 @@
 import { useEffect, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
-import type { AskView, StepLine } from "@kos/shared";
+import { registrableDomain, secretFieldWords, type AskSecret, type AskView, type StepLine } from "@kos/shared";
 
-import { CheckIcon, ChevronDown, ChevronRight, CopyIcon, GlobeIcon, MailIcon, PageIcon, ServerIcon, WindowIcon } from "./icons.js";
+import { CheckIcon, ChevronDown, ChevronRight, CopyIcon, GlobeIcon, HiddenIcon, MailIcon, PageIcon, ServerIcon, WindowIcon } from "./icons.js";
 import { Collapse, Countdown, Tag } from "./kit.js";
 import { useOverlayScroll } from "./OverlayScroll.js";
 import { Tooltip } from "./Tooltip.js";
@@ -116,6 +116,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           <span>KOS says:</span> “{view.said}”
         </p>
       )}
+      {view.secret && <AskSecretBlock secret={view.secret} />}
       {why && <p className="kos-ask-why">{why}</p>}
       {view.steps && <AskStepList steps={view.steps} />}
       {view.risk && (
@@ -152,6 +153,75 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
         {!always && !noRemember && view.alwaysNote && <span className="kos-ask-note">{view.alwaysNote}</span>}
       </div>
     </section>
+  );
+}
+
+/** A host split for reading: what comes before its registrable domain, and that domain, which is what says whose site it is. */
+function hostParts(origin: string): { scheme: string; sub: string; domain: string; port: string } | undefined {
+  const m = /^(https?:\/\/)([^/:]+)(:\d+)?$/.exec(origin);
+  if (!m) return undefined;
+  const host = m[2]!;
+  const domain = registrableDomain(host);
+  return { scheme: m[1]!, sub: host.slice(0, host.length - domain.length), domain, port: m[3] ?? "" };
+}
+
+/**
+ * The secret a secrets tool's ask places, and where: its label and handle,
+ * the fields, and the page's real origin large, its registrable domain in
+ * bold, with the frames the fields sit in and what to weigh (a page that
+ * is not encrypted, a site it was never filled on, a name in look-alike
+ * letters). Never a value.
+ */
+export function AskSecretBlock({ secret }: { secret: AskSecret }): ReactElement {
+  const parts = secret.origin ? hostParts(secret.origin) : undefined;
+  const warnings = [...secret.warnings, ...(secret.origin?.includes("xn--") ? ["The address is spelled in look-alike letters (punycode)."] : [])];
+  const frames = secret.frameOrigins.map((o) => o.replace(/^https?:\/\//, ""));
+  return (
+    <div className="kos-ask-secret">
+      <p className="kos-ask-secret-what">
+        <HiddenIcon size={14} title="" />
+        <span>
+          <strong>{secret.label}</strong> <code>{secret.handle}</code>
+          {secret.fields.length > 0 && <span className="kos-ask-secret-fields"> · {secret.fields.map(secretFieldWords).join(", ")}</span>}
+        </span>
+      </p>
+      {secret.origin && (
+        <p className="kos-ask-secret-origin" title={secret.origin}>
+          {parts ? (
+            <>
+              <span className="kos-ask-secret-faint">{parts.scheme}</span>
+              {parts.sub}
+              <strong>{parts.domain}</strong>
+              {parts.port}
+            </>
+          ) : (
+            secret.origin
+          )}
+        </p>
+      )}
+      {frames.length > 0 && <p className="kos-ask-secret-frames">In a frame from {frames.join(", ")}</p>}
+      {secret.targets && secret.targets.length > 0 && (
+        <p className="kos-ask-secret-frames">
+          Into{" "}
+          {secret.targets.map((t, i) => (
+            <span key={i}>
+              {i > 0 && ", "}
+              {secretFieldWords(t.field)} → “{t.label || "unlabelled"}” ({t.type})
+            </span>
+          ))}
+          {secret.formAction && <>, a form sending to {secret.formAction}</>}
+        </p>
+      )}
+      {warnings.length > 0 && (
+        <span className="kos-ask-risk">
+          {warnings.map((w) => (
+            <Tag key={w} tone="warn">
+              {w}
+            </Tag>
+          ))}
+        </span>
+      )}
+    </div>
   );
 }
 

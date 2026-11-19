@@ -678,6 +678,27 @@ export class Vault {
     });
   }
 
+  /**
+   * A yes kept for one origin: the secret's uses there stop asking. Only an
+   * approval adds one, and only on an origin the secret is allowed on.
+   */
+  addGrant(handle: string, origin: string): SecretMeta {
+    return this.change(handle, (record) => {
+      if (!originAllowed(origin, record.use.web.origins)) throw new VaultError("invalid", `${handle} is not allowed on ${origin}`);
+      const grants = [...record.policy.grants.filter((g) => g.origin !== origin), { origin, at: this.now() }];
+      return { ...record, policy: { ...record.policy, grants } };
+    });
+  }
+
+  /** A site added to where a secret may be filled, as the owner approved it. */
+  allowOrigin(handle: string, origin: string): SecretMeta {
+    return this.change(handle, (record) => {
+      const web = record.use.web;
+      const use = checkUse({ ...record.use, web: { ...web, origins: [...web.origins.filter((o) => o !== origin), origin] } });
+      return { ...record, use };
+    });
+  }
+
   /** A remembered grant taken back. */
   revokeGrant(handle: string, origin: string): SecretMeta {
     return this.change(handle, (record) => ({ ...record, policy: { ...record.policy, grants: record.policy.grants.filter((g) => g.origin !== origin) } }));

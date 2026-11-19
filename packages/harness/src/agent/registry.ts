@@ -1,3 +1,5 @@
+import type { AskSecret } from "@kos/shared";
+
 import type { ToolDef } from "../models/types.js";
 import type { HeardWords } from "../models/heard.js";
 import type { ToolImage } from "../models/types.js";
@@ -98,15 +100,30 @@ export class ToolRegistry {
   }
 
   /** The call as it is judged and asked about: with whatever the tool's stamp sets on it. */
-  stamp(name: string, input: Record<string, unknown>): Record<string, unknown> {
+  async stamp(name: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     const stamp = this.tools.get(name)?.risk.stamp;
     return stamp ? stamp(input) : input;
   }
 
   /** Why a call is refused outright, before its tier is judged; nothing for a call that may be judged. */
-  refusal(name: string, input: Record<string, unknown>): string | undefined {
-    const refused = this.tools.get(name)?.risk.refuse?.(input);
+  async refusal(name: string, input: Record<string, unknown>): Promise<string | undefined> {
+    const refused = await this.tools.get(name)?.risk.refuse?.(input);
     return refused || undefined;
+  }
+
+  /** Whether a call that asks every time runs on a yes its tool keeps itself; see ToolRisk.granted. */
+  granted(name: string, input: Record<string, unknown>): boolean {
+    return this.tools.get(name)?.risk.granted?.(input) === true;
+  }
+
+  /** The secret block an ask about this call carries, for a tool that places one. */
+  secretAsk(name: string, input: Record<string, unknown>): AskSecret | undefined {
+    return this.tools.get(name)?.risk.secret?.(input);
+  }
+
+  /** A yes-and-remember kept by the tool itself; false for a tool that keeps none. */
+  keeps(name: string, input: Record<string, unknown>): boolean {
+    return this.tools.get(name)?.risk.keep?.(input) === true;
   }
 
   /** Where a tool's arguments may carry a secret reference; undefined for a tool that takes none. */

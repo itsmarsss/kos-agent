@@ -96,6 +96,76 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   what it said. A crashed tab is loaded again. Calls on one tab run one
   at a time.
 
+- **Secrets.** `Page.fillSecret(ref, value, expect)` is the one way a
+  saved secret goes into a page (the `secrets.fill` tool, see
+  docs/secrets.md), apart from `fill`: the ref must be from this
+  document's last look; the page's origin and the origin of the frame the
+  field is in, read from the browser's own DOM tree and frame tree, must be
+  the ones approved; each frame around the field must be drawn and in
+  view; and the field (`inpage.fillable`, in KOS's own world) must be an
+  input of a type the secret fits (a password only into `type=password`, a
+  card number, a key or a note only where its autocomplete or label says
+  so), at least 8 by 8, not see-through, in view and on top at its middle,
+  enabled and writable, and not in a form the browser sends by GET (its
+  `method` property: no method or one it does not know is GET; or any
+  submit button in it with `formmethod=get`). The value is set on
+  that node itself, through the native setter and the events typing
+  raises, so it cannot land wherever the keyboard is. Only a page that
+  throws that away gets real typing, and then only while the field has the
+  keyboard before and after (`document.hasFocus()` and the frame's focused
+  element); a page that moves it is refused as `focus`. Either way it is
+  checked to hold the value by a yes or no from KOS's world, never read
+  back.
+  A field in a frame of another process (most payment frames on the web)
+  is out of reach: the fill says so, and the owner takes the tab. Nothing
+  thrown holds the value.
+- **A tainted page.** Once a secret is in (a password, a card's number,
+  expiry or CVC, a token, a note; not a username, a name or an address),
+  the page is tainted until its document changes: its secret fields read
+  as `(hidden)` in the index and the outline; Meta or Ctrl with c, x or a
+  while a secret field has the keyboard, typing or filling into one, a
+  drag, and any target but an @ref (a CSS or text selector, a look's or a
+  read's scope, a wait for words or a selector), which could find the
+  value by guessing at it, are refused. A document is also known by its
+  address (less its fragment): history coming back to one a secret was in
+  (back, forward, a reload) may restore what was typed, so it is held
+  tainted, the whole page, though which field holds the secret is no
+  longer known.
+- **A credential site.** On a site a saved secret may be filled on
+  (the `evalBlocked` predicate the host gives `BrowserLive`, from the
+  vault), `browser.eval` is refused in every tab whatever the page holds,
+  and a document a script of KOS's ran in is refused a fill (`scripted`),
+  as is every tab joined to it by an opener. Every saved value (the
+  `saved` values the host gives) is cleaned from every tab's words; a
+  page's pictures are masked only for the values it may be sent
+  (`savedFor`, those of secrets for its site, and the conversation's
+  filled ones). Service workers on credential sites are cleared at attach
+  and when a site is listed (`purgeWorkers`). See docs/secrets.md.
+- **A conversation's tabs together.** A popup can read its opener, and
+  any tab can echo what another sent, so the secrets are held per
+  conversation (`Kin`, from `BrowserLive`, popups adopted into the
+  conversation of the tab that opened them): while any of its tabs is on
+  a tainted page, `browser.eval` and a `data:` address are refused in
+  every one, and the values filled in any are kept for the conversation's
+  life. Every place any page of any of its tabs echoes one (its text, its
+  title, its address, a dialog, a script's answer) reads as `(hidden)`,
+  as typed, percent encoded in either case of hex (as an address or a
+  form carries it, a space as `+`) or JSON escaped. Every picture of
+  those tabs (what the model is shown, an approval's, a kept frame) is
+  taken with every root of every frame KOS can reach masked (the
+  documents and every shadow root, closed ones too, listed from the
+  browser's own tree and each run in KOS's world): text boxes, textareas,
+  editable elements and selects made unseeable, placeholders not drawn,
+  every echo of a value in text painted over (a CSS highlight,
+  `kos-secret`), SVG text holding one not drawn, and no `::before` or
+  `::after` on an element whose attributes hold one; one picture at a
+  time, then put back. A page that cannot be masked is not pictured.
+  Whenever a page is masked at all (it may show a value filled in the
+  conversation or a saved one for its site), every text box on it is
+  blanked in the picture, not only those that hold a value: a box's
+  value is not read to decide.
+  The owner's own screencast of the tab is not masked.
+
 ## Watching and taking over
 
 The dashboard watches a tab as a screencast, up to 30 frames a second,
@@ -112,8 +182,11 @@ window that took it letting go, closing, or losing its connection lets go.
 
 ## What an agent may do
 
-Only http and https pages (and `about:blank`) open for an agent; a file
-or the browser's own pages do not, which keeps the workspace jail whole.
+Only http and https pages (and `about:blank`, and `data:` while no tab of
+the conversation holds a secret) open for an agent; a file, a
+`javascript:` address or the browser's own pages do not, which keeps the
+workspace jail whole. `Page.goto` checks every address itself (`urlFor`,
+`address.ts`), so no way of navigating gets around it.
 Looking is safe; acting asks the owner until the site the tab is on is
 trusted, and the trust is kept per site for every browser action
 (`browser.*` on `site:<host>`); a script in the page, and the ask for the
@@ -126,5 +199,18 @@ not instructions.
 `engine.chrome.test.ts` drives a real headless Chrome against pages it
 serves: a form filled, picked, checked and sent by refs, a confirm
 answered both ways, a covered click refused, a link followed and gone
-back from, a page that never finishes loading. It is skipped where no
-Chrome is installed.
+back from, a page that never finishes loading. `persite.chrome.test.ts`
+tries what the per-site rule stops: a script before a fill, another
+conversation reading the site's own copies, a script after leaving the
+page, a service worker, a restart. `fillsecret.chrome.test.ts`
+fills a login and a card in a frame of another origin, and is refused a
+wrong origin or frame, a page changed since, a field of the wrong kind, a
+hidden, tiny or read-only one, and a form sent by GET however it says
+so; checks what a tainted page hands back and refuses (a `javascript:`
+address, a popup reading its opener, a page come back to by history, an
+address carrying the value encoded), and counts the magenta of the
+secrets in its pictures, closed shadow roots, selects, SVG text and
+pseudo-elements among them. They are
+skipped where no Chrome is installed, and run Chrome with
+`--use-mock-keychain`, since under a test's HOME it would ask the Mac for
+a keychain.

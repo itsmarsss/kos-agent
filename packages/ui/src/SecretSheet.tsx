@@ -27,8 +27,12 @@ export interface SecretSeed {
   value: string;
 }
 
-/** `takeSeed` hands over what to start a new secret with, once: the opener gives it up as it is taken. */
-export type SecretSheetMode = { kind: "add"; takeSeed?: () => SecretSeed | null } | { kind: "edit"; secret: SecretSummary };
+/**
+ * `takeSeed` hands over what to start a new secret with, once: the opener
+ * gives it up as it is taken. `asked` is what KOS asked the owner to add
+ * (secrets.request): its kind and label, never a value.
+ */
+export type SecretSheetMode = { kind: "add"; takeSeed?: () => SecretSeed | null; asked?: { kind: SecretKind; label?: string } } | { kind: "edit"; secret: SecretSummary };
 
 const FORM_ID = "secret-form";
 /** How long a revealed value stays on screen. */
@@ -120,8 +124,9 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
   }, []);
   const readOnly = editing?.source === "env";
   const [summary, setSummary] = useState<SecretSummary | null>(editing);
-  const [label, setLabel] = useState(editing?.label ?? "");
-  const [kind, setKind] = useState<SecretKind>(editing?.kind ?? seed?.kind ?? "login");
+  const asked = mode.kind === "add" ? mode.asked : undefined;
+  const [label, setLabel] = useState(editing?.label ?? asked?.label ?? "");
+  const [kind, setKind] = useState<SecretKind>(editing?.kind ?? seed?.kind ?? asked?.kind ?? "login");
   const [use, setUse] = useState<SecretUse>(editing?.use ?? emptyUse());
   const [policy, setPolicy] = useState<SecretDraft["policy"]>(editing ? { ask: editing.policy.ask, unattended: editing.policy.unattended, chats: editing.policy.chats } : defaultPolicy());
   const [error, setError] = useState<string | null>(null);

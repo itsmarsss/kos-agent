@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   AllowlistMapping,
   ChannelRuntime,
-  hasSecretRef,
+  usesSecret,
   type ChannelAdapter,
   DiscordAdapter,
   type KeptPrompts,
@@ -498,7 +498,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(asker ? { asker } : {}),
       ...(action.rule ? { rule: action.rule } : {}),
       ...(action.yours ? { yours: true } : {}),
-      ...(hasSecretRef(JSON.parse(action.args)) ? { asksAlways: true } : {}),
+      ...(usesSecret(action.tool, JSON.parse(action.args)) ? { asksAlways: true } : {}),
+      ...(action.secret ? { secret: action.secret } : {}),
       ...(action.beyondAuto ? { beyondAuto: true } : {}),
     };
   };
@@ -771,7 +772,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     onApprovalRequested: (action) => {
       const request = approvalRequest(action);
       // A secret's use is decided on the dashboard or a paired device: the chat surfaces are told, not asked.
-      if (hasSecretRef(JSON.parse(action.args))) {
+      if (usesSecret(action.tool, JSON.parse(action.args))) {
         const notice = { text: secretAskElsewhere(action.id) };
         if (adapter && creds) void adapter.send(creds.ownerId, notice).catch(() => undefined);
         if (smsAdapter && sms) void smsAdapter.send(sms.owner, notice).catch(() => undefined);

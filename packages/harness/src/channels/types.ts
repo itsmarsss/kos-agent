@@ -1,4 +1,4 @@
-import type { ActionHome } from "@kos/shared";
+import type { ActionHome, AskSecret } from "@kos/shared";
 
 import type { Attachment } from "../kernel/attachments.js";
 import type { MessageRoom, Quote } from "../models/types.js";
@@ -405,6 +405,8 @@ export interface ApprovalRequest {
   asksAlways?: boolean;
   /** It asks even in a chat set to act on its own; a surface may say so. */
   beyondAuto?: boolean;
+  /** The secret a secrets tool's ask places, and where, for a card's secret block; never a value. */
+  secret?: AskSecret;
 }
 
 export interface Asker {

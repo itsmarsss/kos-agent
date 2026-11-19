@@ -1,4 +1,4 @@
-import { hasSecretRef } from "@kos/shared";
+import { hasSecretRef, usesSecret } from "@kos/shared";
 
 import { MIN_SCANNED } from "./scrub.js";
 import type { SecretsRegistry } from "./secrets.js";
@@ -35,7 +35,7 @@ export interface SecretCaller {
 /** The arguments with every reference expanded, or why the call is refused. */
 export type Placed = { input: Record<string, unknown> } | { refused: string };
 
-export { hasSecretRef };
+export { hasSecretRef, usesSecret };
 
 function matches(pattern: string, path: string[]): boolean {
   const parts = pattern.split(".");
