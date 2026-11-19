@@ -1,4 +1,4 @@
-import { STEPS_MAX, VISIT_MAX, act, evaluate, look, stepsOf, touchesPage, urlFor, visit, type SeeOptions, type Seen, type Tab, type Then } from "@kos/browser";
+import { STEPS_MAX, VISIT_MAX, act, evaluate, look, stepsOf, touchesPage, urlFor, visit, whereOrNowhere, type SeeOptions, type Seen, type Tab, type Then } from "@kos/browser";
 import { ScreenMemory, actionsOf } from "@kos/shared";
 
 import { caller, onSite, turnStop } from "../kernel/caller.js";
@@ -113,7 +113,9 @@ const NOT_KOS: ToolRisk = { floor: "safe", refuse: notKos };
 
 /** Whether a tab is on KOS's own dashboard or API now, by where the browser says it is: a redirect or a typed address alike. Throws when it does not say. */
 async function onKos(tab: Tab): Promise<boolean> {
-  const { url } = await tab.page.whereAmI();
+  const { url } = await tab.page.whereAmI().catch(() => {
+    throw new Error("could not confirm the tab is off KOS's dashboard; try again");
+  });
   return reachesKos(url, kosPorts());
 }
 
@@ -354,7 +356,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           },
         },
         async () => {
-          const where = await (await deps.tab()).page.whereAmI();
+          const where = await whereOrNowhere((await deps.tab()).page);
           return `The owner has done it. The tab is now at ${where.url || "the same page"}${where.title ? ` (${where.title})` : ""}. Look again before you act.`;
         },
         RISKY,

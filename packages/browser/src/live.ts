@@ -707,9 +707,9 @@ export class BrowserLive {
     const t = this.targets.get(target);
     if (!t || t.type !== "page" || this.internal.has(target)) throw new Error("no such tab");
     const other = [...this.bindings].find(([id, b]) => id !== conversationId && b.tabs.has(target))?.[0];
-    if (other !== undefined && this.held.has(target)) throw new Error("that tab is another conversation's, and the owner has it now; open a tab of your own");
+    if (other !== undefined && this.held.has(target)) throw new Error("that tab is another conversation's, and the owner has it now; open a tab of your own; it shares this browser's sign-ins");
     if (other !== undefined && (this.filled.get(other)?.length || this.secrets.get(target)?.filled.length)) {
-      throw new Error("that tab is another conversation's, and a secret was filled in its tabs; open a tab of your own");
+      throw new Error("that tab is another conversation's, and a secret was filled in its tabs; open a tab of your own; it shares this browser's sign-ins");
     }
     this.take(conversationId, target);
     this.emitTabs();

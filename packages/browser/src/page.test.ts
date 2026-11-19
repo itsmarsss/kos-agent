@@ -338,15 +338,18 @@ describe("a script of KOS's in a page", () => {
 describe("what the agent is told of the page between its calls", () => {
   it("counts a dialog a page raises again and again, and keeps few kinds of them", async () => {
     const { session, calls } = tab({});
-    const page = new Page(session);
+    const page = new Page(session, { gate: async () => true });
     for (let i = 0; i < 1000; i++) page.handle({ method: "Page.javascriptDialogOpening", params: { type: "alert", message: "again" } });
     for (let i = 0; i < 100; i++) page.handle({ method: "Page.javascriptDialogOpening", params: { type: "alert", message: `n${i}` } });
     // Every one is answered, as an open one holds the tab.
     expect(calls.filter((c) => c.method === "Page.handleJavaScriptDialog")).toHaveLength(1100);
+    // A note of the owner's is kept whatever the page raised.
+    await page.run(async () => undefined);
     const notes = page.takeNotes();
-    expect(notes.length).toBeLessThanOrEqual(21);
+    expect(notes.length).toBe(22);
     expect(notes[0]).toBe('A alert dialog said "again", and was closed. (1,000 times)');
-    expect(notes.at(-1)).toBe("81 more notes were not kept.");
+    expect(notes).toContain("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
+    expect(notes.at(-1)).toBe("81 more dialogs were not kept.");
     expect(page.takeNotes()).toEqual([]);
   });
 });

@@ -196,7 +196,7 @@ const AX_MS = 20_000;
 const INPUT_MS = 10_000;
 /** How much of a page's text, or of a script's answer, is handed back. */
 const READ_MAX = 24_000;
-/** Kinds of note kept for the agent between its calls, at most. */
+/** Kinds of dialog note kept for the agent between its calls, at most. */
 const NOTES_MAX = 20;
 /** Embedded frames read into a look, at most. */
 const FRAMES_MAX = 8;
@@ -360,8 +360,8 @@ export class Page {
   /** What a drag the page started would carry, while a drag of the hands' is under way. */
   private dragged: unknown;
   /** What the agent is to hear on its next call, each note once with how often it came: a page may raise dialogs as fast as they are answered. */
-  private readonly heard: { text: string; times: number }[] = [];
-  /** Notes past NOTES_MAX since the agent last heard, not kept. */
+  private readonly heard: { text: string; times: number; dialog: boolean }[] = [];
+  /** Dialogs' notes past NOTES_MAX kinds since the agent last heard, not kept. */
   private unheard = 0;
   private crashed = false;
   private prepared: Promise<void> | null = null;
@@ -533,16 +533,16 @@ export class Page {
   /** What happened on the page that the agent should hear: dialogs answered, a crash recovered. */
   takeNotes(): string[] {
     const notes = this.heard.splice(0).map(({ text, times }) => this.clean(times > 1 ? `${text} (${times.toLocaleString("en-US")} times)` : text));
-    if (this.unheard) notes.push(`${this.unheard.toLocaleString("en-US")} more notes were not kept.`);
+    if (this.unheard) notes.push(`${this.unheard.toLocaleString("en-US")} more dialogs were not kept.`);
     this.unheard = 0;
     return notes;
   }
 
-  /** A note for the agent: once, counted when it comes again, and at most NOTES_MAX kinds of them. */
-  private note(text: string): void {
+  /** A note for the agent: once, counted when it comes again; of a dialog's, which a page raises at will, at most NOTES_MAX kinds. */
+  private note(text: string, dialog = false): void {
     const had = this.heard.find((n) => n.text === text);
     if (had) had.times++;
-    else if (this.heard.length < NOTES_MAX) this.heard.push({ text, times: 1 });
+    else if (!dialog || this.heard.filter((n) => n.dialog).length < NOTES_MAX) this.heard.push({ text, times: 1, dialog });
     else this.unheard++;
   }
 
@@ -1786,7 +1786,7 @@ export class Page {
       .catch(() => undefined);
     const said = message ? ` said ${JSON.stringify(message.length > 200 ? `${message.slice(0, 199)}…` : message)}` : " opened";
     const how = type === "alert" ? "was closed" : chosen.accept ? "was accepted" : `was dismissed; {dialog: "accept"} before the step that opens it accepts it`;
-    this.note(`A ${type === "beforeunload" ? "leave-this-page" : type} dialog${said}, and ${how}.`);
+    this.note(`A ${type === "beforeunload" ? "leave-this-page" : type} dialog${said}, and ${how}.`, true);
   }
 
   /** Until `ok`, or `ms` has gone (false); a Stop ends it at once. */
