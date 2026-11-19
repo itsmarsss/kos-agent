@@ -423,6 +423,27 @@ export interface ActionHome {
 }
 
 /** One-line summary for a tool + args, with names for the ids the caller can name. */
+/** A secret's field as a card says it: "card number", "billing city", "expiry month". */
+const SECRET_FIELD_WORDS: Record<string, string> = { number: "card number", cvc: "CVC", name: "name on card", text: "note", token: "token" };
+export function secretFieldWords(field: string): string {
+  const [head = "", part] = field.split(".");
+  const word = SECRET_FIELD_WORDS[head] ?? head;
+  return part ? `${word} ${part.replace(/^line/, "line ")}` : word;
+}
+
+/** Words in a list: "a", "a and b", "a, b and c". */
+function listWords(words: string[]): string {
+  return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+/** A secret as a card names it: its label and its handle, or the handle alone. */
+function secretNamed(a: Record<string, unknown>): string {
+  const handle = fmtVal(a.secret);
+  return typeof a.label === "string" && a.label.trim() ? `${a.label.trim()} (${handle})` : handle;
+}
+
+const KIND_WORDS: Record<string, string> = { login: "a login", card: "a card", apikey: "an API key", note: "a note" };
+
 export function summarizeAction(
   tool: string,
   args: string | Record<string, unknown>,
@@ -445,6 +466,14 @@ export function summarizeAction(
     return (id && names?.(kind, id)) || fallback;
   };
   switch (tool) {
+    case "secrets.fill": {
+      const fields = Array.isArray(a.fields) ? a.fields.map((f) => (f && typeof f === "object" ? String((f as { field?: unknown }).field ?? "") : "")).filter(Boolean) : [];
+      return `Fill ${listWords([...new Set(fields)].map(secretFieldWords)) || "a secret"} from ${secretNamed(a)}`;
+    }
+    case "secrets.allow_site":
+      return `Allow ${secretNamed(a)} on ${typeof a.origin === "string" ? a.origin : "this tab's site"}`;
+    case "secrets.request":
+      return `Add ${KIND_WORDS[String(a.kind)] ?? "a secret"}${typeof a.label === "string" && a.label.trim() ? ` for ${a.label.trim()}` : ""}, for KOS to use without seeing it`;
     case "discord.bind":
       return `Make ${named("channel", a.channel, `#${fmtVal(a.channel)}`)} the home of ${named("chat", a.to)}`;
     case "discord.audience": {

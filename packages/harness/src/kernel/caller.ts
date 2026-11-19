@@ -113,6 +113,13 @@ export const onSite = new AsyncLocalStorage<string>();
 export const underAuto = new AsyncLocalStorage<boolean>();
 
 /**
+ * The owner's yes the current call runs on, when it was asked about: the
+ * ask's id and who decided. A tool that records each use (a secret's)
+ * names the approval it ran under.
+ */
+export const approvedAs = new AsyncLocalStorage<{ id: number; by: string }>();
+
+/**
  * The scheduled job whose run is making the current call: a job's prompt
  * or its fixed actions, a blob's own timer. What such a run says without
  * naming where goes to the job's own place on the server, not the owner's

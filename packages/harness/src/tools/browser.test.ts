@@ -111,9 +111,9 @@ describe("what each tool costs in trust", () => {
       ["browser.new_tab", { url: "http://localhost:4318/" }],
       ["browser.watch", { url: "http://[::1]:4317/api/status" }],
     ] as const) {
-      expect(registry.refusal(name, input), name).toBe(KOS_PAGE_REFUSED);
+      expect(await registry.refusal(name, input), name).toBe(KOS_PAGE_REFUSED);
     }
-    expect(registry.refusal("browser.visit", { url: "http://127.0.0.1:5173/" })).toBeUndefined();
+    expect(await registry.refusal("browser.visit", { url: "http://127.0.0.1:5173/" })).toBeUndefined();
   });
 
   it("refuses to work a tab that is on KOS's own dashboard, and leaves one a redirect took there", async () => {

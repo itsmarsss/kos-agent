@@ -1,3 +1,5 @@
+import type { AskSecret } from "@kos/shared";
+
 import type { ToolRegistry } from "../agent/registry.js";
 import type { GuestOrigin } from "../kernel/caller.js";
 import type { RiskTier } from "../risk/tiers.js";
@@ -37,6 +39,8 @@ export interface EnqueueInput {
   reached?: boolean;
   /** Asked though the chat is in Auto, for what Auto never covers: no remembered yes is offered for it. */
   beyondAuto?: boolean;
+  /** The secret the call would place, and where, for its card; never a value. */
+  secret?: AskSecret;
 }
 
 export interface PendingAction {
@@ -74,6 +78,8 @@ export interface PendingAction {
   reached: boolean;
   /** Asked though the chat was in Auto, for what Auto never covers. False for a row from before. */
   beyondAuto: boolean;
+  /** The secret a secrets tool's ask places, for its card; null for every other ask. */
+  secret: AskSecret | null;
 }
 
 /**
@@ -123,10 +129,11 @@ interface Row {
   yours: number;
   reached: number;
   beyond_auto: number;
+  secret: string | null;
 }
 
 /** Every column a listed action needs: the picture is only whether there is one, read on its own when shown. */
-const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached, beyond_auto`;
+const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret`;
 
 /** The most decided asks one page may hold. */
 export const DECIDED_MAX = 500;
@@ -165,6 +172,7 @@ function toAction(row: Row): PendingAction {
     yours: row.yours === 1,
     reached: row.reached === 1,
     beyondAuto: row.beyond_auto === 1,
+    secret: row.secret ? (JSON.parse(row.secret) as AskSecret) : null,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
   };
@@ -238,6 +246,9 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "beyond_auto")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN beyond_auto INTEGER NOT NULL DEFAULT 0`);
     }
+    if (!columns.some((c) => c.name === "secret")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN secret TEXT`);
+    }
     // The decided history is read by outcome and time, a page at a time: one outcome by the first,
     // every outcome (the Inbox's default page, and its mark) by the second, which holds only what was decided.
     this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_status_decided ON pending_actions (status, decided_at, id)`);
@@ -255,8 +266,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits, yours, reached, beyond_auto)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -276,6 +287,7 @@ export class ApprovalQueue {
         input.yours === true ? 1 : 0,
         input.reached === true ? 1 : 0,
         input.beyondAuto === true ? 1 : 0,
+        input.secret ? JSON.stringify(input.secret) : null,
       );
     return this.get(Number(info.lastInsertRowid))!;
   }

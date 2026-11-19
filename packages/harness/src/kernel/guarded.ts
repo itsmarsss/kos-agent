@@ -10,7 +10,7 @@ import { beyondAutoRule } from "../risk/beyondauto.js";
 import type { RiskAssessment } from "../risk/tiers.js";
 import { hasSecretRef, placeSecrets, secretsNamed } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, underAuto, type GuestOrigin, type TurnOrigin } from "./caller.js";
+import { approvedAs, attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, underAuto, type GuestOrigin, type TurnOrigin } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -184,6 +184,9 @@ export function approvedResult(result: ToolExecution): ToolExecution {
   const head = result.isError ? "The owner approved this; it ran and failed:" : "The owner approved this, and it ran:";
   return { ...result, content: `${head}\n${result.content}` };
 }
+
+/** Who the audit says let a call run that a tool's own grant covered (a secret's yes kept for a site or a turn). */
+export const GRANT_DECIDER = "grant";
 
 /** How a call auto mode let through reads to the model, so it says it went ahead under Auto. */
 export const AUTO_PREFIX = "Ran under Auto, without asking the owner (this chat is set to Auto; say so when you report it):";
@@ -420,14 +423,15 @@ export class GuardedTools implements ToolBox {
     const who = { conversationId: conversationId ?? null, attended, guest: guest !== undefined };
     const within = <T>(work: () => Promise<T>): Promise<T> =>
       scheduled.run(job, () => guested.run(guest, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))))));
-    const run = async (n: string, i: Record<string, unknown>, site?: string): Promise<ToolExecution> => {
+    const run = async (n: string, i: Record<string, unknown>, site?: string, yes?: { id: number; by: string }): Promise<ToolExecution> => {
       // Placed at the last moment, so a key changed while the owner was asked is the one sent.
       const placed = placeSecrets(n, i, registry.secretSlots(n), secrets, who);
       if ("refused" in placed) return { content: placed.refused, isError: true };
       started.ran = true;
       const ended = this.deps.running?.(n);
       try {
-        const done = await within(() => (site ? onSite.run(site, () => registry.execute(n, placed.input)) : registry.execute(n, placed.input)));
+        const execute = (): Promise<ToolExecution> => (site ? onSite.run(site, () => registry.execute(n, placed.input)) : registry.execute(n, placed.input));
+        const done = await within(() => (yes ? approvedAs.run(yes, execute) : execute()));
         return { ...done, content: secrets.scrub(done.content) };
       } finally {
         ended?.();
@@ -456,7 +460,7 @@ export class GuardedTools implements ToolBox {
 
     // Judged, asked about and run as stamped: what the owner says yes to is
     // what runs, and the call can check it still holds.
-    const input = registry.stamp(name, called);
+    const input = await within(async () => registry.stamp(name, called));
 
     // A secret where its tool declared no slot for one, or bound for another host: refused before anyone is asked.
     const misplaced = placeSecrets(name, input, registry.secretSlots(name), secrets, who);
@@ -545,6 +549,13 @@ export class GuardedTools implements ToolBox {
       }
       // What asks every time is covered by no session's yes and no remembered decision either.
       const always = assessment.asksAlways === true || secret;
+      // Only by a yes its own tool keeps (a secret's grant on this site, or for this turn): run, and audited as such.
+      if (always && (await within(async () => registry.granted(name, input)))) {
+        const granted = await run(name, input);
+        audit.record({ tool: name, args: input, result: granted.content, isError: granted.isError, riskTier: "risky", approvedBy: GRANT_DECIDER, ...(userId ? { userId } : {}), ...(conversationId ? { conversationId } : {}) });
+        this.deps.onExecuted?.(name, granted);
+        return granted;
+      }
       const yes = !always && (this.deps.autoApproves?.(name, context) === "site" || this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true);
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
       const bound = yes ? context?.browser?.site : undefined;
@@ -572,6 +583,7 @@ export class GuardedTools implements ToolBox {
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();
+      const placing = registry.secretAsk(name, input);
       // The picture takes a moment; a stop in it leaves nobody to show a card to.
       if (signal?.aborted) return { content: STOPPED_RESULT, isError: true };
       const action = approvals.enqueue({
@@ -587,6 +599,7 @@ export class GuardedTools implements ToolBox {
         ...(beyond ? { beyondAuto: true } : {}),
         ...(picture ? { picture } : {}),
         ...(why ? { why } : {}),
+        ...(placing ? { secret: placing } : {}),
         owner,
         attended,
         ...(guest ? { guest } : {}),
@@ -646,7 +659,7 @@ export class GuardedTools implements ToolBox {
 
       const unready = await readyNow();
       if (unready) return unready;
-      const approvedRun = await run(name, input);
+      const approvedRun = await run(name, input, undefined, { id: action.id, by: approvals.get(action.id)?.decidedBy ?? userId ?? "owner" });
       audit.record({
         tool: name,
         args: input,

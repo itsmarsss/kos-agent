@@ -6,14 +6,14 @@ import { isAttended, isOwnerTurn } from "./caller.js";
 import { Decisions, decidedLine, type DecisionsDeps } from "./decisions.js";
 
 function pending(over: Partial<PendingAction> = {}): PendingAction {
-  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, beyondAuto: false, ...over };
+  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, beyondAuto: false, secret: null, ...over };
 }
 
 function deps(action: PendingAction | undefined, awaited: boolean, over: Partial<DecisionsDeps> = {}) {
   const log: string[] = [];
   const d: DecisionsDeps = {
     ownerId: "owner",
-    approvals: { get: () => action, isAwaited: () => awaited, approve: (id, by) => { log.push(`approve:${id}:${by}`); }, deny: (id, by) => { log.push(`deny:${id}:${by}`); return action; }, pending: () => [] },
+    approvals: { get: () => action, isAwaited: () => awaited, approve: (id, by) => { log.push(`approve:${id}:${by}`); }, deny: (id, by) => { log.push(`deny:${id}:${by}`); return action; }, lapse: (id, by) => { log.push(`lapse:${id}:${by}`); return action; }, pending: () => [] },
     permissions: { add: (r) => { log.push(`rule:${r.tool}:${r.scope}:${r.project}`); } },
     audit: { record: (e) => { log.push(`audit:${e.tool}:${e.isError ? "err" : "ok"}`); } },
     registry: { execute: async (tool) => { log.push(`run:${tool}`); return { content: "removed", isError: false }; }, secretSlots: () => undefined },
@@ -134,6 +134,7 @@ describe("approving", () => {
       isAwaited: () => false,
       approve: (id) => { actions.get(id)!.status = "approved"; log.push(`approve:${id}`); },
       deny: (id) => { const a = actions.get(id)!; a.status = "denied"; log.push(`deny:${id}`); return a; },
+      lapse: () => undefined,
       pending: () => [...actions.values()].filter((a) => a.status === "pending"),
     };
     const decisions = new Decisions(d);
@@ -157,6 +158,7 @@ describe("approving", () => {
       isAwaited: () => false,
       approve: (id) => { actions.get(id)!.status = "approved"; },
       deny: (id) => { const a = actions.get(id)!; a.status = "denied"; return a; },
+      lapse: () => undefined,
       pending: () => [...actions.values()].filter((a) => a.status === "pending"),
     };
     const decisions = new Decisions(d);

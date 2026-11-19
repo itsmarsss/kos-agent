@@ -163,7 +163,7 @@ describe("skills tools", () => {
     expect(String(json!["next"])).toContain('skills.commit with name "danger"');
     // Nothing queued outside the guarded path, where an ask has no chat and approving it could not run.
     expect(approvals.pending()).toHaveLength(0);
-    const { json: committed } = await call("skills.commit", registry.stamp("skills.commit", { name: "danger" }));
+    const { json: committed } = await call("skills.commit", await registry.stamp("skills.commit", { name: "danger" }));
     expect(committed).toMatchObject({ status: "promoted", name: "danger" });
   });
 

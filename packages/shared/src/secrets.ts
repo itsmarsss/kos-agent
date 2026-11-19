@@ -108,3 +108,35 @@ export const SECRET_REQUIRED: Readonly<Record<SecretKind, readonly SecretFieldNa
 };
 
 export const SECRET_KINDS: readonly SecretKind[] = ["login", "card", "apikey", "note"];
+
+/**
+ * The tools whose asks place one of the owner's secrets: asked about every
+ * time, never kept as a permission rule, and decided only on the
+ * dashboard or a paired device.
+ */
+export const SECRET_TOOLS: readonly string[] = ["secrets.fill", "secrets.type", "secrets.allow_site"];
+
+/** What a yes to a secret's ask may be kept as: `site` stops asking on that origin (a grant in the vault). */
+export type SecretRemember = "turn" | "site";
+
+/**
+ * A secret's ask as every card shows it, stored beside the ask
+ * (pending_actions.secret). Never a value.
+ */
+export interface AskSecret {
+  handle: string;
+  label: string;
+  kind: SecretKind;
+  /** The fields it fills, or would be allowed for. */
+  fields: SecretFieldName[];
+  /** The page's real origin, read from the tab, never from the model. */
+  origin?: string;
+  /** The frames the fields are in, where those are not the page's origin. */
+  frameOrigins: string[];
+  surface: SecretSurface;
+  hint?: string;
+  /** What the owner should weigh: a plain-http page, a site the secret was never used on. */
+  warnings: string[];
+  /** What a yes may be kept as. */
+  remember: SecretRemember[];
+}

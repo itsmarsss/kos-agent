@@ -1,9 +1,9 @@
-import { summarizeAction, type ActionHome } from "@kos/shared";
+import { summarizeAction, usesSecret, type ActionHome } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { SHARED_LANE } from "../ops/queue.js";
-import { hasSecretRef, placeSecrets, type SecretSlots } from "../secrets/inject.js";
+import { placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, guested, ownership } from "./caller.js";
 import { primarySessionId } from "./session.js";
@@ -18,6 +18,9 @@ import { primarySessionId } from "./session.js";
  * conversation it came from is resumed with the result, so the owner gets
  * an answer rather than a row that quietly flipped to approved.
  */
+
+/** The secrets tools: asked about while the turn waits, and never run for a turn that has gone. */
+const SECRETS_PREFIX = "secrets.";
 
 /** A build's permission requests are decided here and performed by the build itself. */
 export const BUILD_ACTION_PREFIX = "build.";
@@ -50,6 +53,7 @@ export interface DecisionsDeps {
     isAwaited: (id: number) => boolean;
     approve: (id: number, by: string) => unknown;
     deny: (id: number, by: string) => PendingAction | undefined;
+    lapse: (id: number, by: string) => PendingAction | undefined;
     /** Everything still waiting, so a decision can see its siblings. */
     pending: () => PendingAction[];
   };
@@ -62,6 +66,8 @@ export interface DecisionsDeps {
   registry: {
     execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
     secretSlots: (tool: string) => SecretSlots | undefined;
+    /** A yes-and-remember the tool keeps itself (a secret's grant on a site); see ToolRisk.keep. */
+    keeps?: (tool: string, input: Record<string, unknown>) => boolean;
   };
   secrets: SecretsRegistry;
   queue: { enqueue: <T>(work: () => Promise<T>, lane: string) => Promise<T> };
@@ -142,20 +148,28 @@ export class Decisions {
     const d = this.deps;
     const action = d.approvals.get(id);
     if (!action || action.status !== "pending") return { ok: false, message: `no pending action #${id}` };
+    const stored = JSON.parse(action.args) as Record<string, unknown>;
+    const placing = usesSecret(action.tool, stored);
     // A call that places a secret is approved only where the owner is proved: the dashboard or a paired device, never a chat surface.
-    if (!DECIDING_SURFACES.has(options.surface) && hasSecretRef(JSON.parse(action.args))) {
+    if (!DECIDING_SURFACES.has(options.surface) && placing) {
       return { ok: false, message: secretAskElsewhere(id) };
     }
     const awaited = d.approvals.isAwaited(id);
+    // A secrets tool's ask nobody waits on any more is not run later: the page it was for is gone.
+    if (!awaited && action.tool.startsWith(SECRETS_PREFIX)) {
+      d.approvals.lapse(id, decidedBy ?? d.ownerId);
+      return { ok: false, message: `#${id} lapsed: KOS was no longer waiting on it, so nothing was done. Ask KOS again.` };
+    }
     d.approvals.approve(id, decidedBy ?? d.ownerId);
 
     // Kept, when the owner said so: the rule the ask named when it was
     // queued, and only that, since it is the one every card offered. None
     // for an ask that named none, none for a call that reached past its
     // turn's folder, and never for a call that sends a secret: each of
-    // those is asked about.
-    const kept = options.remember === true && action.rule !== null && !action.reached && !hasSecretRef(JSON.parse(action.args));
-    if (kept) d.permissions.add(action.rule!);
+    // those is asked about. A secrets tool keeps its own yes (a grant on
+    // the site), where the secret's policy offered one.
+    const kept = options.remember === true && (placing ? d.registry.keeps?.(action.tool, stored) === true : action.rule !== null && !action.reached);
+    if (kept && !placing) d.permissions.add(action.rule!);
     // Asked to remember one that keeps nothing: said so, rather than taken as kept.
     const done = (r: DecisionResult): DecisionResult =>
       !options.remember ? r : kept ? { ...r, remembered: true } : { ...r, remembered: false, message: `Approved; nothing to remember for this one. ${r.message}` };
@@ -163,7 +177,6 @@ export class Decisions {
     // A turn suspended on this decision does the rest itself.
     if (awaited) return done({ ok: true, message: `Approved @approval:${id}. ${action.tool} is running.` });
 
-    const stored = JSON.parse(action.args) as Record<string, unknown>;
     const by = decidedBy ?? d.ownerId;
     if (action.tool.startsWith(BUILD_ACTION_PREFIX)) {
       const wanted = action.tool.slice(BUILD_ACTION_PREFIX.length);
