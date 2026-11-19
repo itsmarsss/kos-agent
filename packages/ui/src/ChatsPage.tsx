@@ -1600,7 +1600,7 @@ export function ChatsPage({
                 <li><Empty inline className="chats-empty">
                   {q
                     ? "Nothing matches."
-                    : "No agents yet. The orchestrator starts them as work comes up, or start one with +."}
+                    : "No chats yet. The orchestrator starts them as work comes up, or start one with +."}
                 </Empty></li>
               )}
             </ul>
