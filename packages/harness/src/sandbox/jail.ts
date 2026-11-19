@@ -38,9 +38,10 @@ export interface JailOptions {
   unreadable?: string[];
   /**
    * True to keep the program from reaching past the sandbox through the
-   * system: no signals to other processes, no Apple Events, no preference
-   * writes, and only the mach services a plain program needs, so no
-   * LaunchServices (`open`), pasteboard or other daemon does its bidding.
+   * system's daemons too: only the mach services a plain program needs, so
+   * no LaunchServices, pasteboard or other daemon does its bidding. Signals
+   * to other processes, Apple Events, preference writes and the hand-off
+   * programs are denied to every jailed program, sealed or not.
    */
   sealed?: boolean;
   /** Readable although under a denied home: an interpreter's own libraries. */
@@ -119,12 +120,33 @@ const SEALED_SERVICES = [
   "com.apple.diagnosticd",
 ];
 
-const SEALED = [
+/**
+ * The system's own ways out of the sandbox, programs that hand their work
+ * to something outside it: an app launched through LaunchServices, a
+ * script or workflow run by another process, a preference written for an
+ * app to act on.
+ */
+export const HANDOFF_PROGRAMS = ["/usr/bin/open", "/usr/bin/osascript", "/usr/bin/automator", "/usr/bin/shortcuts", "/usr/bin/defaults"];
+
+/**
+ * Held for every jailed program, an approved or remembered run included: no
+ * signal to a process outside its own, no Apple Event to an app, no
+ * preference written, and none of the hand-off programs run. Mach lookups
+ * stay open, which builds and test servers need; LaunchServices is still
+ * reachable through them by a program that calls it itself rather than
+ * through /usr/bin/open: the README's Constraints name that residual.
+ */
+const HELD = [
   "(deny signal (target others))",
-  "(deny mach-lookup)",
-  `(allow mach-lookup ${SEALED_SERVICES.map((name) => `(global-name ${sb(name)})`).join(" ")})`,
   "(deny appleevent-send)",
   "(deny user-preference-write)",
+  `(deny process-exec ${HANDOFF_PROGRAMS.map((p) => `(literal ${sb(p)})`).join(" ")})`,
+];
+
+/** Sealed besides: only the mach services a plain program needs, so no daemon does its bidding. */
+const SEALED = [
+  "(deny mach-lookup)",
+  `(allow mach-lookup ${SEALED_SERVICES.map((name) => `(global-name ${sb(name)})`).join(" ")})`,
 ];
 
 /**
@@ -176,6 +198,7 @@ export function sandboxProfile(options: JailOptions): string {
     // Last, so no allow above carves them back out.
     ...((options.secretFiles ?? kosSecretFiles()).length ? [`(deny file-read* ${subpaths(options.secretFiles ?? kosSecretFiles())})`] : []),
     "(allow file-read-metadata)",
+    ...HELD,
     ...(options.sealed ? SEALED : []),
     "",
   ];

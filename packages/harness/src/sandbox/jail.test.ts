@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { jailedCommand, jailedProgram, kosPorts, kosSecretFiles, sandboxProfile } from "./jail.js";
+import { runCaptured } from "./capture.js";
+import { HANDOFF_PROGRAMS, jailedCommand, jailedProgram, kosPorts, kosSecretFiles, sandboxProfile } from "./jail.js";
 
 /** The longest a jailed child in these tests may run before it is killed: none may hang the suite. */
 const CHILD_MS = 15_000;
@@ -165,6 +166,71 @@ own.close();`,
     try {
       const jailed = jailedProgram(process.execPath, [script], { workspaceRoot: dir, homes: [], kosPorts: [port], secretFiles: [] });
       expect((await promisify(execFile)(jailed.file, jailed.args, { encoding: "utf8", timeout: CHILD_MS, killSignal: "SIGKILL" })).stdout.trim()).toBe("refused");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("holds every program, sealed or not, off Apple Events, other processes, preferences and the hand-off programs, keeping mach lookups", () => {
+    for (const sealed of [false, true]) {
+      const p = sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: [], sealed });
+      expect(p).toContain("(deny appleevent-send)");
+      expect(p).toContain("(deny signal (target others))");
+      expect(p).toContain("(deny user-preference-write)");
+      for (const program of HANDOFF_PROGRAMS) expect(p).toContain(`(literal "${program}")`);
+      expect(p.includes("(deny mach-lookup)")).toBe(sealed);
+    }
+  });
+
+  /** An approved run's jail: the whole workspace writable, the network open but for KOS's ports, not sealed; run as the shell tool runs it, leading its own process group. */
+  const approved = async (dir: string, command: string): Promise<{ code: number | null; out: string }> => {
+    const jailed = jailedCommand(command, { workspaceRoot: dir, homes: [], kosPorts: [45_998], secretFiles: [] });
+    const ran = await runCaptured(jailed, { cwd: dir, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir, TMPDIR: dir }, timeoutMs: CHILD_MS, maxOutput: 10_000 });
+    return { code: ran.exitCode, out: `${ran.stdout}${ran.stderr}`.trim() };
+  };
+
+  it.runIf(process.platform === "darwin")("refuses an approved run open, osascript, automator, shortcuts and defaults", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kos-jail-handoff-"));
+    try {
+      // Only harmless forms: were the deny missing, none of these would launch an app or ask the owner anything.
+      for (const command of ["/usr/bin/open -h", "/usr/bin/osascript -e 'return 1'", "/usr/bin/automator -h", "/usr/bin/shortcuts --help", "/usr/bin/defaults help", "open -h"]) {
+        // 126: the shell found the program and was not let run it.
+        const ran = await approved(dir, `${command} >/dev/null 2>&1; echo $?`);
+        expect(ran.out, command).toBe("126");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "darwin")("refuses an approved run a signal to a process outside it, while its own children stay its to stop", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kos-jail-signal-"));
+    const outside = spawn("/bin/sleep", ["30"], { stdio: "ignore" });
+    try {
+      const own = await approved(dir, "/bin/sleep 30 & kill $! && echo stopped");
+      expect(own.out).toBe("stopped");
+      const other = await approved(dir, `kill ${outside.pid} 2>/dev/null && echo killed || echo refused`);
+      expect(other.out).toBe("refused");
+      expect(outside.exitCode).toBeNull();
+      expect(outside.signalCode).toBeNull();
+    } finally {
+      outside.kill("SIGKILL");
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "darwin")("still lets an approved run use git, npm and a node test server", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kos-jail-tools-"));
+    writeFileSync(join(dir, "server.mjs"), `import { createServer } from "node:http";
+const s = createServer((_q, r) => r.end("up"));
+s.listen(0, "127.0.0.1", async () => { console.log(await (await fetch("http://127.0.0.1:" + s.address().port + "/")).text()); s.close(); });`);
+    try {
+      const git = await approved(dir, "git init -q . && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x && git log --oneline | wc -l | tr -d ' '");
+      expect(git).toEqual({ code: 0, out: "1" });
+      const npm = await approved(dir, "npm --version >/dev/null && echo ok");
+      expect(npm).toEqual({ code: 0, out: "ok" });
+      const node = await approved(dir, `"${process.execPath}" server.mjs`);
+      expect(node).toEqual({ code: 0, out: "up" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
