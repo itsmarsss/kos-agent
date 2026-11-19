@@ -131,6 +131,12 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   (back, forward, a reload) may restore what was typed, so it is held
   tainted, the whole page, though which field holds the secret is no
   longer known.
+- **A credential site.** On a site a saved secret may be filled on
+  (the `evalBlocked` predicate the host gives `BrowserLive`, from the
+  vault), `browser.eval` is refused in every tab whatever the page holds,
+  and a document a script of KOS's ran in is refused a fill (`scripted`).
+  Every saved value (the `saved` values the host gives) is masked in
+  every tab's words and pictures. See docs/secrets.md.
 - **A conversation's tabs together.** A popup can read its opener, and
   any tab can echo what another sent, so the secrets are held per
   conversation (`Kin`, from `BrowserLive`, popups adopted into the
@@ -185,7 +191,10 @@ not instructions.
 `engine.chrome.test.ts` drives a real headless Chrome against pages it
 serves: a form filled, picked, checked and sent by refs, a confirm
 answered both ways, a covered click refused, a link followed and gone
-back from, a page that never finishes loading. `fillsecret.chrome.test.ts`
+back from, a page that never finishes loading. `persite.chrome.test.ts`
+tries what the per-site rule stops: a script before a fill, another
+conversation reading the site's own copies, a script after leaving the
+page, a service worker, a restart. `fillsecret.chrome.test.ts`
 fills a login and a card in a frame of another origin, and is refused a
 wrong origin or frame, a page changed since, a field of the wrong kind, a
 hidden, tiny or read-only one, and a form sent by GET however it says

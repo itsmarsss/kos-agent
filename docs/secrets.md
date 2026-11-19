@@ -349,6 +349,37 @@ may be filled. Never remembered, and at most three asks a turn; the
 fourth tells the owner in the Inbox. Its stamp drops the keys only the
 harness sets, as a fill's does.
 
+No script on a credential site. `browser.eval` is refused, in every
+conversation and whether or not anything was filled, on any page whose
+main frame or any of its frames is on a site a secret may be filled on:
+every secret's `use.web.origins` and `use.web.frames`, matched by
+registrable domain (`shared/src/domain.ts`). The rule is read from the
+vault at each call (`SecretsRegistry.evalBlocked`, handed to
+`BrowserLive` as `evalBlocked`), so it keeps no state of its own and
+holds after a restart; while the vault is locked the sites cannot be
+read, so it holds on every web page. Scoping the refusal to a filled page,
+or to a conversation, was not enough: a script run before the fill could
+wait for the value and copy it to `window.name`, storage or a beacon;
+another conversation could read the copy a site keeps in its own
+`localStorage` or cookies; a script run after leaving the page could read
+those copies through any transform; a service worker or a Cache Storage
+entry could be planted from anywhere; and a restart forgot the taint.
+The agent can still look, read, act with steps and hand the tab to the
+owner on those sites. The cost is that KOS runs no script of its own on
+the owner's credential sites at all. Two more layers stay: a document a
+script of KOS's ran in takes no fill (`refused:scripted`), so a hook
+planted before the vault knew the site cannot catch one; and the
+per-conversation refusals (docs/browser.md).
+
+Every saved value is masked in every tab, every conversation's: KOS's
+browser reads the values the scrubber already looks for
+(`SecretsRegistry.browserValues`, the same strings, never copied
+elsewhere) at each use, so what any page says back (its text, its
+address, a script's answer elsewhere) reads as `(hidden)`, and every
+picture is masked, whether or not anything was filled in that
+conversation. A locked vault's values cannot be read; only what was
+filled since it opened is masked then.
+
 What masking leaves: a picture is masked through the DOM, so what a page
 draws into a `<canvas>` (or WebGL) from a value is not found and not
 painted over. A page that echoes a filled secret onto a canvas shows it
