@@ -44,6 +44,30 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "Runtime.releaseObjectGroup",
 ]);
 
+/** Commands whose answer is the page's DOM, through shadow roots: user-agent ones are taken out of it (withoutFieldText). */
+const DOM_READS: ReadonlySet<string> = new Set(["DOM.getDocument", "DOM.describeNode"]);
+
+type DomAnswer = { shadowRootType?: unknown; children?: DomAnswer[]; shadowRoots?: DomAnswer[]; contentDocument?: DomAnswer; templateContent?: DomAnswer };
+
+/**
+ * An answer of the page's DOM without the browser's own shadow roots: an
+ * input's holds the text in it as a text node, so a password the owner or
+ * KOS typed would cross to KOS with every read of the tree. KOS's hands
+ * read neither the text nor anything else in them.
+ */
+export function withoutFieldText(method: string, answer: Record<string, unknown>): Record<string, unknown> {
+  if (!DOM_READS.has(method)) return answer;
+  const strip = (n: DomAnswer | undefined): void => {
+    if (!n) return;
+    if (n.shadowRoots) n.shadowRoots = n.shadowRoots.filter((r) => r.shadowRootType !== "user-agent");
+    for (const child of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) strip(child);
+    strip(n.contentDocument);
+    strip(n.templateContent);
+  };
+  strip((answer["root"] ?? answer["node"]) as DomAnswer | undefined);
+  return answer;
+}
+
 /** Events KOS's hands listen for; the rest stay in the browser. */
 const EVENTS: ReadonlySet<string> = new Set([
   "Input.dragIntercepted",

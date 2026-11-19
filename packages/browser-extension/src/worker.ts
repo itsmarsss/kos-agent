@@ -14,8 +14,8 @@ import { readPage } from "./page.js";
 import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
-import { changesPage, checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
-import { FILLED_PAGE, TAINTS_KEY, fillField, focusedOn, heldNow, heldRefusal, marked, maskedShot, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type TabTaint } from "./secret.js";
+import { changesPage, checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
+import { FILLED_PAGE, TAINTS_KEY, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type TabTaint } from "./secret.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
 import { FolderWait, ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
@@ -1029,7 +1029,8 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   // An element focused to type in, or scrolled to: the cursor to its middle, now that it is in view, before KOS's next command.
   if (aim && "node" in aim) await pointAtNode(tab, aim.node, aim.how);
   if (method === "Page.getNavigationHistory") return withoutHidden(answer);
-  return answer;
+  // What the browser says a field holds stays here: its own shadow roots, and the tree's value of a field a secret is in.
+  return hiddenValues(method, withoutFieldText(method, answer), heldOn(tab)?.nodes ?? []);
 }
 
 /**

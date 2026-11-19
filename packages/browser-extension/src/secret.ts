@@ -165,6 +165,37 @@ export function heldNow(taint: TabTaint | undefined, loader: string, url: string
   return taint.urls.includes(urlKey(url)) ? { nodes: [] } : undefined;
 }
 
+/** What a field holding a secret is said to hold, as KOS's hands say it (HIDDEN_VALUE in packages/browser/src/snapshot.ts). */
+const HIDDEN_VALUE = "(hidden)";
+
+type AxAnswer = { nodeId?: string; backendDOMNodeId?: number; childIds?: string[]; value?: { type?: string; value?: unknown } };
+
+/**
+ * The page's accessibility tree with each field a secret is in said to hold
+ * "(hidden)", and what is inside it (the browser's own editor, whose text is
+ * the value) left out: the tree says what a field holds.
+ */
+export function hiddenValues(method: string, answer: Record<string, unknown>, held: readonly Marked[]): Record<string, unknown> {
+  if (method !== "Accessibility.getFullAXTree" || held.length === 0 || !Array.isArray(answer["nodes"])) return answer;
+  const filled = new Set(held.map((m) => m.node));
+  const nodes = answer["nodes"] as AxAnswer[];
+  const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+  const inside: string[] = [];
+  for (const n of nodes) {
+    if (n.backendDOMNodeId === undefined || !filled.has(n.backendDOMNodeId)) continue;
+    if (n.value) n.value = { type: n.value.type ?? "string", value: HIDDEN_VALUE };
+    inside.push(...(n.childIds ?? []));
+    n.childIds = [];
+  }
+  const dropped = new Set<string>();
+  for (let id = inside.pop(); id !== undefined; id = inside.pop()) {
+    if (dropped.has(id)) continue;
+    dropped.add(id);
+    inside.push(...(byId.get(id)?.childIds ?? []));
+  }
+  return dropped.size ? { ...answer, nodes: nodes.filter((n) => n.nodeId === undefined || !dropped.has(n.nodeId)) } : answer;
+}
+
 /** Modifier bits as Input.dispatchKeyEvent takes them: Ctrl and Meta. */
 const COPY_MODIFIERS = 2 | 4;
 const COPY_KEYS = new Set(["a", "c", "x"]);
