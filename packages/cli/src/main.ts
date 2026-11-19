@@ -57,18 +57,23 @@ import {
   SERVICE_LABEL,
   installService,
   kickstart,
+  logPath as daemonLogPath,
   serviceState,
   uninstallService,
 } from "./service.js";
+import { bindRefusal } from "./bind.js";
+import { SHUTDOWN_MS } from "./lifecycle.js";
 import { runHost, waitForPortFree } from "./host.js";
-import { PortTakenError, awaitOwnHost } from "./porttaken.js";
+import { awaitOwnHost } from "./porttaken.js";
 import { runSecrets } from "./secrets.js";
 import { serveMemoryMcp } from "./memorymcp.js";
 import { runRemoteCommand } from "./remote.js";
 import {
   clearDaemonState,
+  isKosHostProcess,
   isPidAlive,
   readDaemonState,
+  verifyHost,
   type DaemonState,
 } from "./state.js";
 
@@ -107,7 +112,10 @@ function listenHost(flag: string | boolean | undefined): string {
 }
 
 function listenPort(flag: string | boolean | undefined): number {
-  return Number(flag ?? process.env.KOS_PORT ?? 4317);
+  const raw = flag ?? process.env.KOS_PORT ?? "4317";
+  const port = typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw) : NaN;
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`--port (or KOS_PORT) must be a port from 1 to 65535, not ${String(raw)}`);
+  return port;
 }
 
 /**
@@ -123,9 +131,11 @@ function sitesPort(
   return raw === undefined ? dashboard + 1 : Number(raw);
 }
 
-function baseUrlFromState(state: DaemonState): string {
-  return `http://${state.host}:${state.port}`;
-}
+/** This CLI's main.js, which every host it starts runs: how a host that does not answer is still known by its command line. */
+const SELF = fileURLToPath(import.meta.url);
+
+/** What cmdStop waits for a host to exit before SIGKILL: the host's own shutdown deadline, and a margin. */
+const STOP_GRACE_MS = SHUTDOWN_MS + 4_000;
 
 async function resolveLiveClient(
   rootDir: string,
@@ -137,13 +147,14 @@ async function resolveLiveClient(
     return null;
   }
   const token = dashboardToken();
-  const baseUrl = baseUrlFromState(state);
-  const up = await probeDaemon(baseUrl, token);
-  if (!up) {
-    clearDaemonState(rootDir);
+  const check = await verifyHost(state, token);
+  if (!check.ok) {
+    // A KOS host that is only slow keeps its state; a stranger with a reused pid does not.
+    if (!isKosHostProcess(state.pid, SELF, rootDir)) clearDaemonState(rootDir);
     return null;
   }
-  // This boot's write key, kept beside KOS's other keys for this port: the CLI's changes send it.
+  const baseUrl = check.baseUrl;
+  // This boot's write key, kept beside KOS's other keys for this port: the CLI's changes send it, to a host just verified as this workspace's.
   const writeKey = readWriteKey(writeKeyPath(state.port));
   return {
     client: new KosClient({
@@ -253,6 +264,12 @@ async function cmdStart(
 ): Promise<void> {
   const host = listenHost(flags.host);
   const port = listenPort(flags.port);
+  const refused = bindRefusal(host, dashboardToken());
+  if (refused) {
+    console.error(refused);
+    process.exitCode = 1;
+    return;
+  }
   const existing = await resolveLiveClient(rootDir);
   if (existing) {
     console.log(
@@ -280,14 +297,13 @@ async function cmdStart(
       if (await waitForDaemon(baseUrl, dashboardToken())) {
         console.log(`KOS started under launchd on ${baseUrl}`);
       } else {
-        console.error(`launchd started the host but it did not answer within 15s; check ${join(rootDir, ".kos", "daemon.log")}`);
+        console.error(`launchd started the host but it did not answer within 15s; check ${daemonLogPath(rootDir)}`);
         process.exitCode = 1;
       }
       return;
     }
-    const self = fileURLToPath(import.meta.url);
     const args = [
-      self,
+      SELF,
       "start",
       "--foreground",
       "--workspace",
@@ -299,8 +315,9 @@ async function cmdStart(
     ];
     if (flags["no-discord"] === true) args.push("--no-discord");
     if (flags.discord === true) args.push("--discord");
+    if (flags["sites-port"] !== undefined) args.push("--sites-port", String(sitesPort(flags["sites-port"], port)));
 
-    const logPath = join(rootDir, ".kos", "daemon.log");
+    const logPath = daemonLogPath(rootDir);
     const { mkdirSync, openSync } = await import("node:fs");
     mkdirSync(dirname(logPath), { recursive: true });
     const logFd = openSync(logPath, "a");
@@ -325,7 +342,8 @@ async function cmdStart(
     return;
   }
 
-  // A host that cannot have the port says who has it and exits, rather than staying up half-booted.
+  // A host that fails to start (the port taken, the bind refused, the kernel not booting) says why and
+  // exits non-zero, rather than staying up half-booted: under launchd that is what restarts it.
   await runHost({
     rootDir,
     allowedHosts,
@@ -337,8 +355,7 @@ async function cmdStart(
     requireDiscord: flags.discord === true,
     sitesPort: sitesPort(flags["sites-port"], port),
   }).catch((err: unknown) => {
-    if (!(err instanceof PortTakenError)) throw err;
-    console.error(err.message);
+    console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
   });
 }
@@ -370,7 +387,7 @@ async function cmdService(
     const file = await installService({
       label: SERVICE_LABEL,
       node: process.execPath,
-      main: fileURLToPath(import.meta.url),
+      main: SELF,
       cwd: dirname(envFilePath()),
       workspace: rootDir,
       host: listenHost(flags.host),
@@ -386,7 +403,7 @@ async function cmdService(
         console.log(`iMessage under launchd needs Full Disk Access for ${process.execPath}: System Settings > Privacy & Security > Full Disk Access, then kos restart`);
       }
     } else {
-      console.error(`launchd has it, but the host did not answer within 15s; check ${join(rootDir, ".kos", "daemon.log")}`);
+      console.error(`launchd has it, but the host did not answer within 15s; check ${daemonLogPath(rootDir)}`);
       process.exitCode = 1;
     }
     return;
@@ -635,6 +652,13 @@ async function cmdStop(rootDir: string): Promise<void> {
     console.log("stale pid cleared; host was not running");
     return;
   }
+  // Only this workspace's KOS is signalled: by its answer, or, wedged, by its command line.
+  const check = await verifyHost(state, dashboardToken());
+  if (!check.ok && !isKosHostProcess(state.pid, SELF, rootDir)) {
+    clearDaemonState(rootDir);
+    console.log(`stale state cleared; pid ${state.pid} is not this workspace's KOS host (${check.why}), so it was not signalled`);
+    return;
+  }
   try {
     process.kill(state.pid, "SIGTERM");
   } catch (err) {
@@ -644,7 +668,8 @@ async function cmdStop(rootDir: string): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const deadline = Date.now() + 5_000;
+  // The host bounds its own shutdown; SIGKILL only past that, so daemons it is stopping are not orphaned.
+  const deadline = Date.now() + STOP_GRACE_MS;
   while (Date.now() < deadline && isPidAlive(state.pid)) {
     await new Promise((r) => setTimeout(r, 100));
   }

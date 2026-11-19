@@ -242,7 +242,8 @@ describe("SecretsRegistry over a locked vault", () => {
       const login = open.add({ label: "GitHub", kind: "login", values: { password: "pw-locked-canary-77" } });
       const key = open.add({ label: "Custom", kind: "apikey", values: { token: "zz_custom_token_0123456789" } });
       open.add({ label: "Visa", kind: "card", values: { number: "4111 1111 1111 1111" } });
-      expect(readFileSync(join(dir, "scrub.kosi"), "utf8")).not.toMatch(/pw-locked|zz_custom|4111/);
+      // The values themselves, not a fragment: the index's random MACs and keys are hex and digits, and "4111" turns up in them by chance.
+      expect(readFileSync(join(dir, "scrub.kosi"), "utf8")).not.toMatch(/pw-locked-canary-77|zz_custom_token|4111 1111 1111 1111|4111111111111111/);
 
       const locked = new Vault({ dir });
       expect(locked.status().state).toBe("locked");

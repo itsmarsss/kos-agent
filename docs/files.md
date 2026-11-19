@@ -6,8 +6,9 @@ Every path is workspace-relative and goes through the jail
 (`resolvePath`): `..`, a symbolic link anywhere on the way, or a path out
 of the workspace is refused with a 400. Writes also refuse the
 workspace's own files (`.kos`, `kos.sqlite`, `kos.snapshot.sqlite`,
-`profile.json`, `mcp.json`, `daemon.json`, `locks`) and its top-level
-folders.
+`profile.json`, `mcp.json`, `locks`, and the name `daemon.json`, kept
+reserved though the host's state now lives in `~/.kos/run/`, outside the
+workspace) and its top-level folders.
 
 ## Backups
 
@@ -18,7 +19,7 @@ git commit of the workspace, in a repo kept at `.kos/backup.git` (its
 read the repo, the database or its snapshot. The live `kos.sqlite` and its `-wal` and `-shm`
 are never committed: the snapshot first copies the database through
 SQLite's backup API into `kos.snapshot.sqlite`, and that copy is what
-history keeps. The workspace's `.kos` folder (logs, caches, scratch, the host's state) is never
+history keeps. The workspace's `.kos` folder (logs, caches, scratch) is never
 committed either; a restore needs nothing in it. To restore, stop the host,
 check out the snapshot, move `kos.snapshot.sqlite` over `kos.sqlite` and
 delete the old `kos.sqlite-wal` and `kos.sqlite-shm`. A snapshot taken by an

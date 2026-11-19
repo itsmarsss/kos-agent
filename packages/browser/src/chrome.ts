@@ -128,8 +128,8 @@ const defaultFetchJson = async (url: string): Promise<Record<string, unknown>> =
   return (await res.json()) as Record<string, unknown>;
 };
 
-/** How long a launch may take to answer on its port. */
-const LAUNCH_MS = 15_000;
+/** How long a launch may take to answer on its port: a cold start on a busy machine can pass 15 s. */
+const LAUNCH_MS = 30_000;
 /** How long a Chrome told to close may take to stop answering. */
 const GONE_MS = 5_000;
 /** How long a Chrome sent SIGTERM has before it is killed. */

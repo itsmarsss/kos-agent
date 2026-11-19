@@ -49,8 +49,9 @@ export async function runDoctor(options: DoctorOptions): Promise<string> {
     }
   };
 
-  const major = Number(process.versions.node.split(".")[0]);
-  check(major >= 20, "node >= 20", process.versions.node);
+  // 22.5 for node:sqlite, which KOS tells the agent's own scripts to use.
+  const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
+  check(major > 22 || (major === 22 && minor >= 5), "node >= 22.5", process.versions.node);
 
   // search.grep shells out to ripgrep; without it exact search is dead.
   const rgPath = resolveOnPath("rg");
