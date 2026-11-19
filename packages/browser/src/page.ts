@@ -109,6 +109,19 @@ export interface PageOptions {
    * value through its own world.
    */
   putSecret?: (put: SecretPut) => Promise<void>;
+  /**
+   * What the browser says this tab is held to by a secret filled before
+   * this Page (KOS for Chrome keeps it across sessions): the document, and
+   * the addresses of documents, a secret was in. Either is held as a whole
+   * page, since which fields hold it is not known here.
+   */
+  heldElsewhere?: () => HeldElsewhere | undefined;
+}
+
+/** A tab's hold as the browser that fills reports it (heldElsewhere). */
+export interface HeldElsewhere {
+  loader: string;
+  urls: string[];
 }
 
 /** A secret for one field, as a browser that puts it in itself is given it: where it goes, what must hold there, and the value. */
@@ -375,6 +388,7 @@ export class Page {
   private readonly workerBar: (origin: string, loadedAt: number, controlled: boolean) => Promise<string | undefined>;
   private readonly tick: () => number;
   private readonly putSecret: ((put: SecretPut) => Promise<void>) | undefined;
+  private readonly heldElsewhere: () => HeldElsewhere | undefined;
 
   constructor(
     private readonly session: Session,
@@ -393,6 +407,7 @@ export class Page {
     this.workerBar = options.workerBar ?? (async () => undefined);
     this.tick = options.tick ?? (() => performance.now());
     this.putSecret = options.putSecret;
+    this.heldElsewhere = options.heldElsewhere ?? (() => undefined);
   }
 
   /**
@@ -870,8 +885,10 @@ export class Page {
   private tainted(): Taint | undefined {
     if (this.taint && this.taint.loader !== this.life.loader) this.taint = undefined;
     if (this.taint) return this.taint;
-    // A document a secret was in, come back to: which fields hold it again is not known, so the whole page is held to.
-    return this.taintedUrls.has(urlKey(this.url)) ? { loader: this.life.loader, nodes: new Map() } : undefined;
+    // A document a secret was in, come back to, or one the browser says was filled before this Page: which fields hold it is not known, so the whole page is held to.
+    const elsewhere = this.heldElsewhere();
+    const before = elsewhere !== undefined && ((elsewhere.loader !== "" && elsewhere.loader === this.life.loader) || elsewhere.urls.includes(urlKey(this.url)));
+    return before || this.taintedUrls.has(urlKey(this.url)) ? { loader: this.life.loader, nodes: new Map() } : undefined;
   }
 
   /** Whether a field may hold a secret KOS filled: one it filled, or any on a page a secret was in come back to, where which is not known. */

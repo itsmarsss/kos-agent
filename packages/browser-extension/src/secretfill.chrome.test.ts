@@ -346,6 +346,9 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
   it("holds the tab to the field: no script step, copy, drag or typing into it", async () => {
     const refused = { error: expect.objectContaining({ code: "tainted" }) };
     const send = (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => call("cdp.send", { tab, method, params });
+    // Said to KOS with the tab, so a new session on it holds it too.
+    const listed = ((await call("tabs.list", {}))["result"] as { tabs: { id: string; held?: { loader: string; urls: string[] } }[] }).tabs;
+    expect(listed.find((t) => t.id === tab)?.held).toEqual({ loader: (await read()).doc, urls: [`${base}/login`] });
     expect(await send("Runtime.evaluate", { expression: "document.getElementById('pw').value", replMode: true })).toMatchObject(refused);
     expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA", modifiers: 4 })).toMatchObject(refused);
     expect(await send("Input.dispatchKeyEvent", { type: "keyDown", key: "c", modifiers: 2 })).toMatchObject(refused);

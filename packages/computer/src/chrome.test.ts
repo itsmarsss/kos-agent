@@ -406,6 +406,34 @@ describe("a saved secret in the owner's Chrome", () => {
     expect(Object.keys(asked.masks)).toEqual(["https://pay.example"]);
   });
 
+  it("holds a tab the extension says was filled before, in a new session, and masks what was filled there", async () => {
+    const { chrome, fake, hub, tools } = await started({ secrets: { saved: () => [], savedFor: () => [], evalBlocked: () => undefined } });
+    const start = (): Promise<unknown> => attendance.run(true, () => tools.get("chrome.start")!({ task: "sign in" }));
+    fake.answers.set("secret.fill", () => ({ ok: true, result: { filled: true } }));
+    await putIn(chrome, put);
+    hub.end("c1");
+    // The extension keeps the tab held across sessions, and says so.
+    fake.answers.set("tabs.list", () => ({ ok: true, result: { tabs: [{ id: "88", url: "https://github.com/login", title: "Sign in", held: { loader: "L1", urls: ["https://github.com/login"] } }] } }));
+    await start();
+    await chrome.useTab("c1", "88");
+    const page = (await chrome.tab("c1")).page;
+    fake.answers.set("cdp.send", (p) =>
+      p["method"] === "Page.getFrameTree" ? { ok: true, result: { frameTree: { frame: { id: "F", loaderId: "L1", url: "https://github.com/login", securityOrigin: "https://github.com" } } } } : { ok: true, result: {} },
+    );
+    await (page as unknown as { prepare(): Promise<void> }).prepare();
+    expect(page.holdsSecret()).toBe(true);
+    fake.answers.set("secret.picture", () => ({ ok: true, result: { data: "SU1H" } }));
+    await chrome.picture("c1", 1024);
+    const asked = fake.calls.filter((c) => c.method === "secret.picture").at(-1)!.params as { masks: Record<string, string[]> };
+    expect(asked.masks["https://github.com"]!.join("")).toContain("canary");
+    // Once the extension says the tab is held no more, nothing is carried into the next session.
+    fake.answers.set("tabs.list", () => ({ ok: true, result: { tabs: [{ id: "88", url: "https://github.com/next", title: "Next" }] } }));
+    hub.end("c1");
+    await start();
+    await chrome.useTab("c1", "88").catch(() => undefined);
+    expect((chrome as unknown as { carried: Map<string, unknown> }).carried.size).toBe(0);
+  });
+
   it("pictures a page of no credential site as it always has", async () => {
     const { chrome, fake } = await started();
     fake.answers.set("cdp.send", (p) =>

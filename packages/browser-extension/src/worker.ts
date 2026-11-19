@@ -791,14 +791,27 @@ async function end(reason: EndReason): Promise<void> {
   await maybeReload();
 }
 
-async function listTabs(): Promise<{ id: string; url: string; title: string; handed?: true; focus?: true; hidden?: true }[]> {
+type ListedTab = { id: string; url: string; title: string; handed?: true; focus?: true; hidden?: true; held?: { loader: string; urls: string[] } };
+
+/**
+ * The session's tabs, as KOS is told of them. A tab a secret was filled
+ * into says what it is held to (the document, and the addresses of
+ * documents, a secret was in), so a KOS that comes to it in a new session
+ * holds it too.
+ */
+async function listTabs(): Promise<ListedTab[]> {
   const s = session!;
-  const out: { id: string; url: string; title: string; handed?: true; focus?: true; hidden?: true }[] = [];
+  const out: ListedTab[] = [];
   for (const id of s.tabs) {
     const tab = await chrome.tabs.get(id).catch(() => undefined);
     if (!tab) continue;
     // The tab beside the side panel the owner gave by speaking from it, as one they handed.
-    const mark = { ...(handed.has(id) || id === beside ? { handed: true as const } : {}), ...(id === beside ? { focus: true as const } : {}) };
+    const taint = taints.get(id);
+    const mark = {
+      ...(handed.has(id) || id === beside ? { handed: true as const } : {}),
+      ...(id === beside ? { focus: true as const } : {}),
+      ...(taint ? { held: { loader: taint.loader, urls: taint.urls } } : {}),
+    };
     // A tab on a hidden site is KOS's to know of, and nothing more.
     if (isHidden(tab.url ?? "", settings.hiddenSites)) out.push({ id: String(id), url: "", title: "Hidden from KOS", hidden: true, ...mark });
     else out.push({ id: String(id), url: tab.url ?? "", title: tab.title ?? "", ...mark });

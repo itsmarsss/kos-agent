@@ -1,4 +1,20 @@
-import { PICTURE, Page, SecretRefused, echoPatterns, sendEach, type Call, type FilledValue, type Kin, type SecretPut, type Session as TabSession, type Tab } from "@kos/browser";
+import {
+  PICTURE,
+  Page,
+  SecretRefused,
+  echoPatterns,
+  isDigitSlot,
+  isSecretSlot,
+  keepFilled,
+  sendEach,
+  type Call,
+  type FilledValue,
+  type HeldElsewhere,
+  type Kin,
+  type SecretPut,
+  type Session as TabSession,
+  type Tab,
+} from "@kos/browser";
 import { turnStop, type BrowserElsewhere, type PageSpot, type TabInfo } from "@kos/harness";
 
 import { kindOf, type DeviceHub, type Session } from "./hub.js";
@@ -25,6 +41,15 @@ interface Kept {
   handed: boolean;
   /** The tab beside the side panel the owner is talking from. */
   focus?: boolean;
+  /** What the extension says the tab is held to by a secret filled into it, in this session or one before. */
+  held?: HeldElsewhere;
+}
+
+/** A tab's hold as tabs.list says it, read and checked. */
+function heldOf(v: unknown): HeldElsewhere | undefined {
+  const h = v as { loader?: unknown; urls?: unknown } | undefined;
+  if (typeof h?.loader !== "string" || !Array.isArray(h.urls)) return undefined;
+  return { loader: h.loader, urls: h.urls.filter((u): u is string => typeof u === "string") };
 }
 
 /**
@@ -139,6 +164,12 @@ function hostOf(url: string): string | undefined {
 
 export class OwnerChrome implements BrowserElsewhere {
   private readonly held = new Map<string, Borrowed>();
+  /**
+   * The values filled into each tab of each Chrome, by device and tab, kept
+   * past the session that filled them while the extension says the tab is
+   * held: a new session on it cleans and masks them as the old one did.
+   */
+  private readonly carried = new Map<string, FilledValue[]>();
 
   constructor(
     private readonly hub: DeviceHub,
@@ -265,9 +296,14 @@ export class OwnerChrome implements BrowserElsewhere {
   private async refresh(conversation: string, b: Borrowed): Promise<void> {
     const listed = await this.act(conversation, "tabs.list", {});
     const tabs = Array.isArray(listed["tabs"]) ? (listed["tabs"] as Record<string, unknown>[]) : [];
+    const device = this.hub.sessionOf(conversation)?.device ?? "";
     for (const t of tabs) {
       if (typeof t["id"] !== "string") continue;
-      b.tabs.set(t["id"], { url: String(t["url"] ?? ""), title: String(t["title"] ?? ""), handed: t["handed"] === true, ...(t["focus"] === true ? { focus: true } : {}) });
+      const held = heldOf(t["held"]);
+      b.tabs.set(t["id"], { url: String(t["url"] ?? ""), title: String(t["title"] ?? ""), handed: t["handed"] === true, ...(t["focus"] === true ? { focus: true } : {}), ...(held ? { held } : {}) });
+      const key = `${device}:${t["id"]}`;
+      if (!held) this.carried.delete(key);
+      for (const value of held ? (this.carried.get(key) ?? []) : []) keepFilled(b.filled, value);
     }
   }
 
@@ -288,6 +324,7 @@ export class OwnerChrome implements BrowserElsewhere {
         kin: () => this.kinOf(conversation),
         ...(secrets ? { saved: () => secrets.saved(), savedFor: (origins: readonly string[]) => secrets.savedFor(origins), evalBlocked: (origin: string) => secrets.evalBlocked(origin) } : {}),
         putSecret: (put) => this.putSecret(conversation, tab, put),
+        heldElsewhere: () => this.held.get(conversation)?.tabs.get(tab)?.held,
       });
       b.pages.set(tab, page);
     }
@@ -309,6 +346,12 @@ export class OwnerChrome implements BrowserElsewhere {
   private async putSecret(conversation: string, tab: string, put: SecretPut): Promise<void> {
     try {
       await this.act(conversation, "secret.fill", { tab, ...put }, SECRET_FILL_MS);
+      if (isSecretSlot(put.slot)) {
+        const key = `${this.hub.sessionOf(conversation)?.device ?? ""}:${tab}`;
+        const values = this.carried.get(key) ?? [];
+        keepFilled(values, { text: put.value, digits: isDigitSlot(put.slot), origins: [...new Set([put.origin, put.frameOrigin])] });
+        this.carried.set(key, values);
+      }
     } catch (err) {
       if (unknownMethod(err)) throw new SecretRefused("unreachable", "this KOS for Chrome is from before it could fill a saved secret; it takes the new build when the owner reloads it");
       if (err instanceof DeviceError && FILL_REFUSALS.has(err.code)) throw new SecretRefused(err.code as SecretRefused["code"], err.message);
@@ -408,6 +451,8 @@ export class OwnerChrome implements BrowserElsewhere {
       }
       return;
     }
+    // A tab gone takes what was filled into it with it, whichever session it was in.
+    if (event.name === "tab.closed" && tab) this.carried.delete(`${device}:${tab}`);
     if (!entry || !tab) return;
     const [, b] = entry;
     if (event.name === "tab.closed") {
