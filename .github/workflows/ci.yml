@@ -53,6 +53,35 @@ jobs:
       - name: Build UI assets
         run: pnpm -C packages/ui build
 
+  # The jail on bare Linux: bubblewrap, run for real so its tests cannot
+  # only skip. Ubuntu holds unprivileged user namespaces back with AppArmor,
+  # which bwrap needs, so the runner lets them through first.
+  linux-jail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install bubblewrap
+        run: |
+          for i in 1 2 3; do sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap && break; sleep 10; done
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --version
+          bwrap --unshare-all --die-with-parent --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 /bin/true
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Jail and tool tests under bubblewrap
+        run: pnpm exec vitest run packages/harness/src/sandbox packages/harness/src/tools
+        env:
+          KOS_EXPECT_BWRAP: "1"
+
   docker:
     runs-on: ubuntu-latest
     steps:
