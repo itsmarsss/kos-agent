@@ -50,13 +50,7 @@ export {
 } from "./runtime.js";
 
 export { PressRoutes, type PressRoute } from "./presses.js";
-export {
-  COMMANDS,
-  completions,
-  runCommand,
-  type SlashContext,
-  type SlashSpec,
-} from "./commands.js";
+export { completions, slashCommands, surfaceCommands, type SlashContext } from "./commands.js";
 export { IMessageAdapter, describeStartFailure, renderForText, parseDecision } from "./imessage.js";
 export type { IMessageOptions } from "./imessage.js";
 export { ThreadReader } from "./imessagedb.js";

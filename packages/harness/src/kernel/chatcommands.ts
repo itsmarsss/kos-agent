@@ -15,6 +15,12 @@ export type ChatCommand =
   | { kind: "new"; title?: string }
   | { kind: "list" }
   | { kind: "switch"; target: string }
+  | { kind: "here" }
+  | { kind: "mode"; mode?: "ask" | "auto" }
+  | { kind: "inbox" }
+  | { kind: "run"; job: string }
+  | { kind: "halt" }
+  | { kind: "resume" }
   | { kind: "rename"; title: string }
   | { kind: "fork"; title?: string }
   | { kind: "archive" }
@@ -47,6 +53,16 @@ const ALIASES: Record<string, ChatCommand["kind"]> = {
   s: "switch",
   go: "switch",
   goto: "switch",
+  target: "switch",
+  here: "here",
+  home: "here",
+  mode: "mode",
+  inbox: "inbox",
+  pending: "inbox",
+  run: "run",
+  halt: "halt",
+  kill: "halt",
+  resume: "resume",
   rename: "rename",
   title: "rename",
   fork: "fork",
@@ -125,6 +141,13 @@ export function parseChatCommand(text: string): ChatCommand | null {
       return arg ? { kind: "project", name: arg } : { kind: "help" };
     case "btw":
       return arg ? { kind: "btw", question: arg } : { kind: "help" };
+    case "run":
+      return arg ? { kind: "run", job: arg } : { kind: "help" };
+    case "mode": {
+      const mode = arg.toLowerCase();
+      if (!mode) return { kind: "mode" };
+      return mode === "ask" || mode === "auto" ? { kind: "mode", mode } : { kind: "help" };
+    }
     case "dispatch": {
       // "<agent>: <task>": the colon is the seam, so a title may have spaces.
       const colon = arg.indexOf(":");
@@ -337,6 +360,12 @@ export function runChatCommand(
     case "fork":
     case "retry":
     case "stop":
+    case "here":
+    case "mode":
+    case "inbox":
+    case "run":
+    case "halt":
+    case "resume":
     case "agents":
     case "dispatch":
     case "project":
@@ -362,6 +391,12 @@ export function runChatCommand(
  * second agent loop.
  */
 const KERNEL_KINDS: ReadonlySet<ChatCommand["kind"]> = new Set([
+  "here",
+  "mode",
+  "inbox",
+  "run",
+  "halt",
+  "resume",
   "fork",
   "retry",
   "stop",

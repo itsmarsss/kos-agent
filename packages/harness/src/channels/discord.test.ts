@@ -2067,10 +2067,8 @@ describe("/run from Discord", () => {
         { id: 9, name: "School Evening Nudge", enabled: true },
       ],
       current: () => undefined,
-      target: () => undefined,
       home: () => "h",
-      stop: () => false,
-      create: () => ({ id: "x", title: "x" }),
+      run: async () => ({ reply: "" }),
     });
     const edits: string[] = [];
     const respond: unknown[] = [];
@@ -2164,16 +2162,12 @@ describe("a guest's slash commands", () => {
       list: () => [{ id: "c1", title: "Private", kind: "chat" }],
       jobs: () => [{ id: 7, name: "Morning brief", enabled: true }],
       current: () => undefined,
-      target: () => undefined,
       home: () => "h",
-      stop: (id) => {
-        stopped.push(id);
-        return true;
-      },
-      create: () => ({ id: "x", title: "x" }),
+      run: async (text) => (stopped.push(text), { reply: "" }),
+      pending: () => [{ id: "3", text: "x", tool: "shell.run", args: { command: "rm -rf build" } }],
     });
     const open = { id: "c1", isThread: () => false, topic: "kos:project:club · Club", isSendable: () => true };
-    for (const commandName of ["chats", "stop", "run", "new"]) {
+    for (const commandName of ["chats", "stop", "run", "new", "mode", "inbox", "approve", "halt"]) {
       const reply = vi.fn(async () => undefined);
       const respond = vi.fn(async () => undefined);
       const base = { isButton: () => false, commandName, user: { id: "u1" }, guildId: "g1", channel: open, options: { data: [], getFocused: () => "" }, reply, respond, deferReply: vi.fn(), editReply: vi.fn() };
@@ -2818,13 +2812,13 @@ describe("a slash command in a room", () => {
     const stopped: string[] = [];
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", threadOf: (id) => (id === "t5" ? "chat-5" : undefined) });
     adapter.setAuthorizer((id) => id === "owner-id");
-    adapter.onCommand({ list: () => [], current: () => "dm-chat", target: () => undefined, home: () => "h", stop: (id) => (stopped.push(id), true), create: () => ({ id: "x", title: "x" }) });
+    adapter.onCommand({ list: () => [], current: () => "dm-chat", home: () => "h", run: async (text, id) => (stopped.push(`${text} ${id}`), { reply: "Stopping this turn." }) });
     const stop = (guildId: string | null, channel: unknown) =>
-      ({ isButton: () => false, isAutocomplete: () => false, isChatInputCommand: () => true, commandName: "stop", guildId, channel, user: { id: "owner-id" }, options: { data: [] }, reply: async () => undefined }) as unknown as Interaction;
+      ({ isButton: () => false, isAutocomplete: () => false, isChatInputCommand: () => true, commandName: "stop", guildId, channel, user: { id: "owner-id" }, options: { data: [] }, reply: async () => undefined, deferReply: async () => undefined, editReply: async () => undefined }) as unknown as Interaction;
     await adapter.receiveInteraction(stop("g1", { id: "t5", isThread: () => true, parent: { topic: "kos:project:garden · Garden" } }));
     await adapter.receiveInteraction(stop("g1", { id: "c1", topic: "kos:agent:recap · Recap" }));
     await adapter.receiveInteraction(stop(null, { id: "dm" }));
-    expect(stopped).toEqual(["chat-5", "agent:recap", "dm-chat"]);
+    expect(stopped).toEqual(["/stop chat-5", "/stop agent:recap", "/stop dm-chat"]);
   });
 });
 

@@ -1022,22 +1022,18 @@ export async function runHost(options: HostOptions): Promise<void> {
           }))
           // A schedule's thread is a record of its runs, not somewhere to be
           // sent, and the router routes rather than being talked at.
-          .filter((c) => c.kind === "chat" || c.kind === "surface"),
+          .filter((c) => c.kind === "chat" || c.kind === "surface" || c.kind === "project"),
       current: () =>
         kernel.conversations.activeFor(adapter!.name, kernel.profile.ownerId),
-      target: (id) =>
-        kernel.conversations.setActive(adapter!.name, kernel.profile.ownerId, id),
       home: () => surfaceSessionId(adapter!.name, kernel.profile.ownerId),
-      stop: (id) => kernel.stop(id),
+      // Every command through the kernel, as the dashboard runs it: one registry, one behaviour.
+      run: async (text, conversationId) => {
+        const res = await kernel.runCommandIn(conversationId, kernel.profile.ownerId, text, adapter!.name);
+        return res ? { reply: res.reply, ...(res.switchedTo ? { switchedTo: res.switchedTo } : {}), ...(res.opens ? { opens: res.opens } : {}) } : { reply: `\`${text}\` is not a command.` };
+      },
+      pending: () => kernel.approvals.pending().map((a) => approvalRequest(a, false)),
       // Where to read a thread: the same dashboard the replies link to.
       link: (id) => `${dashboardUrl.replace(/\/+$/, "")}/#/chats/${encodeURIComponent(id)}`,
-      create: (title) => {
-        const made = kernel.conversations.create({
-          userId: kernel.profile.ownerId,
-          title,
-        });
-        return { id: made.id, title: made.title };
-      },
     });
 
     adapter.onButton(

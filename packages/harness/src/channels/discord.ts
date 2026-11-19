@@ -30,7 +30,7 @@ import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kerne
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, roomConversationId, roomPlaceOf, type Guest } from "./types.js";
-import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
+import { approvalCompletions, commandCard, commandText, completions, jobCompletions, jobNamed, slashCommands, surfaceCommands, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
 import { shortStory, STEP_MARK } from "./narrate.js";
@@ -94,6 +94,8 @@ const THINKING = "-# thinking…";
 const DISCORD_FILES = 10;
 /** How many typed blocks' buttons are kept answerable. */
 const BLOCKS_KEPT = 500;
+/** How many asks /inbox shows as cards; the rest are counted. */
+const INBOX_MAX = 8;
 const DISCORD_FILE_BYTES = 10 * 1024 * 1024;
 /** How much of the message a reply answers is quoted to the turn. */
 const REPLY_QUOTE_MAX = 300;
@@ -2378,34 +2380,37 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   private async registerCommands(): Promise<void> {
     if (!this.commands) return;
+    const app = this.client.application?.commands;
+    if (!app) return;
     try {
-      await this.client.application?.commands.set(
-        COMMANDS.map((c) => ({
-          name: c.name,
-          description: c.description,
-          ...(c.argument
-            ? {
-                options: [
-                  {
-                    type: 3,
-                    name: c.argument.name,
-                    description: c.argument.description,
-                    required: false,
-                    autocomplete: c.argument.autocomplete,
-                  },
-                ],
-              }
-            : {}),
-        })),
-      );
+      // In the owner's server, registered for it, where they show at once;
+      // and globally for the DM alone, so the server lists each only once.
+      if (this.guildId) {
+        await app.set(slashCommands("guild"), this.guildId);
+        await app.set(slashCommands("dm"));
+      } else await app.set(slashCommands("everywhere"));
     } catch (err) {
       // A bot without the applications.commands scope cannot register them.
       // Everything else still works, so this is reported rather than fatal.
-      console.warn(
-        `[discord] could not register slash commands: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      console.warn(`[discord] could not register slash commands (invite the bot with the applications.commands scope): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
+   * /inbox: what waits on the owner, each ask as its own card with its own
+   * buttons, to whoever asked alone, so a press settles that one. A secret's
+   * ask has no Approve, as everywhere on Discord.
+   */
+  private async inbox(interaction: { reply(o: unknown): Promise<unknown>; followUp(o: unknown): Promise<unknown> }, pending: ApprovalRequest[]): Promise<void> {
+    const shown = pending.slice(0, INBOX_MAX);
+    const more = pending.length - shown.length;
+    const head = pending.length === 0 ? "Nothing is waiting on you." : `${pending.length} waiting on you${more ? `; the first ${shown.length} here, every one in the dashboard's Inbox` : ""}.`;
+    await interaction.reply({ content: head, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    for (const req of shown) {
+      const card = approvalCard(req, this.dashboardUrl ? { dashboardUrl: this.dashboardUrl } : {});
+      await interaction
+        .followUp({ content: this.scrub(card.content), components: [approvalButtons(req, this.dashboardUrl)], flags: MessageFlags.Ephemeral })
+        .catch(() => undefined);
     }
   }
 
@@ -2439,8 +2444,11 @@ export class DiscordAdapter implements ChannelAdapter {
     if (interaction.isAutocomplete?.()) {
       if (!this.commands || !this.isAuthorized(interaction.user.id)) return;
       const typed = String(interaction.options.getFocused() ?? "");
+      const pick = surfaceCommands().find((c) => c.name === interaction.commandName)?.option?.pick;
       try {
-        await interaction.respond(interaction.commandName === "run" ? jobCompletions(this.commands, typed) : completions(this.commands, typed));
+        await interaction.respond(
+          pick === "job" ? jobCompletions(this.commands, typed) : pick === "approval" ? approvalCompletions(this.commands, typed, askSummary) : completions(this.commands, typed),
+        );
       } catch {
         // The window for answering an autocomplete is short; a late answer
         // is dropped rather than being an error.
@@ -2458,22 +2466,25 @@ export class DiscordAdapter implements ChannelAdapter {
         return;
       }
       const argument = interaction.options.data[0]?.value;
-      // /run fires a scheduled job, which is async and goes to onRunCron
-      // rather than runCommand (bookkeeping the process answers at once).
-      if (interaction.commandName === "run") {
-        await this.runNow(interaction, jobNamed(this.commands, argument === undefined ? undefined : String(argument)));
+      const said = argument === undefined ? undefined : String(argument);
+      // /run fires a scheduled job and says how it went, which can take as
+      // long as the job does: answered once it has run.
+      if (interaction.commandName === "run" && this.onRunCron) {
+        await this.runNow(interaction, jobNamed(this.commands, said));
+        return;
+      }
+      if (interaction.commandName === "inbox" && this.commands.pending) {
+        await this.inbox(interaction, this.commands.pending());
         return;
       }
       // Typed in a bound channel or thread: that room's chat is the one meant.
       const here = interaction.guildId ? this.bindingIn(interaction.channel)?.conversationId : undefined;
-      const said = runCommand(this.commands, interaction.commandName, argument === undefined ? undefined : String(argument), here);
-      // Only to whoever asked: where someone sends their messages is not
-      // news for a channel.
-      await interaction.reply({
-        ...(said.text ? { content: said.text } : {}),
-        ...(said.card ? { embeds: [buildCard(said.card, { dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] } : {}),
-        flags: MessageFlags.Ephemeral,
-      });
+      const conversationId = here ?? this.commands.current() ?? this.commands.home();
+      // Only to whoever asked: what a command answers is no news for a channel.
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      const answer = await this.commands.run(commandText(interaction.commandName, said), conversationId).catch((err: unknown) => ({ reply: `/${interaction.commandName} did not run: ${err instanceof Error ? err.message : String(err)}` }));
+      const card = commandCard(interaction.commandName, answer, { room: here !== undefined, ...(this.commands.link ? { tools: this.commands.link(conversationId) ?? "" } : {}) });
+      await interaction.editReply({ embeds: [buildCard(card, { dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] }).catch(() => undefined);
       return;
     }
 
