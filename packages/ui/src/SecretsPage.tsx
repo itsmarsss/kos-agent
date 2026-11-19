@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import type { SecretSummary, VaultStatus } from "@kos/shared";
-import { Card, Empty, hintWords, NavIcon, Pill, SecretField, Tag, takeSecretValues } from "@kos/kit";
+import { Card, clearSecretValues, Empty, hintWords, NavIcon, Pill, readSecretValues, SecretField, Tag, takeSecretValues } from "@kos/kit";
 
 import { PageHead } from "./PageHead.js";
 import { agoWords } from "./schedulewords.js";
@@ -188,14 +188,18 @@ function UnlockCard({ status, onDone }: { status: VaultStatus; onDone: (s: Vault
   const waits = status.slots.includes("passphrase") && !status.problem;
   const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
-    const { passphrase } = takeSecretValues(e.currentTarget);
+    // Read, and cleared only once it has worked: a failed try (KOS restarting, say) keeps what was typed.
+    const form = e.currentTarget;
+    const { passphrase } = readSecretValues(form);
     if (!passphrase) {
       setError("Type the passphrase.");
       return;
     }
     setBusy(true);
     try {
-      onDone(await secretsApi.unlock(passphrase));
+      const opened = await secretsApi.unlock(passphrase);
+      clearSecretValues(form);
+      onDone(opened);
       setError(null);
     } catch (err) {
       setError(refusal(err));
