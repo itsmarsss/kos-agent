@@ -289,6 +289,24 @@ and the answer is `{ filled: true }`. The value is dropped from the call
 once read and never logged (the log says `secret.fill: filled`, or
 refused and the code); no error holds it.
 
+A payment provider's frame (Stripe, Adyen, Braintree, PayPal) is of
+another site, so Chrome runs it in a process of its own, which the tab's
+debugging session does not reach. The extension attaches each such frame
+as a session of its own (`Target.setAutoAttach`, flattened), the page
+first asked only where it is and the Runtime domain turned on only off a
+challenge host (Turnstile, reCAPTCHA and the like), as it does to see the
+owner's hand there. KOS's hands reach a frame's session by the frame's id
+(`frame` on `cdp.send` and `cdp.batch`), with only their readings and
+their scripts (DOM reads, their own world, their page-side calls, the
+accessibility tree); going places, input, pictures and dialogs are the
+tab's, which sends a key or a click on to the frame under it. A frame on a
+challenge host is never reached. A secret goes into such a frame through
+`secret.fill` as into any: by its frame's id and the field's backend node,
+which is that frame process's own; the frame's origin is the one its own
+session says it committed, and must be the frame origin approved; each
+frame element between it and the page is checked drawn and in view in the
+session its parent is in; and no service worker may run it.
+
 From then until the tab's document changes, and again whenever a document
 a secret was in is come back to (back, forward, a reload, or an address the
 document moved to by itself with `pushState`), the extension holds the
@@ -301,7 +319,8 @@ text out (`copy`, `cut`, `selectAll`, `yank`, and the kill-ring deletes
 typing or any editing command while a filled field has the keyboard (on a
 page come back to, where no field is known, any editing command at all)
 are refused (`tainted`). The accessibility tree says each filled field
-holds `(hidden)`; on a page come back to, every text box. `tabs.list`
+holds `(hidden)`, in a frame of another process's tree too; on a page come
+back to, every text box. `tabs.list`
 says what each tab is held to (`held`: the document and the addresses), so
 a KOS that comes to the tab in a new session holds it in the host too,
 and cleans and masks what was filled there.
@@ -316,7 +335,13 @@ editing host and select of every frame; and where KOS sends patterns
 through `secret.picture`, in each frame on that pattern's origin, those
 boxes and every stretch of text, SVG text and `::before`/`::after` (by the
 element's attributes) that echoes one. A child frame's boxes are placed
-where its element is drawn. The page is measured on both sides of a fresh
+where its element is drawn; one in another process is measured through
+its own session and placed through each frame element between it and the
+page, and one no session of the extension's reaches (a challenge's) is
+painted over whole. KOS learns every frame's origin, those of other
+processes among them, from `tab.origins`, so each frame is sent its own
+origin's patterns; an extension from before it is asked the tab's own
+frame tree, which leaves those frames out. The page is measured on both sides of a fresh
 picture (never a frame Chrome drew before), pictured again if it moved, not
 at all if it keeps moving, and the boxes are painted black on the picture
 in the worker (`OffscreenCanvas`). KOS sends a value's pattern only to the
@@ -358,8 +383,9 @@ Where it differs from KOS's own browser, it fails closed:
 - **What the page says.** A page that echoes a value into its own words
   (its title, a dialog, its text) sends it to KOS as any read of the page
   does; KOS's hands clean it out of everything they hand on, as at home.
-- **Frames of another process** (many payment frames) are refused
-  (`unreachable`); hand the tab to the owner.
+- **Challenge frames.** A frame on a challenge host is never reached, so a
+  field in one is refused (`unreachable`) and its picture painted over
+  whole; the owner fills it.
 - **Workers, checked once.** Whether a service worker runs the page is
   checked just before the value goes in. A page that registers one, or
   has one claim it, between that check and the value going in is not
@@ -394,10 +420,11 @@ before it reloads ([computer.md](computer.md#builds-and-updates)).
 | `tabs.list` | `session` | `tabs [{ id, url, title, handed?, focus?, held? }]` (`focus`: the tab beside the side panel; `held { loader, urls }`: what a saved secret holds the tab to, Saved secrets above) |
 | `tabs.open` | `session`, `url?` | `tab` |
 | `tabs.close` | `session`, `tab` | `{}` |
-| `cdp.send` | `session`, `tab`, `method`, `params?` | the command's result |
-| `cdp.batch` | `session`, `tab`, `calls [{ method, params? }]` (1 to 100), `parallel?` | `results [{ result } or { error { code, message } }]`: in order, up to the first that fails, or all side by side when `parallel`; each checked as `cdp.send` checks one, as it is sent |
-| `secret.fill` | `session`, `tab`, `node` (backend node id), `frame`, `doc` (the main frame's loader), `origin`, `frameOrigin`, `slot` (`password`, `username`, `card-number`, `card-expiry`, `card-exp-month`, `card-exp-year`, `card-cvc`, `card-name`, `address-*`, `token`, `text`), `value` | `filled: true`; refused with `origin`, `changed`, `field`, `unreachable`, `worker`, `focus`, `paused`, `hidden_site`, `tab` or `no_session`, never with the value |
+| `cdp.send` | `session`, `tab`, `frame?` (a frame of another process, by its id: its own session, reading and hands' scripts only), `method`, `params?` | the command's result |
+| `cdp.batch` | `session`, `tab`, `frame?`, `calls [{ method, params? }]` (1 to 100), `parallel?` | `results [{ result } or { error { code, message } }]`: in order, up to the first that fails, or all side by side when `parallel`; each checked as `cdp.send` checks one, as it is sent |
+| `secret.fill` | `session`, `tab`, `node` (backend node id, of the frame's process), `frame`, `doc` (the main frame's loader), `origin`, `frameOrigin`, `slot` (`password`, `username`, `card-number`, `card-expiry`, `card-exp-month`, `card-exp-year`, `card-cvc`, `card-name`, `address-*`, `token`, `text`), `value` | `filled: true`; refused with `origin`, `changed`, `field`, `unreachable`, `worker`, `focus`, `paused`, `hidden_site`, `tab` or `no_session`, never with the value |
 | `secret.picture` | `session`, `tab`, `masks { <origin>: [pattern] }` (at most 500), `format?`, `quality?`, `maxEdge?` | `data`: the picture, masked (Saved secrets, above) |
+| `tab.origins` | `session`, `tab` | `origins`: the web origins of the tab's frames, those of other processes among them, for `secret.picture`'s masks |
 
 A batch is refused as a whole, with nothing after sent, when at any
 command in it the owner has taken the tab over (`paused`), the session has
