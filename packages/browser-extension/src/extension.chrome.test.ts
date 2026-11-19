@@ -199,7 +199,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
 
     profile = mkdtempSync(join(tmpdir(), "kos-extension-"));
     const port = 9800 + Math.floor(Math.random() * 100);
-    chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--enable-unsafe-extension-debugging", "--no-first-run", "about:blank"], { stdio: "ignore", detached: true });
+    chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--enable-unsafe-extension-debugging", "--no-first-run", "--use-mock-keychain", "about:blank"], { stdio: "ignore", detached: true });
     let version: { webSocketDebuggerUrl: string } | undefined;
     // A CI machine can take a while to bring Chrome up; ten seconds once was not enough.
     for (let i = 0; i < 300 && !version; i++) {

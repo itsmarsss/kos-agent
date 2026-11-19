@@ -200,7 +200,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     base = `http://127.0.0.1:${await listen(host)}`;
     profile = mkdtempSync(join(tmpdir(), "kos-artifact-chrome-"));
     const port = 9400 + Math.floor(Math.random() * 400);
-    chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--no-first-run", "about:blank"], { stdio: "ignore" });
+    chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--no-first-run", "--use-mock-keychain", "about:blank"], { stdio: "ignore" });
     let version: { webSocketDebuggerUrl: string } | undefined;
     for (let i = 0; i < 300 && !version; i++) {
       version = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json() as Promise<{ webSocketDebuggerUrl: string }>).catch(() => undefined);
