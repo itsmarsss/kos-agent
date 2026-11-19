@@ -120,6 +120,8 @@ are out of its reach. Where it differs from macOS:
 - A read-only KOS file that is not there yet (`mcp.json`, say) is stood in
   for by an empty one while the run lasts, and taken away after.
 - A read-only path reached through a link is refused rather than held.
+- A hidden folder with a run's own temp inside it (`.kos`) shows the
+  empty folders down to that temp, and nothing else.
 
 ## 2. Install
 
