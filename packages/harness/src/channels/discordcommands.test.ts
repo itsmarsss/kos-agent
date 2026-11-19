@@ -141,6 +141,24 @@ describe("/inbox on Discord", () => {
   });
 });
 
+describe("picking an ask for /approve", () => {
+  it("offers each by what it does, with no secret's value in it", async () => {
+    const { adapter } = adapterWith({ pending: () => [{ id: "21", text: "x", tool: "shell.run", args: { command: "curl -H 'token: hunter2' api" } }] }, { scrub: (t) => t.replaceAll("hunter2", "[secret]") });
+    const offered: { name: string; value: string }[][] = [];
+    await adapter.receiveInteraction({
+      isAutocomplete: () => true,
+      commandName: "approve",
+      user: { id: "owner" },
+      options: { getFocused: () => "" },
+      respond: async (c: { name: string; value: string }[]) => void offered.push(c),
+    } as unknown as Interaction);
+    expect(offered[0]).toHaveLength(1);
+    expect(offered[0]![0]!.value).toBe("21");
+    expect(offered[0]![0]!.name).toContain("[secret]");
+    expect(offered[0]![0]!.name).not.toContain("hunter2");
+  });
+});
+
 describe("registering the commands", () => {
   it("registers them for the owner's server, and for DMs alone globally", async () => {
     const { adapter } = adapterWith();

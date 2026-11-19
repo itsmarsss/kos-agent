@@ -2505,7 +2505,7 @@ export class DiscordAdapter implements ChannelAdapter {
       const pick = surfaceCommand(interaction.commandName)?.option?.pick;
       try {
         await interaction.respond(
-          pick === "job" ? jobCompletions(this.commands, typed) : pick === "approval" ? approvalCompletions(this.commands, typed, askSummary) : completions(this.commands, typed),
+          pick === "job" ? jobCompletions(this.commands, typed) : pick === "approval" ? approvalCompletions(this.commands, typed, (req) => this.scrub(askSummary(req))) : completions(this.commands, typed),
         );
       } catch {
         // The window for answering an autocomplete is short; a late answer
@@ -3321,7 +3321,8 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
-    const summary = askSummary(req);
+    // Scrubbed too: it is the line the card settles into.
+    const summary = this.scrub(askSummary(req));
     const payload: AskPayload = { ...this.askCard(req), components: [approvalButtons(req, this.dashboardUrl)] };
     // In a server every ask is in #needs-you, the one place to see all that
     // waits, and also where its chat is read when it has a channel or a
