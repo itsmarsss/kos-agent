@@ -84,6 +84,13 @@ export interface PageOptions {
   scripted?: { has(loader: string): boolean; mark(loader: string): void };
   /** Waited on before a fill: work that must be done first (a credential site's service workers cleared). */
   settled?: () => Promise<void>;
+  /**
+   * Why no secret may go into a frame on `origin` of a document that began
+   * at `loadedAt` (0: before KOS came to it), with a service worker
+   * controlling the frame or not, if none may: its site's workers were not
+   * cleared, or the document is from before they were.
+   */
+  workerBar?: (origin: string, loadedAt: number, controlled: boolean) => string | undefined;
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
@@ -245,11 +252,12 @@ export interface FillExpect extends Omit<FieldSpot, "field"> {
  * use is recorded as (refused:<code>): the ref is not of this page's last
  * look, the page changed, its origin or the field's frame is not the one
  * approved, the field is not one the secret may go into, it is in a
- * frame KOS cannot reach, or a script of KOS's ran in the page.
+ * frame KOS cannot reach, a script of KOS's ran in the page, or a service
+ * worker from before its site's were cleared may run it.
  */
 export class SecretRefused extends Error {
   constructor(
-    readonly code: "ref" | "changed" | "origin" | "field" | "unreachable" | "focus" | "scripted",
+    readonly code: "ref" | "changed" | "origin" | "field" | "unreachable" | "focus" | "scripted" | "worker",
     message: string,
   ) {
     super(message);
@@ -284,7 +292,10 @@ export class Page {
   /** Each frame's world of KOS's own, by frame: undefined where none could be made. */
   private readonly worlds = new Map<string, Promise<number | undefined>>();
   /** The main frame's current document, and the lifecycle points it has reached. */
-  private life = { loader: "", reached: new Set<string>() };
+  /** The main frame's current document, the lifecycle points it has reached, and when it began (0 for one KOS found already there). */
+  private life = { loader: "", reached: new Set<string>(), at: 0 };
+  /** Each frame's main-world context, by frame, while a script of KOS's is being placed: its id, its unique id and its origin. */
+  private readonly contexts = new Map<string, { id: number; uniqueId: string; origin: string }>();
   private loading = false;
   /** Requests the page's answer may wait on: when each started, and the address it went to, less its query. */
   private readonly inflight = new Map<string, { at: number; pattern: string }>();
@@ -332,6 +343,7 @@ export class Page {
   /** Documents a script of KOS's ran in: one may have left a hook for what is filled, so none is filled there. */
   private readonly scripted: { has(loader: string): boolean; mark(loader: string): void };
   private readonly settled: () => Promise<void>;
+  private readonly workerBar: (origin: string, loadedAt: number, controlled: boolean) => string | undefined;
 
   constructor(
     private readonly session: Session,
@@ -347,6 +359,7 @@ export class Page {
     const scripted = new Set<string>();
     this.scripted = options.scripted ?? { has: (loader) => scripted.has(loader), mark: (loader) => void scripted.add(loader) };
     this.settled = options.settled ?? (async () => undefined);
+    this.workerBar = options.workerBar ?? (() => undefined);
   }
 
   /**
@@ -390,7 +403,7 @@ export class Page {
       case "Page.lifecycleEvent":
         if (p["frameId"] === this.mainFrame) {
           const loader = String(p["loaderId"] ?? "");
-          if (loader !== this.life.loader) this.life = { loader, reached: new Set() };
+          if (loader !== this.life.loader) this.life = { loader, reached: new Set(), at: this.now() };
           this.life.reached.add(String(p["name"] ?? ""));
         }
         break;
@@ -411,6 +424,11 @@ export class Page {
           if (this.taint && this.taint.loader === this.life.loader) this.taintedUrls.add(urlKey(this.url));
         }
         break;
+      case "Runtime.executionContextCreated": {
+        const c = p["context"] as { id?: number; uniqueId?: string; origin?: string; auxData?: { isDefault?: boolean; frameId?: string } } | undefined;
+        if (c?.auxData?.isDefault && c.auxData.frameId && typeof c.id === "number") this.contexts.set(c.auxData.frameId, { id: c.id, uniqueId: c.uniqueId ?? "", origin: c.origin ?? "" });
+        break;
+      }
       case "Page.javascriptDialogOpening":
         this.onDialog(String(p["type"] ?? "alert"), String(p["message"] ?? ""));
         break;
@@ -480,7 +498,7 @@ export class Page {
     // A page already there when KOS came to it: what it has reached is asked, not heard.
     const state = await this.value<string>("document.readyState").catch(() => "complete");
     const reached = state === "complete" ? ["DOMContentLoaded", "load"] : state === "interactive" ? ["DOMContentLoaded"] : [];
-    this.life = { loader: frame?.loaderId ?? "", reached: new Set(reached) };
+    this.life = { loader: frame?.loaderId ?? "", reached: new Set(reached), at: 0 };
     this.documentId = this.life.loader;
   }
 
@@ -577,16 +595,21 @@ export class Page {
     if (this.holding()) throw new Error(`browser.eval is refused: ${TAINTED}`);
     // On a site a secret may be filled on, a script could read a copy the site keeps, or wait for the next fill.
     const before = await this.document();
-    for (const origin of before.origins) {
-      const why = this.evalBlocked(origin);
-      if (why) throw new Error(`browser.eval is refused on ${origin}: ${why}, so no script of KOS's runs in its pages. Looking, reading, acting with steps and browser.handoff still work here.`);
+    // Each frame's own context says its origin: one about:blank, a popup's among them, has its opener's, though its frame says none.
+    const contexts = await this.mainWorlds();
+    const main = contexts.get(before.frame);
+    if (!main) throw new Error("browser.eval found no page to run in (it may be loading); look at the page again");
+    for (const { id, origin } of before.frames) {
+      const own = /^https?:/i.test(origin) ? origin : (contexts.get(id)?.origin ?? origin);
+      const why = this.evalBlocked(own) ?? (own !== origin ? this.evalBlocked(origin) : undefined);
+      if (why) throw new Error(`browser.eval is refused on ${own}: ${why}, so no script of KOS's runs in its pages. Looking, reading, acting with steps and browser.handoff still work here.`);
     }
     this.scripted.mark(before.loader);
-    // The page may move between the check and the script: it runs only on the origin checked (or on no site).
-    const guard = `if (location.origin !== ${JSON.stringify(before.origin)} && /^https?:/.test(location.origin)) throw new Error("the page moved to another site before the script ran");\n`;
+    // Run in the context checked, which no later page can host; and only while it is still on the origin checked.
+    const guard = /^https?:/i.test(main.origin) ? `if (self.origin !== ${JSON.stringify(main.origin)}) throw new Error("the page moved to another site before the script ran");\n` : "";
     const answer = await this.send(
       "Runtime.evaluate",
-      { expression: guard + code, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
+      { expression: guard + code, uniqueContextId: main.uniqueId, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
       EVAL_MS + 2_000,
     );
     const after = await this.document();
@@ -715,8 +738,8 @@ export class Page {
    */
   async fillSecret(ref: string, value: string, expect: FillExpect): Promise<void> {
     const node = this.refNode(ref);
-    if (this.life.loader !== expect.doc) throw new SecretRefused("changed", "the page changed since you approved; look again and ask again");
     await this.settled();
+    if (this.life.loader !== expect.doc) throw new SecretRefused("changed", "the page changed since you approved; look again and ask again");
     if (this.scripted.has(this.life.loader)) throw new SecretRefused("scripted", "a script of yours ran in this page (browser.eval) and could catch what is filled; open the page afresh, look again and ask again");
     const frame = await this.frameOf(node);
     const frames = await this.frameTree();
@@ -724,6 +747,12 @@ export class Page {
     const frameOrigin = frames.get(frame)?.origin ?? "";
     if (origin !== expect.origin) throw new SecretRefused("origin", `the page is on ${origin || "no site"} now, not ${expect.origin}, which was approved`);
     if (frameOrigin !== expect.frameOrigin || !CHECKED_ORIGIN.test(frameOrigin)) throw new SecretRefused("origin", `${ref} is in a frame from ${frameOrigin || "no site"}, not ${expect.frameOrigin}, which was approved`);
+    // A service worker from before its site was cleared may still run the page, and catch what it sends.
+    const controlled = await this.callIn<boolean>(frame, node, inpage.workerControlled);
+    for (const at of new Set([origin, frameOrigin])) {
+      const why = this.workerBar(at, this.life.at, controlled);
+      if (why) throw new SecretRefused("worker", `${why}; open the page afresh, look again and ask again`);
+    }
     // A field in a frame the page hides (a honeypot) is as hidden as a field that is.
     for (let at = frame; at !== this.mainFrame; ) {
       const parent = frames.get(at)?.parent;
@@ -778,14 +807,17 @@ export class Page {
   }
 
   private async maskedNow<T>(shoot: () => Promise<T>): Promise<T> {
-    // Only what this page may be shown: a value is sent into no page that could learn from its masking that it is a saved secret.
-    const values = this.pageValues([...(await this.frameTree()).values()].map((f) => f.origin));
-    if (values.length === 0) return shoot();
-    const patterns = echoPatterns(values, 1);
+    const frames = await this.frameTree();
+    const top = frames.get(this.mainFrame)?.origin ?? "";
     const masked = new Set<number>();
     try {
       // Every root of every frame KOS can reach, closed shadow roots among them: a value may be copied into any text box or echoed into any text.
       for (const [frame, roots] of await this.roots()) {
+        // Only what this frame may be shown, by its own origin (an about:blank one by the page's): no frame learns from its masking that a word of its is a saved secret.
+        const origin = frames.get(frame)?.origin ?? "";
+        const values = this.pageValues([/^https?:/i.test(origin) ? origin : top]);
+        if (values.length === 0) continue;
+        const patterns = echoPatterns(values, 1);
         const context = await this.world(frame);
         // A frame KOS cannot enter held no field it filled; the page itself must be masked, or there is no picture.
         if (context === undefined) {
@@ -850,18 +882,30 @@ export class Page {
     return merged(this.filled, this.kin()?.values ?? [], this.savedFor(origins));
   }
 
-  /** The main frame's document as one answer of the browser has it: its loader, its origin, and every frame's origin. */
-  private async document(): Promise<{ loader: string; origin: string; origins: string[] }> {
-    type FrameTree = { frame?: { loaderId?: string; securityOrigin?: string }; childFrames?: FrameTree[] };
+  /** The main frame's document as one answer of the browser has it: its frame, its loader, and every frame with its origin. */
+  private async document(): Promise<{ frame: string; loader: string; frames: { id: string; origin: string }[] }> {
+    type FrameTree = { frame?: { id?: string; loaderId?: string; securityOrigin?: string }; childFrames?: FrameTree[] };
     const tree = (await this.send("Page.getFrameTree"))["frameTree"] as FrameTree | undefined;
-    const origins: string[] = [];
+    const frames: { id: string; origin: string }[] = [];
     const walk = (t: FrameTree | undefined): void => {
       if (!t) return;
-      origins.push(t.frame?.securityOrigin ?? "");
+      frames.push({ id: t.frame?.id ?? "", origin: t.frame?.securityOrigin ?? "" });
       for (const child of t.childFrames ?? []) walk(child);
     };
     walk(tree);
-    return { loader: tree?.frame?.loaderId ?? "", origin: tree?.frame?.securityOrigin ?? "", origins };
+    return { frame: tree?.frame?.id ?? "", loader: tree?.frame?.loaderId ?? "", frames };
+  }
+
+  /** Each frame's main-world context, as the browser reports them when asked: Runtime is on only for as long as it takes to hear them. */
+  private async mainWorlds(): Promise<Map<string, { id: number; uniqueId: string; origin: string }>> {
+    this.contexts.clear();
+    try {
+      // The contexts there now are reported before the answer.
+      await this.send("Runtime.enable");
+    } finally {
+      await this.send("Runtime.disable").catch(() => undefined);
+    }
+    return new Map(this.contexts);
   }
 
   /** Text read from the page with every secret filled into it said as hidden, where the page echoes one. */

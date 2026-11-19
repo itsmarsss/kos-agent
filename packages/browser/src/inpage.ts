@@ -713,6 +713,11 @@ export function unmaskAll(): void {
   (CSS.highlights as unknown as Map<string, Highlight>).delete("kos-secret");
 }
 
+/** Whether a service worker runs this field's frame: what it sends goes through the worker. */
+export function workerControlled(this: Element): boolean {
+  return Boolean(navigator.serviceWorker?.controller);
+}
+
 /** The element that has the keyboard in this frame, through open shadow roots. */
 export function focusedHere(): Element | null {
   let el = document.activeElement;
