@@ -2145,7 +2145,12 @@ select {
   font-size: var(--text-md);
 }
 .chat-unsent-mark { display: grid; place-items: center; flex: none; width: 1.1rem; height: 1.1rem; border-radius: 50%; background: var(--danger-dim); }
-.chat-unsent-text { min-width: 0; }
+/* Narrow, the words take the line and Edit and Retry go under them, at the right. */
+.chat-unsent { flex-wrap: wrap; }
+.chat-unsent-text { min-width: 0; flex: 0 1 auto; }
+@media (max-width: 640px) {
+  .chat-unsent-text { flex: 1 1 calc(100% - 1.6rem); }
+}
 
 .bubble--you {
   align-self: flex-end;
