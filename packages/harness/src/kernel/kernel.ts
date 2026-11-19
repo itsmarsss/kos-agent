@@ -158,7 +158,7 @@ import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
 import { SdkOneShot, sdkModelFor, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
-import { Decisions, type DecisionResult, type DecisionSurface } from "./decisions.js";
+import { Decisions, type DecisionOptions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
 import { GuardedTools, finishedAfterStop } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
@@ -2969,7 +2969,7 @@ export class Kernel {
   }
 
   /** Carry out the owner's decision on a queued action. Every surface comes through here. */
-  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface; device?: string }): Promise<DecisionResult> {
+  async approve(id: number, decidedBy: string | undefined, options: DecisionOptions): Promise<DecisionResult> {
     return this.decisions.approve(id, decidedBy, options);
   }
 
@@ -3273,7 +3273,7 @@ export class Kernel {
           };
         }
         const result =
-          command.kind === "approve" ? await this.approve(action.id, userId, { surface: channel }) : await this.deny(action.id, userId);
+          command.kind === "approve" ? await this.approve(action.id, userId, { surface: channel, typed: true }) : await this.deny(action.id, userId);
         const what = `@approval:${action.id} ${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(action.conversationId))}`;
         return { reply: result.ok ? `${command.kind === "approve" ? "Approved" : "Denied"} ${what}.` : result.message };
       }
@@ -4280,15 +4280,15 @@ export class Kernel {
     return { browser: { prefix: BROWSER_PREFIX, ...(site ? { site } : {}), strict: BROWSER_STRICT, ...(away ? { yours: true } : {}) } };
   }
 
-  /**
-   * The owner's own Chrome, when a package offers it (KOS for Chrome,
-   * through computer use): a conversation working in it browses there.
-   */
   /** Where KOS's own hand is on the paired devices, so a yes on a secret's ask is never taken from it (Decisions). */
   setHandsOn(judge: (device: string | undefined, conversationId: string | null) => string | undefined): void {
     this.handsOn = judge;
   }
 
+  /**
+   * The owner's own Chrome, when a package offers it (KOS for Chrome,
+   * through computer use): a conversation working in it browses there.
+   */
   setBrowserElsewhere(place: BrowserElsewhere): void {
     this.elsewhere = place;
   }

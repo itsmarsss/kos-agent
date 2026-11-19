@@ -99,6 +99,15 @@ export const DECIDING_SURFACES: ReadonlySet<string> = new Set(["dashboard", "chr
  */
 export type DecisionSurface = "dashboard" | "chrome" | "mac" | "phone" | "cli" | "discord" | "sms" | "imessage" | (string & Record<never, never>);
 
+/** How a yes was given: where, from which paired device (its id), as a typed command or a press, and whether to remember it. */
+export interface DecisionOptions {
+  remember?: boolean;
+  surface: DecisionSurface;
+  device?: string;
+  /** A typed /approve rather than a card's button: never enough for a secret's ask. */
+  typed?: boolean;
+}
+
 /** Said on a chat surface for an ask that places a secret, in place of its buttons or a typed decision. */
 export function secretAskElsewhere(id: number | string): string {
   return `KOS asks to use a secret (#${id}). Decide on the dashboard or a paired device; a secret's use is never decided here.`;
@@ -150,8 +159,7 @@ export class Decisions {
     return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
   }
 
-  /** `device`: the paired device the yes came from, by its id, when it came from one. */
-  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface; device?: string }): Promise<DecisionResult> {
+  async approve(id: number, decidedBy: string | undefined, options: DecisionOptions): Promise<DecisionResult> {
     const d = this.deps;
     const action = d.approvals.get(id);
     if (!action || action.status !== "pending") return { ok: false, message: `no pending action #${id}` };
@@ -160,6 +168,10 @@ export class Decisions {
     // A call that places a secret is approved only where the owner is proved: the dashboard or a paired device, never a chat surface.
     if (!DECIDING_SURFACES.has(options.surface) && placing) {
       return { ok: false, message: secretAskElsewhere(id) };
+    }
+    // Typed words are not a press: on a device's own chat they could be KOS's own keys.
+    if (options.typed && placing) {
+      return { ok: false, message: `#${id} uses a secret, which is decided with its card's buttons on the dashboard or a paired device, never a typed /approve.` };
     }
     // Nor from where KOS's own pointer may be: the ask stays, for the owner to decide where KOS is not.
     const handsOn = placing ? d.handsOn?.(options.device, action.conversationId) : undefined;
