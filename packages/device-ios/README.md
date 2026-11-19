@@ -80,6 +80,7 @@ Each is a small protocol in `PhoneCore`, with the iPhone's own behind
 | `ArtifactFrame` | `WKWebView` (UIKit) | the same `WKWebView` (AppKit), tested and drawn |
 | `Picking` | `PhotosPicker` and the file importer, a file read under its grant | the same pickers |
 | `AskKOS` | an App Intent and its App Shortcut | none |
+| `Notifier` | `SystemNotifier`: UserNotifications and APNs, the build's `aps-environment` | `NoNotifier` (no push); tests script it |
 
 Photos are brought down to 2048 pixels on the long side as JPEG with ImageIO,
 which both systems have; files go as they are, five megabytes and four to a
@@ -98,7 +99,8 @@ under Reduce Motion.
    `packages/device-ios/Xcode` (not committed until it is settled). Delete the
    template's `ContentView.swift` and app file; add `App/KOSPhoneApp.swift`,
    and set the target's Info.plist to `App/Info.plist` (it declares the
-   `kos-device` link, the microphone, speech recognition and the local network).
+   `kos-device` link, the microphone, speech recognition, the local network,
+   and push once it is set up: see Push).
    Do not add `App/Info.plist` to the target as a file: as a resource it is
    copied into the bundle a second time, and the build fails.
 3. File, Add Package Dependencies, Add Local, pick `packages/device-ios`, and
@@ -191,6 +193,45 @@ update is ready", which opens Settings with the steps: open the KOS project
 in Xcode on the Mac, pick this iPhone, and press Run. KOS lists the phone as
 behind in Settings, Devices. Everything on the KOS side is live already.
 
+## Push
+
+KOS's asks reach the lock screen while the app is closed: who asks and the
+card's line, with Approve (only once the phone is unlocked) and Deny (from
+the lock screen as it is). Either opens the line, decides as the app does,
+and closes it again; one that cannot reach KOS leaves a notification that
+opens the ask. A tap opens the ask in the Inbox. An ask settled anywhere
+comes down. The app asks the owner's leave right after pairing, or from
+Settings, Notifications; never at launch. The wire and the host's side are in
+[docs/computer.md](../../docs/computer.md), Push.
+
+It is built and waits for an Apple developer account: a free Personal Team
+cannot sign the push entitlement, so the app as it builds today has no push
+(Settings says so) and builds as before. `PhoneCore`'s `PushModel` and
+`Notifier` (`SystemNotifier` on an iPhone, `NoNotifier` elsewhere) hold it;
+`PhoneUI`'s `Notifications.swift` is the app delegate's part.
+
+Once there is an account:
+
+1. In the developer portal, Certificates, Identifiers and Profiles: register
+   the app's bundle id with Push Notifications on. Under Keys, make a key with
+   Apple Push Notifications service (APNs) and download its `.p8` (once only),
+   and note its Key ID and your Team ID (Membership).
+2. In Xcode, the app target: Signing and Capabilities, Team, the paid team.
+   Under Info, Configurations, base Debug and Release on `App/Push.xcconfig`
+   (it sets `KOS_APS_ENVIRONMENT` and `CODE_SIGN_ENTITLEMENTS` to
+   `App/Push.entitlements`). For TestFlight or the App Store, set
+   `KOS_APS_ENVIRONMENT = production` for Release. Build and run.
+3. On KOS: add the `.p8`'s text on the Secrets page as a note, then in
+   Settings, Devices, Phone notifications pick it and enter the Key ID, the
+   Team ID and the bundle id. Or set `KOS_APNS_KEY_FILE`, `KOS_APNS_KEY_ID`,
+   `KOS_APNS_TEAM_ID` and `KOS_APNS_TOPIC` in the host's `.env`.
+4. On the phone, Settings, Notifications, Turn on. The phone's row in
+   Settings, Devices then says Push on.
+
+`App/Info.plist` already carries `KOSAPSEnvironment` (`$(KOS_APS_ENVIRONMENT)`,
+empty until the xcconfig sets it) and the `remote-notification` background
+mode, which a build without the entitlement ignores.
+
 Not yet: Bonjour discovery (the address is typed or comes in the link), and
-the app in the background (iOS closes the socket; the app dials again when it
-is opened).
+the app's line in the background (iOS closes the socket; the app dials again
+when it is opened, or for a notification's Approve or Deny).

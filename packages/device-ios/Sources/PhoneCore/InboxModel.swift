@@ -27,6 +27,10 @@ public final class InboxModel: ObservableObject {
   /// The approvals being decided, so their buttons wait.
   @Published public private(set) var deciding: Set<Int> = []
 
+  /// An ask to open, from its notification: the Inbox shows and opens it.
+  @Published public private(set) var revealing: Int?
+  @Published private var revealTries = 0
+
   /// Told when one is decided here, so the chat's card and the glance's row go too.
   public var settled: (String) -> Void = { _ in }
 
@@ -43,6 +47,32 @@ public final class InboxModel: ObservableObject {
     self.haptics = haptics
     self.say = say
     waiting = Page { try await dashboard.get(Routes.Inbox.self, "/api/inbox") }
+  }
+
+  /// Open this ask, from its notification.
+  public func reveal(_ id: String) {
+    revealing = Int(id)
+  }
+
+  /// The line is back: an ask still to reveal is read for again.
+  public func lineUp() {
+    if revealing != nil { revealTries += 1 }
+  }
+
+  /// What the screen opens the revealed ask on: a new one, or a new try once the line is back.
+  public var revealKey: String? { revealing.map { "\($0)/\(revealTries)" } }
+
+  /// The ask being revealed, read afresh. Off the line it is kept for the next try; settled meanwhile, it is said.
+  public func revealed() async -> Routes.Pending? {
+    guard let id = revealing else { return nil }
+    await waiting.refresh()
+    guard waiting.error == nil, revealing == id else { return nil }
+    revealing = nil
+    guard let ask = waiting.value?.approvals.first(where: { $0.id == id }) else {
+      say(.init("That ask was already settled"))
+      return nil
+    }
+    return ask
   }
 
   /// What waits, and the first page of what was decided, held as the owner holds it.

@@ -19,12 +19,18 @@
 			</array>
 		</dict>
 	</array>
+	<key>KOSAPSEnvironment</key>
+	<string>$(KOS_APS_ENVIRONMENT)</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>KOS for iPhone talks to your KOS over your home Wi-Fi.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>KOS listens while you hold a conversation with it, and only then.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Your words are turned into text on this iPhone where it can, and sent to your KOS.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

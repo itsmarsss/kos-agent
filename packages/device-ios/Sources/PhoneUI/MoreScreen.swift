@@ -3,6 +3,10 @@ import DeviceKit
 import PhoneCore
 import SwiftUI
 
+#if os(iOS)
+  import UIKit
+#endif
+
 /// More: the rest of the dashboard's pages, under the address of the KOS
 /// this phone is paired with. The overview first, since it is the glance; then
 /// runs, blobs, files and memory, in the dashboard's order; then this
@@ -25,7 +29,7 @@ struct MoreScreen: View {
       (.blobs, "circle.hexagongrid.fill", Theme.violet, "Blobs", "The helpers that keep things up for you"),
       (.files, "folder", Theme.accent, "Files", "Your workspace, read only"),
       (.memory, "brain", Theme.violet, "Memory", "What KOS knows"),
-      (.settings, "gearshape", Theme.muted, "Settings", "Speak replies, and this iPhone's pairing"),
+      (.settings, "gearshape", Theme.muted, "Settings", "Speak replies, notifications, and this iPhone's pairing"),
     ]
   }
 
@@ -54,8 +58,8 @@ struct MoreScreen: View {
   }
 }
 
-/// The little there is to set on the phone: speak replies, and which KOS it is paired with, to unpair; and
-/// the steps to a newer build, when KOS has one.
+/// The little there is to set on the phone: speak replies, KOS's asks on the lock screen, and which KOS it is
+/// paired with, to unpair; and the steps to a newer build, when KOS has one.
 struct SettingsScreen: View {
   @ObservedObject var phone: Phone
   @ObservedObject var reader: ReplyReader
@@ -74,6 +78,7 @@ struct SettingsScreen: View {
           Card {
             SwitchRow("Speak replies", "Read KOS's answers aloud as they land.", isOn: reader.on) { reader.on = $0 }
           }
+          NotificationsCard(push: phone.push)
           KOSSection("Paired with") {
             Card {
               RowText(phone.paired?.name ?? "iPhone", phone.paired.map { "KOS at \((try? $0.kosAddress().display) ?? $0.address)" }, size: .body, detailLines: 2)
@@ -93,6 +98,43 @@ struct SettingsScreen: View {
         }
         .padding(16)
       }
+    }
+  }
+}
+
+/// KOS's asks on the lock screen: where it stands, and the one thing to press. The owner's leave is asked from
+/// here, never at launch; once refused, only the iPhone's own Settings can give it back.
+struct NotificationsCard: View {
+  @ObservedObject var push: PushModel
+  @Environment(\.openURL) private var openURL
+
+  private var words: (title: String, detail: String) {
+    guard push.available else {
+      return ("Notifications", "This build has no push. Once your Apple developer account is set up, build it with push on (README, Push).")
+    }
+    switch push.permission {
+    case .allowed where push.token != nil:
+      return ("Asks come to the lock screen", "Deny there as it is; Approve once this iPhone is unlocked. A tap opens the ask.")
+    case .allowed:
+      return ("Asks come to the lock screen", push.problem.map { "Apple gave no token yet: \($0)" } ?? "Getting this iPhone's token from Apple.")
+    case .denied:
+      return ("Notifications are off", "Turn them on for KOS in the iPhone's Settings, under Notifications.")
+    case .undecided, nil:
+      return ("Notifications", "KOS's asks on the lock screen, to approve or deny without opening the app.")
+    }
+  }
+
+  var body: some View {
+    Card {
+      RowText(words.title, words.detail, setting: true)
+      if push.available, push.permission == .undecided {
+        Button("Turn on notifications") { Task { await push.turnOn() } }.buttonStyle(KOSButtonStyle(.secondary, large: true))
+      }
+      #if os(iOS)
+        if push.available, push.permission == .denied, let settings = URL(string: UIApplication.openNotificationSettingsURLString) {
+          Button("Open Settings") { openURL(settings) }.buttonStyle(KOSButtonStyle(.secondary, large: true))
+        }
+      #endif
     }
   }
 }
