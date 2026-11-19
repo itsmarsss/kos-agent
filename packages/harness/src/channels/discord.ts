@@ -30,7 +30,7 @@ import { FILE_MAX_BYTES, isAudio, isReadable, megabytes, type Attachment } from 
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, roomConversationId, roomPlaceOf, type Guest } from "./types.js";
-import { approvalCompletions, commandCard, commandText, completions, jobCompletions, jobNamed, slashCommands, surfaceCommands, type SlashContext } from "./commands.js";
+import { approvalCompletions, commandCard, commandText, completions, jobCompletions, jobNamed, slashCommands, surfaceCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
 import { shortStory, STEP_MARK } from "./narrate.js";
@@ -2475,7 +2475,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (interaction.isAutocomplete?.()) {
       if (!this.commands || !this.isAuthorized(interaction.user.id)) return;
       const typed = String(interaction.options.getFocused() ?? "");
-      const pick = surfaceCommands().find((c) => c.name === interaction.commandName)?.option?.pick;
+      const pick = surfaceCommand(interaction.commandName)?.option?.pick;
       try {
         await interaction.respond(
           pick === "job" ? jobCompletions(this.commands, typed) : pick === "approval" ? approvalCompletions(this.commands, typed, askSummary) : completions(this.commands, typed),

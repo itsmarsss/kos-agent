@@ -14,7 +14,8 @@ from the one list every surface shares (`CHAT_COMMANDS` in
 `packages/shared/src/commands.ts`): the dashboard's composer, KOS for
 Chrome and KOS for Mac offer the same ones, and the kernel runs them the
 same way wherever they are typed, with no model turn. That is `/new`,
-`/chats`, `/switch` (or `/target`), `/here`, `/rename`, `/fork`,
+`/chats`, `/switch` (also registered as `/target`, an alias the registry
+lists), `/here`, `/rename`, `/fork`,
 `/archive`, `/retry`, `/stop`, `/mode`, `/brief`, `/agent`, `/agents`,
 `/dispatch`, `/project`, `/inbox`, `/approve`, `/deny`, `/status`, `/run`,
 `/halt`, `/resume`, `/compact`, `/clear`, `/tools` and `/help`; the
@@ -30,8 +31,9 @@ alone. The answer to any of them is shown to you alone. Typed in a bound
 channel or thread, a command acts on that room's chat (`/stop` stops it,
 `/compact` compacts it), while `/new`, `/switch`, `/here` and the like
 still move only where your DMs go, and say so. In your server the
-commands are registered for that server, where they show at once, and
-once more globally for DMs alone, so the server lists each only once. The
+commands are registered for that server, where they show at once, to its
+administrators alone so a guest is not offered them, and once more
+globally for DMs alone, so the server lists each only once. The
 bot needs the `applications.commands` scope for this; without it the
 host says so in its log and everything else works.
 

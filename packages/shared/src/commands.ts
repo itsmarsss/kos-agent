@@ -31,6 +31,8 @@ export interface CommandSpec {
   where?: "dashboard";
   /** What follows the command, for a surface that asks for it as an option. */
   option?: CommandOption;
+  /** Other names it answers to, registered as commands of their own where a surface keeps a list (Discord's slash commands). */
+  aliases?: readonly string[];
 }
 
 const text = (name: string, description: string, required = false): CommandOption => ({ name, description, ...(required ? { required } : {}) });
@@ -44,7 +46,7 @@ const text = (name: string, description: string, required = false): CommandOptio
 export const CHAT_COMMANDS: CommandSpec[] = [
   { name: "new", args: "[title]", description: "start another chat", option: text("title", "what it is for") },
   { name: "chats", description: "list your chats" },
-  { name: "switch", args: "<number|title>", description: "move to one", option: { name: "chat", description: "which one", required: true, pick: "chat" } },
+  { name: "switch", args: "<number|title>", description: "move to one", option: { name: "chat", description: "which one", required: true, pick: "chat" }, aliases: ["target"] },
   { name: "here", description: "go back to this surface's own chat" },
   { name: "rename", args: "<title>", description: "rename this chat", option: text("title", "the new title", true) },
   { name: "fork", args: "[title]", description: "copy this chat, history and all, and move to the copy", option: text("title", "what to call the copy") },

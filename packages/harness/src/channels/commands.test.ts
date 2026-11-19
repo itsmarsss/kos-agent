@@ -2,7 +2,7 @@ import { ApplicationCommandOptionType, InteractionContextType } from "discord.js
 import { CHAT_COMMANDS } from "@kos/shared";
 import { describe, expect, it } from "vitest";
 
-import { approvalCompletions, commandCard, commandText, completions, jobCompletions, jobNamed, slashCommands, surfaceCommands, type SlashContext } from "./commands.js";
+import { approvalCompletions, commandCard, commandText, completions, jobCompletions, jobNamed, slashCommands, surfaceCommand, surfaceCommands, type SlashContext } from "./commands.js";
 
 function ctxWith(chats: { id: string; title: string; kind: string }[], start?: string): SlashContext {
   return {
@@ -53,7 +53,7 @@ describe("slash commands", () => {
 describe("one registry for every surface", () => {
   it("registers every command a chat surface runs, from the shared list, and none of the dashboard's own", () => {
     const names = (slashCommands("everywhere") as { name: string }[]).map((c) => c.name);
-    expect(names).toEqual(CHAT_COMMANDS.filter((c) => c.where !== "dashboard").map((c) => c.name));
+    expect(names).toEqual(CHAT_COMMANDS.filter((c) => c.where !== "dashboard").flatMap((c) => [c.name, ...(c.aliases ?? [])]));
     for (const name of ["mode", "stop", "status", "new", "inbox", "approve", "deny", "compact", "retry", "fork", "rename", "archive", "project", "run", "halt", "resume", "switch", "here"]) expect(names, name).toContain(name);
     expect(names).not.toContain("btw");
     expect(names).not.toContain("export");
@@ -79,6 +79,20 @@ describe("one registry for every surface", () => {
     expect(by.get("run")).toMatchObject({ autocomplete: true });
     expect(by.get("mode")?.choices?.map((c) => c.value)).toEqual(["ask", "auto"]);
     expect(by.get("status")).toBeUndefined();
+  });
+
+  it("registers /target as /switch, picker and all, typed as the kernel reads it", () => {
+    const by = new Map((slashCommands("everywhere") as { name: string; description: string; options?: unknown[] }[]).map((c) => [c.name, c]));
+    expect(by.get("target")?.options).toEqual(by.get("switch")?.options);
+    expect(by.get("target")?.description).toBe(by.get("switch")?.description);
+    expect(surfaceCommand("target")?.option?.pick).toBe("chat");
+    expect(commandText("target", "Garden")).toBe("/target Garden");
+  });
+
+  it("shows the server's commands to its administrators alone, and the DM's to the owner", () => {
+    const guild = slashCommands("guild") as { defaultMemberPermissions?: bigint }[];
+    expect(guild.every((c) => c.defaultMemberPermissions === 0n)).toBe(true);
+    expect((slashCommands("dm") as { defaultMemberPermissions?: bigint }[]).every((c) => c.defaultMemberPermissions === undefined)).toBe(true);
   });
 
   it("registers for the DM alone globally when the server has its own", () => {

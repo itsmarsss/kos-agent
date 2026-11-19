@@ -51,16 +51,26 @@ export function surfaceCommands(): CommandSpec[] {
   return CHAT_COMMANDS.filter((c) => c.where !== "dashboard");
 }
 
+/** A surface's command by the name it was typed as, its own or an alias. */
+export function surfaceCommand(name: string): CommandSpec | undefined {
+  return surfaceCommands().find((c) => c.name === name || c.aliases?.includes(name));
+}
+
 /**
  * The commands as Discord registers them. In the owner's server they are
- * registered for that server, where they show at once; in the DM, globally,
- * for DMs only, so the server does not list each one twice.
+ * registered for that server, where they show at once, to its
+ * administrators alone; in the DM, globally, for DMs only, so the server
+ * does not list each one twice.
  */
 export function slashCommands(where: "guild" | "dm" | "everywhere"): ApplicationCommandDataResolvable[] {
-  return surfaceCommands().map((c) => ({
+  // An alias is a command of its own here, as the kernel runs it: `/target` is `/switch`.
+  return surfaceCommands().flatMap((c) => [c.name, ...(c.aliases ?? [])].map((name) => ({ ...c, name }))).map((c) => ({
     name: c.name,
     description: c.description.slice(0, 100),
     ...(where === "dm" ? { contexts: [InteractionContextType.BotDM] } : {}),
+    // In the server, shown to nobody but its administrators, so a guest is
+    // not offered the owner's commands only to be refused them.
+    ...(where === "guild" ? { defaultMemberPermissions: 0n } : {}),
     ...(c.option
       ? {
           options: [
@@ -84,7 +94,7 @@ export function commandText(name: string, argument?: string): string {
 }
 
 /** The commands that move where the DM sends, said so when typed in a room, which keeps its own chat. */
-const MOVES_DM = new Set(["new", "switch", "here", "fork", "agent", "project", "archive"]);
+const MOVES_DM = new Set(["new", "switch", "target", "here", "fork", "agent", "project", "archive"]);
 
 /** A command's answer as a card, shown to whoever asked alone; `tools` links the chat's tool scope, when it opens one. */
 export function commandCard(name: string, answer: CommandAnswer, opts: { room?: boolean; tools?: string } = {}): MessageCard {
