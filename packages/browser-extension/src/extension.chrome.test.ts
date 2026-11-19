@@ -1001,6 +1001,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await call("chat.status", { chat: "cm1:owner", conversation: "cm1:owner", said: "elsewhere", story: "› Not here" })).toMatchObject({ ok: true });
     await until(() => false, 200);
     expect(await text()).not.toContain("Not here");
+    // Nor does it move the panel: the page beside it is still read only for the chat it shows.
+    expect((await call("page.read", { conversation: "cm1:owner" }))["error"]).toMatchObject({ code: "no_panel" });
     // Held on an approval, the turn is the owner's to move: it says so, with no dots and no clock, and Approve comes first.
     expect(await call("chat.ask", { approval: { id: "a1", tool: "shell.run", reason: "runs a program", expiresAt: Date.now() + 60_000 } })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);

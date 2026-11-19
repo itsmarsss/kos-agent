@@ -1686,12 +1686,17 @@ async function hand(tab: number, give: boolean): Promise<void> {
 
 // The side panel.
 
-/** What a KOS says to the side panels talking to it; the chat it shows them is the one they are on. */
+/**
+ * What a KOS says to the side panels talking to it; the chat it shows them
+ * is the one they are on. Only `chat.show` says that: a status, an ask or a
+ * settled turn names the chat it is about, which may be one the panel left.
+ */
 function toPanels(method: string, params: Record<string, unknown>, origin: string): void {
+  const shown = method === "chat.show" && typeof params["conversation"] === "string" ? params["conversation"] : undefined;
   for (const panel of panels) {
     if (panel.kos !== origin) continue;
-    const moved = typeof params["conversation"] === "string" && params["conversation"] !== panel.conversation;
-    if (typeof params["conversation"] === "string") panel.conversation = params["conversation"];
+    const moved = shown !== undefined && shown !== panel.conversation;
+    if (shown !== undefined) panel.conversation = shown;
     panel.port.postMessage({ type: method, ...params });
     if (moved) tellEnded(panel);
   }
