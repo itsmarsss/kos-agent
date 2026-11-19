@@ -97,6 +97,14 @@ export class RunsLog {
     return rows.map(toRecord);
   }
 
+  /** Every run started at or after `at`, oldest first: a window, however busy, read whole. */
+  since(at: number): RunRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM runs_log WHERE started_at >= ? ORDER BY id`)
+      .all(at) as Row[];
+    return rows.map(toRecord);
+  }
+
   /** The finished runs of one thing, newest first: a job's, by its id. */
   finishedFor(kind: string, ref: string, limit = 50): RunRecord[] {
     const rows = this.db
