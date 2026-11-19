@@ -7,6 +7,7 @@ import { useInTrash, restoreFromTrash } from "./ArtifactManage.js";
 import { OwnerMark, useDashboardTheme } from "./ArtifactsPage.js";
 import { KIND_WORD } from "./artifactowner.js";
 import { hrefFor } from "./routes.js";
+import { Signed } from "./signed.js";
 
 /**
  * What a turn made, shown as what it is: when artifacts.write succeeds, the
@@ -123,7 +124,7 @@ export function ArtifactStep({ art }: { art: WrittenArtifact }): ReactElement {
     <div className={`artifact-step${trashed ? " is-trashed" : ""}`}>
       <button type="button" className="artifact-step-thumb" data-kind={art.artifactKind} tabIndex={-1} aria-hidden="true" onClick={() => open(art.id)}>
         {!missing ? (
-          <img src={`/api/artifacts/${encodeURIComponent(art.id)}/thumb?theme=${theme}&v=${Math.round(art.updatedAt ?? 0)}&try=${tries}`} alt="" loading="lazy" onError={() => setMissing(true)} />
+          <Signed url={`/api/artifacts/${encodeURIComponent(art.id)}/thumb?theme=${theme}&v=${Math.round(art.updatedAt ?? 0)}&try=${tries}`}>{(src, again) => <img src={src} alt="" loading="lazy" onError={() => again() || setMissing(true)} />}</Signed>
         ) : (
           <NavIcon name={art.artifactKind} />
         )}

@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import { registrableDomain, secretFieldWords, type AskSecret, type AskView, type StepLine } from "@kos/shared";
 
@@ -6,6 +6,7 @@ import { CheckIcon, ChevronDown, ChevronRight, CopyIcon, GlobeIcon, HiddenIcon, 
 import { Collapse, Countdown, Tag } from "./kit.js";
 import { useOverlayScroll } from "./OverlayScroll.js";
 import { Tooltip } from "./Tooltip.js";
+import { useSteadyPress } from "./useSteadyPress.js";
 
 /**
  * An approval, as every web surface asks it: what KOS wants to do, where,
@@ -46,14 +47,33 @@ export interface AskCardProps {
   children?: ReactNode;
 }
 
+/** How long a card is on screen, still and unchanged, before a press decides it. */
+export const ASK_SETTLE_MS = 500;
+/** How long the line saying a press was let go stays. */
+const HELD_CUE_MS = 1600;
+
 export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false, onDecide, labels, noRemember = false, compact = false, bare = false, meta, extra, children }: AskCardProps): ReactElement {
   const [pressed, setPressed] = useState<"yes" | "always" | "no" | null>(null);
   useEffect(() => {
     if (!busy) setPressed(null);
   }, [busy]);
+  const box = useRef<HTMLElement>(null);
+  // A card just arrived, just moved or just changed is not decided by a press meant for what was there.
+  const steady = useSteadyPress(box, ASK_SETTLE_MS, `${tool}\n${JSON.stringify(view)}`);
+  // A press let go because the card had just moved, said so for a moment beside the buttons.
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (!held) return;
+    const later = setTimeout(() => setHeld(false), HELD_CUE_MS);
+    return () => clearTimeout(later);
+  }, [held]);
   const decide = (which: "yes" | "always" | "no"): void => {
     // One decision per card: a second press, or a key held down, sends nothing more.
     if (busy || pressed) return;
+    if (!steady()) {
+      setHeld(true);
+      return;
+    }
     setPressed(which);
     if (which === "no") onDecide(false);
     else if (which === "always") onDecide(true, true);
@@ -93,6 +113,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
 
   return (
     <section
+      ref={box}
       className={`kos-ask${compact ? " kos-ask--compact" : ""}${bare ? " kos-ask--bare" : ""}`}
       tabIndex={0}
       aria-label={`${asker ?? "KOS"} asks: ${view.title}`}
@@ -149,6 +170,11 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           {working("no", labels?.no ?? "Deny")}
         </button>
         {extra}
+        {held && (
+          <span className="kos-ask-held" role="status">
+            This card just moved. Press again.
+          </span>
+        )}
         {/* Why there is no remembered yes, beside the buttons where it would have been. */}
         {!always && !noRemember && view.alwaysNote && <span className="kos-ask-note">{view.alwaysNote}</span>}
       </div>

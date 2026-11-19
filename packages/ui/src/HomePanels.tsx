@@ -10,6 +10,7 @@ import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick } from "./charts.js"
 import { PendingAsk } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
 import { ActivityDot, buildDot, fixLabel } from "./StatusDot.js";
+import { agoWords } from "./schedulewords.js";
 
 /**
  * The panels a home page can be built from.
@@ -30,17 +31,8 @@ export function agentSide(a: AgentInfo): string {
   if (t?.activity === "error") return "failed";
   if (a.job && !a.job.enabled) return "paused";
   if (a.job?.nextRunAt) return `next ${clockLabel(a.job.nextRunAt)}`;
-  if (t?.lastSaid) return `${ago(t.updatedAt)} ago`;
+  if (t?.lastSaid) return agoWords(t.updatedAt);
   return "on request";
-}
-
-function ago(ts: number): string {
-  const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
 }
 
 function Head({
@@ -75,7 +67,7 @@ const RUN_TONE: Record<string, Tone> = { ok: "ok", error: "danger", running: "ac
 function runTick(r: RunRecord): Tick {
   const what = r.ref ? `${r.kind} ${r.ref}` : r.kind;
   const how = r.error ? `${r.status}: ${r.error}` : r.status;
-  return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${ago(r.startedAt)} ago` };
+  return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${agoWords(r.startedAt)}` };
 }
 
 const SHARE_TONES: Tone[] = ["accent", "ok", "warn", "muted"];
@@ -270,7 +262,7 @@ export function Panel({
                     </button>
                     <span className="panel-row-side">
                       {f.streak > 1 ? `${f.streak}x · ` : ""}
-                      {ago(f.since)}
+                      {agoWords(f.since)}
                       {/* Without this the only way to clear a failure the
                           owner has already handled is to wait for the job to
                           succeed, which for a nightly job means a red header
@@ -387,7 +379,7 @@ export function Panel({
                     <span className="panel-row-main">
                       {summarizeAction(t.tool, t.args)}
                     </span>
-                    <span className="panel-row-side">{ago(t.createdAt)}</span>
+                    <span className="panel-row-side">{agoWords(t.createdAt)}</span>
                   </span>
                 </li>
               ))}
@@ -446,7 +438,7 @@ export function Panel({
                           ? "needs you"
                           : c.activity === "error"
                             ? "failed"
-                            : ago(c.updatedAt)}
+                            : agoWords(c.updatedAt)}
                     </span>
                   </button>
                 </li>
@@ -579,7 +571,7 @@ export function Panel({
               ? "No memory jobs yet."
               : on.length === 0
                 ? `Jobs off${mem.extraction ? "; reading after each turn" : "; nothing reads the log"}.`
-                : `${on.map((j) => jobLabel[j.name] ?? j.name).join(", ")} on${latest ? `, last ran ${ago(latest)} ago` : ", never ran"}.`}
+                : `${on.map((j) => jobLabel[j.name] ?? j.name).join(", ")} on${latest ? `, last ran ${agoWords(latest)}` : ", never ran"}.`}
           </p>
         </div>
       );

@@ -9,6 +9,7 @@ import { api, type ChatEvent, type PendingAction } from "./api.js";
 import { ArtifactStep, writtenArtifact } from "./ArtifactStep.js";
 import { PendingAsk, viewerKeys } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
+import { Signed } from "./signed.js";
 
 /**
  * A step's summary with the file it names openable: "Read blobs/verity/blob.md"
@@ -139,7 +140,7 @@ export function ToolCall({
           evidence for what the reply says it read, small until clicked. */}
       {event.frameId !== undefined && (
         <div className="toolcall-frame">
-          <StepPicture src={`/api/frames/${event.frameId}`} caption={event.summary} at={event.startedAt} />
+          <Signed url={`/api/frames/${event.frameId}`}>{(src) => <StepPicture src={src} caption={event.summary} at={event.startedAt} />}</Signed>
         </div>
       )}
 
@@ -147,7 +148,7 @@ export function ToolCall({
         <div className="toolcall-approve">
           <PendingAsk ask={ask} deciding={deciding} onDecide={(id, ok, remember) => (remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} bare>
             {/* The page a browser action is aimed at, when there is one. */}
-            {ask.picture && <StepPicture src={`/api/approvals/${ask.id}/picture`} alt="The page this would act on" caption={ask.title ?? ask.summary ?? ask.tool} />}
+            {ask.picture && <Signed url={`/api/approvals/${ask.id}/picture`}>{(src) => <StepPicture src={src} alt="The page this would act on" caption={ask.title ?? ask.summary ?? ask.tool} />}</Signed>}
           </PendingAsk>
         </div>
       )}

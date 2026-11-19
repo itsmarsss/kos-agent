@@ -6,6 +6,7 @@ import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, typ
 import { KnowledgePage } from "./KnowledgePage.js";
 import { PageHead, PageTabs, tabId } from "./PageHead.js";
 import { hrefFor } from "./routes.js";
+import { agoWords } from "./schedulewords.js";
 
 /**
  * Memory, in one place.
@@ -118,16 +119,6 @@ function when(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-/** How long ago, in a word or two. */
-function ago(ts: number): string {
-  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return days < 30 ? `${days}d ago` : new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
 /** What the question is, in the owner's terms rather than memory's. */
 const HEADLINE: Record<ReviewItem["kind"], string> = {
   contradiction: "These claims disagree",
@@ -158,8 +149,8 @@ function metaOf(c: ReviewClaim): string {
   return [
     c.kind,
     c.trust && c.trust !== "owner" ? `from ${c.trust === "agent" ? "KOS" : c.trust}` : null,
-    c.useCount ? `used ${c.useCount}×${c.lastUsedAt ? `, last ${ago(c.lastUsedAt)}` : ""}` : "never used",
-    c.createdAt ? `written ${ago(c.createdAt)}` : null,
+    c.useCount ? `used ${c.useCount}×${c.lastUsedAt ? `, last ${agoWords(c.lastUsedAt)}` : ""}` : "never used",
+    c.createdAt ? `written ${agoWords(c.createdAt)}` : null,
   ]
     .filter(Boolean)
     .join(" · ");

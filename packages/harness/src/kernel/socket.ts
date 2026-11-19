@@ -6,6 +6,7 @@ import { WebSocketServer, type RawData, type WebSocket } from "ws";
 
 import type { Kernel } from "./kernel.js";
 import { authorized, ownHost, sameSecret } from "./server.js";
+import { SOCKET_TICKET_TTL_MS, validSignature } from "./signedurl.js";
 
 /**
  * Everything live on the dashboard, on one connection.
@@ -76,21 +77,36 @@ export function originAllowed(req: IncomingMessage, allowedOrigins: string[] = [
 export function createDashboardSocket(kernel: Kernel, options: DashboardSocketOptions = {}): DashboardSocket {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE });
   let next = 1;
+  /** Tickets already spent, kept until they would have lapsed anyway. */
+  const spent = new Map<string, number>();
+  /**
+   * A browser's socket sends no headers of its own, so a tab holding the
+   * token opens it with a ticket instead: its address signed by /api/sign
+   * for a minute, good for this one connection. The token itself never goes
+   * into an address a proxy or a log would keep.
+   */
+  const ticketed = (url: string, token: string): boolean => {
+    const now = Date.now();
+    for (const [sig, until] of spent) if (until < now) spent.delete(sig);
+    const sig = validSignature(url, token, now);
+    if (sig === undefined || spent.has(sig)) return false;
+    spent.set(sig, now + SOCKET_TICKET_TTL_MS);
+    return true;
+  };
   return {
     upgrade(req, socket, head) {
-      if ((req.url ?? "").split("?")[0] !== SOCKET_PATH) return false;
-      // A browser's socket sends no headers of its own: the token may ride in the address instead.
-      const params = new URL(req.url ?? "/", "http://kos").searchParams;
-      const given = params.get("token");
-      const asked = { method: "GET", path: SOCKET_PATH, headers: given ? { ...req.headers, "x-kos-token": given } : req.headers };
-      const allowed = ownHost(req.headers.host, options.hostNames ?? []) && originAllowed(req, options.allowedOrigins) && (!options.token || authorized(asked, options.token));
-      if (!allowed) {
+      const url = req.url ?? "/";
+      if (url.split("?")[0] !== SOCKET_PATH) return false;
+      const params = new URL(url, "http://kos").searchParams;
+      const ours = ownHost(req.headers.host, options.hostNames ?? []) && originAllowed(req, options.allowedOrigins);
+      const holder = options.token !== undefined && ours && (authorized({ method: "GET", path: SOCKET_PATH, headers: req.headers }, options.token) || ticketed(url, options.token));
+      if (!ours || (options.token !== undefined && !holder)) {
         socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
         return true;
       }
       // A hand on the browser is the page's that holds this boot's key, or the token's.
       const key = params.get("key") ?? undefined;
-      const hands = (options.token !== undefined && authorized(asked, options.token)) || (options.writeKey !== undefined && sameSecret(key, options.writeKey));
+      const hands = holder || (options.writeKey !== undefined && sameSecret(key, options.writeKey));
       wss.handleUpgrade(req, socket, head, (ws) => serve(kernel, ws, `window-${next++}`, hands));
       return true;
     },

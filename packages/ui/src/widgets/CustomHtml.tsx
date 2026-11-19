@@ -1,4 +1,4 @@
-import type { CustomHtmlWidget } from "@kos/shared";
+import { PAGE_CSP, RTC_GUARD, type CustomHtmlWidget } from "@kos/shared";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import type { WidgetProps } from "./types.js";
@@ -12,9 +12,13 @@ import type { WidgetProps } from "./types.js";
  * all need them. What is withheld is `allow-same-origin`, so the frame is
  * cross-origin to the dashboard and can reach neither its DOM, its storage, nor
  * its cookies. That pairing matters: a frame granted both could rewrite its own
- * sandbox attribute and escape. The worst a bad snippet can do is misbehave
- * inside its own box.
+ * sandbox attribute and escape. And as for an artifact's page, nothing from
+ * the network: the same policy, no frames, and WebRTC taken away first. The
+ * worst a bad snippet can do is misbehave inside its own box.
  */
+
+/** What a widget's markup may load: an artifact page's policy, and no frames of its own. */
+export const CUSTOM_HTML_CSP = `${PAGE_CSP}; frame-src 'none'; child-src 'none'`;
 
 /** Read a theme token off the shell so the frame matches the surrounding page. */
 function token(name: string, fallback: string): string {
@@ -46,6 +50,8 @@ function frameDocument(html: string): string {
       : getComputedStyle(document.documentElement).colorScheme || "dark";
   return [
     "<!doctype html><html><head><meta charset=\"utf-8\">",
+    `<meta http-equiv="Content-Security-Policy" content="${CUSTOM_HTML_CSP}">`,
+    `<script>${RTC_GUARD}</script>`,
     "<style>",
     `:root{color-scheme:${scheme};--text:${text};--muted:${muted};--line:${line};}`,
     "html,body{margin:0;background:transparent;color:var(--text);",
