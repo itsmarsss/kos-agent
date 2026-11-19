@@ -8,9 +8,15 @@ import { PNG } from "pngjs";
  * picture is.
  */
 
+/** The most pixels a picture is painted on: a page's picture is a few, and decoding one far larger holds the host's memory. */
+const MAX_PIXELS = 40_000_000;
+
 /** The PNG `data` (base64) with each box `boxesIn` gives for its size (x, y, width, height, in its pixels) painted black, as a JPEG at `quality`. */
 export function paintedJpeg(data: string, boxesIn: (image: { width: number; height: number }) => number[], quality: number): string {
-  const png = PNG.sync.read(Buffer.from(data, "base64"));
+  const bytes = Buffer.from(data, "base64");
+  // Read from the header first (width and height at bytes 16 and 20), so nothing too large is decoded.
+  if (bytes.length < 24 || bytes.readUInt32BE(16) * bytes.readUInt32BE(20) > MAX_PIXELS) throw new Error("the picture is too large to mask, so it is not pictured");
+  const png = PNG.sync.read(bytes);
   const { width, height } = png;
   const boxes = boxesIn({ width, height });
   const px = png.data;
