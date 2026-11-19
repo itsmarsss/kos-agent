@@ -447,7 +447,9 @@ export class DeviceHub {
   sessionOf(conversation: string): Session | undefined {
     const session = [...this.sessions.values()].find((s) => s.conversation === conversation);
     if (session && session.until <= this.now()) {
-      this.drop(session, "expired", "its time");
+      this.release(session, "expired", "its time");
+      // Told after the read that found it, so no listener is run inside another's.
+      queueMicrotask(() => this.changed());
       return undefined;
     }
     return session;
@@ -498,6 +500,7 @@ export class DeviceHub {
     const other = [...this.sessions.values()].find((s) => s.device === input.device.id);
     if (other) throw new DeviceError("busy", `${input.device.name} is in use by another chat`);
     if (this.asks.has(input.conversation)) throw new DeviceError("busy", "this chat is already asking the owner for a session");
+    if ([...this.asks.values()].some((a) => a.device === input.device.id)) throw new DeviceError("busy", `${input.device.name} is asking the owner for another chat's session`);
 
     const id = `ses_${randomBytes(9).toString("base64url")}`;
     const minutes = Math.max(1, Math.min(MAX_ASK_MINUTES, Math.round(input.minutes)));
@@ -532,6 +535,11 @@ export class DeviceHub {
       this.changed();
     }
     const grant = readOf(result);
+    // The kill switch thrown while the owner was asked: a yes given then opens nothing.
+    if (grant && this.deps.halted()) {
+      giveBack();
+      throw new DeviceError("halted", "KOS is halted by the kill switch");
+    }
     if (!grant) {
       if (result.reason === "unanswered") throw new DeviceError("unanswered", "the owner did not answer the ask on the device in time");
       if (result.reason === "withdrawn") throw new DeviceError("stopped", "the ask was taken down on the device before the owner answered");
@@ -742,8 +750,9 @@ export class DeviceHub {
     return true;
   }
 
-  /** End every session: the kill switch, or the module switched off. */
+  /** End every session and take down every ask: the kill switch, or the module switched off. */
   endAll(reason: EndReason): void {
+    for (const ask of [...this.asks.values()]) ask.withdraw();
     for (const session of [...this.sessions.values()]) this.release(session, reason, "KOS (the kill switch, or computer use going off)");
     this.changed();
   }

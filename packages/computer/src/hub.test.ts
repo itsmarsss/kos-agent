@@ -659,6 +659,55 @@ describe("a session", () => {
     expect(hub.withdraw("c1")).toBe(false);
   });
 
+  it("takes down every ask at the kill switch, and opens nothing on a yes given after it", async () => {
+    let halted = false;
+    const { hub } = setup({ halted: () => halted });
+    const fake = await online(hub);
+    fake.answers.delete("session.begin");
+    const asked = hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 }).catch((err: unknown) => err);
+    await settle();
+    halted = true;
+    hub.endAll("host");
+    expect(await asked).toMatchObject({ code: "stopped" });
+    expect(hub.asking("c1")).toBe(false);
+    // A device that answers yes as the halt lands: given back there, and nothing held here.
+    halted = false;
+    fake.answers.set("session.begin", () => {
+      halted = true;
+      return { ok: true, result: { granted: true, until: Date.now() + 60_000, space: { width: 10, height: 10 } } };
+    });
+    await expect(hub.begin({ conversation: "c2", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 })).rejects.toMatchObject({ code: "halted" });
+    expect(hub.sessionOf("c2")).toBeUndefined();
+    expect(fake.calls.at(-1)?.method).toBe("session.end");
+  });
+
+  it("asks a device for one chat at a time", async () => {
+    const { hub } = setup();
+    const fake = await online(hub);
+    fake.answers.delete("session.begin");
+    const first = hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 }).catch((err: unknown) => err);
+    await settle();
+    await expect(hub.begin({ conversation: "c2", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 })).rejects.toMatchObject({ code: "busy" });
+    hub.withdraw("c1");
+    await first;
+  });
+
+  it("ends a session found past its time on the device too, and says so to listeners", async () => {
+    let now = Date.now();
+    const store = new DeviceStore(openDatabase(":memory:"));
+    const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined, beginTimeoutMs: 200, callTimeoutMs: 200, lineGraceMs: 0, now: () => now });
+    const fake = await online(hub);
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: true, until: now + 60_000, space: { width: 10, height: 10 } } }));
+    await hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 1 });
+    let told = 0;
+    hub.onChange(() => told++);
+    now += 61_000;
+    expect(hub.sessionOf("c1")).toBeUndefined();
+    await settle();
+    expect(told).toBe(1);
+    expect(fake.calls.at(-1)?.method).toBe("session.end");
+  });
+
   it("tells an ask the owner never answered from one they refused", async () => {
     const { hub } = setup();
     const fake = await online(hub);
