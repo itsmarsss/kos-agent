@@ -9,7 +9,7 @@
  * comes back on its own after a drop, watching again what was watched.
  */
 
-import { dashboardToken } from "./api.js";
+import { dashboardToken, signedUrl } from "./api.js";
 
 export type Channel = "events" | "browser" | "builds";
 
@@ -50,6 +50,21 @@ function decodeFrame(data: ArrayBuffer): FrameMessage | null {
   }
 }
 
+/**
+ * Where the socket opens: with this boot's key, from the page KOS served (a
+ * window without it may watch but not work the browser), or, holding the
+ * token, with a one-time ticket KOS signs for it. A browser's socket sends no
+ * headers, and the token itself never goes into an address.
+ */
+export async function socketPath(): Promise<string> {
+  return dashboardToken() ? (await signedUrl("/api/socket")).url : keyedPath();
+}
+
+function keyedPath(): string {
+  const key = document.querySelector('meta[name="kos-write"]')?.getAttribute("content");
+  return key ? `/api/socket?key=${encodeURIComponent(key)}` : "/api/socket";
+}
+
 class KosSocket {
   private ws: WebSocket | null = null;
   private readonly watches = new Set<Watch>();
@@ -57,6 +72,8 @@ class KosSocket {
   private up = false;
   private retry = 0;
   private reconnect: number | undefined;
+  /** A ticket is being asked for. */
+  private opening = false;
   private linger: number | undefined;
 
   /** Watch a channel; the newest watch of a channel sets what it carries (the tab, for the browser). */
@@ -87,13 +104,26 @@ class KosSocket {
   }
 
   private open(): void {
-    if (this.ws || this.reconnect !== undefined) return;
-    // This boot's key, from the page KOS served: a window without it may watch but not work the browser.
-    const key = document.querySelector('meta[name="kos-write"]')?.getAttribute("content");
-    // A browser's socket sends no headers of its own: the token, when the owner entered one, rides in the address.
-    const token = dashboardToken();
-    const query = [key ? `key=${encodeURIComponent(key)}` : "", token ? `token=${encodeURIComponent(token)}` : ""].filter(Boolean).join("&");
-    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/socket${query ? `?${query}` : ""}`);
+    if (this.ws || this.opening || this.reconnect !== undefined) return;
+    // With no token there is no ticket to wait for.
+    if (!dashboardToken()) return this.connect(keyedPath());
+    this.opening = true;
+    void socketPath().then(
+      (path) => {
+        this.opening = false;
+        // Shut, or every watcher gone, while the ticket was asked for.
+        if (this.watches.size === 0) return;
+        this.connect(path);
+      },
+      () => {
+        this.opening = false;
+        this.later();
+      },
+    );
+  }
+
+  private connect(path: string): void {
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${path}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
@@ -113,13 +143,18 @@ class KosSocket {
       if (this.ws !== ws) return;
       this.ws = null;
       this.setUp(false);
-      if (this.watches.size === 0) return;
-      const wait = Math.min(RETRY_MAX_MS, 500 * 2 ** this.retry++);
-      this.reconnect = window.setTimeout(() => {
-        this.reconnect = undefined;
-        this.open();
-      }, wait);
+      this.later();
     };
+  }
+
+  /** Try again after a wait that grows with each failure, while anyone still watches. */
+  private later(): void {
+    if (this.watches.size === 0) return;
+    const wait = Math.min(RETRY_MAX_MS, 500 * 2 ** this.retry++);
+    this.reconnect = window.setTimeout(() => {
+      this.reconnect = undefined;
+      this.open();
+    }, wait);
   }
 
   private shut(): void {

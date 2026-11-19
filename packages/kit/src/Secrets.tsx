@@ -89,17 +89,31 @@ export function SecretField({ label, name, hint, set = false, plain = false, mul
   );
 }
 
+function secretInputs(form: HTMLFormElement): (HTMLInputElement | HTMLTextAreaElement)[] {
+  return Array.from(form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(`[${SECRET_ATTR}]`));
+}
+
+/** The values typed into a form's SecretFields, by name, the blank ones left out, left in the fields. */
+export function readSecretValues(form: HTMLFormElement): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const el of secretInputs(form)) if (el.value !== "") out[el.name] = el.value;
+  return out;
+}
+
+/** Empty a form's SecretFields: once what they held is saved, it lives on only where it was sent. */
+export function clearSecretValues(form: HTMLFormElement): void {
+  for (const el of secretInputs(form)) el.value = "";
+}
+
 /**
  * The values typed into a form's SecretFields, by name, the blank ones
  * left out; the fields are cleared as they are read, so the value lives
- * only in the request it is sent in.
+ * only in the request it is sent in. A save that can fail and be tried
+ * again reads them (readSecretValues) and clears them once it is through.
  */
 export function takeSecretValues(form: HTMLFormElement): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const el of Array.from(form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(`[${SECRET_ATTR}]`))) {
-    if (el.value !== "") out[el.name] = el.value;
-    el.value = "";
-  }
+  const out = readSecretValues(form);
+  clearSecretValues(form);
   return out;
 }
 

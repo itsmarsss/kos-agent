@@ -51,6 +51,8 @@ import { Sidebar } from "./Sidebar.js";
 import { WidgetPage } from "./WidgetPage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
+import { Refreshes } from "./refreshes.js";
+import { agoWords } from "./schedulewords.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
@@ -67,15 +69,6 @@ function whenNext(at: number): string {
   tomorrow.setDate(tomorrow.getDate() + 1);
   if (d.toDateString() === tomorrow.toDateString()) return `tomorrow ${hm}`;
   return `${d.toLocaleDateString(undefined, { weekday: "short" })} ${hm}`;
-}
-
-/** "12m ago", "3h ago", "4d ago". */
-function whenAgo(ts: number): string {
-  const mins = Math.max(1, Math.round((Date.now() - ts) / 60_000));
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
 }
 
 export function App(): React.ReactElement {
@@ -239,14 +232,16 @@ export function App(): React.ReactElement {
    * panel, so one slow query could leave a decided approval on screen for as
    * long as it kept failing. Each result is applied on its own.
    */
+  const refreshes = useRef(new Refreshes()).current;
   const refresh = useCallback(async () => {
+    const run = refreshes.begin();
     const apply = <T,>(r: PromiseSettledResult<T>, set: (v: T) => void): void => {
       if (r.status === "fulfilled") set(r.value);
     };
     // One fewer request than this used to make: the failures-only view was a
     // separate fetch, and History filters the rows it already has.
     const stamp = themeStamp();
-    const [s, a, p, c, pg, act, mem, r, convos, ag, ib, br] = await Promise.allSettled([
+    const settled = await Promise.allSettled([
       api.status(),
       api.approvals(),
       api.projects(),
@@ -259,7 +254,11 @@ export function App(): React.ReactElement {
       api.builds(),
       api.inbox(),
       api.browserStatus(),
-    ]);
+    ] as const);
+    run.end();
+    // A later refresh (decide's, say) has answered already: what this one read is older.
+    if (!run.newest()) return;
+    const [s, a, p, c, pg, act, mem, r, convos, ag, ib, br] = settled;
     apply(s, (v) => {
       statusStamp.current = stamp;
       setStatus(v);
@@ -283,7 +282,7 @@ export function App(): React.ReactElement {
     apply(convos, setConversations);
     // The sheet's transcript is the orchestrator's own thread, not whichever
     // chat happens to be newest.
-  }, []);
+  }, [refreshes]);
 
   useEffect(() => {
     void refresh();
@@ -296,7 +295,8 @@ export function App(): React.ReactElement {
      * background tab cost megabytes an hour to show nobody anything.
      */
     const t = setInterval(() => {
-      if (document.visibilityState === "hidden") return;
+      // Hidden, or the last one still out: a slow KOS is not sent another twelve requests on top.
+      if (document.visibilityState === "hidden" || refreshes.busy) return;
       void refresh();
     }, 5000);
     // Coming back refreshes at once, so skipping the hidden ticks never
@@ -309,7 +309,7 @@ export function App(): React.ReactElement {
       clearInterval(t);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh]);
+  }, [refresh, refreshes]);
 
   // Read once: the port sites are served on is a property of how the host was
   // started, not something that changes while the page is open.
@@ -1268,7 +1268,7 @@ export function App(): React.ReactElement {
                     go({ name: "chats", id: c.conversationId! });
                   }}
                 >
-                  {c.running ? "Watch" : c.lastRunAt ? whenAgo(c.lastRunAt) : "Open"}
+                  {c.running ? "Watch" : c.lastRunAt ? agoWords(c.lastRunAt) : "Open"}
                 </button>
               ) : (
                 <span className="ops-muted">never</span>

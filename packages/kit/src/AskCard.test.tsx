@@ -3,16 +3,25 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { askView } from "@kos/shared";
 
-import { AskCard } from "./AskCard.js";
+import { ASK_SETTLE_MS, AskCard } from "./AskCard.js";
 
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+});
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
+
+/** The card has sat still on screen long enough for a press to be meant for it. */
+function settle(): void {
+  vi.setSystemTime(Date.now() + ASK_SETTLE_MS);
+}
 
 /** The owner's case: zooming a Google Doc out in their own Chrome. */
 const args = JSON.stringify({
@@ -91,6 +100,7 @@ describe("the approval card", () => {
     const always = screen.getByRole("button", { name: "Always allow on docs.google.com" });
     fireEvent.focus(always);
     expect(screen.getByRole("tooltip").textContent).toMatch(/docs\.google\.com in your Chrome stop asking.*Settings, Permissions/);
+    settle();
     fireEvent.click(always);
     expect(onDecide).toHaveBeenCalledWith(true, true);
   });
@@ -102,6 +112,7 @@ describe("the approval card", () => {
 
   it("approves on Enter only when the focus came by the keyboard, and once", () => {
     const { section, onDecide } = card();
+    settle();
     section.focus();
     // Focused by a click (not :focus-visible): Enter is no yes.
     vi.spyOn(section, "matches").mockImplementation((q: string) => q !== ":focus-visible");
@@ -119,6 +130,7 @@ describe("the approval card", () => {
 
   it("denies on Escape or ⌘⌫ on the card itself, not on what is inside it", () => {
     const one = card();
+    settle();
     fireEvent.keyDown(screen.getByRole("button", { name: "Details" }), { key: "Escape" });
     expect(one.onDecide).not.toHaveBeenCalled();
     fireEvent.keyDown(one.section, { key: "Backspace" });
@@ -127,6 +139,7 @@ describe("the approval card", () => {
     expect(one.onDecide).toHaveBeenLastCalledWith(false);
     cleanup();
     const two = card();
+    settle();
     fireEvent.keyDown(two.section, { key: "Backspace", metaKey: true });
     expect(two.onDecide).toHaveBeenCalledWith(false);
   });
@@ -149,6 +162,7 @@ describe("the approval card", () => {
 
   it("says which press is on its way and takes no other", () => {
     const { onDecide, rerender } = card();
+    settle();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     rerender(<AskCard view={view} tool="browser.act" args={args} onDecide={onDecide} busy />);
     expect(screen.getByRole("button", { name: "Working" })).toBeTruthy();
@@ -159,8 +173,96 @@ describe("the approval card", () => {
     const onDecide = vi.fn();
     render(<AskCard view={view} tool="browser.handoff" onDecide={onDecide} labels={{ yes: "Done", no: "Can't" }} noRemember />);
     expect(screen.queryByRole("button", { name: /Always/ })).toBeNull();
+    settle();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onDecide).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("a press on a card that has not sat still", () => {
+  it("is not a decision until the card has been on screen a moment", () => {
+    const { onDecide } = card();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(onDecide).not.toHaveBeenCalled();
+    settle();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(onDecide).toHaveBeenCalledWith(true);
+  });
+
+  it("waits again when the card comes to say something else", () => {
+    const { onDecide, rerender } = card();
+    settle();
+    rerender(<AskCard view={{ ...view, title: "Something else" }} tool="browser.act" args={args} onDecide={onDecide} />);
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it("waits again when the card slid under a still pointer", () => {
+    const { onDecide, section } = card();
+    settle();
+    let top = 100;
+    vi.spyOn(section, "getBoundingClientRect").mockImplementation(() => ({ top, left: 0 }) as DOMRect);
+    const approve = screen.getByRole("button", { name: "Approve" });
+    fireEvent.pointerMove(approve);
+    // A card arrived above: this one moved down, and what is now under the pointer is not what was aimed at.
+    top = 260;
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).not.toHaveBeenCalled();
+    settle();
+    fireEvent.pointerMove(approve);
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("a press after the page moved", () => {
+  it("counts a click a moment after a scroll, and says so when it lets one go", () => {
+    const { onDecide, section } = card();
+    settle();
+    let top = 100;
+    vi.spyOn(section, "getBoundingClientRect").mockImplementation(() => ({ top, left: 0 }) as DOMRect);
+    const approve = screen.getByRole("button", { name: "Approve" });
+    fireEvent.pointerMove(approve, { clientX: 5, clientY: 5 });
+    // The owner scrolls with the pointer over the card: it moves under the pointer.
+    top = 40;
+    fireEvent.scroll(window);
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toBe("This card just moved. Press again.");
+    // A moment later the same click is a click.
+    settle();
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).toHaveBeenCalledWith(true);
+  });
+
+  it("counts a click on a card the pointer moved onto after a scroll elsewhere", () => {
+    const { onDecide, section } = card();
+    settle();
+    let top = 300;
+    vi.spyOn(section, "getBoundingClientRect").mockImplementation(() => ({ top, left: 0 }) as DOMRect);
+    top = 120;
+    fireEvent.scroll(window);
+    const approve = screen.getByRole("button", { name: "Approve" });
+    fireEvent.pointerMove(approve, { clientX: 9, clientY: 9 });
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).toHaveBeenCalledWith(true);
+  });
+
+  it("lets go a click on a card that came to a resting pointer", () => {
+    const { onDecide, section } = card();
+    fireEvent.pointerMove(document.body, { clientX: 7, clientY: 7 });
+    settle();
+    const approve = screen.getByRole("button", { name: "Approve" });
+    // Pointer enter goes to the card itself, as a browser sends it to each thing the pointer comes to be over.
+    fireEvent.pointerEnter(section, { clientX: 7, clientY: 7 });
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).not.toHaveBeenCalled();
   });
 });
 
@@ -218,6 +320,7 @@ describe("an ask that places a secret", () => {
     const secret = { handle: "github-login-9xq1", label: "GitHub", kind: "login" as const, fields: ["password" as const], origin: "https://github.com", frameOrigins: [], surface: "kos-browser" as const, warnings: [], remember: ["site" as const] };
     const onDecide = vi.fn();
     render(<AskCard view={askView({ tool: "secrets.fill", args: { secret: secret.handle }, secret })} tool="secrets.fill" onDecide={onDecide} />);
+    settle();
     fireEvent.click(screen.getByRole("button", { name: "Approve, and always on github.com" }));
     expect(onDecide).toHaveBeenCalledWith(true, true);
   });

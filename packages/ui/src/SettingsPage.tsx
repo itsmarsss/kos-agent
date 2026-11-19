@@ -6,7 +6,7 @@ import {
   api,
   type Behaviour,
   type ModelRate,
-  type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings, type RestartState, type Status, dashboardToken, setDashboardToken } from "./api.js";
+  type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings, type RestartState, type Status } from "./api.js";
 import type { FaceLook } from "./api.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
@@ -15,6 +15,7 @@ import { FieldRow } from "./kit.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
+import { DashboardTokenField } from "./TokenGate.js";
 import { matchesSkillView, skillViews } from "./skillviews.js";
 import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
 import { chooseTheme, isDensity, isTheme, readDensity, setDensity, useTheme, type Density } from "./theme.js";
@@ -214,33 +215,6 @@ function HostList({
       }
       empty="Nothing is listed, so every fetch asks you first."
     />
-  );
-}
-
-/**
- * The dashboard token, held by this tab: KOS set up with KOS_DASHBOARD_TOKEN
- * (in the container, where every change needs it) asks for it, and this tab
- * sends it with every request. Kept for the tab's life, never written to disk.
- */
-function DashboardTokenField(): ReactElement {
-  const [token, setToken] = useState(dashboardToken() ?? "");
-  const [held, setHeld] = useState(dashboardToken() !== undefined);
-  return (
-    <Field group className="set-field" label="Dashboard token" hint="When KOS was started with KOS_DASHBOARD_TOKEN, enter it here: this tab sends it with every change, and forgets it when the tab closes." badge={held ? <Pill tone="ok">held</Pill> : null}>
-      <form
-        className="set-token"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setDashboardToken(token);
-          setHeld(token.trim() !== "");
-        }}
-      >
-        <input className="kos-input" type="password" autoComplete="off" value={token} placeholder="not set" onChange={(e) => setToken(e.target.value)} />
-        <button type="submit" className="btn btn--sm">
-          {token.trim() ? "Hold" : "Forget"}
-        </button>
-      </form>
-    </Field>
   );
 }
 

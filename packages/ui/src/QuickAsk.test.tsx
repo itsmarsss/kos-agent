@@ -75,6 +75,17 @@ describe("the quick question window", () => {
     expect(context()).toBe("about Main, without adding to it");
   });
 
+  it("leaves Enter to an input method while it composes, and sends on Enter after", async () => {
+    const aside = vi.spyOn(api, "aside").mockResolvedValue({ reply: "ok" });
+    open();
+    const input = screen.getByPlaceholderText("Ask about this chat…");
+    fireEvent.change(input, { target: { value: "にほん" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(aside).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(aside).toHaveBeenCalledWith("にほん", "c1:owner", []));
+  });
+
   it("asks a plain question when no chat is open", () => {
     open({ contextId: undefined, contextTitle: undefined });
     expect(screen.getByText(/plain question to KOS/)).toBeTruthy();
