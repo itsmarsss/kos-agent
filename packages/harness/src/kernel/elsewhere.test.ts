@@ -138,7 +138,7 @@ describe("a browser call from the side panel's chat", () => {
     kernel.setBrowserElsewhere(chrome);
     // Claimed by the side panel's chat, but no session yet: no page to fill, and never KOS's own browser.
     expect(kernel.secretFillUnready()).toMatch(/has no page yet/);
-    await chrome.ensure("root");
+    await chrome.ensure?.("root");
     expect(kernel.secretFillUnready()).toBeUndefined();
     expect(kernel.secretPlace()).toEqual({ surface: "chrome", device: { id: "dev_chrome", name: "Chrome on macOS" } });
   });
