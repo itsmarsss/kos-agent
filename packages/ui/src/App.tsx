@@ -25,6 +25,7 @@ import { AnimatePresence, m } from "motion/react";
 
 import { chatShown, frameOf, hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
+import { targetHref } from "./hashparams.js";
 import { CronEditor } from "./CronEditor.js";
 import { describeCron } from "./schedule.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
@@ -604,6 +605,18 @@ export function App(): React.ReactElement {
       go({ name: "builds", id: agentId });
     },
     sitesBase,
+    openTarget: (target) => {
+      const href = targetHref(target, (id) => placeOf(id, conversations.find((c) => c.id === id)));
+      if (href) {
+        window.location.hash = href;
+        return;
+      }
+      // A run or a call: its record, over Runs, as a row there opens it.
+      go({ name: "history" });
+      const failed = (err: unknown): void => flash("err", err instanceof Error ? err.message : String(err));
+      if (target.kind === "run") void api.run(target.id).then((r) => r && setInspect({ kind: "run", data: r })).catch(failed);
+      else if (target.kind === "call") void api.call(target.id).then((t) => setInspect({ kind: "tool", data: t })).catch(failed);
+    },
   };
 
   const copyWorkspace = async (): Promise<void> => {

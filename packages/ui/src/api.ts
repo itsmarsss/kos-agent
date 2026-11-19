@@ -1,6 +1,6 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { AskSecret, CallOutcome, ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
+import type { AskSecret, CallOutcome, ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, SearchKind, SearchResults, ThemeMode as Theme } from "@kos/shared";
 
 import { missed, reached, StalePage, Unreached, wentStale } from "./reach.js";
 
@@ -1426,6 +1426,11 @@ export const api = {
     get<{ tools: AuditRecord[] }>(`/api/activity?limit=${limit}`),
   /** One call with its result, which the list leaves out. */
   call: (id: number) => get<AuditRecord>(`/api/activity/call?id=${id}`),
+  /** One run, by its id. */
+  run: (id: number) => get<RunRecord[]>(`/api/runs?id=${id}`).then((r) => r[0]),
+  /** Search everything, or only `kinds`; answered by the host's deadline with what its sources found by then. */
+  search: (q: string, kinds: readonly SearchKind[] = [], signal?: AbortSignal) =>
+    get<SearchResults>(`/api/search?${new URLSearchParams({ q, ...(kinds.length ? { kinds: kinds.join(",") } : {}) })}`, signal),
   pages: (project?: string) =>
     get<PageSummary[]>(
       project ? `/api/pages?project=${encodeURIComponent(project)}` : "/api/pages",
