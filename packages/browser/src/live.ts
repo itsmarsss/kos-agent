@@ -315,9 +315,16 @@ export class BrowserLive {
   private purging: Promise<void> = Promise.resolve();
   /** Credential sites (registrable domains) whose service workers are not known to be cleared: none takes a fill. */
   private readonly unpurged = new Set<string>();
-  /** When each site's workers were last cleared, and when one was last found there. */
+  /** When each site's workers were last cleared, and when clearing one found there ended, by `tick`. */
   private readonly workersPurged = new Map<string, number>();
   private readonly workersFound = new Map<string, number>();
+  /** A clock that only goes forward, for documents' starts against purges: a step of the wall clock cannot reorder them. */
+  private ticks = 0;
+  private readonly tick = (): number => ++this.ticks;
+  /** Tabs KOS made for its own work (a purge's): never listed, never given to a conversation. */
+  private readonly internal = new Set<string>();
+  /** KOS's own tabs being made: a tab created at INTERNAL_URL with no opener meanwhile is one of them. */
+  private makingInternal = 0;
   /** Conversation -> every value KOS filled in any of its tabs, for the conversation's life: its tabs share them (see Kin). */
   private readonly filled = new Map<string, FilledValue[]>();
   /** Tabs the owner has taken, each by which of their windows. */
@@ -365,7 +372,7 @@ export class BrowserLive {
     const owners = new Map<string, string>();
     for (const [conversationId, b] of this.bindings) for (const tab of b.tabs) owners.set(tab, conversationId);
     return [...this.targets.values()]
-      .filter((t) => t.type === "page" && t.url !== INTERNAL_URL)
+      .filter((t) => t.type === "page" && !this.internal.has(t.id))
       .map((t) => {
         const owner = owners.get(t.id);
         return {
@@ -428,6 +435,7 @@ export class BrowserLive {
           scripted: { has: (loader) => this.reached.has(tab) || this.scripted.get(tab)?.has(loader) === true, mark: (loader) => this.markScripted(tab, loader) },
           settled: () => this.purging,
           workerBar: (origin, loadedAt, controlled) => this.workerBar(origin, loadedAt, controlled),
+          tick: this.tick,
         },
       );
       this.pages.set(tab, page);
@@ -480,7 +488,14 @@ export class BrowserLive {
     // Chrome not attached: the sites stay uncleared, and the next attach clears every credential site's.
     if (!this.cdp.open) return;
     // The ServiceWorker and Storage domains live on a page: one of KOS's own, made and closed for this, kept out of the tab list.
-    const { targetId } = (await this.cdp.send("Target.createTarget", { url: INTERNAL_URL, background: true, newWindow: false })) as { targetId: string };
+    this.makingInternal++;
+    let targetId: string;
+    try {
+      targetId = String((await this.cdp.send("Target.createTarget", { url: INTERNAL_URL, background: true, newWindow: false }))["targetId"] ?? "");
+      this.internal.add(targetId);
+    } finally {
+      this.makingInternal--;
+    }
     try {
       const { sessionId } = (await this.cdp.send("Target.attachToTarget", { targetId, flatten: true })) as { sessionId: string };
       const scopes = new Set<string>();
@@ -499,14 +514,15 @@ export class BrowserLive {
           const url = new URL(scope);
           const domain = registrableDomain(url.hostname);
           if (!sites.has(domain)) continue;
-          // Pages loaded before now may still run through it: they take no fill (see workerBar).
-          this.workersFound.set(domain, this.now());
           try {
             await this.cdp.send("ServiceWorker.unregister", { scopeURL: scope }, sessionId);
             await this.cdp.send("Storage.clearDataForOrigin", { origin: url.origin, storageTypes: "service_workers,cache_storage" }, sessionId);
           } catch (err) {
             failed.add(domain);
             this.report(`service worker at ${scope} not cleared: ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            // Every document that began before the clearing ended may have been served by the worker (and clearing hides that it was): none takes a fill.
+            this.workersFound.set(domain, this.tick());
           }
         }
       } finally {
@@ -515,7 +531,7 @@ export class BrowserLive {
       for (const domain of sites) {
         if (failed.has(domain)) continue;
         this.unpurged.delete(domain);
-        this.workersPurged.set(domain, this.now());
+        this.workersPurged.set(domain, this.tick());
       }
     } finally {
       await this.cdp.send("Target.closeTarget", { targetId }).catch(() => undefined);
@@ -527,7 +543,7 @@ export class BrowserLive {
    * no fill, if it does not: its site's service workers were not cleared,
    * or the document is from before they were and may still run through one.
    */
-  private workerBar(origin: string, loadedAt: number, controlled: boolean): string | undefined {
+  private async workerBar(origin: string, loadedAt: number, controlled: boolean): Promise<string | undefined> {
     let domain: string;
     try {
       const url = new URL(origin);
@@ -536,7 +552,9 @@ export class BrowserLive {
     } catch {
       return undefined;
     }
-    if (this.unpurged.has(domain)) return `the service workers on ${domain} could not be cleared yet, and one could catch what is filled`;
+    // Not cleared yet (a clearing failed, or never ran): tried once more now.
+    if (this.unpurged.has(domain)) await this.purgeWorkers([domain]);
+    if (this.unpurged.has(domain)) return `the service workers on ${domain} could not be cleared, and one could catch what is filled`;
     const found = this.workersFound.get(domain);
     const purged = this.workersPurged.get(domain);
     if ((found !== undefined && loadedAt <= found) || (controlled && purged !== undefined && loadedAt <= purged)) {
@@ -654,7 +672,7 @@ export class BrowserLive {
    */
   useTab(conversationId: string, target: string): void {
     const t = this.targets.get(target);
-    if (!t || t.type !== "page" || t.url === INTERNAL_URL) throw new Error("no such tab");
+    if (!t || t.type !== "page" || this.internal.has(target)) throw new Error("no such tab");
     this.take(conversationId, target);
     this.emitTabs();
   }
@@ -687,6 +705,7 @@ export class BrowserLive {
     this.pages.delete(target);
     this.scripted.delete(target);
     this.reached.delete(target);
+    this.internal.delete(target);
     for (const [conversationId, b] of [...this.bindings]) {
       if (!b.tabs.has(target)) continue;
       b.tabs.delete(target);
@@ -919,6 +938,7 @@ export class BrowserLive {
     this.pages.clear();
     this.scripted.clear();
     this.reached.clear();
+    this.internal.clear();
     this.targets.clear();
     this.bindings.clear();
     this.emit({ type: "status", status: this.status() });
@@ -963,8 +983,9 @@ export class BrowserLive {
         if (info) {
           this.remember(info);
           const made = this.targets.get(String(info["targetId"] ?? ""));
+          if (event.method === "Target.targetCreated" && made && this.makingInternal > 0 && made.url === INTERNAL_URL && !made.opener) this.internal.add(made.id);
           if (event.method === "Target.targetCreated" && made?.opener) this.adoptPopup(made.id, made.opener);
-          if (made?.url !== INTERNAL_URL) this.emitTabs();
+          if (!made || !this.internal.has(made.id)) this.emitTabs();
         }
         return;
       }

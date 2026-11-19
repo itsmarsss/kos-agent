@@ -90,7 +90,9 @@ export interface PageOptions {
    * controlling the frame or not, if none may: its site's workers were not
    * cleared, or the document is from before they were.
    */
-  workerBar?: (origin: string, loadedAt: number, controlled: boolean) => string | undefined;
+  workerBar?: (origin: string, loadedAt: number, controlled: boolean) => Promise<string | undefined>;
+  /** A clock that only goes forward, which documents' starts are told by against the purges of their sites' workers. */
+  tick?: () => number;
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
@@ -292,7 +294,7 @@ export class Page {
   /** Each frame's world of KOS's own, by frame: undefined where none could be made. */
   private readonly worlds = new Map<string, Promise<number | undefined>>();
   /** The main frame's current document, and the lifecycle points it has reached. */
-  /** The main frame's current document, the lifecycle points it has reached, and when it began (0 for one KOS found already there). */
+  /** The main frame's current document, the lifecycle points it has reached, and when it began by `tick` (0 for one KOS found already there). */
   private life = { loader: "", reached: new Set<string>(), at: 0 };
   /** Each frame's main-world context, by frame, while a script of KOS's is being placed: its id, its unique id and its origin. */
   private readonly contexts = new Map<string, { id: number; uniqueId: string; origin: string }>();
@@ -343,7 +345,8 @@ export class Page {
   /** Documents a script of KOS's ran in: one may have left a hook for what is filled, so none is filled there. */
   private readonly scripted: { has(loader: string): boolean; mark(loader: string): void };
   private readonly settled: () => Promise<void>;
-  private readonly workerBar: (origin: string, loadedAt: number, controlled: boolean) => string | undefined;
+  private readonly workerBar: (origin: string, loadedAt: number, controlled: boolean) => Promise<string | undefined>;
+  private readonly tick: () => number;
 
   constructor(
     private readonly session: Session,
@@ -359,7 +362,8 @@ export class Page {
     const scripted = new Set<string>();
     this.scripted = options.scripted ?? { has: (loader) => scripted.has(loader), mark: (loader) => void scripted.add(loader) };
     this.settled = options.settled ?? (async () => undefined);
-    this.workerBar = options.workerBar ?? (() => undefined);
+    this.workerBar = options.workerBar ?? (async () => undefined);
+    this.tick = options.tick ?? (() => performance.now());
   }
 
   /**
@@ -403,7 +407,7 @@ export class Page {
       case "Page.lifecycleEvent":
         if (p["frameId"] === this.mainFrame) {
           const loader = String(p["loaderId"] ?? "");
-          if (loader !== this.life.loader) this.life = { loader, reached: new Set(), at: this.now() };
+          if (loader !== this.life.loader) this.life = { loader, reached: new Set(), at: this.tick() };
           this.life.reached.add(String(p["name"] ?? ""));
         }
         break;
@@ -595,14 +599,22 @@ export class Page {
     if (this.holding()) throw new Error(`browser.eval is refused: ${TAINTED}`);
     // On a site a secret may be filled on, a script could read a copy the site keeps, or wait for the next fill.
     const before = await this.document();
+    const refuse = (origin: string, why: string): never => {
+      throw new Error(`browser.eval is refused on ${origin}: ${why}, so no script of KOS's runs in its pages. Looking, reading, acting with steps and browser.handoff still work here.`);
+    };
+    for (const { origin } of before.frames) {
+      const why = /^https?:/i.test(origin) ? this.evalBlocked(origin) : undefined;
+      if (why) refuse(origin, why);
+    }
     // Each frame's own context says its origin: one about:blank, a popup's among them, has its opener's, though its frame says none.
     const contexts = await this.mainWorlds();
     const main = contexts.get(before.frame);
     if (!main) throw new Error("browser.eval found no page to run in (it may be loading); look at the page again");
     for (const { id, origin } of before.frames) {
-      const own = /^https?:/i.test(origin) ? origin : (contexts.get(id)?.origin ?? origin);
-      const why = this.evalBlocked(own) ?? (own !== origin ? this.evalBlocked(origin) : undefined);
-      if (why) throw new Error(`browser.eval is refused on ${own}: ${why}, so no script of KOS's runs in its pages. Looking, reading, acting with steps and browser.handoff still work here.`);
+      if (/^https?:/i.test(origin)) continue;
+      const own = contexts.get(id)?.origin ?? origin;
+      const why = this.evalBlocked(own) ?? this.evalBlocked(origin);
+      if (why) refuse(own, why);
     }
     this.scripted.mark(before.loader);
     // Run in the context checked, which no later page can host; and only while it is still on the origin checked.
@@ -750,7 +762,7 @@ export class Page {
     // A service worker from before its site was cleared may still run the page, and catch what it sends.
     const controlled = await this.callIn<boolean>(frame, node, inpage.workerControlled);
     for (const at of new Set([origin, frameOrigin])) {
-      const why = this.workerBar(at, this.life.at, controlled);
+      const why = await this.workerBar(at, this.life.at, controlled);
       if (why) throw new SecretRefused("worker", `${why}; open the page afresh, look again and ask again`);
     }
     // A field in a frame the page hides (a honeypot) is as hidden as a field that is.
