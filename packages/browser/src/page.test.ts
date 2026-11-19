@@ -269,3 +269,39 @@ describe("the browser's clock", () => {
     expect(clock.date(3_300, woke + 200)).toBe(woke + 200);
   });
 });
+
+describe("a script of KOS's in a page", () => {
+  const tree = (loader: string, origin: string): Record<string, unknown> => ({ frameTree: { frame: { id: "F", loaderId: loader, url: `${origin}/`, securityOrigin: origin } } });
+
+  it("runs only on the origin checked, and marks the document it ran in", async () => {
+    const marked: string[] = [];
+    const { session, calls } = tab({ "Page.getFrameTree": () => tree("L1", "https://shop.example"), "Runtime.evaluate": () => ({ result: { type: "string", value: "ok" } }) });
+    const page = new Page(session, { scripted: { has: () => false, mark: (l) => void marked.push(l) } });
+    expect(await page.evaluate("1")).toBe("ok");
+    const sent = String(calls.find((c) => c.method === "Runtime.evaluate")!.params["expression"]);
+    expect(sent.startsWith('if (location.origin !== "https://shop.example" && /^https?:/.test(location.origin)) throw')).toBe(true);
+    expect(sent.endsWith("\n1")).toBe(true);
+    expect(marked).toEqual(["L1"]);
+  });
+
+  it("withholds the answer when the page loaded another document while it ran, and marks that one too", async () => {
+    const marked: string[] = [];
+    let trees = 0;
+    const { session } = tab({
+      "Page.getFrameTree": () => (++trees === 1 ? tree("L1", "https://elsewhere.example") : tree("L2", "https://bank.example")),
+      "Runtime.evaluate": () => ({ result: { type: "string", value: "what the next page held" } }),
+    });
+    const page = new Page(session, { scripted: { has: () => false, mark: (l) => void marked.push(l) } });
+    await expect(page.evaluate("location.href = 'https://bank.example/'; await new Promise((r) => setTimeout(r, 900)); document.body.innerText")).rejects.toThrow(/answer is withheld/);
+    expect(marked).toEqual(["L1", "L2"]);
+  });
+
+  it("is refused on a site a secret may be filled on, any frame's, with the reason", async () => {
+    const { session, calls } = tab({
+      "Page.getFrameTree": () => ({ frameTree: { frame: { id: "F", loaderId: "L", securityOrigin: "https://news.example" }, childFrames: [{ frame: { id: "C", loaderId: "M", securityOrigin: "https://bank.example" } }] } }),
+    });
+    const page = new Page(session, { evalBlocked: (o) => (o === "https://bank.example" ? "a saved secret may be filled on this site" : undefined) });
+    await expect(page.evaluate("1")).rejects.toThrow(/refused on https:\/\/bank\.example: a saved secret may be filled on this site, so no script/);
+    expect(calls.some((c) => c.method === "Runtime.evaluate")).toBe(false);
+  });
+});

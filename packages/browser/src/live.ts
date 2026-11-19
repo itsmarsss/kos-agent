@@ -1,3 +1,5 @@
+import { registrableDomain } from "@kos/shared";
+
 import { CdpClient, type CdpEvent, type CdpSocket } from "./cdp.js";
 import type { ChromeHost, ChromeLaunch, ChromeState } from "./chrome.js";
 import { keptSessionCookies, type CdpCookie } from "./cookies.js";
@@ -247,13 +249,17 @@ export interface BrowserLiveOptions {
   now?: () => number;
   report?: (message: string) => void;
   /**
-   * Every saved secret's values, read where the host keeps them (the
-   * scrubber's registry), never copied: masked in every tab's words and
-   * pictures, whichever conversation it is, and after a restart.
+   * Every saved value, read where the host keeps them (the scrubber's
+   * registry), never copied: cleaned out of what KOS reads back from any
+   * tab, in the host. None of these is sent into a page.
    */
   saved?: () => readonly FilledValue[];
-  /** Whether an origin is on a site a saved secret may be filled on: browser.eval runs in no page with such a frame. */
-  evalBlocked?: (origin: string) => boolean;
+  /** The saved values of secrets for the site of any of these origins: the only saved ones a page there is sent, to mask its pictures. */
+  savedFor?: (origins: readonly string[]) => readonly FilledValue[];
+  /** Why browser.eval may not run on an origin, if it may not: a site a saved secret may be filled on. */
+  evalBlocked?: (origin: string) => string | undefined;
+  /** The registrable domains saved secrets may be filled on: their service workers are cleared each time Chrome is attached. */
+  workerSites?: () => readonly string[];
 }
 
 interface Target {
@@ -288,6 +294,8 @@ const KEEP_LOGINS_MS = 60_000;
 const SHUTDOWN_MS = 4_000;
 /** How long an agent waits for the owner to let go of a tab before it is told the owner still has it. */
 export const HOLD_WAIT_MS = 10 * 60_000;
+/** How long the list of service workers may go quiet before it is taken as whole. */
+const WORKERS_QUIET_MS = 300;
 
 export class BrowserLive {
   private readonly cdp: CdpClient;
@@ -297,6 +305,12 @@ export class BrowserLive {
   private readonly bindings = new Map<string, Binding>();
   /** Each tab's hands, made on first use. */
   private readonly pages = new Map<string, Page>();
+  /** Tab -> its documents (by loader) a script of KOS's ran in, or loaded while one ran: none takes a fill. */
+  private readonly scripted = new Map<string, Set<string>>();
+  /** Tabs a script of KOS's in a related tab (an opener or a popup) could reach: none of their documents takes a fill. */
+  private readonly reached = new Set<string>();
+  /** Service workers being cleared off credential sites: a fill waits for it. */
+  private purging: Promise<void> = Promise.resolve();
   /** Conversation -> every value KOS filled in any of its tabs, for the conversation's life: its tabs share them (see Kin). */
   private readonly filled = new Map<string, FilledValue[]>();
   /** Tabs the owner has taken, each by which of their windows. */
@@ -402,12 +416,86 @@ export class BrowserLive {
           gate: (signal) => this.whileHeld(tab, signal),
           kin: () => this.kinOf(tab),
           ...(this.options.saved ? { saved: this.options.saved } : {}),
+          ...(this.options.savedFor ? { savedFor: this.options.savedFor } : {}),
           ...(this.options.evalBlocked ? { evalBlocked: this.options.evalBlocked } : {}),
+          scripted: { has: (loader) => this.reached.has(tab) || this.scripted.get(tab)?.has(loader) === true, mark: (loader) => this.markScripted(tab, loader) },
+          settled: () => this.purging,
         },
       );
       this.pages.set(tab, page);
     }
     return page;
+  }
+
+  /**
+   * A script of KOS's ran in (or reached) a document of a tab: it takes no
+   * fill, and neither does any document of a tab joined to it by an opener,
+   * which the script can reach through window.opener or window.open.
+   */
+  private markScripted(tab: string, loader: string): void {
+    this.scripted.set(tab, (this.scripted.get(tab) ?? new Set()).add(loader));
+    for (const other of this.relatives(tab)) if (other !== tab) this.reached.add(other);
+  }
+
+  /** A tab and every tab joined to it by openers, either way. */
+  private relatives(tab: string): Set<string> {
+    const out = new Set([tab]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const t of this.targets.values()) {
+        if (t.opener && out.has(t.opener) !== out.has(t.id)) {
+          out.add(t.opener);
+          out.add(t.id);
+          grew = true;
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Every service worker on the given sites (registrable domains)
+   * unregistered, and its origin's workers and Cache Storage cleared;
+   * cookies and logins kept. One planted before a site was a credential
+   * site could catch a fill as it is sent. Fills wait for it.
+   */
+  purgeWorkers(domains: readonly string[]): Promise<void> {
+    if (domains.length === 0) return this.purging;
+    const sites = new Set(domains);
+    this.purging = this.purging.then(() => this.purgeNow(sites)).catch((err: unknown) => this.report(`service workers not cleared: ${err instanceof Error ? err.message : String(err)}`));
+    return this.purging;
+  }
+
+  private async purgeNow(sites: ReadonlySet<string>): Promise<void> {
+    // Chrome not attached: the next attach clears every credential site's.
+    if (!this.cdp.open) return;
+    // The ServiceWorker domain lives on a page: one of KOS's own, made and closed for this.
+    const { targetId } = (await this.cdp.send("Target.createTarget", { url: "about:blank", background: true, newWindow: false })) as { targetId: string };
+    try {
+      const { sessionId } = (await this.cdp.send("Target.attachToTarget", { targetId, flatten: true })) as { sessionId: string };
+      const scopes = new Set<string>();
+      let heard = (): void => undefined;
+      const off = this.cdp.on((event) => {
+        if (event.sessionId !== sessionId || event.method !== "ServiceWorker.workerRegistrationUpdated") return;
+        for (const r of (event.params["registrations"] as { scopeURL?: string; isDeleted?: boolean }[] | undefined) ?? []) if (r.scopeURL && !r.isDeleted) scopes.add(r.scopeURL);
+        heard();
+      });
+      try {
+        // Enabling it lists every registration in the profile, in a burst: taken once it goes quiet.
+        await this.cdp.send("ServiceWorker.enable", {}, sessionId);
+        for (let quiet = false; !quiet; ) quiet = !(await new Promise<boolean>((r) => ((heard = () => r(true)), setTimeout(() => r(false), WORKERS_QUIET_MS))));
+        for (const scope of scopes) {
+          const origin = new URL(scope).origin;
+          if (!sites.has(registrableDomain(new URL(scope).hostname))) continue;
+          await this.cdp.send("ServiceWorker.unregister", { scopeURL: scope }, sessionId).catch(() => undefined);
+          await this.cdp.send("Storage.clearDataForOrigin", { origin, storageTypes: "service_workers,cache_storage" });
+        }
+      } finally {
+        off();
+      }
+    } finally {
+      await this.cdp.send("Target.closeTarget", { targetId }).catch(() => undefined);
+    }
   }
 
   /** The tabs a tab shares its secrets with: its conversation's, popups among them. None for a tab of no one's. */
@@ -550,6 +638,8 @@ export class BrowserLive {
     this.targets.delete(target);
     this.sessions.delete(target);
     this.pages.delete(target);
+    this.scripted.delete(target);
+    this.reached.delete(target);
     for (const [conversationId, b] of [...this.bindings]) {
       if (!b.tabs.has(target)) continue;
       b.tabs.delete(target);
@@ -749,6 +839,8 @@ export class BrowserLive {
     this.targets.clear();
     for (const info of (listed["targetInfos"] as Record<string, unknown>[] | undefined) ?? []) this.remember(info);
     await this.cdp.send("Target.setDiscoverTargets", { discover: true });
+    // A worker planted on a credential site while KOS was away is cleared before anything is filled.
+    await this.purgeWorkers(this.options.workerSites?.() ?? []);
     // Downloads land in the staging folder named by guid, and Chrome says
     // when each is done, so KOS can move it to where it belongs.
     if (this.options.downloadsDir) {
@@ -778,6 +870,8 @@ export class BrowserLive {
     this.watches.clear();
     this.sessions.clear();
     this.pages.clear();
+    this.scripted.clear();
+    this.reached.clear();
     this.targets.clear();
     this.bindings.clear();
     this.emit({ type: "status", status: this.status() });
@@ -799,6 +893,8 @@ export class BrowserLive {
 
   /** A popup is the tab of whoever's page opened it, beside the one they are on. */
   private adoptPopup(tab: string, opener: string): void {
+    // A popup of a page a script ran in, or could reach, is within that script's reach.
+    if (this.reached.has(opener) || (this.scripted.get(opener)?.size ?? 0) > 0) this.reached.add(tab);
     for (const b of this.bindings.values()) {
       if (b.tabs.has(opener)) {
         b.tabs.add(tab);

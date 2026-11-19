@@ -388,24 +388,25 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
   });
 
   it("keeps every tab of the conversation from a secret: a popup reads nothing of its opener", async () => {
-    const seen = (await visit(tab, [`${base}/opener`], { then: "look", until: "load" })).text;
-    const before = live.tabsOf("fill").length;
-    await act(tab, stepsOf([{ click: refOf(seen, "Open") }]), "none");
-    const deadline = Date.now() + 5_000;
-    while (live.tabsOf("fill").length === before && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
-    const kid = live.tabsOf("fill").find((t) => t !== live.tabOf("fill"))!;
-    expect(kid).toBeDefined();
+    // A conversation of its own: a script in the popup could reach its opener, which then takes no fill again.
+    const id = await live.tabFor("popups");
+    const opener: Tab = { page: await live.page(id), capture: (w) => live.capture(id, w) };
+    const seen = (await visit(opener, [`${base}/opener`], { then: "look", until: "load" })).text;
+    const before = live.tabsOf("popups").length;
+    await act(opener, stepsOf([{ click: refOf(seen, "Open") }]), "none");
+    await expect.poll(() => live.tabsOf("popups").length, { timeout: 5_000 }).toBeGreaterThan(before);
+    const kid = live.tabsOf("popups").find((t) => t !== id)!;
     const popup: Tab = { page: await live.page(kid), capture: (w) => live.capture(kid, w) };
     try {
       const pw = refOf(seen, "Password");
-      await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: await expectFor(pw, "password") }], "none");
+      await fillSecrets(opener, [{ ref: pw, value: PASSWORD, expect: { ...(await fieldSpots(opener, [pw]))[0]!, slot: "password" } }], "none");
       await expect(evaluate(popup, "opener.document.getElementById('pw').value")).rejects.toThrow(/browser\.eval is refused/);
       await expect(act(popup, stepsOf([{ open: "data:text/html,<script>1</script>" }]), "none")).rejects.toThrow(/data: address is refused/);
       // The popup's own words are cleaned of what its opener holds.
       await sessionOf(popup).send("Runtime.evaluate", { expression: `document.body.textContent = ${JSON.stringify(`echo ${PASSWORD}`)}` });
       expect((await look(popup, "read")).text).toContain("echo (hidden)");
       // Once no tab holds it, scripts run again.
-      await visit(tab, [`${base}/next`], { then: "none" });
+      await visit(opener, [`${base}/next`], { then: "none" });
       expect(await evaluate(popup, "document.title")).toContain("Next");
     } finally {
       await live.closeTab(kid);

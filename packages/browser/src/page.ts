@@ -74,10 +74,16 @@ export interface PageOptions {
   gate?: (signal?: AbortSignal) => Promise<boolean>;
   /** The tabs this one shares its secrets with (its conversation's), looked up at each use: none for a tab of no one's. */
   kin?: () => Kin | undefined;
-  /** Every saved secret's values, masked in every tab whether or not one was filled (the vault's, as the scrubber holds them). */
+  /** Every saved value, cleaned out of what KOS reads back from any tab: kept in the host, never sent into a page. */
   saved?: () => readonly FilledValue[];
-  /** Whether an origin is a site a saved secret may be filled on, where no script of KOS's runs. */
-  evalBlocked?: (origin: string) => boolean;
+  /** The saved values a page on these origins may be shown, to mask its pictures: those of secrets for its site. */
+  savedFor?: (origins: readonly string[]) => readonly FilledValue[];
+  /** Why no script of KOS's runs on an origin, if none may: a site a saved secret may be filled on. */
+  evalBlocked?: (origin: string) => string | undefined;
+  /** The documents (by loader) of this tab a script of KOS's ran in or could reach, kept by whoever outlives the Page. */
+  scripted?: { has(loader: string): boolean; mark(loader: string): void };
+  /** Waited on before a fill: work that must be done first (a credential site's service workers cleared). */
+  settled?: () => Promise<void>;
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
@@ -321,9 +327,11 @@ export class Page {
   private readonly gate: (signal?: AbortSignal) => Promise<boolean>;
   private readonly kin: () => Kin | undefined;
   private readonly saved: () => readonly FilledValue[];
-  private readonly evalBlocked: (origin: string) => boolean;
-  /** Documents (by loader) a script of KOS's ran in: one may have left a hook for what is filled, so none is filled there. */
-  private readonly scripted = new Set<string>();
+  private readonly savedFor: (origins: readonly string[]) => readonly FilledValue[];
+  private readonly evalBlocked: (origin: string) => string | undefined;
+  /** Documents a script of KOS's ran in: one may have left a hook for what is filled, so none is filled there. */
+  private readonly scripted: { has(loader: string): boolean; mark(loader: string): void };
+  private readonly settled: () => Promise<void>;
 
   constructor(
     private readonly session: Session,
@@ -334,7 +342,11 @@ export class Page {
     this.gate = options.gate ?? (async () => false);
     this.kin = options.kin ?? (() => undefined);
     this.saved = options.saved ?? (() => []);
-    this.evalBlocked = options.evalBlocked ?? (() => false);
+    this.savedFor = options.savedFor ?? (() => []);
+    this.evalBlocked = options.evalBlocked ?? (() => undefined);
+    const scripted = new Set<string>();
+    this.scripted = options.scripted ?? { has: (loader) => scripted.has(loader), mark: (loader) => void scripted.add(loader) };
+    this.settled = options.settled ?? (async () => undefined);
   }
 
   /**
@@ -564,19 +576,25 @@ export class Page {
     // A script could read a secret straight out of its field.
     if (this.holding()) throw new Error(`browser.eval is refused: ${TAINTED}`);
     // On a site a secret may be filled on, a script could read a copy the site keeps, or wait for the next fill.
-    for (const { origin } of (await this.frameTree()).values()) {
-      if (this.evalBlocked(origin)) {
-        throw new Error(
-          `browser.eval is refused on ${origin}: a saved secret may be filled on this site, so no script of KOS's runs in its pages. Looking, reading, acting with steps and browser.handoff still work here.`,
-        );
-      }
+    const before = await this.document();
+    for (const origin of before.origins) {
+      const why = this.evalBlocked(origin);
+      if (why) throw new Error(`browser.eval is refused on ${origin}: ${why}, so no script of KOS's runs in its pages. Looking, reading, acting with steps and browser.handoff still work here.`);
     }
-    this.scripted.add(this.life.loader);
+    this.scripted.mark(before.loader);
+    // The page may move between the check and the script: it runs only on the origin checked (or on no site).
+    const guard = `if (location.origin !== ${JSON.stringify(before.origin)} && /^https?:/.test(location.origin)) throw new Error("the page moved to another site before the script ran");\n`;
     const answer = await this.send(
       "Runtime.evaluate",
-      { expression: code, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
+      { expression: guard + code, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
       EVAL_MS + 2_000,
     );
+    const after = await this.document();
+    if (after.loader !== before.loader) {
+      // The script may have run on the next document too, or reached it: that one takes no fill either, and what came back is not said.
+      this.scripted.mark(after.loader);
+      throw new Error("the page loaded another document while the script ran, so its answer is withheld; look at the page again");
+    }
     if (answer["exceptionDetails"]) throw new Error(`the script threw: ${this.clean(exceptionText(answer["exceptionDetails"]))}`);
     const result = answer["result"] as { type?: string; value?: unknown; description?: string } | undefined;
     if (!result || result.type === "undefined") return "undefined";
@@ -698,6 +716,7 @@ export class Page {
   async fillSecret(ref: string, value: string, expect: FillExpect): Promise<void> {
     const node = this.refNode(ref);
     if (this.life.loader !== expect.doc) throw new SecretRefused("changed", "the page changed since you approved; look again and ask again");
+    await this.settled();
     if (this.scripted.has(this.life.loader)) throw new SecretRefused("scripted", "a script of yours ran in this page (browser.eval) and could catch what is filled; open the page afresh, look again and ask again");
     const frame = await this.frameOf(node);
     const frames = await this.frameTree();
@@ -744,14 +763,14 @@ export class Page {
   }
 
   /**
-   * A picture of a page a secret was filled into, taken by `shoot` with
-   * every secret field's text made unseeable and every place the page
-   * echoes a filled value painted over, then put back as it was. A page with
-   * none is pictured as it is. Throws when it cannot mask, so no picture is
-   * taken rather than one that shows a secret.
+   * A picture of a page that may show a secret (one filled in this tab or
+   * its kin, or a saved one for its site), taken by `shoot` with every text
+   * box made unseeable and every place the page echoes such a value painted
+   * over, then put back as it was. A page with none is pictured as it is.
+   * Throws when it cannot mask, so no picture is taken rather than one that
+   * shows a secret.
    */
   masked<T>(shoot: () => Promise<T>): Promise<T> {
-    if (this.values().length === 0) return shoot();
     // One at a time: two pictures at once would each put back what the other masked, mid-shot.
     const next = this.pictures.then(() => this.maskedNow(shoot));
     this.pictures = next.catch(() => undefined);
@@ -759,7 +778,10 @@ export class Page {
   }
 
   private async maskedNow<T>(shoot: () => Promise<T>): Promise<T> {
-    const patterns = echoPatterns(this.values(), 1);
+    // Only what this page may be shown: a value is sent into no page that could learn from its masking that it is a saved secret.
+    const values = this.pageValues([...(await this.frameTree()).values()].map((f) => f.origin));
+    if (values.length === 0) return shoot();
+    const patterns = echoPatterns(values, 1);
     const masked = new Set<number>();
     try {
       // Every root of every frame KOS can reach, closed shadow roots among them: a value may be copied into any text box or echoed into any text.
@@ -818,11 +840,28 @@ export class Page {
     return this.holdsSecret() || this.kin()?.holding() === true;
   }
 
-  /** Every value filled in this tab or any it shares its secrets with, and every saved secret's. */
+  /** Every value filled in this tab or any it shares its secrets with, and every saved one: what is cleaned out of what KOS reads back, in the host. */
   private values(): FilledValue[] {
-    const out = [...this.filled];
-    for (const v of [...(this.kin()?.values ?? []), ...this.saved()]) if (!out.some((had) => had.text === v.text)) out.push(v);
-    return out;
+    return merged(this.filled, this.kin()?.values ?? [], this.saved());
+  }
+
+  /** The values a page on these origins may be sent to mask: those filled in this tab or its kin, and the saved ones for its site. */
+  private pageValues(origins: readonly string[]): FilledValue[] {
+    return merged(this.filled, this.kin()?.values ?? [], this.savedFor(origins));
+  }
+
+  /** The main frame's document as one answer of the browser has it: its loader, its origin, and every frame's origin. */
+  private async document(): Promise<{ loader: string; origin: string; origins: string[] }> {
+    type FrameTree = { frame?: { loaderId?: string; securityOrigin?: string }; childFrames?: FrameTree[] };
+    const tree = (await this.send("Page.getFrameTree"))["frameTree"] as FrameTree | undefined;
+    const origins: string[] = [];
+    const walk = (t: FrameTree | undefined): void => {
+      if (!t) return;
+      origins.push(t.frame?.securityOrigin ?? "");
+      for (const child of t.childFrames ?? []) walk(child);
+    };
+    walk(tree);
+    return { loader: tree?.frame?.loaderId ?? "", origin: tree?.frame?.securityOrigin ?? "", origins };
   }
 
   /** Text read from the page with every secret filled into it said as hidden, where the page echoes one. */
@@ -1612,6 +1651,13 @@ export class Page {
       }),
     );
   }
+}
+
+/** Lists of values as one, each text once. */
+function merged(...lists: (readonly FilledValue[])[]): FilledValue[] {
+  const out: FilledValue[] = [];
+  for (const list of lists) for (const v of list) if (!out.some((had) => had.text === v.text)) out.push(v);
+  return out;
 }
 
 /** An address as a document is known by in history: less its fragment. */
