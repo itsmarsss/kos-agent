@@ -1,4 +1,4 @@
-import type { FieldSpot, SecretFill, SecretSlot, Seen, Then } from "@kos/browser";
+import { isSecretSlot, type FieldSpot, type SecretFill, type SecretSlot, type Seen, type Then } from "@kos/browser";
 import { SECRET_FIELDS, SECRET_KINDS, secretFieldWords, type AskSecret, type SecretBilling, type SecretFieldName, type SecretKind } from "@kos/shared";
 
 import { approvedAs, caller, guestOrigin, isAttended, turn } from "../kernel/caller.js";
@@ -39,6 +39,8 @@ export interface SecretsToolsDeps {
   browser: SecretsBrowser;
   /** Told of every decided ask, so a fill the owner denied, or let lapse, is recorded as such. */
   onDecided?: (listener: (action: PendingAction) => void) => () => void;
+  /** A word to the owner's Inbox: a turn refused a secret again and again. */
+  tellOwner?: (text: string) => void;
   now?: () => number;
 }
 
@@ -46,6 +48,12 @@ const FILL = "secrets.fill";
 const SURFACE = "kos-browser";
 /** Yes-for-this-turn grants kept, at most; the oldest turn's go first. */
 const TURNS_KEPT = 50;
+/** Refused fills in one turn before the owner is told. */
+const REFUSALS_TOLD = 3;
+/** Asks to allow a secret on a new site, at most, in one turn. */
+const ALLOW_SITE_MAX = 3;
+/** The keys only the harness sets on a fill: anything the model passed under them is dropped. */
+const STAMPED = ["label", "origin", "frameOrigins", "doc", "targets"];
 
 /** A field of a secret as a fill names it, and the field of the form it goes into. */
 interface Placement {
@@ -133,6 +141,13 @@ function originOf(url: string | undefined): string | undefined {
   }
 }
 
+/** Whether every secret field of a fill goes into a password box, as the page drew them when it was stamped. */
+function onlyPasswordBoxes(input: Record<string, unknown>, meta: SecretMeta): boolean {
+  const call = parseFill(input, meta);
+  const targets = Array.isArray(input["targets"]) ? (input["targets"] as { type?: string }[]) : [];
+  return typeof call !== "string" && call.places.every((p, i) => !isSecretSlot(p.slot) || targets[i]?.type === "password");
+}
+
 const words = (list: string[]): string => (list.length <= 1 ? (list[0] ?? "") : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`);
 
 /** A refusal for the model, recorded as a use when it is about a secret. */
@@ -151,6 +166,17 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
   const turnGrants = new Map<string, Set<string>>();
   /** Where each fill's fields were found, worked out once for the refusal and the stamp of the same call. */
   const spotted = new WeakMap<Record<string, unknown>, Promise<FieldSpot[]>>();
+  /** By turn: fills refused, and asks to allow a site. */
+  const refusedIn = new Map<string, number>();
+  const allowAsks = new Map<string, number>();
+  const countIn = (counts: Map<string, number>): number => {
+    const id = turn.getStore() ?? "";
+    const n = (counts.get(id) ?? 0) + 1;
+    counts.delete(id);
+    counts.set(id, n);
+    if (counts.size > TURNS_KEPT) counts.delete(counts.keys().next().value!);
+    return n;
+  };
   let unsubscribe: (() => void) | undefined;
 
   const vaultNow = (): Vault => {
@@ -220,6 +246,7 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
     const fields = (): string[] => (Array.isArray(input["fields"]) ? input["fields"].map((f) => String((f as { field?: unknown })?.field ?? "")).filter(Boolean) : []);
     const refuse = (code: string, why: string, extra: Partial<SecretUseInput> = {}): never => {
       record(meta, `refused:${code}`, { fields: fields(), ...extra });
+      if (countIn(refusedIn) === REFUSALS_TOLD) deps.tellOwner?.(`KOS was refused ${meta.label} (${meta.handle}) ${REFUSALS_TOLD} times in one turn, the last: ${why} Look at what it was asked to do.`);
       throw new Refusal(code, why);
     };
     const barred = policyBars(meta);
@@ -397,20 +424,22 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
           },
           // Read from the tab and the vault, never the model: what the owner says yes to is what runs.
           stamp: async (input) => {
+            const own = Object.fromEntries(Object.entries(input).filter(([key]) => !STAMPED.includes(key)));
             const vault = deps.vault();
             const meta = vault?.get(str(input, "secret")?.toLowerCase() ?? "");
             const call = meta ? parseFill(input, meta) : undefined;
-            if (!meta || !call || typeof call === "string") return input;
+            if (!meta || !call || typeof call === "string") return own;
             const spots = await spotsOf(input, call).catch(() => undefined);
-            if (!spots?.length) return input;
-            return { ...input, label: meta.label, origin: spots[0]!.origin, frameOrigins: spots.map((s) => s.frameOrigin), doc: spots[0]!.doc };
+            if (!spots?.length) return own;
+            return { ...own, label: meta.label, origin: spots[0]!.origin, frameOrigins: spots.map((s) => s.frameOrigin), doc: spots[0]!.doc, targets: spots.map((s) => s.field) };
           },
           why: (input) => `puts a saved secret into a page${typeof input["origin"] === "string" ? ` on ${input["origin"]}` : ""}`,
           granted: (input) => {
             const meta = deps.vault()?.get(str(input, "secret")?.toLowerCase() ?? "");
             const origin = str(input, "origin");
             if (!meta || !origin) return false;
-            if (grantedOn(meta, origin)) return true;
+            // A site's grant covers a secret only into password boxes: a card or a key into a text box asks.
+            if (grantedOn(meta, origin) && onlyPasswordBoxes(input, meta)) return true;
             const id = turn.getStore();
             return meta.policy.ask === "turn" && id !== undefined && turnGrants.get(id)?.has(turnKey(meta.handle, origin)) === true;
           },
@@ -418,10 +447,18 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
             const meta = deps.vault()?.get(str(input, "secret")?.toLowerCase() ?? "");
             const origin = str(input, "origin");
             if (!meta || !origin) return undefined;
-            const fields = Array.isArray(input["fields"]) ? input["fields"].map((f) => String((f as { field?: unknown }).field ?? "").split(".")[0] as SecretFieldName) : [];
+            const given = Array.isArray(input["fields"]) ? input["fields"].map((f) => String((f as { field?: unknown }).field ?? "")) : [];
+            const fields = given.map((f) => f.split(".")[0] as SecretFieldName);
             const frames = Array.isArray(input["frameOrigins"]) ? [...new Set((input["frameOrigins"] as unknown[]).map(String))].filter((f) => f !== origin) : [];
             const used = deps.uses.list(meta.handle, 200).some((u) => u.outcome === "filled" && u.origin === origin);
-            const warnings = [...(origin.startsWith("http://") ? ["The page is not encrypted (plain http)."] : []), ...(used ? [] : [`${meta.label} has not been filled on this site before.`])];
+            const targets = Array.isArray(input["targets"]) ? (input["targets"] as FieldSpot["field"][]) : [];
+            const form = targets.find((t) => t.action);
+            const warnings = [
+              ...(origin.startsWith("http://") ? ["The page is not encrypted (plain http)."] : []),
+              ...(used ? [] : [`${meta.label} has not been filled on this site before.`]),
+              ...(form && form.method === "unset" ? ["The form names no method, so sent as it is, what is typed goes into the page's address."] : []),
+              ...(form?.action && originOf(form.action) !== origin ? [`The form sends to ${originOf(form.action) ?? form.action}, not this site.`] : []),
+            ];
             const ask: AskSecret = {
               handle: meta.handle,
               label: meta.label,
@@ -432,7 +469,9 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
               surface: SURFACE,
               hint: meta.hint,
               warnings,
-              remember: meta.policy.ask === "site" ? ["site"] : meta.policy.ask === "turn" ? ["turn"] : [],
+              remember: meta.policy.ask === "site" && onlyPasswordBoxes(input, meta) ? ["site"] : meta.policy.ask === "turn" ? ["turn"] : [],
+              targets: targets.map((t, i) => ({ field: given[i] ?? "", label: t.label, type: t.type })),
+              ...(form?.action ? { formAction: form.action } : {}),
             };
             return ask;
           },
@@ -533,6 +572,7 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
                 return `${origin} is plain http; a secret is filled only on https sites (and http://localhost).`;
               }
               if (originAllowed(origin, meta.use.web.origins)) return `${meta.label} is already allowed on ${origin}; fill it with secrets.fill.`;
+              if (countIn(allowAsks) > ALLOW_SITE_MAX) return `This turn has asked to allow secrets on new sites ${ALLOW_SITE_MAX} times already; tell the owner what you need instead.`;
               return false;
             } catch (err) {
               return (err as Error).message;

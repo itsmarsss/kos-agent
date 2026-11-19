@@ -139,4 +139,8 @@ export interface AskSecret {
   warnings: string[];
   /** What a yes may be kept as. */
   remember: SecretRemember[];
+  /** Each form field it goes into, as the page labels it, and its type. */
+  targets?: { field: string; label: string; type: string }[];
+  /** Where the fields' form sends what is typed, when they are in one. */
+  formAction?: string;
 }

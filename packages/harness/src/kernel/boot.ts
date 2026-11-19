@@ -455,6 +455,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         fill: (fills, then) => (kernelRef ? kernelRef.fillSecretsHere(fills, then) : Promise.reject(new Error("not booted"))),
       },
       onDecided: (listener) => approvals.onDecided(listener),
+      tellOwner: (text) => void services.notify?.({ text, target: { kind: "owner" } }).catch(() => undefined),
     }),
     createBuildsModule({
       approvals,

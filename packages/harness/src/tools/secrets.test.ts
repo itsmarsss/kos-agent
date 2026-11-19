@@ -41,7 +41,9 @@ describe("the secrets tools", () => {
   let login: string;
   let card: string;
   /** The page the stand-in browser is on, and the frame each ref is in. */
-  let page: { url: string; doc: string; frames: Record<string, string> };
+  let page: { url: string; doc: string; frames: Record<string, string>; types: Record<string, string> };
+  /** What the module told the owner's Inbox. */
+  let told: string[];
   let filled: SecretFill[][];
   let browser: SecretsBrowser;
   /** Permission rules a decision kept: a secret's yes never makes one. */
@@ -59,13 +61,15 @@ describe("the secrets tools", () => {
     approvals = new ApprovalQueue(ws.db, secrets);
     audit = new AuditLog(ws.db, secrets);
     uses = new SecretUses(ws.db);
-    page = { url: `${SITE}/login`, doc: "doc-1", frames: {} };
+    page = { url: `${SITE}/login`, doc: "doc-1", frames: {}, types: { "@e4": "password" } };
+    told = [];
     filled = [];
     rules = [];
     browser = {
       unready: () => undefined,
       url: () => page.url,
-      spots: async (refs) => refs.map((ref): FieldSpot => ({ origin: new URL(page.url).origin, frameOrigin: page.frames[ref] ?? new URL(page.url).origin, doc: page.doc })),
+      spots: async (refs) =>
+        refs.map((ref): FieldSpot => ({ origin: new URL(page.url).origin, frameOrigin: page.frames[ref] ?? new URL(page.url).origin, doc: page.doc, field: { label: `Field ${ref}`, type: page.types[ref] ?? "text", action: `${SITE}/session`, method: "post" } })),
       fill: async (fills): Promise<Seen> => {
         filled.push(fills);
         return { text: 'textbox "Password" = "(hidden)" @e4', images: [] };
@@ -73,7 +77,7 @@ describe("the secrets tools", () => {
     };
     registry = new ToolRegistry();
     await new ModuleLoader(toolRegistryContext(registry)).load([
-      createSecretsModule({ vault: () => secrets.attached(), uses, browser: { unready: () => browser.unready(), url: () => browser.url(), spots: (r) => browser.spots(r), fill: (f, t) => browser.fill(f, t) }, onDecided: (l) => approvals.onDecided(l) }),
+      createSecretsModule({ vault: () => secrets.attached(), uses, browser: { unready: () => browser.unready(), url: () => browser.url(), spots: (r) => browser.spots(r), fill: (f, t) => browser.fill(f, t) }, onDecided: (l) => approvals.onDecided(l), tellOwner: (text) => void told.push(text) }),
     ]);
   });
 
@@ -132,13 +136,14 @@ describe("the secrets tools", () => {
 
   describe("secrets.fill", () => {
     it("asks every time, past Auto and a remembered rule, and names the secret, its fields and the real origin", async () => {
-      const running = guarded({ chatMode: () => ({ mode: "auto" }), permissions: { allows: () => true, ruleFor: () => ({ tool: "secrets.fill", scope: null, project: null }) } }).execute("secrets.fill", { ...loginFill(), origin: "https://evil.example" });
+      const running = guarded({ chatMode: () => ({ mode: "auto" }), permissions: { allows: () => true, ruleFor: () => ({ tool: "secrets.fill", scope: null, project: null }) } }).execute("secrets.fill", { ...loginFill(), origin: "https://evil.example", frameOrigins: ["https://evil.example"], doc: "forged", targets: [{ label: "x", type: "password" }] });
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
       const ask = approvals.pending()[0]!;
       expect(ask.rule).toBeNull();
       expect(ask.secret).toMatchObject({ handle: login, label: "GitHub", kind: "login", fields: ["username", "password"], origin: SITE, frameOrigins: [], surface: "kos-browser", remember: [] });
       // The origin the model passed is overwritten by the tab's.
-      expect(JSON.parse(ask.args)).toMatchObject({ origin: SITE, label: "GitHub", doc: "doc-1" });
+      expect(JSON.parse(ask.args)).toMatchObject({ origin: SITE, label: "GitHub", doc: "doc-1", frameOrigins: [SITE, SITE], targets: [{ label: "Field @e3", type: "text" }, { label: "Field @e4", type: "password" }] });
+      expect(ask.secret).toMatchObject({ targets: [{ field: "username", label: "Field @e3", type: "text" }, { field: "password", label: "Field @e4", type: "password" }], formAction: `${SITE}/session` });
       expect(summarizeAction(ask.tool, ask.args)).toBe(`Fill username and password from GitHub (${login})`);
       const view = askView({ tool: ask.tool, args: ask.args, secret: ask.secret });
       expect(view).toMatchObject({ alwaysNote: "Secrets always ask", secret: { origin: SITE } });
@@ -284,7 +289,7 @@ describe("the secrets tools", () => {
     it("hands back the secret the owner saved after the ask", async () => {
       const running = guarded().execute("secrets.request", { kind: "apikey", label: "Stripe", why: "to read your balance" });
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
-      expect(summarizeAction("secrets.request", approvals.pending()[0]!.args)).toBe("Add an API key for Stripe, for KOS to use without seeing it");
+      expect(summarizeAction("secrets.request", approvals.pending()[0]!.args)).toBe("Add an API key KOS calls “Stripe”, for KOS to use without seeing it");
       const handle = vault.add({ label: "Stripe", kind: "apikey", values: { token: "sk_test_unit_0000000000000000" } });
       await decide(true);
       const done = await running;
@@ -292,4 +297,36 @@ describe("the secrets tools", () => {
       expect(done.content).not.toContain("sk_test_unit");
     });
   });
+
+  describe("what a grant and a turn are held to", () => {
+    it("covers a site's grant only for secrets going into password boxes", async () => {
+      vault.update(login, { policy: { ask: "site" } });
+      vault.addGrant(login, SITE);
+      page.types = { "@e4": "text" };
+      void guarded().execute("secrets.fill", loginFill());
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      // Nor does the card offer to keep one there.
+      expect(approvals.pending()[0]!.secret?.remember).toEqual([]);
+      expect(filled).toHaveLength(0);
+    });
+
+    it("tells the owner once when a turn is refused a secret again and again", async () => {
+      page.url = "https://elsewhere.example/";
+      for (let i = 0; i < 4; i++) await guarded().execute("secrets.fill", { ...loginFill(), intent: `try ${i}` });
+      expect(told).toHaveLength(1);
+      expect(told[0]).toMatch(/refused GitHub .* 3 times in one turn/);
+    });
+
+    it("lets a turn ask to allow new sites three times at most", async () => {
+      const asked: string[] = [];
+      for (const host of ["a", "b", "c", "d"]) {
+        page.url = `https://${host}.example/`;
+        const tools = guarded({ waitForApproval: false });
+        asked.push((await tools.execute("secrets.allow_site", { secret: login, why: host })).content);
+      }
+      expect(asked.slice(0, 3).every((a) => a.startsWith("Queued for approval"))).toBe(true);
+      expect(asked[3]).toMatch(/asked to allow secrets on new sites 3 times already/);
+    });
+  });
 });
+
