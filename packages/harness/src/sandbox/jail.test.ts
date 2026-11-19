@@ -179,3 +179,12 @@ own.close();`,
     expect(() => jailedCommand("ls", { workspaceRoot: "/w", platform: "linux", contained: false })).toThrow(/jail/);
   });
 });
+
+describe("a sealed jail's services", () => {
+  it("looks up only the plain ones, and those it is given besides", () => {
+    const plain = sandboxProfile({ workspaceRoot: "/w", homes: [], sealed: true, secretFiles: [] });
+    expect(plain).not.toContain("com.apple.dnssd.service");
+    const resolving = sandboxProfile({ workspaceRoot: "/w", homes: [], sealed: true, secretFiles: [], services: ["com.apple.dnssd.service"] });
+    expect(resolving).toMatch(/\(allow mach-lookup [^\n]*\(global-name "com\.apple\.dnssd\.service"\)/);
+  });
+});

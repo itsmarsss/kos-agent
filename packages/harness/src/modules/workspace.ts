@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { RESERVED } from "../kernel/files.js";
 import { jailedProgram } from "../sandbox/jail.js";
 import { SKILL_NAME } from "../skills/manifest.js";
+import { folderHash } from "../store/folderhash.js";
 import type { Workspace } from "../store/workspace.js";
 import type { McpServerConfig } from "../tools/mcp.js";
 import { parseBlueprint, type Blueprint } from "./blueprint.js";
@@ -16,7 +18,10 @@ import { parseBlueprint, type Blueprint } from "./blueprint.js";
  * own process, in the jail, and the harness floors its tools the way it
  * floors any server's. The agent may write one. It runs only once the
  * owner has switched it on, which is the gate between "KOS wrote some
- * code" and "KOS runs some code".
+ * code" and "KOS runs some code". The yes is to the folder as it was then:
+ * its hash and its manifest are kept with the switch, a folder changed
+ * since does not run until the owner switches it on again, and its floors
+ * are the ones the owner saw, whatever module.json says now.
  */
 
 export const MODULES_DIR = "modules";
@@ -114,11 +119,82 @@ export function readWorkspaceModules(ws: Workspace): { modules: WorkspaceModule[
   return { modules, invalid };
 }
 
+/** A module as the owner switched it on: its folder's hash, and the manifest it had. */
+export interface ModulePin {
+  hash: string;
+  manifest: WorkspaceModuleManifest;
+}
+
 export interface ModuleSettings {
   /** Off is the default: a workspace module runs only after the owner switched it on. */
   enabled: string[];
   /** On is the default for a built-in feature; these are the ones switched off. */
   disabledBuiltins: string[];
+  /** What each module was when the owner switched it on, by name. */
+  pins?: Record<string, ModulePin>;
+}
+
+/** A module's own writable folder, `modules/<name>/data`: what its server keeps, never part of its hash. */
+export const MODULE_DATA_DIR = "data";
+
+/**
+ * The hash of a module's folder (see store/folderhash.ts), leaving out its
+ * data/, which the module's own server writes.
+ */
+export function moduleHash(ws: Workspace, module: WorkspaceModule): string {
+  return folderHash(ws.resolve(module.dir), [MODULE_DATA_DIR]);
+}
+
+/** What the owner switches on: the module's folder as it is now. */
+export function pinModule(ws: Workspace, module: WorkspaceModule): ModulePin {
+  return { hash: moduleHash(ws, module), manifest: module.manifest };
+}
+
+/** The pin a module still matches, or nothing when it was never pinned or has changed since. */
+export function standingPin(ws: Workspace, module: WorkspaceModule, settings: ModuleSettings): ModulePin | undefined {
+  const pin = settings.pins?.[module.manifest.name];
+  if (!pin || !settings.enabled.includes(module.manifest.name)) return undefined;
+  try {
+    return moduleHash(ws, module) === pin.hash ? pin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Pins for the modules that are on with none: switched on before pins were
+ * kept. Trusted as they are now, once, on the first boot that keeps pins;
+ * the names come back to be told to the owner and audited.
+ */
+export function adoptUnpinned(ws: Workspace, settings: ModuleSettings): { settings: ModuleSettings; adopted: string[] } {
+  let next = settings;
+  const adopted: string[] = [];
+  for (const module of readWorkspaceModules(ws).modules) {
+    const name = module.manifest.name;
+    if (!settings.enabled.includes(name) || settings.pins?.[name]) continue;
+    try {
+      next = withModuleEnabled(next, name, true, pinModule(ws, module));
+      adopted.push(name);
+    } catch {
+      // A folder that cannot be pinned stays off until the owner switches it on.
+    }
+  }
+  return { settings: next, adopted };
+}
+
+/**
+ * The owner's own update of a module: one that was on stays on, pinned as
+ * its folder is now. Gives the settings to keep, or nothing when it was off.
+ */
+export function repinModule(ws: Workspace, settings: ModuleSettings, name: string): ModuleSettings | undefined {
+  if (!settings.enabled.includes(name)) return undefined;
+  const module = readWorkspaceModules(ws).modules.find((m) => m.manifest.name === name);
+  return module ? withModuleEnabled(settings, name, true, pinModule(ws, module)) : undefined;
+}
+
+/** The modules that are on and unchanged since the owner switched them on: the ones that run. */
+export function runnableModules(ws: Workspace, settings: ModuleSettings): string[] {
+  return readWorkspaceModules(ws).modules.filter((m) => standingPin(ws, m, settings)).map((m) => m.manifest.name);
 }
 
 function names(raw: unknown): string[] {
@@ -126,17 +202,37 @@ function names(raw: unknown): string[] {
   return [...new Set(raw.filter((n): n is string => typeof n === "string" && n.trim() !== "").map((n) => n.trim()))];
 }
 
-export function parseModuleSettings(raw: unknown): ModuleSettings {
-  if (typeof raw !== "object" || raw === null) return { enabled: [], disabledBuiltins: [] };
-  const r = raw as { enabled?: unknown; disabledBuiltins?: unknown };
-  return { enabled: names(r.enabled), disabledBuiltins: names(r.disabledBuiltins) };
+function pins(raw: unknown): Record<string, ModulePin> {
+  if (typeof raw !== "object" || raw === null) return {};
+  const out: Record<string, ModulePin> = {};
+  for (const [name, pin] of Object.entries(raw as Record<string, unknown>)) {
+    const p = pin as { hash?: unknown; manifest?: unknown } | null;
+    if (typeof p?.hash !== "string") continue;
+    try {
+      out[name] = { hash: p.hash, manifest: parseModuleManifest(p.manifest, name) };
+    } catch {
+      // A pin that does not read back is no pin: the module waits to be switched on again.
+    }
+  }
+  return out;
 }
 
-export function withModuleEnabled(current: ModuleSettings, name: string, enabled: boolean): ModuleSettings {
+export function parseModuleSettings(raw: unknown): ModuleSettings {
+  if (typeof raw !== "object" || raw === null) return { enabled: [], disabledBuiltins: [] };
+  const r = raw as { enabled?: unknown; disabledBuiltins?: unknown; pins?: unknown };
+  const pinned = pins(r.pins);
+  return { enabled: names(r.enabled), disabledBuiltins: names(r.disabledBuiltins), ...(Object.keys(pinned).length ? { pins: pinned } : {}) };
+}
+
+/** On with the folder as it is now (`pin`), or off, its pin dropped. */
+export function withModuleEnabled(current: ModuleSettings, name: string, enabled: boolean, pin?: ModulePin): ModuleSettings {
   const on = new Set(current.enabled);
+  const pinned = { ...current.pins };
   if (enabled) on.add(name);
   else on.delete(name);
-  return { ...current, enabled: [...on].sort() };
+  if (enabled && pin) pinned[name] = pin;
+  else delete pinned[name];
+  return { enabled: [...on].sort(), disabledBuiltins: current.disabledBuiltins, ...(Object.keys(pinned).length ? { pins: pinned } : {}) };
 }
 
 export function withBuiltinEnabled(current: ModuleSettings, name: string, enabled: boolean): ModuleSettings {
@@ -149,7 +245,10 @@ export function withBuiltinEnabled(current: ModuleSettings, name: string, enable
 /**
  * The server a module is, as the MCP module understands one: its program
  * run from its own directory, jailed to the workspace unless the host is
- * the jail already, and floored as the manifest says.
+ * the jail already, and floored as the manifest says. The jail keeps it
+ * from reading or writing KOS's own state, database and settings (its
+ * trust tables among them), and from rewriting its own folder but data/,
+ * which is its own to keep things in and which its hash leaves out.
  */
 export function serverFor(
   module: WorkspaceModule,
@@ -158,7 +257,12 @@ export function serverFor(
   const command = module.manifest.command;
   if (!command) throw new Error(`${module.manifest.name} is a blueprint: it has no server to run`);
   const { file, args } = options.jail
-    ? jailedProgram(command, module.manifest.args ?? [], { workspaceRoot: options.workspaceRoot })
+    ? jailedProgram(command, module.manifest.args ?? [], {
+        workspaceRoot: options.workspaceRoot,
+        hidden: [...RESERVED, ".env"].map((name) => join(options.workspaceRoot, name)),
+        readOnly: [...RESERVED, ".env", module.dir].map((name) => join(options.workspaceRoot, name)),
+        writableWithin: [join(options.workspaceRoot, module.dir, MODULE_DATA_DIR)],
+      })
     : { file: command, args: module.manifest.args ?? [] };
   return {
     command: file,
@@ -176,20 +280,31 @@ function projectsFor(module: WorkspaceModule, instances: string[]): string[] {
   return [...new Set([...(module.manifest.projects ?? []), ...(module.manifest.blueprint ? instances : [])])];
 }
 
-/** The servers for the modules the owner switched on. Invalid or unknown names are skipped. */
+/**
+ * The servers for the modules the owner switched on, each as it was then:
+ * its manifest from the pin, and only while its folder still matches.
+ * Invalid, unknown, unpinned and changed ones are skipped, the changed ones
+ * told to `onChanged`.
+ */
 export function enabledServers(
   ws: Workspace,
-  enabled: Iterable<string>,
+  settings: ModuleSettings,
   jail: boolean,
   /** The instances of a blueprint, so a blueprint's server is scoped to them. */
   instancesOf: (module: string) => string[] = () => [],
+  onChanged: (module: string) => void = () => {},
 ): Record<string, McpServerConfig> {
-  const on = new Set(enabled);
   const out: Record<string, McpServerConfig> = {};
   for (const module of readWorkspaceModules(ws).modules) {
+    if (!settings.enabled.includes(module.manifest.name)) continue;
+    const pin = standingPin(ws, module, settings);
+    if (!pin) {
+      onChanged(module.manifest.name);
+      continue;
+    }
     // A blueprint alone has nothing to start; on or off, it is a template.
-    if (on.has(module.manifest.name) && module.manifest.command) {
-      out[module.manifest.name] = serverFor(module, { workspaceRoot: ws.root, jail, instances: instancesOf(module.manifest.name) });
+    if (pin.manifest.command) {
+      out[module.manifest.name] = serverFor({ ...module, manifest: pin.manifest }, { workspaceRoot: ws.root, jail, instances: instancesOf(module.manifest.name) });
     }
   }
   return out;

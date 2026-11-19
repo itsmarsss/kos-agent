@@ -1,19 +1,27 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { firstSegment, isReserved } from "../kernel/files.js";
+import { turnStop } from "../kernel/caller.js";
+import { firstSegment, foldName, RESERVED } from "../kernel/files.js";
 import type { EmbeddingProvider } from "../memory/embeddings.js";
 import type { EventLog } from "../memory/events.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { childEnv, findProgram } from "../sandbox/env.js";
+import { jailedProgram, type JailedCommand } from "../sandbox/jail.js";
 import type { Workspace } from "../store/workspace.js";
+import { isKosState, reservedReadRefusal } from "./files.js";
+import { maintains } from "./fence.js";
 import { placeFor } from "./home.js";
 import { scan } from "./scan.js";
+import { reachOf } from "./sql.js";
 
 const exec = promisify(execFile);
 
-/** What a search over a folder holding the workspace's root skips: the database, its journals and copies, and KOS's state. */
-const UNSEARCHED = ["kos.sqlite*", "kos.snapshot.sqlite*", ".kos"];
+/** Longest a grep may run before it is killed. */
+export const GREP_TIMEOUT_MS = 30_000;
 
 export interface SearchModuleOptions {
   /** Wire these to enable the semantic search tool; grep needs neither. */
@@ -30,11 +38,30 @@ function str(input: Record<string, unknown>, key: string): string {
 }
 
 /**
+ * The program to run for a grep: ripgrep in the jail a read-only shell line
+ * gets (no writes, no network, sealed, none of KOS's own files) where this
+ * platform has one. Where it has none the grep still runs, since its
+ * arguments can no longer name a program and its environment is the
+ * child's allow-list, not the host's.
+ */
+function grepProgram(ws: Workspace, rgPath: string, args: string[], hidden: string[]): JailedCommand {
+  try {
+    return jailedProgram(rgPath, args, { workspaceRoot: ws.root, writes: [], hidden, network: false, sealed: true });
+  } catch {
+    return { file: rgPath, args };
+  }
+}
+
+/**
  * Exact grep via ripgrep, jailed to the workspace. The optional `path` arg
  * starts from the calling turn's own folder, as every file tool's does, and
  * is resolved through the jail, so the search can never read outside the root.
+ * The pattern goes after -e and the folder after --, so neither is ever read
+ * as one of ripgrep's flags (--pre names a program it runs on every file).
+ * A pattern may start with - for that reason.
+ * KOS's own state and database are left out, as files.read leaves them.
  * ripgrep exits 1 with no matches, which is a normal empty result, not an error.
- * A missing binary becomes an actionable message rather than a raw spawn ENOENT.
+ * With no ripgrep on the child's PATH the search runs in Node instead.
  */
 async function grep(
   ws: Workspace,
@@ -43,39 +70,50 @@ async function grep(
   input: Record<string, unknown>,
 ): Promise<string> {
   const pattern = str(input, "pattern");
-  const placed = placeFor(ws, ctx, typeof input.path === "string" ? input.path : ".");
-  const target = placed.abs;
-  // KOS's own files are read through the tools for them: the database and its copies are not text to grep.
-  if (isReserved(ws.root, placed.rel)) throw new Error(`${firstSegment(placed.rel)} is KOS's own, which search does not read`);
+  const asked = typeof input.path === "string" ? input.path : ".";
+  if (asked.startsWith("-")) throw new Error("a path starting with - reads as a flag: start it with ./");
+  const placed = placeFor(ws, ctx, asked);
+  const reach = reachOf(ctx);
+  if (isKosState(ws, placed.rel)) throw new Error(".kos is KOS's own state and is not searched; a result set aside in this chat comes back with context.recall");
+  const refused = reservedReadRefusal(ws, placed.rel, reach);
+  if (refused) throw new Error(refused);
+  // What a search walks past at the workspace root: .kos always, the rest of KOS's own unless Maintenance asks. Run from the root on a relative path, a leading / anchors each there, so a project's own locks/ or profile.json is still searched.
+  const left = [...RESERVED].filter((name) => name === ".kos" || !maintains(reach));
+  const globs = left.flatMap((name) => ["--iglob", `!/${name}`]);
+  const args = ["--line-number", "--no-heading", "--color", "never", ...globs, "-e", pattern, "--", placed.rel || "."];
+  const env = childEnv({ home: ws.root });
+  const binary = rgPath.includes("/") ? (existsSync(rgPath) ? rgPath : undefined) : findProgram(rgPath, env.PATH ?? "");
+  if (!binary) {
+    /*
+     * No ripgrep on this machine. Search anyway.
+     *
+     * This used to throw, which took a core capability away based on what
+     * the owner happened to have installed, and the agent had no way to know
+     * in advance: it would try, fail, and work around it badly. Note that
+     * `rg` being on an interactive PATH proves nothing, because it is often
+     * a shell function, and a spawned process cannot call one of those.
+     */
+    const skipped = new Set(left);
+    const result = scan(ws.root, placed.abs, pattern, { skip: (rel) => skipped.has(foldName(firstSegment(rel))) });
+    if (result.lines.length === 0) return "(no matches)";
+    return [...result.lines, result.truncated ? "(stopped early: too many matches or files)" : ""].filter(Boolean).join("\n");
+  }
+  const program = grepProgram(ws, binary, args, [...left, ".env"].map((name) => join(ws.root, name)));
+  const signal = turnStop.getStore();
   try {
-    const { stdout } = await exec(
-      rgPath,
-      ["--line-number", "--no-heading", "--color", "never", ...UNSEARCHED.flatMap((glob) => ["--glob", `!${glob}`]), pattern, target],
-      { cwd: ws.root, maxBuffer: 4_000_000 },
-    );
+    const { stdout } = await exec(program.file, program.args, {
+      cwd: ws.root,
+      env,
+      maxBuffer: 4_000_000,
+      timeout: GREP_TIMEOUT_MS,
+      ...(signal ? { signal } : {}),
+    });
     return stdout.trim() || "(no matches)";
   } catch (err) {
     const e = err as { code?: number | string; stdout?: string };
     if (e.code === 1) return "(no matches)"; // ripgrep: no matches found
-    if (e.code === "ENOENT") {
-      /*
-       * No ripgrep on this machine. Search anyway.
-       *
-       * This used to throw, which took a core capability away based on what
-       * the owner happened to have installed, and the agent had no way to know
-       * in advance: it would try, fail, and work around it badly. Note that
-       * `rg` being on an interactive PATH proves nothing, because it is often
-       * a shell function, and a spawned process cannot call one of those.
-       */
-      const result = scan(ws.root, target, pattern);
-      if (result.lines.length === 0) return "(no matches)";
-      return [
-        ...result.lines,
-        result.truncated ? "(stopped early: too many matches or files)" : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-    }
+    // 2 is an error somewhere in the walk (a file the jail refuses); what it found besides still stands.
+    if (e.code === 2 && e.stdout?.trim()) return e.stdout.trim();
     throw err;
   }
 }

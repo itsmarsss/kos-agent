@@ -58,19 +58,28 @@ export function listPages(ws: Workspace): PageInfo[] {
 
 
 /**
- * The pages as last written, so an owner's edit can be told from the
- * dream job's own rewrite. A page line of the form `- key: value` is a
- * claim in the page's scope; an edited line comes back in as the owner's
- * word, which outranks anything the job believed.
+ * The pages as last written, so an edit can be told from the dream job's
+ * own rewrite. A page line of the form `- key: value` is a claim in the
+ * page's scope; an edited line comes back in as KOS's belief, since the
+ * edit may be any chat's as well as the owner's.
  */
 export class PageLog {
   constructor(private readonly db: Db, private readonly now: () => number = Date.now) {
     this.db.exec(`CREATE TABLE IF NOT EXISTS memory_pages (name TEXT PRIMARY KEY, hash TEXT NOT NULL, written_at INTEGER NOT NULL)`);
+    // The text too, added to a table that may be older: what changed since it was written is told line by line.
+    const columns = new Set((this.db.prepare(`PRAGMA table_info(memory_pages)`).all() as { name: string }[]).map((c) => c.name));
+    if (!columns.has("text")) this.db.exec(`ALTER TABLE memory_pages ADD COLUMN text TEXT`);
   }
 
   record(name: string, markdown: string): void {
-    this.db.prepare(`INSERT INTO memory_pages (name, hash, written_at) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET hash = excluded.hash, written_at = excluded.written_at`)
-      .run(name, hashOf(markdown), this.now());
+    this.db.prepare(`INSERT INTO memory_pages (name, hash, written_at, text) VALUES (?, ?, ?, ?) ON CONFLICT (name) DO UPDATE SET hash = excluded.hash, written_at = excluded.written_at, text = excluded.text`)
+      .run(name, hashOf(markdown), this.now(), markdown);
+  }
+
+  /** The page as last written or read back, when that was recorded. */
+  written(name: string): string | undefined {
+    const r = this.db.prepare(`SELECT text FROM memory_pages WHERE name = ?`).get(name) as { text: string | null } | undefined;
+    return r?.text ?? undefined;
   }
 
   recorded(name: string): string | undefined {
@@ -106,11 +115,28 @@ export interface PageImport {
   unchanged: number;
 }
 
-/** Read a page's claim lines back into memory as the owner's word, and note the page as read. */
-export function importPage(ws: Workspace, facts: FactsStore, log: PageLog, ownerId: string, name: string): PageImport {
+/** A page's claim lines, as key and value. */
+function claimLines(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const line of text.split("\n")) {
+    const m = CLAIM_LINE.exec(line);
+    if (m) out.add(`${m[1]}\0${m[2]}`);
+  }
+  return out;
+}
+
+/**
+ * Read a page's claim lines back into memory, and note the page as read.
+ * A tool's import is KOS's belief throughout, since a page is a file any
+ * chat can write. The owner's own import from the dashboard makes their
+ * word only of the lines their edit changed, those not in the page as it
+ * was last written; a line KOS wrote and nobody changed stays its belief.
+ */
+export function importPage(ws: Workspace, facts: FactsStore, log: PageLog, ownerId: string, name: string, by: "owner" | "agent"): PageImport {
   const text = readPage(ws, name);
   if (text === undefined) throw new Error(`no page named ${name}`);
   const scope = pageScope(name);
+  const before = claimLines(log.written(name) ?? "");
   const imported: string[] = [];
   let unchanged = 0;
   for (const line of text.split("\n")) {
@@ -122,7 +148,8 @@ export function importPage(ws: Workspace, facts: FactsStore, log: PageLog, owner
       unchanged++;
       continue;
     }
-    facts.upsert(ownerId, { key: key!, value: value!, kind: current?.kind ?? "fact", scope, trust: "owner" }, `page:${name}`);
+    const trust = by === "owner" && !before.has(`${key}\0${value}`) ? "owner" : "agent";
+    facts.upsert(ownerId, { key: key!, value: value!, kind: current?.kind ?? "fact", scope, trust }, `page:${name}`);
     imported.push(key!);
   }
   log.record(name, text);

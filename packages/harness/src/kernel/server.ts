@@ -62,7 +62,7 @@ import type { BlobJob } from "../tools/agents.js";
 import { saidText, type ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
-import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
+import { MODULES_KEY, parseModuleSettings, pinModule, readWorkspaceModules, repinModule, runnableModules, withModuleEnabled, type ModulePin } from "../modules/workspace.js";
 import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled, type SkillSettings } from "../skills/settings.js";
@@ -476,7 +476,9 @@ function modulesReport(kernel: Kernel): {
   builtins: { name: string; description: string; enabled: boolean }[];
 } {
   const { modules, invalid } = readWorkspaceModules(kernel.workspace);
-  const on = new Set(parseModuleSettings(kernel.settings.get(MODULES_KEY)).enabled);
+  const settings = parseModuleSettings(kernel.settings.get(MODULES_KEY));
+  // On is on and unchanged: a module whose folder changed since is shown off, to be switched on again.
+  const on = new Set(runnableModules(kernel.workspace, settings));
   const status = kernel.mcp.status();
   return {
     modules: modules.map((m) => {
@@ -485,6 +487,7 @@ function modulesReport(kernel: Kernel): {
         ...manifest,
         dir: m.dir,
         enabled: on.has(m.manifest.name),
+        ...(settings.enabled.includes(m.manifest.name) && !on.has(m.manifest.name) ? { changed: true } : {}),
         ...(status[m.manifest.name] ?? {}),
         ...(blueprint
           ? {
@@ -1337,6 +1340,9 @@ export async function handleApiRequest(
     if (!name) return { status: 400, body: { error: "name required" } };
     try {
       const made = await updateModule(kernel.workspace, name);
+      // The owner's own update: a module that was on stays on as it is now.
+      const repinned = repinModule(kernel.workspace, parseModuleSettings(kernel.settings.get(MODULES_KEY)), name);
+      if (repinned) kernel.settings.set(MODULES_KEY, repinned);
       // A running server serves the old code until it is brought up again.
       const status = await kernel.mcp.reload();
       return ok({ updated: made.name, origin: made.origin, ...(status[name] ?? {}) });
@@ -1388,9 +1394,16 @@ export async function handleApiRequest(
       await kernel.setBuiltinEnabled(name, enabled);
       return ok({ name, enabled, builtin: true });
     }
-    const known = readWorkspaceModules(kernel.workspace).modules.some((m) => m.manifest.name === name);
-    if (!known) return { status: 404, body: { error: `no module named ${name}` } };
-    kernel.settings.set(MODULES_KEY, withModuleEnabled(parseModuleSettings(kernel.settings.get(MODULES_KEY)), name, enabled));
+    const found = readWorkspaceModules(kernel.workspace).modules.find((m) => m.manifest.name === name);
+    if (!found) return { status: 404, body: { error: `no module named ${name}` } };
+    // Switched on, the module is pinned as it is now: a later change waits for the owner to switch it on again.
+    let pin: ModulePin | undefined;
+    try {
+      pin = enabled ? pinModule(kernel.workspace, found) : undefined;
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+    kernel.settings.set(MODULES_KEY, withModuleEnabled(parseModuleSettings(kernel.settings.get(MODULES_KEY)), name, enabled, pin));
     const status = await kernel.mcp.reload();
     kernel.bus.emit({ kind: enabled ? "module:enabled" : "module:disabled", name });
     return ok({ name, enabled, ...(status[name] ?? {}) });
@@ -3238,11 +3251,11 @@ export async function handleApiRequest(
     }
   }
 
-  /** Read the owner's page edits back into memory, one page or every edited one. */
+  /** Read the owner's page edits back into memory, one page or every edited one, as the owner's word: they asked. */
   if (method === "POST" && path === "/api/memory/pages/import") {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const names = name ? [name] : kernel.pageLog.edited(kernel.workspace);
-    const imported = names.map((n) => importPage(kernel.workspace, kernel.facts, kernel.pageLog, kernel.profile.ownerId, n));
+    const imported = names.map((n) => importPage(kernel.workspace, kernel.facts, kernel.pageLog, kernel.profile.ownerId, n, "owner"));
     return ok({ imported });
   }
 
