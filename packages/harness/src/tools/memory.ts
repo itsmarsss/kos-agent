@@ -3,7 +3,7 @@ import type { EventLog } from "../memory/events.js";
 import { BATCH_CHARS, relatedClaims, takeBatch, trustOf } from "../memory/extractor.js";
 import { GLOBAL_SCOPE, projectScope, type FactsStore } from "../memory/facts.js";
 import { groundedIn } from "../memory/grounded.js";
-import { importPage, listPages, readPage, writePage, type PageLog } from "../memory/pages.js";
+import { importPage, listPages, pageScope, readPage, writePage, type PageLog } from "../memory/pages.js";
 import { applyResolution, parseLean } from "../memory/resolve.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { ObservationStore } from "../memory/observations.js";
@@ -13,6 +13,8 @@ import { COMPACTED_PREFIX } from "../kernel/compact.js";
 import { historySize, toExchanges } from "../kernel/session.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { maintains } from "./fence.js";
+import { reachOf } from "./sql.js";
 
 /** The most a claim may say; what needs more is a page. */
 const CLAIM_MAX = 600;
@@ -148,6 +150,43 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     return here ?? GLOBAL_SCOPE;
   };
 
+  /**
+   * Who is calling, for the fence. Maintenance and the root (no project, no
+   * blob, no guest's words), where the memory jobs run, reach every scope and
+   * conversation; a project's or a blob's chat reaches its own scope, global
+   * and its own project's conversations; a guest's work only its own scope.
+   */
+  const caller = (): { project?: string; here: string; guest: boolean; maintenance: boolean; everywhere: boolean } => {
+    const reach = reachOf(ctx);
+    const project = deps.currentProject?.() ?? reach.project;
+    const scope = deps.currentScope?.();
+    const maintenance = maintains({ ...reach, project });
+    const root = !project && !scope && !reach.blob && !reach.guest;
+    return {
+      ...(project ? { project } : {}),
+      here: scope ?? (project ? projectScope(project) : GLOBAL_SCOPE),
+      guest: reach.guest !== undefined,
+      maintenance,
+      everywhere: maintenance || root,
+    };
+  };
+  /** A scope this chat may change, or why not. */
+  const fenced = (scope: string): string => {
+    const who = caller();
+    if (who.everywhere || scope === who.here || (scope === GLOBAL_SCOPE && !who.guest)) return scope;
+    throw new Error(`${scope} is not this chat's to change: it changes ${who.guest ? who.here : `${who.here} and global`}. Hand the rest to that project's own chat with chats.handoff`);
+  };
+  /** A conversation this chat may read or rewrite: any at the root and in Maintenance, else only its own project's. */
+  const reachesThread = (id: string, list: () => { id: string; projectSlug: string | null }[]): boolean => {
+    const who = caller();
+    if (who.everywhere) return true;
+    return !who.guest && who.project !== undefined && list().some((c) => c.id === id && c.projectSlug === who.project);
+  };
+  /** The memory jobs' own reading of the whole log: the root's and Maintenance's, never a project's or a guest's. */
+  const readsTheLog = (tool: string): void => {
+    if (!caller().everywhere) throw new Error(`${tool} reads every conversation, which is the memory job's work at the root, not this chat's`);
+  };
+
   ctx.registerTool(
     {
       name: "memory.remember",
@@ -226,7 +265,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
           key,
           value,
           kind: input.kind === "preference" ? "preference" : "fact",
-          scope: scopeOf(input.scope),
+          scope: fenced(scopeOf(input.scope)),
           trust,
           ...(evidence.length ? { evidence } : {}),
           ...(tags.length ? { tags } : {}),
@@ -285,7 +324,12 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       }));
       if (input.history === true && deps.events && query) {
         const [embedding] = deps.embedder ? await deps.embedder.embed([query], "query") : [undefined];
-        const hits = deps.events.search({ userId: ownerId, query, ...(embedding ? { embedding } : {}), k: limit });
+        const who = caller();
+        // Outside the root and Maintenance, only what was said in this chat's own project.
+        const hits = deps.events
+          .search({ userId: ownerId, query, ...(embedding ? { embedding } : {}), k: who.everywhere ? limit : limit * 4, ...(who.project ? { projectSlug: who.project } : {}) })
+          .filter((e) => who.everywhere || (!who.guest && who.project !== undefined && e.projectSlug === who.project))
+          .slice(0, limit);
         show(hits.map((e) => e.id));
         const history = hits
           .map((e) => ({
@@ -337,16 +381,19 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     {
       name: "memory.forget",
       description:
-        "Remove one entry by key, when it is wrong or no longer true. Correcting a wrong entry with memory.remember is usually better than forgetting it.",
+        "Remove one entry by key, when it is wrong or no longer true, in this chat's own scope unless scope says \"global\". Correcting a wrong entry with memory.remember is usually better than forgetting it.",
       inputSchema: {
         type: "object",
-        properties: { key: { type: "string" } },
+        properties: { key: { type: "string" }, scope: { type: "string", description: '"global", "project" (this one) or a project slug; this chat\'s own scope by default' } },
         required: ["key"],
       },
     },
     async (input) => {
       const key = normalizeKey(str(input, "key"));
-      const gone = facts.delete(ownerId, key);
+      const who = caller();
+      // The root and Maintenance forget a key in every scope at once; anyone else, in a scope it may change.
+      const scope = input.scope !== undefined ? fenced(scopeOf(input.scope)) : who.everywhere ? undefined : who.here;
+      const gone = facts.delete(ownerId, key, scope);
       // Forgotten means gone: the words it was drawn from leave the log too,
       // or a search by meaning would hand it straight back.
       if (gone.evidence.length) deps.events?.redact(gone.evidence);
@@ -371,6 +418,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     },
     (input) => {
       if (!deps.events || !deps.watermark) throw new Error("memory.unread needs the events log");
+      readsTheLog("memory.unread");
       const chars = typeof input.chars === "number" && input.chars > 500 ? Math.min(input.chars, 40_000) : BATCH_CHARS;
       const fresh = deps.events.since(ownerId, deps.watermark.get(), 500);
       const batch = takeBatch(fresh, chars);
@@ -402,6 +450,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     },
     (input) => {
       if (!deps.watermark) throw new Error("memory.mark_read needs the events log");
+      readsTheLog("memory.mark_read");
       const cursor = typeof input.cursor === "number" ? Math.floor(input.cursor) : NaN;
       if (!Number.isFinite(cursor)) throw new Error("cursor must be an event id from memory.unread");
       const current = deps.watermark.get();
@@ -460,8 +509,8 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const keep = { key: normalizeKey(str(input, "keep")), scope: scopeArg(input.keepScope) };
-      const drop = { key: normalizeKey(str(input, "drop")), scope: scopeArg(input.dropScope) };
+      const keep = { key: normalizeKey(str(input, "keep")), scope: fenced(scopeArg(input.keepScope)) };
+      const drop = { key: normalizeKey(str(input, "drop")), scope: fenced(scopeArg(input.dropScope)) };
       const kept = facts.merge(ownerId, keep, drop, source());
       if (!kept) throw new Error("one of those claims is not current, or they are the same claim");
       if (typeof input.value === "string" && input.value.trim() && input.value.trim() !== kept.value) {
@@ -481,7 +530,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     },
     async (input) => {
       const key = normalizeKey(str(input, "key"));
-      const scope = scopeArg(input.scope);
+      const scope = fenced(scopeArg(input.scope));
       const archived = facts.archive(ownerId, key, scope, source(), str(input, "reason"));
       if (!archived) throw new Error(`no current claim ${scope}/${key}`);
       return JSON.stringify({ archived: `${scope}/${key}` });
@@ -559,13 +608,15 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     {
       name: "memory.import_page",
       description:
-        "Read an edited page back into memory: each line of the form \"- key: value\" becomes the owner's claim in the page's scope (profile is global, any other name is that project). Call it for every page memory.review lists as edited, before tidying.",
+        "Read an edited page back into memory: each line of the form \"- key: value\" becomes a claim in the page's scope (profile is global, any other name is that project), as KOS's belief: a page is a file any chat can write, so its lines are never taken as the owner's word. Call it for every page memory.review lists as edited, before tidying.",
       inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
     },
     (input) => {
       if (!deps.pages) throw new Error("no page log");
       const ws = requireServices(ctx).workspace;
-      return JSON.stringify(importPage(ws, facts, deps.pages, ownerId, str(input, "name")));
+      const name = str(input, "name");
+      fenced(pageScope(name));
+      return JSON.stringify(importPage(ws, facts, deps.pages, ownerId, name, "agent"));
     },
     { floor: "safe" },
     { tags: ["memory"] },
@@ -623,8 +674,10 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const minChars = Math.round((budget > 0 ? budget : 60_000) * 0.4);
       const busy = new Set(t.busy());
       const out = [];
+      const who = caller();
       for (const c of t.conversations.list(ownerId)) {
         if (busy.has(c.id)) continue;
+        if (!who.everywhere && (who.guest || c.projectSlug !== (who.project ?? null))) continue;
         const history = t.sessions.get(c.id);
         const chars = historySize(history);
         if (chars < minChars || toExchanges(history).length <= KEEP_EXCHANGES) continue;
@@ -646,6 +699,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const t = deps.threads;
       if (!t) throw new Error("memory.thread needs the conversations");
       const id = str(input, "id");
+      if (!reachesThread(id, () => t.conversations.list(ownerId))) throw new Error(`${id} is not a conversation of this chat's project`);
       const exchanges = toExchanges(t.sessions.get(id));
       const covered = exchanges.slice(0, Math.max(0, exchanges.length - KEEP_EXCHANGES));
       return JSON.stringify({
@@ -671,6 +725,9 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const t = deps.threads;
       if (!t) throw new Error("memory.observe needs the conversations");
       const id = str(input, "id");
+      if (!reachesThread(id, () => t.conversations.list(ownerId))) throw new Error(`${id} is not a conversation of this chat's project`);
+      // Rewritten mid-turn, a transcript would lose what the turn is adding to it.
+      if (t.busy().includes(id)) throw new Error(`${id} is busy: observe it when its turn has ended`);
       const note = str(input, "note");
       const history = t.sessions.get(id);
       const exchanges = toExchanges(history);
