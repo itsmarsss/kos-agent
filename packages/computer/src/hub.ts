@@ -202,6 +202,8 @@ export class DeviceHub {
     if (!publicKeyFromRaw(publicKey)) {
       throw new PairError(400, "publicKey must be a 32-byte Ed25519 key in base64");
     }
+    // A source shut out for its wrong codes learns nothing more, an already paired key included.
+    if (this.codes.shutOut(source)) throw new PairError(403, "that code is wrong or has expired; make a new one in KOS");
     // Already paired, with a code that is right: the code is kept for the owner to pair it again once it is removed.
     if (this.deps.store.byKey(publicKey) && this.codes.has(code)) throw new PairError(409, "this device is already paired");
     if (!this.codes.redeem(code, source)) throw new PairError(403, "that code is wrong or has expired; make a new one in KOS");
@@ -529,6 +531,10 @@ export class DeviceHub {
       result = await untilStopped(asked, stop.signal, (late) => {
         if (readOf(late)) giveBack();
       });
+    } catch (err) {
+      // Taken down by the kill switch: said as the halt it was, not as a Stop.
+      if (this.deps.halted()) throw new DeviceError("halted", "KOS is halted by the kill switch");
+      throw err;
     } finally {
       input.signal?.removeEventListener("abort", onAbort);
       this.asks.delete(input.conversation);

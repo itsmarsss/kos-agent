@@ -547,10 +547,13 @@ steps.
 
 Version 1. JSON over a WebSocket at `/api/devices/socket`, text frames, one
 message per frame, at most 16 MB. Every message has a type `t`. An upgrade
-with a web page's `Origin` (http or https) is refused with 403: a device
-sends none, and KOS for Chrome its extension's own. A socket has 16 KB to
-send before its hello is proved, and at most eight sockets wait on a hello
-at once, four from one address; one beyond that is answered 503.
+with any `Origin` but an extension's (`chrome-extension://`) is refused
+with 403, `null` (a sandboxed frame, data:, file:) included: a device sends
+none, and KOS for Chrome its extension's own. A socket has 16 KB to send
+before its hello is proved, and at most eight sockets wait on a hello at
+once, four from one sender (its address; from a proxy on loopback, the last
+address the proxy added; a device on loopback with no proxy, a sender of
+its own); one beyond that is answered 503.
 
 ### Pairing (HTTP)
 
@@ -568,10 +571,11 @@ at once, four from one address; one beyond that is answered 503.
 
 answers `{ "device": "dev_...", "hostKey": "<base64, 32 bytes>", "protocol": 1 }`.
 A wrong code is a 403. Wrong codes are counted by where they came from (an
-address on the Wi-Fi listener; a page's origin, else the address a proxy
-gives, on KOS's own port): ten from one source in ten minutes shut that
-source out for the rest of them, and ten from three sources or more void
-every open code. A device already paired is a 409, its code left unspent.
+address on the Wi-Fi listener; on KOS's own port, a browser page's origin,
+else the sender as the device socket counts it): ten from one source in ten
+minutes shut that source out for the rest of them, already paired keys
+included, and ten from three sources or more void every open code. A device
+already paired, with a right code, is a 409, its code left unspent.
 
 The pairing link is `kos-device://pair?url=<KOS address>&code=<code>`, and a
 link for a phone over Wi-Fi adds `&pin=<pin>`, the certificate the phone pins

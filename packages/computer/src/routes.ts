@@ -64,7 +64,7 @@ export function deviceRoutes(
           // is a device id and KOS's public key.
           const anywhere = { "access-control-allow-origin": "*" };
           try {
-            return { ...ok(hub.pair({ code: body.code, name: body.name, platform: body.platform, publicKey: body.publicKey }, sourceOf(req.headers))), headers: anywhere };
+            return { ...ok(hub.pair({ code: body.code, name: body.name, platform: body.platform, publicKey: body.publicKey }, sourceOf(req))), headers: anywhere };
           } catch (err) {
             if (err instanceof PairError) return { ...bad(err.status, err.message), headers: anywhere };
             throw err;
@@ -133,10 +133,25 @@ export function deviceRoutes(
   };
 }
 
-/** Where a pairing came from, for counting its wrong codes: the page's origin, else the address a proxy says, else this computer. */
-function sourceOf(headers: ApiRequest["headers"]): string {
-  const first = (v: string | string[] | undefined): string => (Array.isArray(v) ? (v[0] ?? "") : (v ?? ""));
-  return first(headers?.["origin"]) || first(headers?.["x-forwarded-for"]).split(",")[0]!.trim() || "local";
+/** Where a pairing came from, for counting its wrong codes: a browser page's origin, else who sent it. */
+function sourceOf(req: ApiRequest): string {
+  const origin = typeof req.headers?.["origin"] === "string" ? req.headers["origin"] : "";
+  return /^(https?|chrome-extension):\/\/[^/]+$/i.test(origin) ? origin.toLowerCase() : senderOf(req.peer, req.headers ?? {});
+}
+
+/**
+ * Who sent a request: its socket's address, or, from a proxy on loopback,
+ * the last address the proxy added (the one it saw; earlier ones are the
+ * client's to write). A device on this computer, with no proxy between, is
+ * one sender of its own.
+ */
+export function senderOf(peer: string | undefined, headers: Record<string, string | string[] | undefined>): string {
+  const address = (peer ?? "").replace(/^::ffff:/i, "").toLowerCase();
+  if (!isLoopback(address)) return address;
+  if (!isForwarded(headers as IncomingMessage["headers"])) return "loopback";
+  const raw = headers["x-forwarded-for"];
+  const hops = (Array.isArray(raw) ? raw.join(",") : (raw ?? "")).split(",").map((h) => h.trim()).filter(Boolean);
+  return `forwarded:${(hops.at(-1) ?? "").toLowerCase()}`;
 }
 
 /** A ws socket as the hub's link reads one. */
@@ -185,17 +200,16 @@ export function isLoopback(address: string | undefined): boolean {
 }
 
 /**
- * An upgrade a web page made: a browser always says the page's origin, and a
- * device says none (KOS for Mac and for iPhone) or its extension's own
- * (KOS for Chrome). WebSockets are not held to the same origin, so without
- * this any site the owner opens could hold the device socket's places.
+ * An upgrade a page made: a browser always says where the page is from, as
+ * an origin or as `null` (a sandboxed frame, data:, file:), and a device says
+ * none (KOS for Mac and for iPhone) or its extension's own (KOS for Chrome).
+ * WebSockets are not held to the same origin, so without this any page the
+ * owner opens could hold the device socket's places.
  */
 export function fromWebPage(headers: IncomingMessage["headers"]): boolean {
-  return /^https?:/i.test(headers.origin ?? "");
+  const origin = headers.origin;
+  return origin !== undefined && !/^chrome-extension:\/\/[a-p]{32}$/.test(origin);
 }
-
-/** Who sent an upgrade, for the cap on sockets not yet proved. */
-const sender = (address: string | undefined): string => (address ?? "").replace(/^::ffff:/i, "").toLowerCase();
 
 const refuse = (socket: Duplex, status: string): void => {
   socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
@@ -231,7 +245,7 @@ export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: 
         return true;
       }
       const hub = hubOf();
-      const from = sender(req.socket.remoteAddress);
+      const from = senderOf(req.socket.remoteAddress, req.headers);
       if (!hub || wss.clients.size >= maxSockets || unproved.size >= MAX_UNPROVED || unprovedFrom(from) >= MAX_UNPROVED_PER_ADDRESS) {
         refuse(socket, "503 Service Unavailable");
         return true;
@@ -243,7 +257,8 @@ export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: 
         ws.on("error", () => ws.terminate());
         ws.on("close", () => unproved.delete(ws));
         // Until the hello is proved, the bytes on the wire are counted as they come, before any frame is put together.
-        let heard = head.length;
+        // The head the upgrade read is put back on the socket by ws, and heard again as data: counted once, there.
+        let heard = 0;
         const count = (chunk: Buffer): void => {
           heard += chunk.length;
           if (heard > PRE_HELLO_BYTES) ws.terminate();

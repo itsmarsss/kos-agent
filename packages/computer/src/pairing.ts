@@ -46,6 +46,13 @@ export class PairingCodes {
     return { code: `${raw.slice(0, 4)}-${raw.slice(4)}`, expiresAt };
   }
 
+  /** Whether a source has had its share of wrong codes in the window. */
+  shutOut(source = ""): boolean {
+    const now = this.now();
+    this.failures = this.failures.filter((f) => now - f.at < FAILURE_WINDOW_MS);
+    return this.failures.filter((f) => f.source === source).length >= MAX_FAILURES;
+  }
+
   /** Whether a code is open now, without spending it. */
   has(code: string): boolean {
     this.sweep();
@@ -59,15 +66,13 @@ export class PairingCodes {
    */
   redeem(code: string, source = ""): boolean {
     this.sweep();
-    const now = this.now();
-    this.failures = this.failures.filter((f) => now - f.at < FAILURE_WINDOW_MS);
-    if (this.failures.filter((f) => f.source === source).length >= MAX_FAILURES) return false;
+    if (this.shutOut(source)) return false;
     const key = normalize(code);
     if (this.open.has(key)) {
       this.open.delete(key);
       return true;
     }
-    this.failures.push({ at: now, source });
+    this.failures.push({ at: this.now(), source });
     if (this.failures.length >= MAX_FAILURES && new Set(this.failures.map((f) => f.source)).size >= VOID_SOURCES) {
       this.open.clear();
       this.failures = [];

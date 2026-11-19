@@ -153,6 +153,26 @@ describe("pairing a device", () => {
     expect(hub.codes.redeem(code, "local")).toBe(true);
   });
 
+  it("tells a shut-out source nothing of a key already paired, and counts its wrong code against it", () => {
+    const { hub } = setup();
+    const fake = new FakeDevice();
+    hub.pair({ code: hub.issueCode().code, name: "x", platform: "macos", publicKey: fake.publicKey });
+    const status = (code: string, source: string): number | undefined => {
+      try {
+        hub.pair({ code, name: "x", platform: "macos", publicKey: fake.publicKey }, source);
+      } catch (err) {
+        return err instanceof PairError ? err.status : -1;
+      }
+      return undefined;
+    };
+    const { code } = hub.issueCode();
+    for (let i = 0; i < 9; i++) expect(status(`WRONG${i}XX`, "10.0.0.9")).toBe(403);
+    // A wrong code with a paired key is the tenth wrong one; the right one then tells it nothing.
+    expect(status("WRONGAXX", "10.0.0.9")).toBe(403);
+    expect(status(code, "10.0.0.9")).toBe(403);
+    expect(status(code, "local")).toBe(409);
+  });
+
   it("voids every open code after ten wrong ones from several sources", () => {
     const { hub } = setup();
     const { code } = hub.issueCode();
@@ -668,7 +688,7 @@ describe("a session", () => {
     await settle();
     halted = true;
     hub.endAll("host");
-    expect(await asked).toMatchObject({ code: "stopped" });
+    expect(await asked).toMatchObject({ code: "halted" });
     expect(hub.asking("c1")).toBe(false);
     // A device that answers yes as the halt lands: given back there, and nothing held here.
     halted = false;

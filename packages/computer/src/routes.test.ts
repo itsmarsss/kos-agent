@@ -10,7 +10,7 @@ import { DeviceHub } from "./hub.js";
 import type { LanStatus } from "./lan.js";
 import { rawPublicKey, signText, verifyText } from "./keys.js";
 import { deviceProof, hostProof, PROTOCOL_VERSION, SOCKET_PATH } from "./protocol.js";
-import { deviceRoutes, deviceSocketServer, isForwarded, isLoopback, PRE_HELLO_BYTES, PREFIX } from "./routes.js";
+import { deviceRoutes, deviceSocketServer, isForwarded, isLoopback, PRE_HELLO_BYTES, PREFIX, senderOf } from "./routes.js";
 import { DeviceStore } from "./store.js";
 
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
@@ -38,6 +38,25 @@ describe("a device on this computer", () => {
     expect(isForwarded({ forwarded: "for=100.64.0.9" })).toBe(true);
     expect(isForwarded({ "tailscale-user-login": "owner@example.com" })).toBe(true);
     expect(isForwarded({ host: "127.0.0.1:4317", upgrade: "websocket" })).toBe(false);
+  });
+});
+
+describe("who sent a request", () => {
+  it("is its socket's address, a loopback proxy's last hop, or loopback on its own", () => {
+    expect(senderOf("::ffff:192.168.1.20", { "x-forwarded-for": "6.6.6.6" })).toBe("192.168.1.20");
+    expect(senderOf("127.0.0.1", { "x-forwarded-for": "6.6.6.6, 100.64.0.9" })).toBe("forwarded:100.64.0.9");
+    expect(senderOf("::1", {})).toBe("loopback");
+  });
+
+  it("counts a pairing's wrong codes by that, or by a browser page's origin", async () => {
+    const hub = newHub();
+    const routes = deviceRoutes(() => hub, (id) => id);
+    const pair = (headers: Record<string, string>, peer = "127.0.0.1") => routes.handle({ method: "POST", path: `${PREFIX}/pair`, peer, headers, body: { code: "WRONG-CODE", name: "x", platform: "macos", publicKey: rawPublicKey(generateKeyPairSync("ed25519").privateKey) } });
+    // A forged hop before the proxy's own, or a null origin, is not a source of its own.
+    for (let i = 0; i < 10; i++) await pair({ "x-forwarded-for": `9.9.9.${i}, 100.64.0.9`, origin: "null" });
+    expect(hub.codes.shutOut("forwarded:100.64.0.9")).toBe(true);
+    await pair({ origin: "https://evil.example" });
+    expect(hub.codes.shutOut("https://evil.example")).toBe(false);
   });
 });
 
@@ -183,7 +202,10 @@ describe("the device socket", () => {
     const open = await listening();
     expect(await fate(open({ origin: "https://evil.example" }))).toEqual({ status: 403, opened: false });
     expect(await fate(open({ origin: "http://127.0.0.1:4317" }))).toEqual({ status: 403, opened: false });
-    const extension = open({ origin: "chrome-extension://abcdefghijklmnop" });
+    // A sandboxed frame, a data: or a file: page says its origin is null.
+    expect(await fate(open({ origin: "null" }))).toEqual({ status: 403, opened: false });
+    expect(await fate(open({ origin: "chrome-extension://evil" }))).toEqual({ status: 403, opened: false });
+    const extension = open({ origin: "chrome-extension://abcdefghijklmnopabcdefghijklmnop" });
     await new Promise((r) => extension.once("open", r));
     const device = open();
     await new Promise((r) => device.once("open", r));
