@@ -588,6 +588,32 @@ describe.skipIf(!CHROME || !BUILT)("a saved secret filled into the owner's Chrom
     await cdp("Page.navigate", { url: `${base}/other` });
   });
 
+  it("reaches no frame of a site the owner hid, says nothing of its origin, and paints it over whole", async () => {
+    await openCheckout();
+    const f = await crossFrame();
+    const popupSays = (message: Record<string, unknown>): Promise<unknown> => devtools.evaluate(popup, `chrome.runtime.sendMessage(${JSON.stringify(message)})`);
+    expect(await popupSays({ type: "hide", site: "localhost" })).toMatchObject({ ok: true });
+    try {
+      for (const method of ["DOM.getDocument", "Accessibility.getFullAXTree", "Page.getFrameTree"]) {
+        expect(await call("cdp.send", { tab, frame: f.frame, method, params: {} })).toMatchObject({ error: { code: "cdp" } });
+      }
+      expect(await call("cdp.batch", { tab, frame: f.frame, calls: [{ method: "DOM.getDocument", params: {} }] })).toMatchObject({ result: { results: [{ error: { code: "cdp" } }] } });
+      const listed = (await call("tab.origins", { tab }))["result"] as { origins: string[] };
+      expect(listed.origins).toEqual([base]);
+      expect(await call("secret.fill", { tab, node: f.num, frame: f.frame, doc: f.doc, origin: base, frameOrigin: crossBase, slot: "card-number", value: CARD })).toMatchObject({ error: { code: "origin" } });
+      expect(await inCross("document.getElementById('num').value")).toBe("");
+      // Its magenta coupon is in the raw picture; masked for the page's own patterns, the hidden frame is painted over whole.
+      const page = await devtools.attach((u) => u.endsWith("/checkout"));
+      const raw = ((await devtools.send("Page.captureScreenshot", { format: "jpeg", quality: 90 }, page)) as { data: string }).data;
+      const masks = { [base]: echoPatterns([{ text: PASSWORD, digits: false }], 1) };
+      const masked = ((await call("secret.picture", { tab, format: "jpeg", quality: 90, masks }))["result"] as { data: string }).data;
+      expect(await pixels(raw, "magenta")).toBeGreaterThan(200);
+      expect(await pixels(masked, "magenta")).toBe(0);
+    } finally {
+      await popupSays({ type: "unhide", site: "localhost" });
+    }
+  });
+
   it("sends KOS, its log, its storage and its pages no value", async () => {
     const canaries = [PASSWORD, CARD, CARD.slice(-8)];
     const log = JSON.stringify(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "log" })`));

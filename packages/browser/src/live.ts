@@ -6,6 +6,7 @@ import { keptSessionCookies, type CdpCookie } from "./cookies.js";
 import { PICTURE } from "./hands.js";
 import { Page, type PageLimits, type PageShot, type Session } from "./page.js";
 import { urlFor } from "./address.js";
+import { isChallenge } from "./frames.js";
 import { noSecrets, type FilledValue, type Kin, type TabSecrets } from "./taint.js";
 
 /**
@@ -442,7 +443,8 @@ export class BrowserLive {
       page = new Page(
         {
           send: async (method, params, timeoutMs) => this.cdp.send(method, params, await this.sessionFor(tab), timeoutMs),
-          frame: (id) => [...this.frameSessions.values()].find((f) => f.tab === tab && f.frame === id)?.line,
+          frame: (id) => this.frameLine(tab, id),
+          frames: () => [...this.frameSessions.values()].flatMap((f) => (f.tab === tab && this.frameLine(tab, f.frame) ? [f.frame] : [])),
         },
         {
           now: this.now,
@@ -1264,12 +1266,24 @@ export class BrowserLive {
    */
   private frameAttached(parent: string, params: Record<string, unknown>): void {
     const sessionId = String(params["sessionId"] ?? "");
-    const info = params["targetInfo"] as { type?: unknown; targetId?: unknown } | undefined;
+    const info = params["targetInfo"] as { type?: unknown; targetId?: unknown; url?: unknown } | undefined;
     const tab = [...this.sessions].find(([, s]) => s === parent)?.[0] ?? this.frameSessions.get(parent)?.tab;
     if (!tab || !sessionId || info?.type !== "iframe" || typeof info.targetId !== "string") return;
     this.frameSessions.set(sessionId, { tab, frame: info.targetId, line: { send: (method, p, timeoutMs) => this.cdp.send(method, p, sessionId, timeoutMs) } });
-    void this.cdp.send("Page.enable", {}, sessionId).catch(() => undefined);
+    // Where its frames go is heard, for the hands' worlds there; a challenge's is let be.
+    if (!isChallenge(typeof info.url === "string" ? info.url : "")) void this.cdp.send("Page.enable", {}, sessionId).catch(() => undefined);
     void this.cdp.send("Target.setAutoAttach", FRAMES_ATTACHED, sessionId).catch(() => undefined);
+  }
+
+  /**
+   * The hands' line to a tab's frame of another process, by the frame's id:
+   * none for a challenge's (Turnstile, reCAPTCHA), which looks for a
+   * debugger, so it is kept attached but never looked into; pictures paint
+   * it over whole.
+   */
+  private frameLine(tab: string, frame: string): Session | undefined {
+    if (isChallenge(this.targets.get(frame)?.url ?? "")) return undefined;
+    return [...this.frameSessions.values()].find((f) => f.tab === tab && f.frame === frame)?.line;
   }
 
   /** A tab's frames of other processes let go of, with its session. */

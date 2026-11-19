@@ -300,7 +300,9 @@ owner's hand there. KOS's hands reach a frame's session by the frame's id
 their scripts (DOM reads, their own world, their page-side calls, the
 accessibility tree); going places, input, pictures and dialogs are the
 tab's, which sends a key or a click on to the frame under it. A frame on a
-challenge host is never reached. A secret goes into such a frame through
+challenge host is never reached, nor one whose page is on a site the owner
+hid, as it is now: checked before and after each command, its origin left
+out of `tab.origins`, and painted over whole in pictures. A secret goes into such a frame through
 `secret.fill` as into any: by its frame's id and the field's backend node,
 which is that frame process's own; the frame's origin is the one its own
 session says it committed, and must be the frame origin approved; each

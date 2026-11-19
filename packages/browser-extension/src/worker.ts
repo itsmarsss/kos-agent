@@ -138,7 +138,7 @@ const GROUP = "KOS";
 /** The overlay as each frame is given it, in its own world. */
 const OVERLAY_SOURCE = `(${installOverlay.toString()})(${JSON.stringify(CURSOR)})`;
 /** Each tab's frames in processes of their own, which the overlay reports the owner's hand from too. */
-const handFrames = new HandFrames((target, method, params) => chrome.debugger.sendCommand(target, method, params), { source: OVERLAY_SOURCE, world: WORLD, binding: BINDING });
+const handFrames = new HandFrames((target, method, params) => chrome.debugger.sendCommand(target, method, params), { source: OVERLAY_SOURCE, world: WORLD, binding: BINDING }, (url) => isHidden(url, settings.hiddenSites));
 
 let pairings: Paired[] = [];
 let settings: ExtensionSettings = DEFAULTS;
@@ -977,6 +977,7 @@ function reachOf(tab: number): Reach {
       const sessionId = handFrames.sessionOf(tab, id);
       return sessionId ? sendTo({ tabId: tab, sessionId }) : undefined;
     },
+    frames: () => handFrames.framesOf(tab),
   };
 }
 
@@ -1075,7 +1076,7 @@ async function tabOrigins(params: Record<string, unknown>, origin: string): Prom
   stillIn(s, tab);
   const map = await tabMap(reachOf(tab)).catch(() => undefined);
   if (!map) throw new CallError("cdp", "the tab's frames could not be read");
-  return { origins: [...new Set([...map.frames.values()].map((f) => f.origin).filter((o) => /^https?:\/\//.test(o)))] };
+  return { origins: [...new Set([...map.frames.values()].map((f) => f.origin).filter((o) => /^https?:\/\//.test(o) && !isHidden(o, settings.hiddenSites)))] };
 }
 
 async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>, frame?: string): Promise<Record<string, unknown>> {
@@ -1094,7 +1095,7 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
     stillIn(s, tab);
   }
   const sessionId = frame === undefined ? undefined : handFrames.sessionOf(tab, frame);
-  if (frame !== undefined && !sessionId) throw new CallError("cdp", "that frame is not one KOS reaches: it is gone, or it is a challenge's");
+  if (frame !== undefined && !sessionId) throw new CallError("cdp", "that frame is not one KOS reaches: it is gone, on a site you hid, or a challenge's");
   await reachable(tab, args, sessionId);
   await refuseHeld(tab, method, args);
   // KOS's cursor where its hands are about to act, on its way before they do: input is the tab's, and aimed in its terms.
@@ -1131,6 +1132,8 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   }
   // Checked again once answered: a page that went to a hidden site while the command ran (a click, a reload, a redirect) gives KOS nothing of it.
   await refuseHidden(tab);
+  // Nor a frame that did: a frame of another process on a hidden site is not KOS's to reach.
+  if (frame !== undefined && handFrames.sessionOf(tab, frame) !== sessionId) throw new CallError("cdp", "that frame is not one KOS reaches: it is gone, on a site you hid, or a challenge's");
   // An element focused to type in, or scrolled to: the cursor to its middle, now that it is in view, before KOS's next command.
   if (aim && "node" in aim) await pointAtNode(tab, aim.node, aim.how);
   if (method === "Page.getNavigationHistory") return withoutHidden(answer);

@@ -28,34 +28,9 @@
  * told apart as the tab's are (relay.ts Worlds).
  */
 
+import { isChallenge } from "@kos/browser/frames";
+
 import { Worlds } from "./relay.js";
-
-/** Hosts of challenge frames, with the paths that are the challenge where the host serves other things too. */
-const CHALLENGES: readonly { host: string; path?: RegExp }[] = [
-  { host: "challenges.cloudflare.com" },
-  { host: "www.google.com", path: /^\/recaptcha\// },
-  { host: "www.recaptcha.net" },
-  { host: "recaptcha.net" },
-  { host: "hcaptcha.com" },
-  { host: "arkoselabs.com" },
-  { host: "funcaptcha.com" },
-  { host: "captcha-delivery.com" },
-  { host: "geetest.com" },
-  { host: "px-cdn.net" },
-  { host: "px-cloud.net" },
-];
-
-/** Whether a frame's address is a challenge's, on its host or one under it. */
-export function isChallenge(url: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
-  return CHALLENGES.some((c) => (host === c.host || host.endsWith(`.${c.host}`)) && (!c.path || c.path.test(parsed.pathname)));
-}
 
 /** A tab, or a session under it. */
 export interface Target {
@@ -85,6 +60,8 @@ interface Child {
   overlays: Set<number>;
   /** Whether the Runtime domain and the overlay are on in it: never on a challenge host. */
   heard: boolean;
+  /** Where its page is now, as it last committed. */
+  url: string;
 }
 
 /** A report from the overlay in a frame's own session. */
@@ -98,9 +75,11 @@ const record = (v: unknown): Record<string, unknown> => (typeof v === "object" &
 export class HandFrames {
   private readonly children = new Map<string, Child>();
 
+  /** `hidden` says whether an address is on a site the owner hid from KOS: a frame there is never reached. */
   constructor(
     private readonly send: Send,
     private readonly install: Install,
+    private readonly hidden: (url: string) => boolean = () => false,
   ) {}
 
   /** Frames in other processes, in the tab or a frame under it, attached as they come. */
@@ -152,10 +131,19 @@ export class HandFrames {
     return this.children.get(session)?.worlds.frameOf(world);
   }
 
-  /** The session of a tab's frame in a process of its own, by the frame's id, where KOS's hands may reach it: its Runtime domain on, so never a challenge's. */
+  /**
+   * The session of a tab's frame in a process of its own, by the frame's id,
+   * where KOS's hands may reach it: its Runtime domain on, so never a
+   * challenge's, and its page on no site the owner hid, as they are now.
+   */
   sessionOf(tab: number, frame: string): string | undefined {
-    for (const [id, c] of this.children) if (c.tab === tab && c.frame === frame && c.heard) return id;
+    for (const [id, c] of this.children) if (c.tab === tab && c.frame === frame && c.heard && !this.hidden(c.url)) return id;
     return undefined;
+  }
+
+  /** The frames of a tab's processes of their own KOS's hands may reach now, by id. */
+  framesOf(tab: number): string[] {
+    return [...this.children.entries()].flatMap(([id, c]) => (c.tab === tab && this.sessionOf(tab, c.frame) === id ? [c.frame] : []));
   }
 
   /** The id of the frame a frame's session is for. */
@@ -226,7 +214,7 @@ export class HandFrames {
       await this.send({ tabId: tab, ...(parent ? { sessionId: parent } : {}) }, "Target.detachFromTarget", { sessionId }).catch(() => undefined);
       return;
     }
-    const child: Child = { tab, parent, frame: info["targetId"], worlds: new Worlds(), overlays: new Set(), heard: false };
+    const child: Child = { tab, parent, frame: info["targetId"], worlds: new Worlds(), overlays: new Set(), heard: false, url: "" };
     this.children.set(sessionId, child);
     try {
       // Where it is, first: told as it commits, or asked now if it already has.
@@ -244,6 +232,7 @@ export class HandFrames {
 
   /** A frame's session where its page now is: the overlay heard there unless it is a challenge's, and not heard once it goes to one. */
   private async placed(target: Target, child: Child, url: string): Promise<void> {
+    child.url = url;
     const challenge = isChallenge(url);
     if (challenge && child.heard) {
       child.heard = false;
