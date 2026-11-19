@@ -4,10 +4,9 @@ import { card, Count, Empty, Pill, stagger, type Tone } from "@kos/kit";
 import { relativeWords } from "@kos/shared";
 
 import { api, type Conversation, type CronJob, type PageSummary, type Project } from "./api.js";
-import { FileIcon } from "./FileIcon.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { PageHead } from "./PageHead.js";
-import { markStyle } from "./ProjectMark.js";
+import { markLetter, markStyle } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
 import { Select, type SelectOption } from "./Select.js";
 
@@ -96,15 +95,21 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
     return null;
   };
 
+  // KOS's own (Maintenance) is not the owner's work: it is neither counted
+  // nor among their cards, but kept in a group of its own after them, as
+  // the chats rail keeps it at its foot.
+  const owned = projects.filter((p) => p.type !== "system");
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matched = q ? projects.filter((p) => [p.name, p.slug, p.type, p.description ?? ""].some((w) => w.toLowerCase().includes(q))) : projects;
-    // KOS's own (Maintenance) after the owner's, whatever the order.
-    const system = (p: Project): number => (p.type === "system" ? 1 : 0);
-    const sorted = [...matched].sort((a, b) => system(a) - system(b) || (sort === "name" ? a.name.localeCompare(b.name) : lastOf(b) - lastOf(a)));
+    const sorted = [...matched].sort((a, b) => (sort === "name" ? a.name.localeCompare(b.name) : lastOf(b) - lastOf(a)));
     const byStatus = new Map<string, Project[]>();
-    for (const p of sorted) byStatus.set(p.status, [...(byStatus.get(p.status) ?? []), p]);
-    return [...byStatus.entries()].sort((a, b) => (ORDER.indexOf(a[0]) + 1 || 99) - (ORDER.indexOf(b[0]) + 1 || 99));
+    for (const p of sorted) {
+      const group = p.type === "system" ? "system" : p.status;
+      byStatus.set(group, [...(byStatus.get(group) ?? []), p]);
+    }
+    const rank = (group: string): number => (group === "system" ? 100 : ORDER.indexOf(group) + 1 || 99);
+    return [...byStatus.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
   }, [projects, query, sort, conversations]);
 
   const cardOf = (p: Project): ReactElement => {
@@ -116,8 +121,8 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
     return (
       <m.div key={p.slug} variants={card} className="card card--opens project-card">
         <div className="project-card-head">
-          <span className="hero-mark hero-mark--sm" aria-hidden="true" style={markStyle(p.slug, p.colour)}>
-            <FileIcon name={p.slug} kind="dir" size={16} />
+          <span className="hero-mark hero-mark--sm hero-mark--letter" aria-hidden="true" style={markStyle(p.slug, p.colour)}>
+            {markLetter(p.name)}
           </span>
           <div className="project-card-titles">
             {/* The card is the project: its name is the link, stretched over the card, so a press anywhere opens it and a modified one opens a tab. */}
@@ -151,17 +156,18 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
     );
   };
 
-  const several = groups.length > 1;
+  // Status heads only where the owner's own fall into more than one.
+  const several = groups.filter(([group]) => group !== "system").length > 1;
   return (
     <div className="projects-page">
       <PageHead
         title="Projects"
-        count={projects.length}
+        count={owned.length}
         subtitle="Each one is a chat of its own, with its agents, tables, files and artifacts."
         search={<input className="list-search" type="search" value={query} placeholder="Search projects" aria-label="Search projects" onChange={(e) => setQuery(e.target.value)} />}
         actions={
           <>
-            {projects.length > 1 && <Select className="artifacts-select" value={sort} options={SORTS} onChange={(v) => setSort(v as Sort)} label="Sort" />}
+            {owned.length > 1 && <Select className="artifacts-select" value={sort} options={SORTS} onChange={(v) => setSort(v as Sort)} label="Sort" />}
             {onCreate && (
               <button type="button" className="btn btn--primary" onClick={() => setMaking(true)}>
                 New project
@@ -173,14 +179,14 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
 
       {onCreate && <NewProjectDialog open={making} onClose={() => setMaking(false)} onCreate={onCreate} />}
 
-      {projects.length === 0 && <Empty title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</Empty>}
-      {projects.length > 0 && groups.length === 0 && <Empty inline>No project matches “{query.trim()}”.</Empty>}
+      {owned.length === 0 && <Empty title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</Empty>}
+      {query.trim() && groups.length === 0 && <Empty inline>No project matches “{query.trim()}”.</Empty>}
 
       {groups.map(([status, items]) => (
-        <section key={status} className="projects-group" aria-label={several ? status : "Projects"}>
-          {several && (
+        <section key={status} className="projects-group" aria-label={status === "system" ? "KOS's own" : several ? status : "Projects"}>
+          {(several || status === "system") && (
             <h2 className="label projects-group-head">
-              {status}
+              {status === "system" ? "KOS's own" : status}
               <Count n={items.length} />
             </h2>
           )}
