@@ -357,11 +357,14 @@ registrable domain (`shared/src/domain.ts`). The rule is read from the
 vault at each call (`SecretsRegistry.evalBlocked`, handed to
 `BrowserLive` as `evalBlocked`, which says why), so it keeps no state of
 its own and holds after a restart; while the vault is locked the sites
-cannot be read, so it holds on every web page and says to unlock it. The
-script runs only on the origin checked: it is prefixed with a guard that
-throws if the page moved to another site in between, and if the page
-loaded another document while it ran, its answer is withheld and that
-document is marked too. Scoping the refusal to a filled page,
+cannot be read, so it holds on every web page and says to unlock it. A
+frame's origin is taken from its own main-world context (Runtime is
+turned on for the moment it takes to list them), so a blank popup a
+credential site opened, which has that site's origin though its frame
+says none, is held to it too. The script runs in the context checked (by
+its unique id, which no later page can host), behind a guard on
+`self.origin`; if the page loaded another document while it ran, its
+answer is withheld and that document is marked too. Scoping the refusal to a filled page,
 or to a conversation, was not enough: a script run before the fill could
 wait for the value and copy it to `window.name`, storage or a beacon;
 another conversation could read the copy a site keeps in its own
@@ -383,10 +386,16 @@ a site was not yet a credential site could catch a fill as it is sent.
 Each time the vault lists a new registrable domain (an edit, `secrets.allow_site`,
 the CLI, an unlock; `SecretsRegistry.onSitesListed`), and each time KOS
 attaches to Chrome for every listed one, `BrowserLive.purgeWorkers` lists
-the profile's service worker registrations, unregisters those on the
-site and clears that origin's service workers and Cache Storage, cookies
-and logins kept. A fill waits for a clearing under way. A site running a
-worker is not refused a fill.
+the profile's service worker registrations from a tab of its own (never
+listed), unregisters those on the site and clears that origin's service
+workers and Cache Storage, cookies and logins kept, each scope on its
+own. A fill waits for a clearing under way, and fails closed: a site
+whose clearing failed, or has not run, takes no fill (`refused:worker`)
+until one works. A page still runs through a worker after it is
+unregistered, so a document loaded before a clearing that found a worker
+on its site, or one a worker controls that loaded before its site's last
+clearing, takes no fill either; opened afresh, it does. A site running a
+worker of its own is not refused a fill.
 
 Every saved value is cleaned out of what KOS reads back from every tab,
 in the host: KOS's browser reads the values the scrubber already looks
