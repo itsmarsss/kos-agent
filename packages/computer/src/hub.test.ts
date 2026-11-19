@@ -138,15 +138,26 @@ describe("pairing a device", () => {
     expect(status(() => hub.pair({ code: "AAAA-AAAA", name: "x", platform: "macos", publicKey: fake.publicKey }))).toBe(403);
     expect(status(() => hub.pair({ code: hub.issueCode().code, name: "x", platform: "macos", publicKey: "bm90IGEga2V5" }))).toBe(400);
     hub.pair({ code: hub.issueCode().code, name: "x", platform: "macos", publicKey: fake.publicKey });
-    expect(status(() => hub.pair({ code: hub.issueCode().code, name: "x", platform: "macos", publicKey: fake.publicKey }))).toBe(409);
+    // Already paired: refused with the code kept, for another device or this one once it is removed.
+    const { code } = hub.issueCode();
+    expect(status(() => hub.pair({ code, name: "x", platform: "macos", publicKey: fake.publicKey }))).toBe(409);
+    expect(hub.codes.redeem(code)).toBe(true);
     expect(status(() => hub.pair({ code: 7, name: "x", platform: "macos", publicKey: fake.publicKey }))).toBe(400);
   });
 
-  it("voids every open code after ten wrong ones", () => {
+  it("shuts out a source after ten wrong codes, leaving the owner's code good for anyone else", () => {
     const { hub } = setup();
     const { code } = hub.issueCode();
-    for (let i = 0; i < 10; i++) expect(hub.codes.redeem(`WRONG${i}XX`)).toBe(false);
-    expect(hub.codes.redeem(code)).toBe(false);
+    for (let i = 0; i < 10; i++) expect(hub.codes.redeem(`WRONG${i}XX`, "https://evil.example")).toBe(false);
+    expect(hub.codes.redeem(code, "https://evil.example")).toBe(false);
+    expect(hub.codes.redeem(code, "local")).toBe(true);
+  });
+
+  it("voids every open code after ten wrong ones from several sources", () => {
+    const { hub } = setup();
+    const { code } = hub.issueCode();
+    for (let i = 0; i < 10; i++) expect(hub.codes.redeem(`WRONG${i}XX`, `10.0.0.${i % 3}`)).toBe(false);
+    expect(hub.codes.redeem(code, "local")).toBe(false);
   });
 
   it("lets a code lapse after ten minutes", () => {

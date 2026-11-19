@@ -64,7 +64,7 @@ export function deviceRoutes(
           // is a device id and KOS's public key.
           const anywhere = { "access-control-allow-origin": "*" };
           try {
-            return { ...ok(hub.pair({ code: body.code, name: body.name, platform: body.platform, publicKey: body.publicKey })), headers: anywhere };
+            return { ...ok(hub.pair({ code: body.code, name: body.name, platform: body.platform, publicKey: body.publicKey }, sourceOf(req.headers))), headers: anywhere };
           } catch (err) {
             if (err instanceof PairError) return { ...bad(err.status, err.message), headers: anywhere };
             throw err;
@@ -131,6 +131,12 @@ export function deviceRoutes(
       }
     },
   };
+}
+
+/** Where a pairing came from, for counting its wrong codes: the page's origin, else the address a proxy says, else this computer. */
+function sourceOf(headers: ApiRequest["headers"]): string {
+  const first = (v: string | string[] | undefined): string => (Array.isArray(v) ? (v[0] ?? "") : (v ?? ""));
+  return first(headers?.["origin"]) || first(headers?.["x-forwarded-for"]).split(",")[0]!.trim() || "local";
 }
 
 /** A ws socket as the hub's link reads one. */

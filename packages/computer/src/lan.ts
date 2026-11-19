@@ -388,7 +388,7 @@ export class DeviceLan {
     const hub = this.hubOf();
     if (!hub) return json(res, 503, { error: "computer use is switched off" });
     try {
-      json(res, 200, hub.pair({ code: input.code, name: input.name, platform: input.platform, publicKey: input.publicKey }));
+      json(res, 200, hub.pair({ code: input.code, name: input.name, platform: input.platform, publicKey: input.publicKey }, addressKey(address)));
     } catch (err) {
       if (err instanceof PairError) return json(res, err.status, { error: err.message });
       json(res, 500, { error: "internal" });

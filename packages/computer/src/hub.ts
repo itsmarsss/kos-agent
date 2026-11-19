@@ -188,8 +188,12 @@ export class DeviceHub {
     return this.codes.issue();
   }
 
-  /** A device bringing a code and its key. Answers with its id and KOS's key, to pin. */
-  pair(input: { code: unknown; name: unknown; platform: unknown; publicKey: unknown }): { device: string; hostKey: string; protocol: number } {
+  /**
+   * A device bringing a code and its key. Answers with its id and KOS's key,
+   * to pin. `source` is where the request came from (an address, or a page's
+   * origin), against which wrong codes are counted.
+   */
+  pair(input: { code: unknown; name: unknown; platform: unknown; publicKey: unknown }, source?: string): { device: string; hostKey: string; protocol: number } {
     const { code, name, platform, publicKey } = input;
     if (typeof code !== "string" || typeof name !== "string" || typeof platform !== "string" || typeof publicKey !== "string") {
       throw new PairError(400, "code, name, platform and publicKey are required");
@@ -198,7 +202,9 @@ export class DeviceHub {
     if (!publicKeyFromRaw(publicKey)) {
       throw new PairError(400, "publicKey must be a 32-byte Ed25519 key in base64");
     }
-    if (!this.codes.redeem(code)) throw new PairError(403, "that code is wrong or has expired; make a new one in KOS");
+    // Already paired, with a code that is right: the code is kept for the owner to pair it again once it is removed.
+    if (this.deps.store.byKey(publicKey) && this.codes.has(code)) throw new PairError(409, "this device is already paired");
+    if (!this.codes.redeem(code, source)) throw new PairError(403, "that code is wrong or has expired; make a new one in KOS");
     if (this.deps.store.byKey(publicKey)) throw new PairError(409, "this device is already paired");
     const device = this.deps.store.add({ name, platform, publicKey });
     this.changed();
