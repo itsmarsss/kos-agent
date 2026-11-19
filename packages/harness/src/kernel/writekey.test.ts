@@ -71,6 +71,31 @@ describe("this boot's write key", () => {
     expect((await fetch(`${base}/api/status`)).status).toBe(200);
   });
 
+  it("hands the key only to a page on this machine's own name, loaded as itself, never framed or fetched by another site", async () => {
+    await start();
+    const page = (headers: Record<string, string>): Promise<string> =>
+      new Promise((done, fail) => {
+        const req = httpRequest(`${base}/`, { headers }, (res) => {
+          let body = "";
+          res.on("data", (c: Buffer) => (body += c.toString()));
+          res.on("end", () => done(body));
+        });
+        req.on("error", fail);
+        req.end();
+      });
+    const keyed = (body: string): boolean => body.includes('<meta name="kos-write"');
+    const port = base.split(":").pop();
+    expect(keyed(await page({ host: `127.0.0.1:${port}`, "sec-fetch-site": "none" }))).toBe(true);
+    expect(keyed(await page({ host: `localhost:${port}`, "sec-fetch-site": "same-origin" }))).toBe(true);
+    expect(keyed(await page({ host: `[::1]:${port}` }))).toBe(true);
+    // Named by a LAN address or another name: the page, without the key.
+    expect(keyed(await page({ host: `192.168.1.20:${port}`, "sec-fetch-site": "none" }))).toBe(false);
+    expect(keyed(await page({ host: `kos.example:${port}` }))).toBe(false);
+    // Asked for by another site, framed or fetched.
+    expect(keyed(await page({ host: `127.0.0.1:${port}`, "sec-fetch-site": "cross-site" }))).toBe(false);
+    expect(keyed(await page({ host: `127.0.0.1:${port}`, "sec-fetch-site": "same-site" }))).toBe(false);
+  });
+
   it("serves the page with the key and keeps it out of any cache", async () => {
     await start();
     const res = await fetch(`${base}/chats`);

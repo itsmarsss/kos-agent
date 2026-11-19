@@ -133,6 +133,23 @@ export function scheduledJob(): number | undefined {
 }
 
 /**
+ * The tools the current call's turn may use, as its allow-list has them:
+ * undefined inside is unrestricted. Set for every call, so work a call
+ * sets up to run later (a schedule) is held to the same list.
+ */
+export const toolScope = new AsyncLocalStorage<{ allow: readonly string[] | undefined }>();
+
+/** The current call's allow-list, undefined when unrestricted or outside a call. */
+export function scopeAllow(): readonly string[] | undefined {
+  return toolScope.getStore()?.allow;
+}
+
+/** Whether an allow-list lets a tool through: a name, or a family by its prefix ("memory" for memory.*). Undefined lets all. */
+export function allowsTool(allow: readonly string[] | undefined, name: string): boolean {
+  return allow === undefined || allow.some((prefix) => name === prefix || name.startsWith(`${prefix}.`));
+}
+
+/**
  * The room a guest spoke in, for a turn their words started or work such a
  * turn passed on, however many hops: dispatch and handoff carry it as they
  * carry the owner flag. `project` is that room's project, none for a room

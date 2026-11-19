@@ -6,7 +6,7 @@ export type {
   ToolCall,
 } from "./types.js";
 export { template, templateArgs } from "./templating.js";
-export { evaluateCondition, queryScope } from "./conditions.js";
+export { conditionSql, evaluateCondition, queryScope, readerOf, type ScopeReader } from "./conditions.js";
 export { CronStore } from "./store.js";
 export {
   runCronJob,

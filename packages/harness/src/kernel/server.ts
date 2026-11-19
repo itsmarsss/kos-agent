@@ -53,7 +53,7 @@ import { copyEntry, dispositionOf, listDirectory, makeDir, readForText, readForV
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type Rates, type SpendSummary } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
-import { readSkills, skillHash, type SkillRecord } from "../skills/manifest.js";
+import { readSkills, skillHashNow, type SkillRecord } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
@@ -429,7 +429,7 @@ function jobSpend(kernel: Kernel, jobId: number, rates: Rates): JobSpend | undef
 /** A script promoted whose files are as they were then: it runs without asking. */
 function promotedAsIs(kernel: Kernel, settings: SkillSettings, skill: SkillRecord): boolean {
   const hash = settings.promoted[skill.manifest.name];
-  return hash !== undefined && hash === skillHash(kernel.workspace, skill);
+  return hash !== undefined && hash === skillHashNow(kernel.workspace, skill);
 }
 
 /** A project's own skills: the ones made for it by name, each with whether it is on and, for a script, promoted. */
@@ -3859,6 +3859,22 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
+/**
+ * Whether a request for the dashboard's page may be handed the write key:
+ * one naming this machine's loopback as its host, that a browser made as
+ * the page itself (typed or opened, or from the dashboard's own pages), not
+ * from another site. A page fetched by name over the LAN, or framed or
+ * fetched by another site, gets the page without it. A program that is not
+ * a browser says no Sec-Fetch-Site, and could say any; it is let by, as
+ * only a browser's word is worth checking here.
+ */
+export function servesWriteKey(headers: Record<string, string | string[] | undefined>): boolean {
+  const host = (header(headers, "host") ?? "").trim().toLowerCase().replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+  const loopback = host === "localhost" || host === "::1" || (isIP(host) === 4 && host.startsWith("127."));
+  const site = header(headers, "sec-fetch-site")?.toLowerCase();
+  return loopback && (site === undefined || site === "same-origin" || site === "none");
+}
+
 /** The dashboard's page with this boot's write key in a meta, before its head ends. */
 export function withWriteKey(html: string, key: string): string {
   const meta = `<meta name="${WRITE_KEY_META}" content="${key}">`;
@@ -3880,6 +3896,8 @@ function tryStatic(
   urlPath: string,
   res: ServerResponse,
   writeKey?: string,
+  /** False to serve the page without the key: see servesWriteKey. */
+  handKey = true,
 ): boolean {
   const clean = decodeURIComponent(urlPath.split("?")[0] ?? "/");
   // Strip leading slash so resolve(staticDir, rel) does not ignore staticDir.
@@ -3916,7 +3934,7 @@ function tryStatic(
       ? "public, max-age=31536000, immutable"
       : "no-cache",
   });
-  if (page) res.end(withWriteKey(readFileSync(file, "utf8"), writeKey));
+  if (page) res.end(handKey ? withWriteKey(readFileSync(file, "utf8"), writeKey) : readFileSync(file, "utf8"));
   else createReadStream(file).pipe(res);
   return true;
 }
@@ -4021,7 +4039,7 @@ export function createDashboardServer(
       }
 
       if (options.staticDir && (method === "GET" || method === "HEAD")) {
-        if (tryStatic(options.staticDir, path, res, options.writeKey)) return;
+        if (tryStatic(options.staticDir, path, res, options.writeKey, servesWriteKey(req.headers))) return;
       }
 
       res.writeHead(404, { "content-type": "application/json", ...corsHeaders(req, options) });

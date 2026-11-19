@@ -57,6 +57,19 @@ describe("CronService", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("queues a job in the conversation it runs in, so a blob's job waits behind the turn in the blob's thread", async () => {
+    const lanes: string[] = [];
+    const enqueue: CronServiceDeps["enqueue"] = (work, lane) => {
+      lanes.push(lane);
+      return work();
+    };
+    const blob = job("blob.recap", { agent: "recap" });
+    const own = job("tidy");
+    await service({ enqueue, place: (j) => (j.agent ? `agent:${j.agent}` : `cron:${j.id}`) }).fire(blob.id);
+    await service({ enqueue }).fire(own.id);
+    expect(lanes).toEqual(["agent:recap", `cron:${own.id}`]);
+  });
+
   it("puts a run on the record and tells the caretaker it went well", async () => {
     const j = job("tidy");
     const s = service();

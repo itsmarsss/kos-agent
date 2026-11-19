@@ -3,18 +3,19 @@ import { join } from "node:path";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { runSandbox } from "../sandbox/runner.js";
+import { jailedProgram } from "../sandbox/jail.js";
+import { runSandbox, type SkillJail } from "../sandbox/runner.js";
 import {
   MANIFEST_FILE,
   SKILL_NAME,
   SKILLS_DIR,
   readSkills,
   skillHash,
+  skillHashNow,
   type SkillKind,
   type SkillRecord,
 } from "../skills/manifest.js";
 import type { SkillPromoter } from "../skills/promote.js";
-import { assessSkillRisk } from "../skills/risk.js";
 import { runSkillLive } from "../skills/run.js";
 import type { Workspace } from "../store/workspace.js";
 
@@ -29,6 +30,11 @@ import type { Workspace } from "../store/workspace.js";
  *
  * The owner can switch a skill off by name. A switched-off skill is still on
  * disk and still listed, marked off, but cannot be used or run.
+ *
+ * A script skill only ever runs in the jail, tested or for real, and is
+ * refused where there is none. It is promoted only on the owner's yes to
+ * its files as they are, asked every time: nothing reads its source and
+ * calls it safe.
  */
 
 export interface SkillsModuleDeps {
@@ -39,6 +45,8 @@ export interface SkillsModuleDeps {
   promoted: () => Record<string, string>;
   /** A skill just promoted, kept with the hash of the files that were. */
   markPromoted: (name: string, hash: string) => void;
+  /** Where the jail comes from; the platform's own by default. */
+  jail?: SkillJail;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -106,6 +114,20 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           return undefined;
         }
       };
+      const hashNow = (skill: SkillRecord): string | undefined => skillHashNow(ws, skill);
+      const isPromoted = (skill: SkillRecord): boolean => {
+        const hash = hashNow(skill);
+        return hash !== undefined && deps.promoted()[skill.manifest.name] === hash;
+      };
+      /** Why a script cannot run on this machine, refused before anyone is asked: there is no jail for it. */
+      const noJail = (): string | false => {
+        try {
+          jailedProgram(process.execPath, [], { workspaceRoot: ws.root, ...deps.jail });
+          return false;
+        } catch (err) {
+          return `a script skill runs only in a jail, and ${err instanceof Error ? err.message : String(err)}`;
+        }
+      };
       const assertOn = (skill: SkillRecord): void => {
         if (off().has(skill.manifest.name)) {
           throw new Error(`${skill.manifest.name} is switched off by the owner; it can be turned on in Settings`);
@@ -116,7 +138,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         {
           name: "skills.list",
           description:
-            "Every skill in the workspace: name, kind, description, whether it is on, and for a script the harness's risk verdict. Also names any that could not be read and why.",
+            "Every skill in the workspace: name, kind, description, whether it is on, and for a script whether it is promoted (the owner approved its files as they are now). Also names any that could not be read and why.",
           inputSchema: { type: "object", properties: {} },
         },
         () => {
@@ -126,12 +148,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
             skills: skills.map((s) => ({
               ...s.manifest,
               enabled: !disabled.has(s.manifest.name),
-              ...(s.manifest.kind === "script"
-                ? (() => {
-                    const assessed = assessSkillRisk(readFileSync(ws.resolve(s.file), "utf8"));
-                    return { risk: assessed.risky ? "risky" : "safe", reasons: assessed.reasons };
-                  })()
-                : {}),
+              ...(s.manifest.kind === "script" ? { promoted: isPromoted(s) } : {}),
             })),
             invalid,
           });
@@ -143,7 +160,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         {
           name: "skills.create",
           description:
-            "Make a new skill. A prompt skill is instructions for a kind of task, loaded when you call skills.use. A script skill is code the sandbox tests and skills.promote approves before skills.run may run it. Name it plainly; describe it in one sentence so it can be chosen from a list.",
+            "Make a new skill. A prompt skill is instructions for a kind of task, loaded when you call skills.use. A script skill is code the sandbox tests; skills.promote asks the owner to keep it, and once they say yes skills.run runs it without asking. Name it plainly; describe it in one sentence so it can be chosen from a list.",
           inputSchema: {
             type: "object",
             properties: {
@@ -210,7 +227,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         {
           name: "skills.test",
           description:
-            "Run a script skill in the sandbox: a throwaway copy of the database, dry-run effects, nothing touches the live workspace. Reports the result and the harness's risk verdict.",
+            "Run a script skill in the sandbox: jailed, no network, a throwaway copy of the database and of the skill's folder, dry-run effects; nothing touches the live workspace. Reports the result.",
           inputSchema: {
             type: "object",
             properties: { name: { type: "string" }, args: { type: "array", items: { type: "string" } } },
@@ -220,22 +237,42 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
           const args = strings(input, "args");
-          const result = await runSandbox({ workspaceRoot: ws.root, entry: skill.file, ...(args ? { args } : {}) });
-          const assessed = assessSkillRisk(readFileSync(ws.resolve(skill.file), "utf8"));
-          return JSON.stringify({
-            ...sandboxReport(result),
-            risk: assessed.risky ? "risky" : "safe",
-            reasons: assessed.reasons,
-          });
+          const result = await runSandbox({ workspaceRoot: ws.root, entry: skill.file, ...(args ? { args } : {}), ...(deps.jail ? { jail: deps.jail } : {}) });
+          return JSON.stringify(sandboxReport(result));
         },
-        { floor: "safe" },
+        { floor: "safe", refuse: () => noJail() },
       );
+
+      /** The owner's yes holds for the files they were shown; changed since, it is not a yes to these. */
+      const assertAsked = (skill: SkillRecord, input: Record<string, unknown>): string => {
+        const hash = skillHash(ws, skill);
+        if (input["hash"] !== hash) {
+          throw new Error(`${skill.manifest.name} changed after the owner was asked, so that yes is not to this code. Run skills.promote again to test it and ask anew.`);
+        }
+        return hash;
+      };
+      /** On the card, and asked every time: no Auto and no remembered decision keeps code to run. */
+      const keepAsk = (verb: string) => ({
+        floor: "risky" as const,
+        asksAlways: true,
+        refuse: () => noJail(),
+        why: (input: Record<string, unknown>) => {
+          const skill = scriptNamed(input);
+          return skill ? `${verb} ${skill.manifest.name}, code of KOS's own writing, to run without asking from now on` : "code of KOS's own writing would be kept to run";
+        },
+        // The hash of the files the owner is shown, set by the harness before it asks.
+        stamp: (input: Record<string, unknown>) => {
+          const skill = scriptNamed(input);
+          const hash = skill ? hashNow(skill) : undefined;
+          return hash ? { ...input, hash } : input;
+        },
+      });
 
       ctx.registerTool(
         {
           name: "skills.promote",
           description:
-            "Test a script skill in the sandbox and, if it passes, promote it: a safe one is committed at once; a risky one returns needs_approval, and skills.commit with its name then asks the owner.",
+            "Ask the owner to keep a script skill: on their yes it is tested in the sandbox and, if it passes, committed, after which skills.run runs it without asking. Any change to its files after that and it asks again.",
           inputSchema: {
             type: "object",
             properties: { name: { type: "string" }, args: { type: "array", items: { type: "string" } } },
@@ -245,56 +282,36 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
           const args = strings(input, "args");
-          // Hashed before the test: an edit while it runs leaves a hash that no longer holds, so the skill asks.
-          const hash = skillHash(ws, skill);
+          // Checked before the test: an edit while it runs leaves a hash that no longer holds, so the skill asks.
+          const hash = assertAsked(skill, input);
           const outcome = await deps.promoter.promote({ entry: skill.file, ...(args ? { args } : {}) });
           if (outcome.status === "promoted") deps.markPromoted(skill.manifest.name, hash);
-          // The ask goes through skills.commit, the guarded path, so it carries this chat and the turn waits on the answer.
-          if (outcome.status === "needs_approval") return JSON.stringify({ ...outcome, next: `skills.commit with name "${skill.manifest.name}": it asks the owner; once approved, skills.run runs it` });
           return JSON.stringify(outcome);
         },
-        { floor: "safe" },
+        keepAsk("tests and keeps"),
       );
 
       ctx.registerTool(
         {
           name: "skills.commit",
-          description: "Commit a script skill as promoted, without the sandbox. Only after the owner has approved it.",
+          description: "Commit a script skill as promoted, without the sandbox. Asks the owner every time.",
           inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
         },
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
-          // The owner said yes to the files as they were when asked; changed since, that yes is not to them.
-          const hash = skillHash(ws, skill);
-          if (input["hash"] !== hash) {
-            throw new Error(`${skill.manifest.name} changed after the owner was asked, so that yes is not to this code. Run skills.promote again to test it and ask anew.`);
-          }
+          const hash = assertAsked(skill, input);
           const sha = await deps.promoter.commit(skill.file);
           deps.markPromoted(skill.manifest.name, hash);
           return JSON.stringify({ status: "promoted", name: skill.manifest.name, sha });
         },
-        {
-          floor: "risky",
-          // On the card: what the script does that needs the yes, read from it now.
-          why: (input) => {
-            const skill = scriptNamed(input);
-            const source = skill && existsSync(ws.resolve(skill.file)) ? readFileSync(ws.resolve(skill.file), "utf8") : "";
-            const { reasons } = assessSkillRisk(source);
-            return skill && reasons.length ? `keeps ${skill.manifest.name} to run, which uses ${reasons.join(", ")}` : "code of KOS's own writing would be kept to run";
-          },
-          // The hash of the files the owner is shown, set by the harness before it asks.
-          stamp: (input) => {
-            const skill = scriptNamed(input);
-            return skill ? { ...input, hash: skillHash(ws, skill) } : input;
-          },
-        },
+        keepAsk("keeps, untested,"),
       );
 
       ctx.registerTool(
         {
           name: "skills.run",
           description:
-            "Run a script skill for real, against the live workspace. A promoted skill runs without asking, so a schedule can run it unattended (an actions job calling skills.run); one not yet promoted asks the owner each time. Test first with skills.test, promote with skills.promote.",
+            "Run a script skill for real, jailed, against the live workspace. A promoted skill runs without asking, so a schedule can run it unattended (an actions job calling skills.run); one not yet promoted, or changed since, asks the owner each time. Test first with skills.test, promote with skills.promote.",
           inputSchema: {
             type: "object",
             properties: { name: { type: "string" }, args: { type: "array", items: { type: "string" } } },
@@ -305,7 +322,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           const skill = script(find(ws, str(input, "name")));
           assertOn(skill);
           const args = strings(input, "args");
-          const result = await runSkillLive({ workspaceRoot: ws.root, entry: skill.file, ...(args ? { args } : {}) });
+          const result = await runSkillLive({ workspaceRoot: ws.root, entry: skill.file, ...(args ? { args } : {}), ...(deps.jail ? { jail: deps.jail } : {}) });
           return JSON.stringify(sandboxReport(result));
         },
         // Promoted once, run free: the owner's yes to the code is the yes
@@ -313,9 +330,10 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         {
           floor: "risky",
           why: "runs a skill that was not promoted",
+          refuse: () => noJail(),
           relax: (input) => {
             const skill = scriptNamed(input);
-            return skill !== undefined && !off().has(skill.manifest.name) && deps.promoted()[skill.manifest.name] === skillHash(ws, skill);
+            return skill !== undefined && !off().has(skill.manifest.name) && isPromoted(skill);
           },
         },
       );

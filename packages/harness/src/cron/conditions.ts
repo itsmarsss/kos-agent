@@ -1,3 +1,5 @@
+import { isReadOnlyQuery } from "@kos/shared";
+
 import type { Db } from "../store/db.js";
 
 /**
@@ -6,18 +8,37 @@ import type { Db } from "../store/db.js";
  * condition test and {var} templating. Fact conditions are deterministic SQL,
  * which is cheap and which the LLM already speaks.
  *
- * Note: query and test are owner/agent-authored stored data, gated by the
- * approval queue at creation, not free user input at run time.
+ * Query and test are model-written stored data, run unattended long after
+ * they were written, so every statement either makes is a single read and
+ * passes the job's check (the kernel's: the sql tool's fence, for the
+ * job's own project) before it runs. A test is spliced into a statement,
+ * so it is the statement as spliced that is judged.
  */
 
+/** Runs one statement of a job's and gives back its first row. */
+export type ScopeReader = (sql: string) => Record<string, unknown> | undefined;
+
+/**
+ * A reader over `db` that runs a statement only when it is one read and
+ * `check`, when given, lets it through; `check` throws to refuse.
+ */
+export function readerOf(db: Db, check?: (sql: string) => void): ScopeReader {
+  return (sql) => {
+    if (!isReadOnlyQuery(sql)) throw new Error("a job's query and condition are reads: one SELECT or WITH, nothing else");
+    check?.(sql);
+    return db.prepare(sql).get() as Record<string, unknown> | undefined;
+  };
+}
+
+/** The statement a condition runs as: the test over the query's row, or standing alone. */
+export function conditionSql(test: string, query: string | null): string {
+  return query ? `SELECT (${test}) AS pass FROM (${query})` : `SELECT (${test}) AS pass`;
+}
+
 /** Run the named query and return its first row as the variable scope. */
-export function queryScope(
-  db: Db,
-  query: string | null,
-): Record<string, unknown> {
+export function queryScope(read: ScopeReader, query: string | null): Record<string, unknown> {
   if (!query) return {};
-  const row = db.prepare(query).get() as Record<string, unknown> | undefined;
-  return row ?? {};
+  return read(query) ?? {};
 }
 
 /**
@@ -25,15 +46,8 @@ export function queryScope(
  * the test runs against its columns; without one, it is a standalone boolean.
  * A missing test means "always run".
  */
-export function evaluateCondition(
-  db: Db,
-  test: string | null,
-  query: string | null,
-): boolean {
+export function evaluateCondition(read: ScopeReader, test: string | null, query: string | null): boolean {
   if (!test) return true;
-  const sql = query
-    ? `SELECT (${test}) AS pass FROM (${query})`
-    : `SELECT (${test}) AS pass`;
-  const row = db.prepare(sql).get() as { pass: unknown } | undefined;
-  return Boolean(row && row.pass);
+  const row = read(conditionSql(test, query));
+  return Boolean(row && row["pass"]);
 }

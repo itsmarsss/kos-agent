@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Workspace } from "../store/workspace.js";
@@ -153,16 +153,51 @@ export function renderSkillsSection(skills: SkillRecord[]): string | undefined {
   return lines.join("\n");
 }
 
+/** Most files a skill's folder may hold and still be hashed: past this it is not a skill but a tree. */
+export const SKILL_MAX_FILES = 2_000;
+
 /**
- * What a script skill is, as one hash: its entry and its manifest, read now.
- * An owner's yes is to the code they were shown, so a commit and a run that
- * skips the ask both check the files still hash to what was approved.
+ * Every file under a skill's folder, workspace-relative and sorted. A link
+ * or anything but a plain file or folder throws: a skill whose code could
+ * be elsewhere has no one set of files to say yes to.
+ */
+function skillFiles(ws: Workspace, dir: string): string[] {
+  const out: string[] = [];
+  const walk = (rel: string): void => {
+    for (const entry of readdirSync(ws.resolve(rel), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(child);
+      else if (entry.isFile()) out.push(child);
+      else throw new Error(`${child} is not a plain file: a skill is its own files, with no links`);
+      if (out.length > SKILL_MAX_FILES) throw new Error(`${dir} holds more than ${SKILL_MAX_FILES} files`);
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+/**
+ * What a script skill is, as one hash: every file in its folder, its
+ * helpers, data and manifest included, read now. An owner's yes is to the
+ * code they were shown, so a commit and a run that skips the ask both
+ * check the files still hash to what was approved; any change, to any of
+ * them, and the skill asks again. Throws for a folder holding a link.
  */
 export function skillHash(ws: Workspace, skill: SkillRecord): string {
   const hash = createHash("sha256");
-  for (const file of [skill.file, join(skill.dir, MANIFEST_FILE)]) {
+  for (const file of skillFiles(ws, skill.dir)) {
     const abs = ws.resolve(file);
-    hash.update(file).update("\0").update(existsSync(abs) ? readFileSync(abs) : "").update("\0");
+    if (!lstatSync(abs).isFile()) throw new Error(`${file} is not a plain file`);
+    hash.update(file).update("\0").update(readFileSync(abs)).update("\0");
   }
   return hash.digest("hex");
+}
+
+/** The files' hash now, or nothing for a skill holding a link or past the file cap, which no yes covers. */
+export function skillHashNow(ws: Workspace, skill: SkillRecord): string | undefined {
+  try {
+    return skillHash(ws, skill);
+  } catch {
+    return undefined;
+  }
 }

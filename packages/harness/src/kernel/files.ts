@@ -1,4 +1,4 @@
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync } from "node:fs";
+import { closeSync, constants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, writeSync } from "node:fs";
 import { basename, dirname, extname, join, relative as pathRelative, sep } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
@@ -318,9 +318,69 @@ export function uniqueName(ws: Workspace, dir: string, name: string): string {
   const dirAbs = ws.resolve(relative(dir));
   for (let n = 1; n < 1000; n++) {
     const candidate = `${stem} copy${n > 1 ? ` ${n}` : ""}${ext}`;
-    if (!existsSync(join(dirAbs, candidate))) return candidate;
+    if (!taken(join(dirAbs, candidate))) return candidate;
   }
   throw new Error("too many copies");
+}
+
+/** Something is at the path, a link included, dangling or not: existsSync follows links and calls a dangling one free. */
+function taken(abs: string): boolean {
+  try {
+    lstatSync(abs);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A plain file is there holding these bytes, read without following a link; a link holds nothing. */
+function holds(abs: string, bytes: Buffer): boolean {
+  let fd: number;
+  try {
+    fd = openSync(abs, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    return false;
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.size !== bytes.length) return false;
+    const have = Buffer.alloc(bytes.length);
+    let at = 0;
+    while (at < have.length) {
+      const n = readSync(fd, have, at, have.length - at, at);
+      if (n === 0) break;
+      at += n;
+    }
+    return have.equals(bytes);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Keep bytes as a new file in a workspace folder, the folder made if it is
+ * not there yet: the name as given, or "name copy.ext" when it is taken (a
+ * link there counts, dangling or not), and the name as given again when a
+ * plain file there already holds these very bytes (a message replayed).
+ * The folder is resolved through the jail, so a link anywhere on its path
+ * is refused, and the file is created new with O_EXCL and O_NOFOLLOW:
+ * nothing is ever written through a link. Returns the name kept.
+ */
+export function keepFile(ws: Workspace, dir: string, name: string, bytes: Buffer): string {
+  if (name !== basename(name) || name === "." || name === "..") throw new Error(`not a file name: ${name}`);
+  mkdirSync(ws.resolve(dir), { recursive: true });
+  // Again, now it is made: a link put along the way since is refused, not written through.
+  const dirAbs = ws.resolve(dir);
+  if (holds(join(dirAbs, name), bytes)) return name;
+  const final = taken(join(dirAbs, name)) ? uniqueName(ws, dir, name) : name;
+  const fd = openSync(join(dirAbs, final), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+  try {
+    let done = 0;
+    while (done < bytes.length) done += writeSync(fd, bytes, done, bytes.length - done);
+  } finally {
+    closeSync(fd);
+  }
+  return final;
 }
 
 /** Copy a file or a folder; without a destination, a sibling called "… copy". */
