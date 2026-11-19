@@ -168,9 +168,11 @@ export const SHUTDOWN_MS = 8_000;
 export async function stopWithin(steps: [string, () => Promise<unknown> | unknown][], deadlineMs = SHUTDOWN_MS): Promise<string[]> {
   const end = Date.now() + deadlineMs;
   const left: string[] = [];
+  // A step that ran out the clock used the deadline up, though a timer may fire a millisecond before it.
+  let spent = false;
   for (const [name, step] of steps) {
     const remaining = end - Date.now();
-    if (remaining <= 0) {
+    if (spent || remaining <= 0) {
       left.push(`${name} (no time left)`);
       continue;
     }
@@ -178,7 +180,10 @@ export async function stopWithin(steps: [string, () => Promise<unknown> | unknow
     const timedOut = new Promise<"timeout">((resolve) => (timer = setTimeout(() => resolve("timeout"), remaining)));
     try {
       const outcome = await Promise.race([Promise.resolve().then(step), timedOut]);
-      if (outcome === "timeout") left.push(`${name} (still going at the deadline)`);
+      if (outcome === "timeout") {
+        spent = true;
+        left.push(`${name} (still going at the deadline)`);
+      }
     } catch (err) {
       left.push(`${name} (${err instanceof Error ? err.message : String(err)})`);
     } finally {
