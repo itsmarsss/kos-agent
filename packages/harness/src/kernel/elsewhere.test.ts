@@ -131,6 +131,18 @@ describe("a browser call from the side panel's chat", () => {
     await turn;
   });
 
+  it("fills a saved secret where the chat browses: the owner's Chrome once its session is on, on the device it is", async () => {
+    kernel = await boot(oneCall("files.ls", { path: "." }).inference);
+    expect(kernel.secretPlace()).toEqual({ surface: "kos-browser" });
+    const chrome = { ...ownerChrome({ starts: true }), device: () => ({ id: "dev_chrome", name: "Chrome on macOS" }) };
+    kernel.setBrowserElsewhere(chrome);
+    // Claimed by the side panel's chat, but no session yet: no page to fill, and never KOS's own browser.
+    expect(kernel.secretFillUnready()).toMatch(/has no page yet/);
+    await chrome.ensure("root");
+    expect(kernel.secretFillUnready()).toBeUndefined();
+    expect(kernel.secretPlace()).toEqual({ surface: "chrome", device: { id: "dev_chrome", name: "Chrome on macOS" } });
+  });
+
   it("says a browser ask from the chat is in the owner's Chrome, so KOS's window stays shut for it", async () => {
     kernel = await boot(oneCall("files.ls", { path: "." }).inference);
     expect(kernel.inOwnersChrome("browser.handoff", "chat:owner")).toBe(false);
