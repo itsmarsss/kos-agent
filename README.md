@@ -22,12 +22,10 @@ each step, and hands you anything that needs your keys or your clicks.
 | | |
 | --- | --- |
 | **19 tool families** | files, SQL, migrations, HTTP, shell, Python, TeX, search, memory, projects, pages, sites, daemons, schedules, sub-agents, skills, modules, export, delegation |
-| **1,506 tests** across 159 files | about 23,000 lines of tests for 49,000 of source |
-| **291 pull requests** | all merged, all green |
 | **5 surfaces** | web dashboard, terminal REPL, Discord, iMessage, SMS |
 | **28 tables, 107 API routes** | one SQLite file, one local server |
 
-**Stack:** TypeScript, Node 20, React, SQLite with vector search, Docker,
+**Stack:** TypeScript, Node 22, React, SQLite with vector search, Docker,
 Anthropic, OpenAI or any OpenAI-compatible endpoint, Discord, Twilio,
 AppleScript.
 
@@ -162,7 +160,7 @@ Those live in `.env`.
 
 ## Quick start
 
-Node 20 or newer, and pnpm.
+Node 22.5 or newer, and pnpm.
 
 ```bash
 pnpm install
@@ -202,16 +200,26 @@ in a project's conversation, the shared memory, approvals, modules, a job's
 hook. Another program borrows KOS rather than carrying an agent of its own.
 
 ```ts
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { KosClient } from "@kos/client";
 
-const kos = new KosClient({ baseUrl: "http://127.0.0.1:4317", token: process.env.KOS_DASHBOARD_TOKEN });
+// A change (a turn included) needs this boot's write key, or the dashboard token when one is set.
+const writeKey = readFileSync(join(homedir(), ".kos", "write.key"), "utf8").trim();
+const kos = new KosClient({ baseUrl: "http://127.0.0.1:4317", writeKey, token: process.env.KOS_DASHBOARD_TOKEN });
 const { reply } = await kos.ask("resume-ops", "tailor the summary to this posting: ...");
 ```
 
+`@kos/client` is a workspace package, not published: use it from a program
+in this repository, or depend on it by path. Each request gives up after
+30 s (`timeoutMs`), a turn after 20 min (`turnTimeoutMs`).
+
 A **caller** is another program with its own token and its own corner of
 memory, made under Memory, Callers. It reads your global claims only under
-the tags you grant. `kos memory-mcp --token kosc_...` serves that grant as an
-MCP server to Claude Code or any agent that takes one.
+the tags you grant. `KOS_CALLER_TOKEN=kosc_... kos memory-mcp` serves that
+grant as an MCP server to Claude Code or any agent that takes one (`--token`
+works too, but shows the token in `ps`).
 
 ---
 
