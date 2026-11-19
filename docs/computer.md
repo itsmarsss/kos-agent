@@ -130,9 +130,12 @@ While KOS is in control:
   alerts, so KOS never decides its own ask there. Keys are refused while KOS
   for Mac has the keyboard, its menu is open or an alert is up, and the keys
   into the menu bar (Control-F2, Control-F8) and ⌥⌘K always are;
-- on the Mac, it does not act on a page of the dashboard of a KOS this Mac
-  is paired with (any loopback name on a loopback KOS's port) or on a browser
-  extension's own page, KOS for Chrome's panel among them (`target`);
+- on the Mac, it does not act on a page of KOS's dashboard (the paired KOS's
+  addresses, and every name the session's KOS answers to, sent as
+  `session.begin` `kosHosts`; a loopback one on any loopback name at its
+  port) or on a browser extension's own page, KOS for Chrome's panel among
+  them, nor in a browser on a page it cannot walk up to its window
+  (`target`);
 - it does not type while a password field has focus, but for a saved secret
   you approved, typed through `keys.secret` into an app the secret allows
   (docs/secrets.md, On the Mac); a field it typed one into is blacked out in
@@ -756,13 +759,16 @@ field it goes into (`password`, `username`, `card-number`, `card-cvc`,
 the owner approved it in.
 
 Where a field is: KOS for Mac walks up from it to its window and reads every
-web area on the way (`AXURL`, else `AXDocument`). None, and it is an app's
-own field. Otherwise it is on a page (`page: true`), and its `origin` is the
-topmost area's and `frames` the other areas' origins, outermost first, the
-page's own left out; only when every one is `http` or `https`. A page whose
-address cannot be read, is another scheme (`file:`, `blob:`, an extension's)
-or whose window is not reached within 64 parents has no origin, and takes no
-secret.
+web area on the way (`AXURL`, else `AXDocument`). In an app that is not a
+browser, a web area at a readable address other than `http` or `https`
+(`file:`, the app's own scheme) is the app's own window. No web area left,
+and it is an app's own field. Otherwise it is on a page (`page: true`), and
+its `origin` is the topmost area's and `frames` the other areas' origins,
+outermost first, the page's own left out; only when every one is `http` or
+`https` and the window was reached. A page whose address cannot be read, is
+another scheme in a browser, or whose window is not reached (a parent
+missing on the way) has no origin, and takes no secret; so does any field
+whose walk runs past 64 parents.
 
 KOS for Mac refuses it unless KOS for Mac may post keystrokes
 (`CGPreflightPostEventAccess`, `permission`); the session is live and is the
@@ -773,15 +779,18 @@ search field), the one approved, in the session's window for a one-window
 session (compared by its frame, never its title), and of the kind the field
 needs: a password only into a password field (`AXSecureTextField`), a card's
 number and code only where the field's label or hint says so, so never into
-one with neither (`field`); and the field is on `origin` with exactly
+one with neither (`field`). In a one-window session the field's window is
+that window, a sheet on it, or the field lies inside its frame; and the field is on `origin` with exactly
 `frames`, or in an app's own window when there is no `origin` (`origin`). A
 value holding a line break or a tab is refused, never pressed as a key.
 
 It is typed as unicode one character at a time (a surrogate pair as one),
 each posted to the approved app's process alone (`CGEvent.postToPid`), from
-a buffer zeroed afterwards. Just before each character every check runs
-again and the field with focus must still be the very element first
-checked; after the last, once more. A failure before anything went in is
+a buffer zeroed afterwards. Every check runs before the first character and
+after the last. Before each character between, what can change cheaply is
+read again: the field with focus is still the very element first checked,
+the same app (pid and bundle) is in front, KOS for Mac is not and the app is
+not hidden, and the page's top web area is at the same address. A failure before anything went in is
 that refusal. After, it is `partial`, its message saying how many characters
 of how many went in: the field and whatever now has focus are kept as typed
 into, and KOS tells the owner to clear the field. It is never logged, shown,
@@ -797,7 +806,8 @@ are painted, so a field that moved is black in both places. A picture is
 refused (`secret_field`) while one of them has focus but cannot be found. A
 field typed into that is gone while the page it was on is still there at the
 same address (hidden by the page, not left by it) blacks out that whole web
-area until the page moves on. While it has focus, `keys.type` is refused;
+area, the picture's answer saying so (`pageMasked: true`), until the page
+moves on or for ten minutes at most. While it has focus, `keys.type` is refused;
 `keys.press` takes only Return, Enter, Tab, shift-Tab and Escape (copy, cut,
 select all, paste and editing are refused, `secret_field`); in the field, a
 click is one plain left click alone (no double or triple click, right or

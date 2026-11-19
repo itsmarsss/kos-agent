@@ -504,11 +504,16 @@ asks always, and held to the same policy as a fill:
   kept. A grant covers a secret field only into a password field; a card's
   number into a text field asks every time.
 - Never a permission rule, a session yes or Auto; decided only on the
-  dashboard or a paired device, never Discord, SMS or iMessage. Nor where
-  KOS's own hand may be: a yes from the device holding that chat's live
-  computer session is refused, as is one from a device, or from the
-  dashboard, within 5 seconds of a paired device acting for KOS (a click, a
-  key, a scroll; a picture is not an action). The ask stays, and says why.
+  dashboard or a paired device, never Discord, SMS or iMessage, and never by
+  a typed /approve on any surface, a device's own chat included. Nor where
+  KOS's own hand may be. Only a computer (KOS for Mac) has one: its pointer
+  and keys are the system's. A yes from a Mac is refused while it holds that
+  chat's live session, while it is acting for KOS, and for 5 seconds after
+  (a click, a key, a scroll; a picture is not an action). A yes from
+  anywhere else (the dashboard, a Chrome's panel, a phone) is refused while
+  any Mac is acting or did in the last 5 seconds. A Chrome's own calls are
+  page work, not a hand, so a fill is approved from its panel. The ask
+  stays, and says why.
 - A guest's turn never; an unattended one only with `unattended` and a grant
   in the app.
 
@@ -520,8 +525,9 @@ apps, the chat holds no session on a Mac, the app in front is not in
 that shows what is typed, the field is on a page whose origin the Mac could
 not vouch for (`page` with no `origin`: an address it could not read, or not
 `http` or `https`), the app is a browser and the Mac names no page, the page
-or a frame is KOS's own dashboard (any of its own hosts, or a loopback name
-on one of their ports), the page's origin is not in `use.web.origins`, or a
+or a frame is KOS's own dashboard (each name it answers to on its port, the
+LAN host, KOS_PUBLIC_URL's host, KOS_HOST_NAMES on any port, or a loopback
+name on one of its ports), the page's origin is not in `use.web.origins`, or a
 frame between the page and the field is not in `use.web.frames`. The
 harness stamps the call with what the Mac says (`keys.focus`): the app, the
 field (its role, whether it is a password field, its window's title, its
@@ -529,8 +535,9 @@ label), the page's origin and frames, the session and the device. Any of those t
 runs, the app, field, page and session must still be the ones stamped
 (`refused:changed` otherwise). Then the value is read from the vault and
 sent in the one `keys.secret` call, the only frame the hub sends that holds
-it (the link scrubs every other), given 15 s plus 60 ms a character, at most
-five minutes. The Mac checks it all again before every character it types,
+it (the link scrubs every other), given 15 s plus 150 ms a character, at
+most ten minutes; one that does not finish in time is said as one that may
+have typed part of the way, and the owner is told. The Mac checks it all again before every character it types,
 each posted to the approved app alone. The result says it was typed, never
 the value, and warns when the field's length did not grow by as much (keys
 lost). Stopped part of the way (`partial`), it is recorded `partial`, the
