@@ -408,7 +408,7 @@ describe("a saved secret in the owner's Chrome", () => {
 
   it("holds a tab the extension says was filled before, in a new session, and masks what was filled there", async () => {
     const { chrome, fake, hub, tools } = await started({ secrets: { saved: () => [], savedFor: () => [], evalBlocked: () => undefined } });
-    const start = (): Promise<unknown> => attendance.run(true, () => tools.get("chrome.start")!({ task: "sign in" }));
+    const start = async (): Promise<unknown> => attendance.run(true, () => tools.get("chrome.start")!({ task: "sign in" }));
     fake.answers.set("secret.fill", () => ({ ok: true, result: { filled: true } }));
     await putIn(chrome, put);
     hub.end("c1");
