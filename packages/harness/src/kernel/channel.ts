@@ -120,8 +120,10 @@ export function connectChannel(
       const waiting = res.suspended ? { suspended: true as const } : {};
       // A chat in Auto went ahead without asking: its answer says so where no chip shows it.
       const reply = res.reply && kernel.ranUnderAuto(res.conversationId) ? `${AUTO_MARK} ${res.reply}` : res.reply;
-      if (res.from && reply) return { text: reply, from: res.from, ...waiting };
-      return res.suspended ? { text: reply || "(no reply)", ...waiting } : reply || "(no reply)";
+      // The chat it was said in rides along, so a button on it acts there.
+      const said = { conversationId: res.conversationId, ...waiting };
+      if (res.from && reply) return { text: reply, from: res.from, ...said };
+      return { text: reply || "(no reply)", ...said };
     },
     /*
      * Only what the prompt itself does not already say.

@@ -280,6 +280,8 @@ export interface OutboundMessage {
   from?: Sender;
   /** Posted without a notification: the owner's own words shown back to them, which nobody needs to be buzzed for. */
   silent?: boolean;
+  /** The chat it was said in, for a surface whose buttons act back on it. */
+  conversationId?: string;
 }
 
 /**
