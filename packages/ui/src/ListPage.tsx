@@ -44,6 +44,12 @@ export function ListPage<T>(props: {
    * the content is what should give.
    */
   fixedLayout?: boolean;
+  /**
+   * Under 640 px, each row as two lines (the "what" column over the rest)
+   * in place of a table wider than the phone, whose last columns sat off
+   * screen with nothing to say they were there.
+   */
+  stackOnPhone?: boolean;
 }): React.ReactElement {
   const [q, setQ] = useState("");
   const foldKey = `kos.list.${props.title}.folded`;
@@ -94,7 +100,7 @@ export function ListPage<T>(props: {
             className="list-search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search…"
+            placeholder={`Search ${props.title.toLowerCase()}`}
             aria-label={`Search ${props.title}`}
           />
         }
@@ -105,7 +111,7 @@ export function ListPage<T>(props: {
       <div className="list-meta ops-muted">
         {filtered.length} of {props.rows.length}
       </div>
-      <div className="ops-table-wrap list-table">
+      <div className={`ops-table-wrap list-table${props.stackOnPhone ? " list-table--stack" : ""}`}>
         <table
           className={`ops-table ${props.fixedLayout ? "ops-table--fixed" : ""}`}
         >
@@ -152,7 +158,7 @@ export function ListPage<T>(props: {
                       onClick={() => props.onRowClick(row)}
                     >
                       {props.columns.map((c) => (
-                        <td key={c.key}>{c.render(row)}</td>
+                        <td key={c.key} data-col={c.key}>{c.render(row)}</td>
                       ))}
                     </tr>
                   )}

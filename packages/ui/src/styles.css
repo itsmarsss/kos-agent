@@ -5053,6 +5053,35 @@ a.health {
 /* One line, so a run's row is a tool's height where the column is narrow (a
    phone): wrapped, the time and its duration made the row half again taller. */
 .hist-when { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-name { display: inline-flex; align-items: center; gap: 0.4rem; min-width: 0; }
+
+/* On a phone a row is two lines, what it was over its kind, state and
+   time, in place of a table wider than the screen whose last columns sat
+   off its edge with nothing to say so. */
+@media (max-width: 40rem) {
+  .list-table.list-table--stack { overflow-x: visible; }
+  .list-table.list-table--stack :is(table, tbody) { display: block; min-width: 0; }
+  .list-table--stack thead { display: none; }
+  .list-table--stack .list-group { display: block; }
+  .list-table--stack .list-group > th { display: block; }
+  .list-table--stack tr.ops-row-click {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "what what what fix" "kind status when fix";
+    align-items: center;
+    column-gap: 0.5rem;
+    row-gap: 0.2rem;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .list-table--stack tr.ops-row-click > td { display: block; padding: 0; border: 0; min-width: 0; }
+  .list-table--stack td[data-col="what"] { grid-area: what; }
+  .list-table--stack td[data-col="kind"] { grid-area: kind; }
+  .list-table--stack td[data-col="status"] { grid-area: status; }
+  .list-table--stack td[data-col="when"] { grid-area: when; }
+  .list-table--stack td[data-col="fix"] { grid-area: fix; }
+  .list-table--stack td[data-col="fix"]:empty { display: none; }
+}
 
 .ops-table--fixed {
   table-layout: fixed;
