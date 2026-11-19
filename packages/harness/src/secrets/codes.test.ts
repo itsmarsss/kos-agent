@@ -107,6 +107,25 @@ describe("the scrubber on a code", () => {
     expect(scrubber.scrub(`hex ${Buffer.from(CODE).toString("hex")}`)).toBe("hex [secret otp_1.code]");
   });
 
+  it.each([
+    ["spaced in threes", "481 926"],
+    ["dashed", "481-926"],
+    ["a space between each", "4 8 1 9 2 6"],
+    ["percent-encoded", "%34%38%31%39%32%36"],
+    ["after an encoded equals sign", "code%3D481926"],
+  ])("takes it out %s", (_how, written) => {
+    const scrubber = new Scrubber([["otp_1.code", CODE, "code"]]);
+    expect(scrubber.scrub(`sent ${written}&next`)).toMatch(/\[secret otp_1\.code\]&next$/);
+  });
+
+  it("takes a code of letters out in either case, and its encodings either way", () => {
+    const scrubber = new Scrubber([["otp_2.code", "K7Q2-9XPA", "code"]]);
+    for (const written of ["K7Q2-9XPA", "k7q2-9xpa", "k7q2 9xpa", "K7Q29XPA", Buffer.from("k7q2-9xpa").toString("base64")]) {
+      expect(scrubber.scrub(`code: ${written}.`)).toBe("code: [secret otp_2.code].");
+    }
+    expect(scrubber.scrub("XK7Q2-9XPA and K7Q2-9XPAB")).toBe("XK7Q2-9XPA and K7Q2-9XPAB");
+  });
+
   it("follows the registry's codes: looked for from the yes, and on the database's path", () => {
     const secrets = new SecretsRegistry();
     expect(secrets.scrub(`code ${CODE}`)).toBe(`code ${CODE}`);

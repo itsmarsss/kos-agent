@@ -125,6 +125,8 @@ describe("Scrubber digits mode", () => {
     ["in base64", Buffer.from("4242424242424242").toString("base64")],
     ["in base64url, inside a longer run", `eyJ${Buffer.from("x4242424242424242y").toString("base64url")}`],
     ["in hex", Buffer.from("4242424242424242").toString("hex").toUpperCase()],
+    ["in base64, written with spaces", Buffer.from("4242 4242 4242 4242").toString("base64")],
+    ["in base64, written with dashes", Buffer.from("4242-4242-4242-4242").toString("base64")],
   ])("takes a card number out %s", (_how, written) => {
     expect(scrubber.scrub(`echo ${written} done`)).toMatch(/\[secret visa-personal-7k2q\.number\]/);
   });
