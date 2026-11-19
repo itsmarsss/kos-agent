@@ -10,7 +10,9 @@ import { AlertIcon } from "@kos/kit";
 export function UnsentNote({ reason, down, onRetry }: { reason: string; down: boolean; onRetry: () => void }): ReactElement {
   return (
     <p className="chat-unsent" role="alert">
-      <AlertIcon size={12} />
+      <span className="chat-unsent-mark" aria-hidden="true">
+        <AlertIcon size={11} />
+      </span>
       <span className="chat-unsent-text">Not sent. {reason}</span>
       <button type="button" className="btn btn--sm btn--ghost" onClick={onRetry} disabled={down}>
         Retry

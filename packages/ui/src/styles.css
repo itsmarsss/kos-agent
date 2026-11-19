@@ -609,26 +609,40 @@ select {
 .ops-toast--err { border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
 .ops-toast--err .ops-toast-icon { background: var(--danger-dim); color: var(--danger); }
 
-/* KOS not there for this tab: one slim line over the page, in the warn
-   tone while it retries and the danger tone when only a reload mends it. */
+/* KOS not there for this tab: a pill held at the top of the page, over it
+   rather than in its flow (a chat is exactly the window's height), in the
+   warn tone while it retries and the danger tone when only a reload mends it. */
 .host-banner {
-  position: sticky;
-  top: env(safe-area-inset-top, 0px);
-  z-index: 80;
+  position: fixed;
+  top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  left: 1rem;
+  right: 1rem;
+  z-index: 95;
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  width: fit-content;
+  max-width: 32rem;
+  margin-inline: auto;
   min-height: var(--control-h-sm);
-  padding: 0.3rem 0.85rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
-  background: color-mix(in srgb, var(--warn-dim) 80%, var(--bg));
+  padding: 0.3rem 0.85rem 0.3rem 0.4rem;
+  border-radius: 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line-strong));
+  background: color-mix(in srgb, var(--panel-2) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--float);
   color: var(--text);
   font-size: var(--text-md);
 }
-.host-banner > svg { flex: none; color: var(--warn); }
-.host-banner-text { min-width: 0; flex: 1 1 auto; }
-.host-banner--stale { border-bottom-color: color-mix(in srgb, var(--danger) 40%, var(--line)); background: color-mix(in srgb, var(--danger-dim) 80%, var(--bg)); }
-.host-banner--stale > svg { color: var(--danger); }
+.host-banner-mark { display: grid; place-items: center; flex: none; width: 1.25rem; height: 1.25rem; border-radius: 50%; background: var(--warn-dim); color: var(--warn); }
+.host-banner-text { min-width: 0; }
+.host-banner--stale { padding-right: 0.3rem; border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
+.host-banner--stale .host-banner-mark { background: var(--danger-dim); color: var(--danger); }
+/* On a phone, under the bar with the menu, which stays in reach. */
+@media (max-width: 640px) {
+  .host-banner { top: calc(3.75rem + env(safe-area-inset-top, 0px)); }
+}
 
 /* agent pages (keep usable) */
 .kos-page {
@@ -2110,7 +2124,7 @@ select {
   color: var(--danger);
   font-size: var(--text-md);
 }
-.chat-unsent > svg { flex: none; }
+.chat-unsent-mark { display: grid; place-items: center; flex: none; width: 1.1rem; height: 1.1rem; border-radius: 50%; background: var(--danger-dim); }
 .chat-unsent-text { min-width: 0; }
 
 .bubble--you {
