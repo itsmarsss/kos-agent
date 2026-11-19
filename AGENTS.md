@@ -9,7 +9,7 @@ not apply: start from the guides in [docs/](docs/).
 
 ## Do
 
-- Check prerequisites first: Node 20 or newer, pnpm 9.15.4, git, ripgrep;
+- Check prerequisites first: Node 22.5 or newer, pnpm 9.15.4, git, ripgrep;
   Google Chrome for the browser; Docker on Linux; the Xcode Command Line
   Tools only for KOS for Mac.
 - Install with `pnpm install --frozen-lockfile` and `pnpm build`.
