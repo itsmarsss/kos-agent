@@ -119,6 +119,11 @@ export class SecretsRegistry {
     this.scrubber = undefined;
   }
 
+  /** The vault its entries are read from, when one is attached: the secrets tools work on it. */
+  attached(): Vault | undefined {
+    return this.vault;
+  }
+
   has(name: string): boolean {
     return this.get(name) !== undefined;
   }

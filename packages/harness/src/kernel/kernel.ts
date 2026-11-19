@@ -34,6 +34,8 @@ const SAID_KEEP = 600;
 import {
   BrowserLive,
   ChromeHost,
+  fieldSpots,
+  fillSecrets,
   launchFor,
   opensElsewhere,
   parseBrowserConfig,
@@ -45,8 +47,12 @@ import {
   type BrowserDownload,
   type BrowserStatus,
   type ChromeOptions,
+  type FieldSpot,
   type Page,
+  type SecretFill,
+  type Seen,
   type Tab,
+  type Then,
 } from "@kos/browser";
 import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, mcpBrowserStep, PAY_BUTTON, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
 
@@ -4420,6 +4426,33 @@ export class Kernel {
     const tab = await this.browser.tabFor(conversationId);
     this.browser.touch(conversationId);
     return { page: await this.browser.page(tab), capture: (maxEdge) => this.browser.capture(tab, maxEdge) };
+  }
+
+  /**
+   * Why a secret cannot be filled where the caller browses, if it cannot:
+   * it has no tab yet, or works in the owner's Chrome, where a fill goes
+   * through KOS for Chrome (not yet).
+   */
+  secretFillUnready(): string | undefined {
+    const conversationId = this.callerConversationId ?? "root";
+    if (this.away(conversationId)) return "secrets.fill works in KOS's own browser for now, not the owner's Chrome. Hand the tab to the owner with browser.handoff to sign in there.";
+    if (!this.browser.tabOf(conversationId)) return "Your tab has no page yet. Open the page with browser.visit and look for the fields' refs first.";
+    return undefined;
+  }
+
+  /** The address of the caller's tab, in whichever browser it works. */
+  browserUrl(): string | undefined {
+    return this.spotOf(this.callerConversationId ?? "root")?.url;
+  }
+
+  /** Where the fields refs name are on the caller's page (KOS's own browser). */
+  async secretSpots(refs: string[]): Promise<FieldSpot[]> {
+    return fieldSpots(await this.browserTab(), refs);
+  }
+
+  /** Secrets into the caller's page (KOS's own browser), then the page as `then` says. */
+  async fillSecretsHere(fills: SecretFill[], then: Then): Promise<Seen> {
+    return fillSecrets(await this.browserTab(), fills, then);
   }
 
   /** Which browser the caller's tab is in, in words for a result. */
