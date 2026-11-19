@@ -15,6 +15,25 @@ export interface KosClientOptions {
   token?: string;
   /** This boot's write key, from the file the host keeps it in (~/.kos/write.key): a change sends it. */
   writeKey?: string;
+  /** How long a request waits for an answer, in ms (default 30 s). A wedged host fails the call instead of hanging it. */
+  timeoutMs?: number;
+  /** How long a turn (message, ask) waits, in ms (default 20 min): a turn runs tools and can wait on an approval. */
+  turnTimeoutMs?: number;
+}
+
+/** A request's wait when none is named. */
+export const DEFAULT_TIMEOUT_MS = 30_000;
+/** A turn's wait when none is named. */
+export const DEFAULT_TURN_TIMEOUT_MS = 20 * 60_000;
+
+/** fetch, bounded: past `timeoutMs` it rejects with what was asked and how long it waited. */
+async function fetchWithin(url: string, init: RequestInit, timeoutMs: number, what: string): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") throw new Error(`${what}: no answer within ${timeoutMs < 1_000 ? `${timeoutMs}ms` : `${Math.round(timeoutMs / 1_000)}s`}`);
+    throw err;
+  }
 }
 
 export interface Fact {
@@ -39,11 +58,15 @@ export class KosClient {
   private readonly baseUrl: string;
   private readonly token?: string;
   private readonly writeKey?: string;
+  private readonly timeoutMs: number;
+  private readonly turnTimeoutMs: number;
 
   constructor(options: KosClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     if (options.token) this.token = options.token;
     if (options.writeKey) this.writeKey = options.writeKey;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.turnTimeoutMs = options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
   }
 
   private headers(json = false, bearer = this.token): Record<string, string> {
@@ -55,26 +78,27 @@ export class KosClient {
     return h;
   }
 
-  async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() });
+  async get<T>(path: string, timeoutMs = this.timeoutMs): Promise<T> {
+    const res = await fetchWithin(`${this.baseUrl}${path}`, { headers: this.headers() }, timeoutMs, path);
     if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
     return (await res.json()) as T;
   }
 
-  async post<T>(path: string, body: unknown = {}): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method: "POST",
-      headers: this.headers(true),
-      body: JSON.stringify(body),
-    });
+  async post<T>(path: string, body: unknown = {}, timeoutMs = this.timeoutMs): Promise<T> {
+    const res = await fetchWithin(
+      `${this.baseUrl}${path}`,
+      { method: "POST", headers: this.headers(true), body: JSON.stringify(body) },
+      timeoutMs,
+      path,
+    );
     if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
     return (await res.json()) as T;
   }
 
   // Host
 
-  health(): Promise<{ ok: boolean; pid: number; discord: boolean; cron: boolean; workspace: string }> {
-    return this.get("/api/health");
+  health(timeoutMs?: number): Promise<{ ok: boolean; pid: number; discord: boolean; cron: boolean; workspace: string }> {
+    return this.get("/api/health", timeoutMs);
   }
 
   status(): Promise<{
@@ -104,11 +128,15 @@ export class KosClient {
 
   /** One turn in a conversation. No sessionId means the owner's primary one. */
   message(text: string, opts: { sessionId?: string; userId?: string } = {}): Promise<Reply> {
-    return this.post("/api/message", {
-      text,
-      ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
-      ...(opts.userId ? { userId: opts.userId } : {}),
-    });
+    return this.post(
+      "/api/message",
+      {
+        text,
+        ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
+        ...(opts.userId ? { userId: opts.userId } : {}),
+      },
+      this.turnTimeoutMs,
+    );
   }
 
   /**
@@ -205,17 +233,20 @@ export class KosClient {
    */
   async fireHook(job: string, secret: string): Promise<{ accepted: string }> {
     const path = `/api/hooks/${encodeURIComponent(job)}`;
-    const res = await fetch(`${this.baseUrl}${path}`, { method: "POST", headers: this.headers(false, secret) });
+    const res = await fetchWithin(`${this.baseUrl}${path}`, { method: "POST", headers: this.headers(false, secret) }, this.timeoutMs, path);
     if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
     return (await res.json()) as { accepted: string };
   }
 }
 
+/** How long a probe waits: a host that takes longer to say it is up is not up. */
+const PROBE_TIMEOUT_MS = 2_000;
+
 /** Whether a host answers at baseUrl. */
 export async function probeDaemon(baseUrl: string, token?: string): Promise<boolean> {
   try {
     const client = new KosClient({ baseUrl, ...(token ? { token } : {}) });
-    return (await client.health()).ok === true;
+    return (await client.health(PROBE_TIMEOUT_MS)).ok === true;
   } catch {
     return false;
   }
@@ -230,16 +261,21 @@ export async function probeDaemon(baseUrl: string, token?: string): Promise<bool
 export class CallerClient {
   private readonly baseUrl: string;
 
-  constructor(private readonly options: { baseUrl: string; token: string }) {
+  constructor(private readonly options: { baseUrl: string; token: string; timeoutMs?: number }) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
   }
 
   private async send<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}/api/caller/${path}`, {
-      method,
-      headers: { authorization: `Bearer ${this.options.token}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
+    const res = await fetchWithin(
+      `${this.baseUrl}/api/caller/${path}`,
+      {
+        method,
+        headers: { authorization: `Bearer ${this.options.token}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      },
+      this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      `/api/caller/${path}`,
+    );
     if (!res.ok) throw new Error(`/api/caller/${path}: ${res.status} ${await res.text()}`);
     return (await res.json()) as T;
   }
