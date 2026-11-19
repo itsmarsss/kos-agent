@@ -30,6 +30,17 @@ describe("reading proposals", () => {
   });
 });
 
+/** Replies in order, each with its own stop reason; what each was asked is kept. */
+function scriptedInference(replies: { text: string; stopReason?: "end_turn" | "max_tokens" }[], seen: string[]): Inference {
+  return {
+    generate: async (_task, req) => {
+      seen.push(req.messages.map((m) => m.content.map((c) => (c.type === "text" ? c.text : "")).join("")).join("\n"));
+      const reply = replies.shift() ?? { text: '{"ops":[]}' };
+      return { content: [{ type: "text", text: reply.text }], stopReason: reply.stopReason ?? "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "fake" };
+    },
+  };
+}
+
 describe("the extractor", () => {
   const embedder = new HashingEmbeddingProvider(32);
   let root: string;
@@ -62,6 +73,32 @@ describe("the extractor", () => {
   afterEach(() => {
     ws.close();
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it("reads a batch again in halves when its reply was cut off, and drops none of it", async () => {
+    const a = say("owner", "my sister is called Ana");
+    const b = say("owner", "I take the 8:10 train every weekday");
+    const op = (key: string, value: string, id: number): string => `{"op":"add","key":"${key}","value":"${value}","kind":"fact","scope":"global","evidence":[${id}],"confidence":0.9}`;
+    const seen: string[] = [];
+    const inf = scriptedInference([
+      { text: `{"ops":[${op("sister", "Ana", a)},{"op":"add","key":"commu`, stopReason: "max_tokens" },
+      { text: `{"ops":[${op("sister", "Ana", a)}]}` },
+      { text: "I could not read that, sorry" },
+      { text: `{"ops":[${op("commute", "the 8:10 train on weekdays", b)}]}` },
+    ], seen);
+    const ex = extractor(inf);
+    // The second half's unreadable reply ends the run with the watermark after the first half only.
+    await expect(ex.run()).rejects.toThrow(new RegExp(`#${b}`));
+    expect(settings.get(EXTRACTOR_KEY)).toEqual({ lastEventId: a });
+    expect(facts.get("owner", "sister")!.value).toBe("Ana");
+    // Read again next run, and kept.
+    const report = await ex.run();
+    expect(report).toMatchObject({ events: 1, added: 1 });
+    expect(facts.get("owner", "commute")!.value).toBe("the 8:10 train on weekdays");
+    expect(settings.get(EXTRACTOR_KEY)).toEqual({ lastEventId: b });
+    expect(seen[0]).toContain(`[#${a}]`);
+    expect(seen[0]).toContain(`[#${b}]`);
+    expect(seen[1]).not.toContain(`[#${b}]`);
   });
 
   it("adds a claim with its evidence, scoped and trusted by the events it cites", async () => {
@@ -141,9 +178,12 @@ describe("the extractor", () => {
     expect(extractor(fakeInference([])).pending()).toEqual({ count: 0, chars: 0 });
   });
 
-  it("survives a model that does not answer in JSON", async () => {
-    say("owner", "hello");
-    const report = await extractor(fakeInference(["I cannot help with that."])).run();
+  it("keeps the events a model did not answer in JSON for, to read them again", async () => {
+    const a = say("owner", "hello");
+    await expect(extractor(fakeInference(["I cannot help with that."])).run()).rejects.toThrow(/cut off or unreadable/);
+    expect(settings.get(EXTRACTOR_KEY)).toBeUndefined();
+    const report = await extractor(fakeInference(['{"ops":[]}'])).run();
     expect(report).toMatchObject({ batches: 1, proposed: 0, added: 0 });
+    expect(settings.get(EXTRACTOR_KEY)).toEqual({ lastEventId: a });
   });
 });
