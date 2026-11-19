@@ -25,6 +25,7 @@ public final class Phone: ObservableObject {
   public let voice: VoiceModel
   public let reader: ReplyReader
   public let pairing: PairingFlow
+  public let push: PushModel
 
   /// The KOS this phone is paired with, none before it is.
   @Published public private(set) var paired: Pairing?
@@ -43,11 +44,19 @@ public final class Phone: ObservableObject {
   public struct Timing: Sendable {
     public var takeWithin: Duration
     public var showWithin: Duration
+    /// Woken by a notification's Approve or Deny: how long the line has to come up, and KOS to settle the ask.
+    public var wakeWithin: Duration
+    public var settleWithin: Duration
     public var sleep: @Sendable (Duration) async -> Void
 
-    public init(takeWithin: Duration, showWithin: Duration, sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+    public init(
+      takeWithin: Duration, showWithin: Duration, wakeWithin: Duration = .seconds(10), settleWithin: Duration = .seconds(8),
+      sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+    ) {
       self.takeWithin = takeWithin
       self.showWithin = showWithin
+      self.wakeWithin = wakeWithin
+      self.settleWithin = settleWithin
       self.sleep = sleep
     }
 
@@ -69,10 +78,16 @@ public final class Phone: ObservableObject {
   private var watch: Task<Void, Never>?
   /// Asked to listen (Ask KOS) before KOS was on the line to hear: it listens once the chat is shown.
   private var listenWhenShown = false
+  /// The app is on screen: a line opened to decide from a notification while it is not is closed again after.
+  private var onScreen = false
+  private var loaded = false
+  /// Asks KOS said were settled since the line came up, for a decision from a notification to hear its own.
+  private var settledByKOS: Set<String> = []
+  private let waits = Waits()
 
   public init(
     vault: PairingVault, pairer: Pairer, recognizer: SpeechRecognizer, speaker: Speaker, haptics: Haptics, preferences: Preferences,
-    line: @escaping () -> Line, name: String = "iPhone", timing: Timing = .standard
+    line: @escaping () -> Line, notifier: Notifier = NoNotifier(), name: String = "iPhone", timing: Timing = .standard
   ) {
     self.vault = vault
     makeLine = line
@@ -84,6 +99,7 @@ public final class Phone: ObservableObject {
     board = Board(haptics: haptics, sleep: timing.sleep)
     reader = ReplyReader(speaker: speaker, preferences: preferences)
     pairing = PairingFlow(pairer: pairer, name: name)
+    push = PushModel(notifier: notifier)
     theme = preferences.value(KeptTheme.self, Keys.theme)?.theme
     if let face = preferences.value(FaceDrawing.self, Keys.face) { chat.face = FaceLook(face) }
     wire()
@@ -94,8 +110,17 @@ public final class Phone: ObservableObject {
 
   // MARK: Life
 
-  /// The saved pairing, read, and its line dialled.
+  /// On screen: the saved pairing, read, and its line dialled; what the owner allows for notifications, read.
   public func start() {
+    onScreen = true
+    load()
+    Task { await push.refresh() }
+  }
+
+  /// The saved pairing read and dialled, once: from the screen, or from a notification's action with no screen up.
+  private func load() {
+    guard !loaded else { return }
+    loaded = true
     do {
       paired = try vault.load().first
     } catch {
@@ -107,7 +132,9 @@ public final class Phone: ObservableObject {
 
   /// Back on screen: a line the system let drop is dialled again, and the chat and glance are asked for afresh.
   public func foreground() {
+    onScreen = true
     guard paired != nil else { return }
+    Task { await push.refresh() }
     if chat.online {
       opened()
     } else {
@@ -117,6 +144,7 @@ public final class Phone: ObservableObject {
 
   /// Off screen: nothing is read aloud to a phone in a pocket. The line is left to the system.
   public func background() {
+    onScreen = false
     reader.stop()
     voice.cancel()
   }
@@ -169,7 +197,11 @@ public final class Phone: ObservableObject {
   private func status(_ status: Connection.Status) {
     chat.link = LinkState(status)
     let online = chat.online
-    defer { wasOnline = online }
+    defer {
+      wasOnline = online
+      waits.check()
+    }
+    if !online { settledByKOS = [] }
     if online && !wasOnline { opened() }
     // Words on their way when the line dropped were never taken: they go back to the owner.
     if !online && wasOnline { board.dashboard.reset() }
@@ -181,6 +213,8 @@ public final class Phone: ObservableObject {
 
   /// Shown the chat, the chats and the glance, and told when KOS does not show it.
   private func opened() {
+    if let token = push.current { tell(.push(token)) }
+    board.inbox.lineUp()
     tell(.open)
     tell(.list)
     glance.ask()
@@ -231,6 +265,9 @@ public final class Phone: ObservableObject {
         if method == .settled, let settled = try? call.params(ChatSettled.self) {
           glance.settled(settled.approval)
           board.inbox.settledElsewhere(settled.approval)
+          push.withdraw(ask: settled.approval)
+          settledByKOS.insert(settled.approval)
+          waits.check()
         }
       }
       return try? Outbound.reply(id: call.id, result: EmptyResult())
@@ -279,6 +316,7 @@ public final class Phone: ObservableObject {
     }
     paired = nil
     chat.paired = false
+    push.reset()
     leave()
   }
 
@@ -306,6 +344,11 @@ public final class Phone: ObservableObject {
   private func wire() {
     pairing.paired = { [weak self] pairing in self?.keep(pairing) }
     pairing.current = { [weak self] in self?.paired?.address }
+    // A token APNs gives while KOS is on the line goes at once; one given off it goes when the line comes up.
+    push.tell = { [weak self] token in
+      guard let self, self.chat.online else { return }
+      self.tell(.push(token))
+    }
     chat.send = { [weak self] text, _ in self?.say(text) }
     // Decided in the chat, the glance or the Inbox, by its id each way; the others drop it too.
     chat.decide = { [weak self] id, approved, remember, code in
@@ -377,12 +420,64 @@ public final class Phone: ObservableObject {
     paired = pairing
     chat.paired = true
     haptics.done()
+    loaded = true
     dial(pairing)
+    // Paired is when KOS's asks first matter here: the owner is asked once whether they may come to the lock screen.
+    Task { await push.offer() }
   }
 
   private func decided(_ id: String, approved: Bool, remember: Bool, code: String?) {
     haptics.tap()
+    push.withdraw(ask: id)
     tell(.decide(approval: id, approved: approved, remember: remember, code: code))
+  }
+
+  // MARK: Notifications
+
+  /// Approve or Deny pressed on an ask's notification, the app perhaps not open: the line is dialled if it is
+  /// down, the decision goes over it as any of the phone's does, and the line is closed again once KOS has
+  /// settled the ask, if the app is still off screen. False when KOS was not reached or did not settle it, for
+  /// the caller to offer the ask in the app instead.
+  public func decide(fromNotification id: String, approved: Bool) async -> Bool {
+    load()
+    guard let paired else { return false }
+    defer {
+      if !onScreen, self.paired != nil { line?.hold(paired) }
+    }
+    if !chat.online {
+      if line == nil { dial(paired) } else { line?.redialNow() }
+    }
+    guard await waits.until(within: timing.wakeWithin, sleep: timing.sleep, { [weak self] in self?.chat.online == true }) else { return false }
+    settledByKOS.remove(id)
+    chat.settled(id)
+    glance.settled(id)
+    board.inbox.settledElsewhere(id)
+    push.withdraw(ask: id)
+    tell(.decide(approval: id, approved: approved, remember: false))
+    return await waits.until(within: timing.settleWithin, sleep: timing.sleep, { [weak self] in self?.settledByKOS.contains(id) == true })
+  }
+
+  /// A decision from a notification that did not go: one that opens the ask, in its place.
+  public func couldNotDecide(_ id: String) {
+    push.couldNotDecide(ask: id)
+  }
+
+  /// A push KOS sent while the app was not drawing: an ask settled elsewhere comes down everywhere here.
+  public func received(_ note: PushNote) {
+    switch note {
+    case .settled(let id):
+      chat.settled(id)
+      glance.settled(id)
+      board.inbox.settledElsewhere(id)
+      push.withdraw(ask: id)
+    case .ask:
+      if chat.online { glance.ask() }
+    }
+  }
+
+  /// An ask's notification tapped: the Inbox opens it.
+  public func open(ask id: String) {
+    board.inbox.reveal(id)
   }
 
   /// The owner's words, with the files the box showed going with them sent ahead in parts. Words that named none

@@ -88,8 +88,10 @@ struct PhoneHome: View {
     glance = phone.glance
     toasts = phone.board.toasts
     inbox = phone.board.inbox
-    _tab = State(initialValue: tab)
-    _shown = State(initialValue: [tab])
+    // Opened by a tap on an ask's notification: the Inbox, which opens it.
+    let first = phone.board.inbox.revealing != nil ? PhoneTab.inbox : tab
+    _tab = State(initialValue: first)
+    _shown = State(initialValue: [first])
   }
 
   /// The count on the Inbox: what the glance last counted, else what the Inbox holds.
@@ -117,6 +119,7 @@ struct PhoneHome: View {
     }
     .background(Theme.bg.ignoresSafeArea())
     .environment(\.showTab, pick)
+    .onChange(of: inbox.revealing) { _, id in if id != nil, tab != .inbox { pick(.inbox) } }
     #if os(iOS)
       .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in typing = true }
       .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in typing = false }

@@ -407,6 +407,8 @@ public enum ChatEvent: Sendable {
   case read(artifact: String, call: Int, method: String, args: JSONValue)
   /// A request of the dashboard's own routes, asked by a phone (docs/computer.md, The dashboard's pages).
   case dashboard(DashboardRequest)
+  /// Where KOS pushes this phone's asks, or that it no longer may (docs/computer.md, Push).
+  case push(PushToken)
 
   /// The event as a frame for the line.
   public func frame() throws -> Data {
@@ -430,6 +432,7 @@ public enum ChatEvent: Sendable {
     case .read(let artifact, let call, let method, let args):
       return try Outbound.chatEvent("chat.read", data: Read(artifact: artifact, call: call, method: method, args: args))
     case .dashboard(let request): return try Outbound.chatEvent(DashboardRequest.event, data: request)
+    case .push(let token): return try Outbound.chatEvent(PushToken.event, data: token)
     }
   }
 

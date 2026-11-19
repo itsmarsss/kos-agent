@@ -1,15 +1,17 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
-import { requireServices, SecretUses, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule, type ModuleContext } from "@kos/harness";
+import { requireServices, SecretUses, type ApiExtension, type ApprovalRequest, type AuditEntry, type BrowserElsewhere, type KosModule, type ModuleContext } from "@kos/harness";
 import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
 import type { Build, BuildKind } from "./builds.js";
 import { OwnerChrome, type PageSecrets } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
 import { loadHostKey, loadLocalKey } from "./keys.js";
+import type { ApnsSender } from "./apns.js";
 import { DeviceLan, type LanOptions } from "./lan.js";
 import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, type PanelDeps } from "./panel.js";
+import { PhonePush, pushConfig, type ApnsEnv } from "./push.js";
 import { deviceRoutes, deviceSocketServer } from "./routes.js";
 import { DeviceStore } from "./store.js";
 import { COMPUTER_MANIFEST, computerModule, type ComputerModule } from "./tools.js";
@@ -32,7 +34,7 @@ export interface ComputerUseOptions {
   /** Where the secret a KOS for Mac on this computer proves it is here with is kept; none, and no Mac is taken as here. */
   localKeyPath?: string;
   /** Told each key once it is loaded, as base64, so it is scrubbed should it ever come back in a result. */
-  watchKey?: (name: "device_host_key" | "device_local_key", value: string) => void;
+  watchKey?: (name: "device_host_key" | "device_local_key" | "apns_key", value: string) => void;
   /** The conversation calling a tool, read at call time. */
   caller(): string | undefined;
   /** The owner's secrets as the pages of their Chrome need them: cleaned from what KOS reads, masked in pictures, no script on a credential site. */
@@ -47,6 +49,8 @@ export interface ComputerUseOptions {
   panels: { chrome: PanelDeps; mac: PanelDeps; phone: PanelDeps };
   /** The listener phones on the home Wi-Fi reach the device socket through; off unless the owner turns it on. */
   lan?: LanOptions;
+  /** Asks pushed to the owner's iPhones: the APNs key from the host's environment, if it gives one (else Settings'), and who sends. */
+  push?: { env?: ApnsEnv; sender?: ApnsSender; log?(line: string): void };
   /** The audit log, for a session started unasked. */
   audit?(entry: AuditEntry): void;
   /** Stop every live turn in a chat, as the owner's Stop does; false when none was running. */
@@ -73,6 +77,8 @@ export interface ComputerUse {
   mac: DevicePanel;
   /** The chat of each paired phone, as a channel. */
   phone: DevicePanel;
+  /** A new ask, pushed to each paired phone that gave KOS a token, once push has an APNs key. */
+  push: { asked(req: ApprovalRequest): void };
   routes: ApiExtension;
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
   close(): Promise<void>;
@@ -118,6 +124,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let unmoded: (() => void) | undefined;
   let waits: ReturnType<typeof tellWaits> | undefined;
   let secretUses: SecretUses | undefined;
+  let push: PhonePush | undefined;
+  let unpushed: (() => void) | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
   const mac = new DevicePanel(MAC_PANEL, options.panels.mac);
@@ -164,6 +172,21 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         });
       }
       const devices = hub;
+      if (!push) {
+        const env = options.push?.env;
+        // A key given in the environment is the host's own: scrubbed should it ever come back in a result.
+        if (env?.key) options.watchKey?.("apns_key", env.key.replace(/-----(BEGIN|END) PRIVATE KEY-----|\s+/g, ""));
+        const kept = store;
+        push = new PhonePush({
+          store: kept,
+          hub: devices,
+          // Read at each send: Settings may name another key, and the vault may have opened or shut.
+          config: () => pushConfig(env, kept.pushSettings(), (handle) => (secrets.inVault(handle) ? secrets.get(handle) : undefined)),
+          scrub: (text) => secrets.scrub(text),
+          ...(options.push?.sender ? { sender: options.push.sender } : {}),
+          ...(options.push?.log ? { log: options.push.log } : {}),
+        });
+      }
       if (options.updates && !updates) {
         const { expected, mac: installer, log } = options.updates;
         updates = new DeviceUpdates({
@@ -189,6 +212,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       unthemed = events?.on("theme:changed", () => hub?.tellTheme());
       unmoded = events?.on("chat:mode", (e) => [panel, mac, phone].forEach((p) => p.modeChanged(e.conversationId)));
       waits = events ? tellWaits(events, devices) : undefined;
+      // Settled anywhere, however it settled: the phones it was pushed to take it down.
+      unpushed = events?.on("approval:decided", (e) => void push?.settled(String(e.id)));
       active = computerModule({
         hub,
         chrome,
@@ -242,6 +267,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       unmoded = undefined;
       waits?.off();
       waits = undefined;
+      unpushed?.();
+      unpushed = undefined;
       panel.attach(undefined);
       mac.attach(undefined);
       phone.attach(undefined);
@@ -282,10 +309,12 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     panel,
     mac,
     phone,
-    routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf, lan, () => (active ? updates : undefined)),
+    push: { asked: (req) => void (active ? push?.asked(req) : undefined) },
+    routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf, lan, () => (active ? updates : undefined), () => (active ? push : undefined)),
     upgrade: (req, socket, head) => sockets.upgrade(req, socket, head),
     async close() {
       hub?.closeAll();
+      push?.close();
       sockets.close();
       await lan?.close();
     },

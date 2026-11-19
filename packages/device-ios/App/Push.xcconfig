@@ -1,0 +1,6 @@
+// Push approvals (README, Push). Only with a paid Apple developer account: a free Personal Team
+// cannot sign the push entitlement, so the target is based on this file only once there is one.
+//
+// development: a build run from Xcode, on APNs' sandbox. production: TestFlight and the App Store.
+KOS_APS_ENVIRONMENT = development
+CODE_SIGN_ENTITLEMENTS = $(SRCROOT)/../App/Push.entitlements
