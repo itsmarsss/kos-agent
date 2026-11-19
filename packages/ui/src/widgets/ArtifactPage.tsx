@@ -134,7 +134,7 @@ interface Asked {
 }
 
 /** How long Send waits after a page's ask appears: a click aimed at the page is not a yes to words not yet read. */
-export const ASK_ARM_MS = 700;
+const ASK_ARM_MS = 700;
 
 /**
  * A page's ask to message the chat, over the page in a dialog, so it shifts
