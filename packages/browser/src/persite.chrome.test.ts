@@ -132,7 +132,7 @@ describe.skipIf(!findChrome(undefined))("no script on a credential site", { time
   afterAll(async () => {
     await live?.shutdown();
     await host?.waitGone();
-    host?.stop();
+    await host?.stop();
     for (const s of [site, other]) {
       s?.closeAllConnections();
       s?.close();

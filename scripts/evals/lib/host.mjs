@@ -1,8 +1,9 @@
 // A scratch KOS per run: a fresh copy of a template workspace, a host of its own
-// on one port, the owner's model keys and nothing else of theirs.
+// on one port and in a home of its own, the owner's model keys and nothing else of theirs.
 
 import { execFileSync, spawn } from "node:child_process";
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,6 +20,25 @@ function envFile(source) {
 export function sql(workspace, query) {
   const out = execFileSync("sqlite3", ["-json", join(workspace, "kos.sqlite"), query], { encoding: "utf8", timeout: 20_000 }).trim();
   return out ? JSON.parse(out) : [];
+}
+
+/**
+ * What keeps a scratch host off the owner's own: a HOME of its own (so ~/.kos,
+ * its vault, device keys and write key are the scratch's), a Chrome port
+ * apart from the owner's 9225, and a KOS for Mac rebuild that does nothing.
+ * The SDK engine keeps the owner's Claude login and its logs where sdkCalls reads them.
+ */
+export function scratchEnv(dir, port) {
+  const home = join(dir, "home");
+  mkdirSync(home, { recursive: true });
+  return {
+    HOME: home,
+    KOS_ENV_FILE: join(dir, ".env"),
+    KOS_VAULT_DIR: join(home, ".kos", "secrets"),
+    KOS_BROWSER_PORT: String(port + 5_000),
+    KOS_DEVICE_MAC_INSTALL: "/usr/bin/true",
+    CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"),
+  };
 }
 
 export class Host {
@@ -43,7 +63,7 @@ export class Host {
     // Detached and on its own log, so the runner can be stopped without the host, and the other way round.
     this.proc = spawn("node", [join(this.root, "packages/cli/dist/main.js"), "serve", "--workspace", this.workspace, "--host", "127.0.0.1", "--port", String(this.port)], {
       cwd: this.dir,
-      env: { ...process.env, DISCORD_TOKEN: "", KOS_OWNER_DISCORD: "", KOS_DISCORD_GUILD: "", KOS_OWNER_IMESSAGE: "", ...this.extraEnv },
+      env: { ...process.env, ...scratchEnv(this.dir, this.port), DISCORD_TOKEN: "", KOS_OWNER_DISCORD: "", KOS_DISCORD_GUILD: "", KOS_OWNER_IMESSAGE: "", ...this.extraEnv },
       stdio: ["ignore", log, log],
       detached: true,
     });
