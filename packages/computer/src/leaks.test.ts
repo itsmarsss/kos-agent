@@ -42,8 +42,9 @@ import { computerModule } from "./tools.js";
  * device hub, panels and channels, with stub inference and stand-ins only
  * where a browser or a device would be. Three chats run their turns: one
  * in KOS's browser (a login and a one-time code, decided on the dashboard),
- * one in the owner's Chrome over KOS for Chrome's line (a card and a code,
- * decided in its side panel) and one on a Mac (a password and a code,
+ * one in the owner's Chrome over KOS for Chrome's line (a card into a
+ * payment provider's frame of another site, after one not allowed there is
+ * refused, and a code, decided in its side panel) and one on a Mac (a password and a code,
  * decided on the phone through the dashboard relay). Every page echoes what
  * goes into it, and the owner pastes values into the dashboard and Discord.
  *
@@ -69,6 +70,8 @@ function luhnCard(): string {
 const step = (content: ModelResponse["content"], stopReason: ModelResponse["stopReason"] = "tool_use"): ModelResponse => ({ content, stopReason, usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
 
 const SITE = "https://shop.example";
+/** A payment provider's frame on the checkout: another site, in a process of its own. */
+const PROVIDER = "https://js.stripe.com";
 const SAFARI = { name: "Safari", bundle: "com.apple.Safari" };
 /** What each chat is, said in the owner's first words. */
 const MARK = { kos: "[in KOS's browser]", chrome: "[in my Chrome]", mac: "[on my Mac]" } as const;
@@ -122,8 +125,9 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
   const WRITE_KEY = `write-${rand(12)}`;
   const was = process.env["HOME"];
   const chats = {} as Record<Surface, string>;
-  const canary = { password: `pw-${rand(20)}`, card: luhnCard(), token: `sk_live_${rand(28)}`, codes: [`${rand(4)}-${rand(4)}`.toUpperCase(), `${rand(8)}`.toUpperCase(), `${rand(3)}${rand(4)}`.toUpperCase()] };
-  const handles = { login: "", card: "", key: "" };
+  const canary = { password: `pw-${rand(20)}`, card: luhnCard(), amex: luhnCard(), token: `sk_live_${rand(28)}`, codes: [`${rand(4)}-${rand(4)}`.toUpperCase(), `${rand(8)}`.toUpperCase(), `${rand(3)}${rand(4)}`.toUpperCase()] };
+  const handles = { login: "", card: "", amex: "", key: "" };
+  let ownerChrome: OwnerChrome;
   /** Everything that went out, as each surface saw it. */
   const requests: GenerateRequest[] = [];
   const events: ProgressEvent[] = [];
@@ -156,7 +160,9 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
     // The code is refused once on the way in, by words that echo it, and filled again by its handle.
     chrome: (n, last) =>
       [
-        ["secrets.fill", { secret: handles.card, fields: [{ field: "number", target: "@e5" }], intent: "pay" }],
+        // A card the owner never allowed in the provider's frame is refused there; the one they did goes in.
+        ["secrets.fill", { secret: handles.amex, fields: [{ field: "number", target: "@e6" }], intent: "pay" }],
+        ["secrets.fill", { secret: handles.card, fields: [{ field: "number", target: "@e6" }], intent: "pay" }],
         ["secrets.fill", { secret: "code", fields: [{ field: "code", target: "@e7" }], intent: "confirm the payment" }],
         ["secrets.fill", { secret: otpIn(last), fields: [{ field: "code", target: "@e7" }], intent: "confirm the payment" }],
       ][n] as [string, Record<string, unknown>] | undefined,
@@ -176,7 +182,8 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
     vault = new Vault({ dir: join(root, "vault") });
     await vault.init();
     handles.login = vault.add({ label: "Shop login", kind: "login", values: { username: "owner", password: canary.password }, use: { web: { origins: [SITE] }, apps: [SAFARI.bundle] } });
-    handles.card = vault.add({ label: "Visa", kind: "card", values: { number: canary.card, expiry: "04/29", cvc: "123" }, use: { web: { origins: [SITE] } } });
+    handles.card = vault.add({ label: "Visa", kind: "card", values: { number: canary.card, expiry: "04/29", cvc: "123" }, use: { web: { origins: [SITE], frames: [PROVIDER] } } });
+    handles.amex = vault.add({ label: "Amex", kind: "card", values: { number: canary.amex }, use: { web: { origins: [SITE] } } });
     handles.key = vault.add({ label: "Stripe", kind: "apikey", values: { token: canary.token }, use: { http: { hosts: ["api.stripe.com"] } } });
     const secrets = new SecretsRegistry();
     secrets.attachVault(vault);
@@ -220,7 +227,7 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
       return { ok: true, result: { typed: true, echo: p["text"] } };
     });
     phone = pair("iPhone", "ios");
-    const ownerChrome = new OwnerChrome(hub, { saved: () => secrets.browserValues(), savedFor: (o) => secrets.pageValues(o), evalBlocked: (o) => secrets.evalBlocked(o) });
+    ownerChrome = new OwnerChrome(hub, { saved: () => secrets.browserValues(), savedFor: (o) => secrets.pageValues(o), evalBlocked: (o) => secrets.evalBlocked(o) });
 
     const inference: Inference = {
       async generate(_task, request) {
@@ -301,7 +308,7 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
     vi.spyOn(kernel, "secretFillUnready").mockReturnValue(undefined);
     vi.spyOn(kernel, "browserUrl").mockImplementation(() => `${SITE}/login`);
     vi.spyOn(kernel, "secretPlace").mockImplementation(() => (caller() === chats.chrome ? { surface: "chrome", device: { id: chrome.id, name: "Chrome on macOS" } } : { surface: "kos-browser" }));
-    vi.spyOn(kernel, "secretSpots").mockImplementation(async (refs) => refs.map((ref) => ({ origin: SITE, frameOrigin: SITE, doc: "doc-1", field: { label: `Field ${ref}`, type: types[ref] ?? "text", action: `${SITE}/session`, method: "post" } })));
+    vi.spyOn(kernel, "secretSpots").mockImplementation(async (refs) => refs.map((ref) => ({ origin: SITE, frameOrigin: ref === "@e6" ? PROVIDER : SITE, doc: "doc-1", field: { label: `Field ${ref}`, type: types[ref] ?? "text", action: `${SITE}/session`, method: "post" } })));
     vi.spyOn(kernel, "fillSecretsHere").mockImplementation(async (fills) => {
       const chat = caller();
       // In the owner's Chrome the value goes over KOS for Chrome's line, as OwnerChrome sends it.
@@ -362,8 +369,8 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
   /** Which canaries are in `text`, in any form. */
   const leaks = (text: string): string[] => {
     const digits = text.replace(/[\s.+_/-]|%20/g, "");
-    const all = [canary.password, canary.token, canary.card, ...canary.codes];
-    return all.filter((c) => formsOf(c).some((form) => text.includes(form)) || (c === canary.card && digits.includes(c)));
+    const all = [canary.password, canary.token, canary.card, canary.amex, ...canary.codes];
+    return all.filter((c) => formsOf(c).some((form) => text.includes(form)) || ((c === canary.card || c === canary.amex) && digits.includes(c)));
   };
   /** Each ask decided where the owner would: KOS's browser on the dashboard, the owner's Chrome in its side panel, the Mac from the phone. */
   const decideAll = (codes: Record<Surface, string>): (() => void) => {
@@ -424,6 +431,11 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
     ]);
     const sent = JSON.stringify(requests);
     expect(sent).toContain("Filled username and password from Shop login");
+    expect(sent).toContain(`@e6 is in a frame from ${PROVIDER}, which Amex is not allowed in`);
+    expect(sent).toContain(`Filled card number from Visa (${handles.card}) on ${SITE}, in the owner's Chrome`);
+    const fills = frames.filter((f) => f.text.includes('"method":"secret.fill"')).map((f) => (JSON.parse(f.text) as { params: Record<string, unknown> }).params);
+    expect(fills[0]).toMatchObject({ origin: SITE, frameOrigin: PROVIDER, slot: "card-number" });
+    expect(kernel.secretUses.list(handles.amex).map((u) => u.outcome)).toEqual(["refused:origin"]);
     expect(sent).toMatch(/Filled the one-time code \(otp_[0-9a-f]{8}\) on https:\/\/shop\.example, in KOS's own browser/);
     expect(sent).toMatch(/Filled the one-time code \(otp_[0-9a-f]{8}\) on https:\/\/shop\.example, in the owner's Chrome/);
     expect(sent).toMatch(/Typed the one-time code \(otp_[0-9a-f]{8}\) into the password field in Safari/);
@@ -477,5 +489,17 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
     expect(compacted.reply).toMatch(/^Compacted \d+ messages/);
     // Every surface named with what it holds, so one run shows every leak.
     expect(surfaces.map(([where, text]) => ({ where, leaks: leaks(text) })).filter((s) => s.leaks.length > 0)).toEqual([]);
+  });
+
+  it("has the owner's Chrome paint the card out of the provider's frame in its pictures, and no other frame sent its pattern", async () => {
+    chrome.answers.set("tab.origins", () => ({ ok: true, result: { origins: [SITE, PROVIDER, "https://ads.example"] } }));
+    chrome.answers.set("secret.picture", () => ({ ok: true, result: { data: "SU1H" } }));
+    await ownerChrome.tab(chats.chrome);
+    expect(await ownerChrome.picture(chats.chrome, 1024)).toBe("SU1H");
+    const asked = (JSON.parse(frames.filter((f) => f.text.includes('"method":"secret.picture"')).at(-1)!.text) as { params: { masks: Record<string, string[]> } }).params;
+    // Filled on the page's origin and the frame's: those two are sent its pattern, to find it by; the ad's frame is sent none.
+    expect(Object.keys(asked.masks).sort()).toEqual([PROVIDER, SITE].sort());
+    const probe = new RegExp(asked.masks[PROVIDER]![0]!);
+    expect(probe.test(canary.card.match(/.{4}/g)!.join(" "))).toBe(true);
   });
 });

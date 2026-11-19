@@ -56,15 +56,14 @@ const PARTS_MAX = 16;
 type Tree = { frame?: { id?: string; parentId?: string; securityOrigin?: string; loaderId?: string }; childFrames?: Tree[] };
 type DomNode = { backendNodeId?: number; nodeType?: number; frameId?: string; children?: DomNode[]; shadowRoots?: DomNode[]; contentDocument?: DomNode };
 
-/** One session's frames, as its frame tree has them: the root's parent, for a frame of another process, is in another part. */
-async function ownFrames(send: Send, via: string, into: Map<string, FrameInfo>): Promise<{ root: string; own: Set<string> }> {
-  const own = new Set<string>();
+/** One session's frames, as its frame tree has them, and its root: the root's parent, for a frame of another process, is in another part. */
+async function ownFrames(send: Send, via: string): Promise<{ root: string; own: Map<string, FrameInfo> }> {
+  const own = new Map<string, FrameInfo>();
   const walk = (t: Tree | undefined, parent?: string): void => {
     const id = t?.frame?.id;
     if (!id) return;
-    own.add(id);
     const above = parent ?? t.frame?.parentId;
-    into.set(id, { origin: t.frame?.securityOrigin ?? "", loader: t.frame?.loaderId ?? "", via, ...(above ? { parent: above } : {}) });
+    own.set(id, { origin: t.frame?.securityOrigin ?? "", loader: t.frame?.loaderId ?? "", via, ...(above ? { parent: above } : {}) });
     for (const child of t.childFrames ?? []) walk(child, id);
   };
   const tree = (await send("Page.getFrameTree"))["frameTree"] as Tree | undefined;
@@ -77,8 +76,11 @@ export async function tabMap(reach: Reach): Promise<TabMap> {
   const frames = new Map<string, FrameInfo>();
   const parts = new Map<string, Part>();
   const unreached = new Map<string, { via: string; owner: number }>();
+  // A session is taken as a frame's only when its own tree is rooted at that frame: one that answers for another (a browser that sends the frame's commands to the tab) is not.
   const read = async (send: Send, via: string): Promise<string> => {
-    const { root, own } = await ownFrames(send, via, frames);
+    const { root, own } = await ownFrames(send, via);
+    if (via && root !== via) return root;
+    for (const [id, f] of own) if (!frames.has(id)) frames.set(id, f);
     const frameOf = new Map<number, string>();
     const roots = new Map<string, number[]>();
     const elsewhere: { frame: string; owner: number }[] = [];
@@ -95,11 +97,12 @@ export async function tabMap(reach: Reach): Promise<TabMap> {
     parts.set(via, { send, frameOf, roots });
     for (const { frame, owner } of elsewhere) {
       const child = parts.size < PARTS_MAX ? reach.frame(frame) : undefined;
+      const [hadFrames, hadParts] = [new Set(frames.keys()), new Set(parts.keys())];
       const got = child ? await read(child, frame).catch(() => undefined) : undefined;
       if (got === frame) continue;
       // Read in part, or not at all: none of it is taken as read.
-      parts.delete(frame);
-      for (const [id, f] of frames) if (f.via === frame) frames.delete(id);
+      for (const id of [...frames.keys()]) if (!hadFrames.has(id)) frames.delete(id);
+      for (const id of [...parts.keys()]) if (!hadParts.has(id)) parts.delete(id);
       unreached.set(frame, { via, owner });
     }
     return root;

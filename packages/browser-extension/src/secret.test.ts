@@ -75,6 +75,9 @@ describe("a tab a secret was filled into", () => {
       ]),
     );
     expect(readTaints(undefined).size).toBe(0);
+    // A field in a frame of another process keeps the frame whose session holds it.
+    const framed: TabTaint = { loader: "L1", nodes: [{ frame: "P", node: 7, via: "P" }], urls: [] };
+    expect(readTaints(JSON.parse(JSON.stringify({ 3: framed, 4: { ...framed, nodes: [{ frame: "P", node: 7, via: 9 }] } })))).toEqual(new Map([[3, framed], [4, { ...framed, nodes: [] }]]));
   });
 
   it("refuses KOS's script step, a copy, a cut, a select-all and a drag, and lets the rest of its hands through", () => {
@@ -153,6 +156,10 @@ describe("what the browser says a field holds", () => {
     const back = hiddenValues("Accessibility.getFullAXTree", { nodes: structuredClone(nodes) }, { nodes: [] });
     expect(JSON.stringify(back)).not.toContain("4242");
     expect(back["nodes"]).toContainEqual(expect.objectContaining({ nodeId: "5", value: { type: "string", value: "owner" } }));
+    // A backend node is its process's own: a field filled in a frame of another process is that frame session's alone.
+    const inFrame = { nodes: [{ frame: "P", node: 41, via: "P" }] };
+    expect(JSON.stringify(hiddenValues("Accessibility.getFullAXTree", { nodes: structuredClone(nodes) }, inFrame))).toContain("4242");
+    expect(JSON.stringify(hiddenValues("Accessibility.getFullAXTree", { nodes: structuredClone(nodes) }, inFrame, "P"))).not.toContain("4242");
     const box = { nodeId: "6", backendDOMNodeId: 60, role: { value: "searchbox" }, value: { type: "string", value: "typed" } };
     expect(hiddenValues("Accessibility.getFullAXTree", { nodes: [structuredClone(box)] }, { nodes: [] })["nodes"]).toEqual([{ ...box, value: { type: "string", value: "(hidden)" }, childIds: [] }]);
   });

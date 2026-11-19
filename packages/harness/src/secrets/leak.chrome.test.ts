@@ -1,5 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer as createTlsServer } from "node:https";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,8 +21,10 @@ import { Vault } from "./vault.js";
 /**
  * A secret filled into KOS's own Chrome leaves no trace of its value
  * (design section 11): a scripted turn lists the secrets, fills a login on
- * the page and a card in a payment frame of another origin, fills a
- * one-time code the owner typed on its card, shows the
+ * the page, a card in a payment frame of another origin and its CVC in a
+ * provider's frame of another site (a process of its own), is refused a
+ * card not allowed in that frame, fills a one-time code the owner typed on
+ * its card, shows the
  * password with the page's own toggle, looks at the page as a picture, an
  * outline and its text, and tries a script and a javascript: address, both refused. The page
  * echoes whatever is typed into its text, its title and its console,
@@ -45,7 +49,7 @@ const step = (content: ModelResponse["content"], stopReason: ModelResponse["stop
 
 const MAGENTA = "#ff00ff";
 const html = (title: string, body: string): string =>
-  `<!doctype html><meta charset=utf-8><title>${title}</title><style>input{font-size:26px;width:380px;height:42px;display:block;margin:6px}#pw,#num{color:${MAGENTA}}</style>${body}`;
+  `<!doctype html><meta charset=utf-8><title>${title}</title><style>input{font-size:26px;width:380px;height:42px;display:block;margin:6px}#pw,#num,#cvc,#pnum{color:${MAGENTA}}</style>${body}`;
 /** Whatever is typed into a field, echoed into the page, its title and its console. */
 const ECHO = `<script>for (const el of document.querySelectorAll('input')) el.addEventListener('input', (e) => { document.getElementById('echo').textContent = e.target.value; document.title = 'typed ' + e.target.value; console.log('typed', e.target.value); });</script>`;
 
@@ -64,13 +68,17 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
   let vault: Vault;
   let site: Server;
   let pay: Server;
+  /** A payment provider's server, on another site than the page's (https on 127.0.0.1, beside the page's http://localhost): its frame runs in a process of its own. */
+  let provider: Server;
   let base = "";
   let payBase = "";
+  let providerBase = "";
   let password = "";
   let card = "";
   /** The one-time code the owner types on its card: never saved, used once. */
   let code = "";
   let canaries: string[] = [];
+  let visaHandle = "";
   const requests: GenerateRequest[] = [];
   const events: ProgressEvent[] = [];
   const printed: string[] = [];
@@ -78,6 +86,8 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
   const answer = (req: IncomingMessage, res: ServerResponse): void => {
     const page = (body: string): void => void res.writeHead(200, { "content-type": "text/html" }).end(body);
     if (req.url === "/card") return page(html("Card", `<label>Card number <input id=num autocomplete=cc-number></label><div id=echo style="color:${MAGENTA};font-size:30px"></div>${ECHO}`));
+    if (req.url === "/elements")
+      return page(html("Elements", `<label>CVC <input id=cvc autocomplete=cc-csc></label><label>Provider card number <input id=pnum autocomplete=cc-number></label><div id=echo style="color:${MAGENTA};font-size:30px"></div>${ECHO}`));
     page(
       html(
         "Sign in",
@@ -89,7 +99,8 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
 <label>One-time code <input id=otp autocomplete=one-time-code style="color:${MAGENTA}"></label>
 <script>document.getElementById('pw').addEventListener('input', (e) => { document.getElementById('mirror').value = e.target.value; document.getElementById('area').value = e.target.value; });</script>
 <div id=echo style="color:${MAGENTA};font-size:30px"></div>
-<iframe src="${payBase}/card" style="width:440px;height:140px;border:0"></iframe>${ECHO}`,
+<iframe src="${payBase}/card" style="width:440px;height:140px;border:0"></iframe>
+<iframe src="${providerBase}/elements" style="width:440px;height:200px;border:0"></iframe>${ECHO}`,
       ),
     );
   };
@@ -112,18 +123,27 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     root = mkdtempSync(join(tmpdir(), "kos-leak-fill-"));
     site = createServer(answer);
     pay = createServer(answer);
-    for (const s of [site, pay]) await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
+    // A certificate of the test's own, which the test's Chrome is told to take: a secret's sites are https but for localhost.
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=127.0.0.1", "-keyout", join(root, "key.pem"), "-out", join(root, "cert.pem")], { stdio: "ignore" });
+    provider = createTlsServer({ key: readFileSync(join(root, "key.pem")), cert: readFileSync(join(root, "cert.pem")) }, answer);
+    for (const s of [site, pay, provider]) await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
     // http://localhost is the one plain-http origin a secret may be used on; the frame's port makes it another origin.
     base = `http://localhost:${(site.address() as { port: number }).port}`;
     payBase = `http://localhost:${(pay.address() as { port: number }).port}`;
+    // 127.0.0.1 is another site than localhost: Chrome puts the provider's frame in a process of its own, as a payment provider's is.
+    providerBase = `https://127.0.0.1:${(provider.address() as { port: number }).port}`;
     vault = new Vault({ dir: join(root, "vault") });
     await vault.init();
     password = `pw-${rand(20)}`;
     card = luhnCard();
     const login = vault.add({ label: "Shop login", kind: "login", values: { username: "owner", password }, use: { web: { origins: [base] } } });
-    const visa = vault.add({ label: "Visa", kind: "card", values: { number: card, expiry: "04/29" }, use: { web: { origins: [base], frames: [payBase] } } });
+    const visa = vault.add({ label: "Visa", kind: "card", values: { number: card, expiry: "04/29", cvc: "7351" }, use: { web: { origins: [base], frames: [payBase, providerBase] } } });
+    // Allowed on the page and the origin's own frame, not the provider's: the owner never ticked it there.
+    const amexNumber = luhnCard();
+    const amex = vault.add({ label: "Amex", kind: "card", values: { number: amexNumber }, use: { web: { origins: [base], frames: [payBase] } } });
     code = rand(8).toUpperCase();
-    canaries = [password, card, code];
+    canaries = [password, card, code, amexNumber];
+    visaHandle = visa;
     const secrets = new SecretsRegistry();
     secrets.attachVault(vault);
 
@@ -144,19 +164,23 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
           case 3:
             return call({ secret: visa, fields: [{ field: "number", target: refOf("Card number") }], intent: "pay" }, "secrets.fill");
           case 4:
-            return call({ secret: "code", fields: [{ field: "code", target: refOf("One-time code") }], intent: "finish signing in" }, "secrets.fill");
+            return call({ secret: visa, fields: [{ field: "cvc", target: refOf("CVC") }], intent: "pay" }, "secrets.fill");
           case 5:
+            return call({ secret: amex, fields: [{ field: "number", target: refOf("Provider card number") }], intent: "pay" }, "secrets.fill");
+          case 6:
+            return call({ secret: "code", fields: [{ field: "code", target: refOf("One-time code") }], intent: "finish signing in" }, "secrets.fill");
+          case 7:
             // The page's own show-password toggle, which turns the field into plain text.
             return call({ actions: [{ click: refOf("Show password") }], intent: "show the password" }, "browser.act");
-          case 6:
-            return call({}, "browser.look");
-          case 7:
-            return call({ then: "snapshot" }, "browser.look");
           case 8:
-            return call({ then: "read" }, "browser.look");
+            return call({}, "browser.look");
           case 9:
-            return call({ code: "document.getElementById('pw').value" }, "browser.eval");
+            return call({ then: "snapshot" }, "browser.look");
           case 10:
+            return call({ then: "read" }, "browser.look");
+          case 11:
+            return call({ code: "document.getElementById('pw').value" }, "browser.eval");
+          case 12:
             // A script as an address, which would run in the page that holds the secret.
             return call({ actions: [{ open: "javascript:document.title=document.getElementById('pw').value" }], intent: "read the field" }, "browser.act");
           default:
@@ -170,7 +194,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
       secrets,
       inference,
       profileOverrides: { name: "Kenny", timezone: "UTC" },
-      chrome: { port },
+      chrome: { port, spawn: ((binary: string, args: string[], options: object) => spawn(binary, [...args, "--ignore-certificate-errors"], options)) as typeof spawn },
     });
     kernel.progress.subscribe((event) => events.push(JSON.parse(JSON.stringify(event)) as ProgressEvent));
     for (const stream of [process.stdout, process.stderr]) {
@@ -186,7 +210,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     vi.restoreAllMocks();
     await kernel?.closeBrowser();
     kernel?.close();
-    for (const s of [site, pay]) {
+    for (const s of [site, pay, provider]) {
       s?.closeAllConnections();
       s?.close();
     }
@@ -213,7 +237,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     expect(leaks(said)).toHaveLength(1);
     const res = await kernel.handleMessage(said, { owner: true, sessionId: chat.id });
     // The turn holds on each ask in the background, as a dashboard turn does, and carries on once it is approved.
-    await vi.waitFor(() => expect(requests.some((r) => JSON.stringify(r.messages).includes('"toolUseId":"leak-11"'))).toBe(true), { timeout: 90_000, interval: 200 });
+    await vi.waitFor(() => expect(requests.some((r) => JSON.stringify(r.messages).includes('"toolUseId":"leak-13"'))).toBe(true), { timeout: 90_000, interval: 200 });
     await vi.waitFor(() => expect(events.some((e) => e.kind === "turn-end" && e.conversationId === res.sessionId)).toBe(true), { timeout: 30_000, interval: 200 });
     clearInterval(approver);
 
@@ -221,12 +245,14 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     const sent = JSON.stringify(requests);
     expect(sent).toContain("Filled username and password from Shop login");
     expect(sent).toContain("Filled card number from Visa");
+    expect(sent).toContain(`Filled CVC from Visa (${visaHandle}) on ${base}`);
+    expect(sent).toContain(`is in a frame from ${providerBase}, which Amex is not allowed in`);
     expect(sent).toMatch(/Filled the one-time code \(otp_[0-9a-f]{8}\) on http:\/\/localhost:\d+, in KOS's own browser/);
     expect(sent).toContain('textbox \\"Password\\" = \\"(hidden)\\"');
     expect(sent).toContain("browser.eval is refused: a secret was filled into this page");
     expect(sent).toContain("javascript: addresses are not opened");
     expect(sent).toMatch(/clicked @e\d+/);
-    expect(vault.list().flatMap((s) => kernel.secretUses.list(s.handle).map((u) => `${s.label}:${u.outcome}`)).sort()).toEqual(["Shop login:filled", "Visa:filled"]);
+    expect(vault.list().flatMap((s) => kernel.secretUses.list(s.handle).map((u) => `${s.label}:${u.outcome}`)).sort()).toEqual(["Amex:refused:origin", "Shop login:filled", "Visa:filled", "Visa:filled"]);
 
     // The model was sent no value, in words or pictures: every tool result, every request.
     expect(leaks(sent)).toEqual([]);
