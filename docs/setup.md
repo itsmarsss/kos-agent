@@ -63,7 +63,7 @@ Read these before anything else and keep to them throughout.
 | pnpm 9.15.4 (pinned in `package.json`) | `pnpm -v` | `9.15.4` |
 | ripgrep, for the search tool | `rg --version` | `ripgrep x.y.z` |
 | Google Chrome, for KOS's browser (optional) | macOS: `ls "/Applications/Google Chrome.app"`; Linux: `command -v google-chrome google-chrome-stable chromium` | the path |
-| Docker, Linux only (see 5c) | `docker compose version` | `Docker Compose version v2.x` |
+| Linux only: bubblewrap, or Docker (see 5c) | `bwrap --version`, or `docker compose version` | `bubblewrap 0.x`, or `Docker Compose version v2.x` |
 | Xcode Command Line Tools, for KOS for Mac (optional) | `xcode-select -p` and `swift --version` | a path, and `Swift version 5.10` or later |
 | Xcode, for KOS for iPhone (optional; the phone needs iOS 17) | `xcodebuild -version` | `Xcode 15.3` or later |
 
@@ -78,10 +78,48 @@ Fixes:
   One elsewhere is named in Settings, Browser, or with `KOS_BROWSER_CHROME`
   in `.env`.
 
-**Linux runs KOS in Docker.** Outside the container, on Linux, KOS refuses
-shell and Python tools ("this needs a jail: run the host in the container
-(docker compose up), or on macOS"). On macOS a sandbox profile is the jail
-and KOS runs directly. iMessage and KOS for Mac are macOS only.
+**Linux needs a jail: bubblewrap or Docker.** On macOS a sandbox profile is
+the jail and KOS runs directly. On Linux KOS runs directly when bubblewrap
+works, and in Docker (step 5c) otherwise; with neither, it refuses the
+shell, Python and TeX tools ("this needs a jail: install bubblewrap
+(bwrap), ..."). iMessage and KOS for Mac are macOS only.
+
+- Install: `sudo apt-get install bubblewrap` on Debian or Ubuntu,
+  `sudo dnf install bubblewrap` on Fedora (ask before `sudo`).
+- Check that it can build a jail, not only that it is installed:
+
+  ```bash
+  bwrap --unshare-all --die-with-parent --ro-bind /usr /usr \
+    --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+    /bin/sh -c 'echo jailed'
+  ```
+
+  Expect `jailed`. "setting up uid map: Permission denied" or "No
+  permissions to create new namespace" means unprivileged user namespaces
+  are off. Ubuntu 23.10 and later hold them back with AppArmor; the user
+  allows them with `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`
+  (and the same line in `/etc/sysctl.d/` to keep it), or uses Docker.
+- KOS looks for bwrap only in `/usr/bin`, `/usr/local/bin` and `/bin`,
+  tries it once, and uses the container (5c) or refuses when it
+  fails. Restart KOS after installing it.
+
+Under bubblewrap a command sees the system read-only (`/usr`, `/bin`,
+`/lib*`, `/opt`, a few files of `/etc`), the workspace, and a fresh `/tmp`
+that is gone when it ends; the owner's home, `/run`, `/var` and the rest of
+the machine are not there. A run without the network, or kept to this
+machine, gets a loopback of its own, so the host's ports, KOS's among them,
+are out of its reach. Where it differs from macOS:
+
+- A run the owner approved with the network shares the host's, and KOS's
+  own ports are not refused there as they are on macOS.
+- A path the jail holds by pattern (a repository's config and hooks) is
+  held where it is when the run starts; a repository the run creates, or a
+  `.git/modules` or `.git/worktrees` it adds, is not held. `node_modules`
+  is not searched, and a workspace of over 200,000 files is refused for
+  such runs.
+- A read-only KOS file that is not there yet (`mcp.json`, say) is stood in
+  for by an empty one while the run lasts, and taken away after.
+- A read-only path reached through a link is refused rather than held.
 
 ## 2. Install
 
@@ -575,7 +613,8 @@ key. Add one (step 4), or point Settings, Models at the provider the user
 does have.
 
 **`shell.run` refuses with "this needs a jail".** KOS is running directly
-on Linux. Run it with Docker (step 5c).
+on Linux without a working bubblewrap. Install it and run the check in
+step 1, then restart KOS; or run it with Docker (step 5c).
 
 **iMessage not started.** The log names the grant and the binary; grant
 Full Disk Access to that exact `node` path, then `kos restart`. A Node
