@@ -93,6 +93,24 @@ export interface PageOptions {
   workerBar?: (origin: string, loadedAt: number, controlled: boolean) => Promise<string | undefined>;
   /** A clock that only goes forward, which documents' starts are told by against the purges of their sites' workers. */
   tick?: () => number;
+  /**
+   * Puts a secret into a field itself, where the browser is one that does
+   * (KOS for Chrome's secret.fill): the value goes there and nowhere else,
+   * and it throws unless the field holds it. Without it the Page sets the
+   * value through its own world.
+   */
+  putSecret?: (put: SecretPut) => Promise<void>;
+}
+
+/** A secret for one field, as a browser that puts it in itself is given it: where it goes, what must hold there, and the value. */
+export interface SecretPut {
+  node: number;
+  frame: string;
+  doc: string;
+  origin: string;
+  frameOrigin: string;
+  slot: SecretSlot;
+  value: string;
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
@@ -347,6 +365,7 @@ export class Page {
   private readonly settled: () => Promise<void>;
   private readonly workerBar: (origin: string, loadedAt: number, controlled: boolean) => Promise<string | undefined>;
   private readonly tick: () => number;
+  private readonly putSecret: ((put: SecretPut) => Promise<void>) | undefined;
 
   constructor(
     private readonly session: Session,
@@ -364,6 +383,7 @@ export class Page {
     this.settled = options.settled ?? (async () => undefined);
     this.workerBar = options.workerBar ?? (async () => undefined);
     this.tick = options.tick ?? (() => performance.now());
+    this.putSecret = options.putSecret;
   }
 
   /**
@@ -788,6 +808,9 @@ export class Page {
       this.taintedUrls.add(urlKey(this.url));
       for (const values of [this.filled, this.kin()?.values]) if (values && !values.some((v) => v.text === value)) values.push({ text: value, digits });
     }
+    // A browser that puts it in itself checks all this again on its side, and the field's holding it.
+    const put = this.putSecret;
+    if (put) return this.acting(() => put({ node, frame, doc: this.life.loader, origin, frameOrigin, slot: expect.slot, value }), TYPED_MS);
     let held = false;
     await this.acting(async () => {
       held = await this.callIn<boolean>(frame, node, inpage.putValue, args);

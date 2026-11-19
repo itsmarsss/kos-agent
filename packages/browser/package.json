@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./inpage": {
+      "types": "./dist/inpage.d.ts",
+      "default": "./dist/inpage.js"
     }
   },
   "scripts": {

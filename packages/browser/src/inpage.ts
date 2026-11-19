@@ -699,6 +699,24 @@ export function maskRoot(this: Document | ShadowRoot, patterns: string[]): numbe
   return masked;
 }
 
+/** One field made unseeable, as maskRoot makes each text box, and kept to be put back by unmaskAll in this world. */
+export function maskField(this: Element): void {
+  const g = globalThis as unknown as { kosUndo?: (() => void)[] };
+  const el = this as HTMLElement;
+  const before = el.getAttribute("style");
+  (g.kosUndo ??= []).push(() => {
+    el.getAttribute("style");
+    if (before === null) el.removeAttribute("style");
+    else el.setAttribute("style", before);
+  });
+  for (const [name, value] of Object.entries({ "-webkit-text-security": "disc", color: "transparent", "caret-color": "transparent", "text-shadow": "none" })) el.style.setProperty(name, value, "important");
+}
+
+/** Whether this element has the focus, inside a shadow root or not. */
+export function isFocused(this: Element): boolean {
+  return this.matches(":focus");
+}
+
 /** Everything maskRoot did in this frame put back as it was. */
 export function unmaskAll(): void {
   const g = globalThis as unknown as { kosUndo?: (() => void)[] };
