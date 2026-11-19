@@ -1,5 +1,5 @@
 import { isSecretSlot, type SecretSlot } from "@kos/browser";
-import { SECRET_FIELDS, secretFieldWords, type AskSecret, type SecretFieldName } from "@kos/shared";
+import { SECRET_FIELDS, secretFieldWords, summarizeAction, type AskSecret, type SecretFieldName } from "@kos/shared";
 
 import { approvedAs, caller, guestOrigin, isAttended, turn } from "../kernel/caller.js";
 import type { ModuleContext } from "../modules/loader.js";
@@ -54,8 +54,8 @@ export interface SecretsMac {
   /** The chat's session on a Mac, or why it has none. */
   session(chat: string): { id: string; device: { id: string; name: string } } | string;
   focus(chat: string): Promise<MacFocus>;
-  /** Resolves once typed; the Mac answers nothing more. */
-  type(chat: string, params: MacSecretParams): Promise<void>;
+  /** Resolves once typed; the Mac answers nothing more. `step` is the line its bar shows, as the chat says it. */
+  type(chat: string, params: MacSecretParams, step: string): Promise<void>;
 }
 
 export interface SecretTypeDeps {
@@ -298,7 +298,7 @@ export function registerSecretType(ctx: ModuleContext, deps: SecretTypeDeps): ()
           apps: meta.use.apps,
           expect: { role: target.role, secure: target.secure, ...(target.window !== undefined ? { window: target.window } : {}) },
           ...(target.origin ? { origin: target.origin } : {}),
-        });
+        }, summarizeAction(SECRET_TYPE, input));
       } catch (err) {
         const code = (err as { code?: string }).code;
         record(meta, code ? `refused:${code}` : "failed", extra);

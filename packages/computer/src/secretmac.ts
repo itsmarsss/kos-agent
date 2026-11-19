@@ -27,7 +27,9 @@ export function macSecrets(hub: DeviceHub): SecretsMac {
         throw err;
       }
     },
-    async type(chat, params) {
+    async type(chat, params, step) {
+      // The step on the Mac's bar and in its menu, as computer.act's are: never the value.
+      hub.tellStatus(chat, { step });
       await hub.act(chat, "keys.secret", { ...params }, undefined, turnStop.getStore());
     },
   };
