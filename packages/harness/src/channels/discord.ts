@@ -1233,22 +1233,33 @@ export class DiscordAdapter implements ChannelAdapter {
       const admitted = this.admitted(message);
       if (admitted) heard.push({ message, ...admitted });
     }
-    const last = heard.at(-1);
-    if (!last) return;
+    // One note per sender: a guest's words never ride under the owner's, nor
+    // the owner's under a guest's, and each line names who said it, so what
+    // is offered to run again is never a stranger's words passing as yours.
+    const bySender = new Map<string, typeof heard>();
+    for (const h of heard) {
+      const key = `${h.guest ? "guest" : "owner"}:${h.message.author.id}`;
+      bySender.set(key, [...(bySender.get(key) ?? []), h]);
+    }
     const words = (m: Message): string => this.channelsNamed(this.withoutOwnMention(m.content)).trim() || "(no words)";
-    await this.messageHandler?.({
-      channel: this.name,
-      late: true,
-      sentAt: last.message.createdTimestamp,
-      missed: heard.map((h) => (h.guest ? `${h.guest.name}: ${words(h.message)}` : words(h.message))),
-      senderId: last.message.author.id,
-      text: words(last.message),
-      room: this.roomOf(last.message),
-      ...(last.binding ? { conversationId: last.binding.conversationId } : {}),
-      ...(last.binding?.newIn ? { newIn: last.binding.newIn } : {}),
-      ...(last.guest ? { guest: last.guest } : {}),
-      native: last.message,
-    });
+    const name = (m: Message): string => m.author.globalName ?? m.author.username ?? m.author.id;
+    const groups = [...bySender.values()].sort((a, b) => a.at(-1)!.message.createdTimestamp - b.at(-1)!.message.createdTimestamp);
+    for (const group of groups) {
+      const last = group.at(-1)!;
+      await this.messageHandler?.({
+        channel: this.name,
+        late: true,
+        sentAt: last.message.createdTimestamp,
+        missed: group.map((h) => `${name(h.message)}: ${words(h.message)}`),
+        senderId: last.message.author.id,
+        text: words(last.message),
+        room: this.roomOf(last.message),
+        ...(last.binding ? { conversationId: last.binding.conversationId } : {}),
+        ...(last.binding?.newIn ? { newIn: last.binding.newIn } : {}),
+        ...(last.guest ? { guest: last.guest } : {}),
+        native: last.message,
+      });
+    }
   }
 
   /** Gateway MessageCreate handler. Internal; separated for tests. */

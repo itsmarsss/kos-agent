@@ -2555,13 +2555,29 @@ describe("catching up after a drop or a restart", () => {
     const open = room("c1", said, { topic: "kos:project:garden · Garden" });
     const { adapter, heard } = adapterOver({ c1: open.channel }, { c1: "500" }, true);
     await adapter.catchUp();
-    expect(heard.map((m) => [m.text, m.missed, m.late, m.sentAt, m.guest?.id])).toEqual([
-      ["said 502", ["said 501", "ana: said 502"], true, said[1]!.at, "ana"],
-      ["said 504", undefined, true, said[3]!.at, undefined],
+    // One note per sender, each line naming who said it: a guest's words never ride as the owner's.
+    expect(heard.map((m) => [m.text, m.missed, m.late, m.sentAt, m.guest?.id, m.senderId])).toEqual([
+      ["said 501", ["owner: said 501"], true, said[0]!.at, undefined, "owner"],
+      ["said 502", ["ana: said 502"], true, said[1]!.at, "ana", "ana"],
+      ["said 504", undefined, true, said[3]!.at, undefined, "owner"],
     ]);
     // Read once: nothing of it is run or told again.
     await adapter.catchUp();
-    expect(heard).toHaveLength(2);
+    expect(heard).toHaveLength(3);
+  });
+
+  it("never puts a guest's old words in the owner's chat when the guest spoke last", async () => {
+    const MIN = 60_000;
+    const open = room("c1", [
+      { id: "801", author: "owner", at: Date.now() - 40 * MIN },
+      { id: "802", author: "ana", at: Date.now() - 30 * MIN },
+    ], { topic: "kos:project:garden · Garden" });
+    const { adapter, heard } = adapterOver({ c1: open.channel }, { c1: "800" }, true);
+    await adapter.catchUp();
+    const owners = heard.filter((m) => !m.guest);
+    const guests = heard.filter((m) => m.guest);
+    expect(owners.flatMap((m) => m.missed ?? [])).toEqual(["owner: said 801"]);
+    expect(guests.map((m) => [m.senderId, m.missed])).toEqual([["ana", ["ana: said 802"]]]);
   });
 
   it("moves the cursor past a message once it is handed over, so a restart mid-turn does not run it twice", async () => {
