@@ -1,7 +1,9 @@
 # Configuration
 
-`.env` next to the repository is read by the `kos` command and is
-git-ignored. `.env.example` documents every key. Most of what follows is
+`.env` at the repository root is read by the `kos` command and is
+git-ignored. `KOS_ENV_FILE`, set in the shell, names another file instead.
+A `.env` in the current directory is never read: run from the workspace,
+it would be a file the agent's approved programs can write. `.env.example` documents every key. Most of what follows is
 also settable in the dashboard.
 
 ## Models

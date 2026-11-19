@@ -120,8 +120,9 @@ If `~/.local/bin` is not on the PATH, add
 
 Check: `command -v kos` prints `~/.local/bin/kos` (expanded).
 
-The CLI reads `.env` from the current directory first, then from the
-repository root, so it works from anywhere once `.env` is in the root.
+The CLI reads `.env` from the repository root only (or the file
+`KOS_ENV_FILE` names), so it works from anywhere, and a `.env` in the
+current directory is never picked up.
 
 ## 4. Configuration and models
 
