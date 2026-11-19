@@ -184,10 +184,10 @@ export const SHEET_CSS = String.raw`
   .sheet-grid tfoot th.rownum .word { display: none; }
   .sheet-grid tfoot th.rownum::after { content: "\03A3"; content: "\03A3" / ""; font: 600 13px / 1 var(--font-ui); letter-spacing: 0; }
 }
-/* On a touch screen nothing hovers, and a press on the header sorts, so the column menu always shows there: still over the corner, taking no width, the column's letter under it faded out (only that line; the name below is whole). */
+/* On a touch screen nothing hovers, and a press on the header sorts, so the column menu always shows there, in the corner beside the column's letter: the letter's line keeps that corner free, so the two are never drawn over each other in a narrow column. The same with or without a menu, so the menu itself takes no width. */
 @media (max-width: 560px) and (hover: none) {
   .sheet-grid thead .sheet-colmenu { top: 3px; height: 14px; opacity: 1; pointer-events: auto; background: none; color: var(--muted); font-size: 13px; }
-  .sheet-grid thead th:has(.sheet-colmenu) button:first-child { mask: linear-gradient(to left, transparent 24px, #000 34px) top / 100% 12px no-repeat, linear-gradient(#000 0 0) bottom / 100% calc(100% - 12px) no-repeat; }
+  .sheet-grid thead .letter { padding-right: 24px; }
 }
 /* A row read whole at a narrow width: a sheet up from the foot, full width, a label and its value a line. */
 .sheet-detail { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; justify-content: flex-end; background: color-mix(in srgb, #000 32%, transparent); }
