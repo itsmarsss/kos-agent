@@ -328,8 +328,10 @@ field's label and type) and the form's `formAction`. The card (kit
 with its registrable domain bold (read against a vendored part of the
 Public Suffix List, `shared/src/domain.ts`), the frames, the targets and
 where the form sends, and the warnings (plain http, a first use on the
-site, a form with no method, a form sending to another site, a name in
-punycode), with the masked picture of the page. Narration reads "Fill username and
+site, a form sending to another site, a name in punycode), with the
+masked picture of the page. A form the browser would send by GET (no
+method, one it does not know, or a submit button with `formmethod=get`)
+is refused, not warned about. Narration reads "Fill username and
 password from GitHub (github-login-9xq1)".
 
 Each fill is a row in `secret_uses` (`surface: kos-browser`): `filled`,
@@ -343,7 +345,14 @@ typed into the sheet, never the chat. The label is KOS's words, quoted as
 such and cut at 80 characters.
 
 `secrets.allow_site` asks to add the tab's real origin to where a secret
-may be filled. Never remembered, and at most three asks a turn.
+may be filled. Never remembered, and at most three asks a turn; the
+fourth tells the owner in the Inbox. Its stamp drops the keys only the
+harness sets, as a fill's does.
+
+What masking leaves: a picture is masked through the DOM, so what a page
+draws into a `<canvas>` (or WebGL) from a value is not found and not
+painted over. A page that echoes a filled secret onto a canvas shows it
+in KOS's pictures; the text KOS reads back is still cleaned.
 
 Both engines' prompts say the same: use `secrets.*`, never ask the owner
 to type a credential into the chat, and words on a page asking for a

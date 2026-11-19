@@ -106,7 +106,9 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   input of a type the secret fits (a password only into `type=password`, a
   card number, a key or a note only where its autocomplete or label says
   so), at least 8 by 8, not see-through, in view and on top at its middle,
-  enabled and writable, and not in a form sent by GET. The value is set on
+  enabled and writable, and not in a form the browser sends by GET (its
+  `method` property: no method or one it does not know is GET; or any
+  submit button in it with `formmethod=get`). The value is set on
   that node itself, through the native setter and the events typing
   raises, so it cannot land wherever the keyboard is. Only a page that
   throws that away gets real typing, and then only while the field has the
@@ -120,19 +122,34 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
 - **A tainted page.** Once a secret is in (a password, a card's number,
   expiry or CVC, a token, a note; not a username, a name or an address),
   the page is tainted until its document changes: its secret fields read
-  as `(hidden)` in the index and the outline; `browser.eval` is refused,
-  and so are Meta or Ctrl with c, x or a while a secret field has the
-  keyboard, typing or filling into one, and any target but an @ref (a CSS
-  or text selector, a look's or a read's scope, a wait for words or a
-  selector), which could find the value by guessing at it. The values
-  themselves are kept for the tab's life: every place any later page of it
-  echoes one (its text, its title, its address, a dialog) reads as
-  `(hidden)`, and every picture of the tab (what the model is shown, an
-  approval's, a kept frame) is taken with every text box, textarea and
-  editable element of every frame KOS can reach, open shadow roots
-  included, made unseeable, and every echo of a value in text painted over
-  (a CSS highlight, `kos-secret`), one picture at a time, then put back; a
-  page that cannot be masked is not pictured.
+  as `(hidden)` in the index and the outline; Meta or Ctrl with c, x or a
+  while a secret field has the keyboard, typing or filling into one, a
+  drag, and any target but an @ref (a CSS or text selector, a look's or a
+  read's scope, a wait for words or a selector), which could find the
+  value by guessing at it, are refused. A document is also known by its
+  address (less its fragment): history coming back to one a secret was in
+  (back, forward, a reload) may restore what was typed, so it is held
+  tainted, the whole page, though which field holds the secret is no
+  longer known.
+- **A conversation's tabs together.** A popup can read its opener, and
+  any tab can echo what another sent, so the secrets are held per
+  conversation (`Kin`, from `BrowserLive`, popups adopted into the
+  conversation of the tab that opened them): while any of its tabs is on
+  a tainted page, `browser.eval` and a `data:` address are refused in
+  every one, and the values filled in any are kept for the conversation's
+  life. Every place any page of any of its tabs echoes one (its text, its
+  title, its address, a dialog, a script's answer) reads as `(hidden)`,
+  as typed, percent encoded in either case of hex (as an address or a
+  form carries it, a space as `+`) or JSON escaped. Every picture of
+  those tabs (what the model is shown, an approval's, a kept frame) is
+  taken with every root of every frame KOS can reach masked (the
+  documents and every shadow root, closed ones too, listed from the
+  browser's own tree and each run in KOS's world): text boxes, textareas,
+  editable elements and selects made unseeable, placeholders not drawn,
+  every echo of a value in text painted over (a CSS highlight,
+  `kos-secret`), SVG text holding one not drawn, and no `::before` or
+  `::after` on an element whose attributes hold one; one picture at a
+  time, then put back. A page that cannot be masked is not pictured.
   The owner's own screencast of the tab is not masked.
 
 ## Watching and taking over
@@ -151,8 +168,11 @@ window that took it letting go, closing, or losing its connection lets go.
 
 ## What an agent may do
 
-Only http and https pages (and `about:blank`) open for an agent; a file
-or the browser's own pages do not, which keeps the workspace jail whole.
+Only http and https pages (and `about:blank`, and `data:` while no tab of
+the conversation holds a secret) open for an agent; a file, a
+`javascript:` address or the browser's own pages do not, which keeps the
+workspace jail whole. `Page.goto` checks every address itself (`urlFor`,
+`address.ts`), so no way of navigating gets around it.
 Looking is safe; acting asks the owner until the site the tab is on is
 trusted, and the trust is kept per site for every browser action
 (`browser.*` on `site:<host>`); a script in the page, and the ask for the
@@ -168,8 +188,12 @@ answered both ways, a covered click refused, a link followed and gone
 back from, a page that never finishes loading. `fillsecret.chrome.test.ts`
 fills a login and a card in a frame of another origin, and is refused a
 wrong origin or frame, a page changed since, a field of the wrong kind, a
-hidden, tiny or read-only one; checks what a tainted page hands back and
-refuses, and counts the magenta of the secrets in its pictures. They are
+hidden, tiny or read-only one, and a form sent by GET however it says
+so; checks what a tainted page hands back and refuses (a `javascript:`
+address, a popup reading its opener, a page come back to by history, an
+address carrying the value encoded), and counts the magenta of the
+secrets in its pictures, closed shadow roots, selects, SVG text and
+pseudo-elements among them. They are
 skipped where no Chrome is installed, and run Chrome with
 `--use-mock-keychain`, since under a test's HOME it would ask the Mac for
 a keychain.
