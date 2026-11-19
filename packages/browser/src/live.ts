@@ -3,6 +3,7 @@ import type { ChromeHost, ChromeLaunch, ChromeState } from "./chrome.js";
 import { keptSessionCookies, type CdpCookie } from "./cookies.js";
 import { PICTURE } from "./hands.js";
 import { Page, type PageLimits } from "./page.js";
+import type { FilledValue, Kin } from "./taint.js";
 
 /**
  * The browser, watched.
@@ -288,6 +289,8 @@ export class BrowserLive {
   private readonly bindings = new Map<string, Binding>();
   /** Each tab's hands, made on first use. */
   private readonly pages = new Map<string, Page>();
+  /** Conversation -> every value KOS filled in any of its tabs, for the conversation's life: its tabs share them (see Kin). */
+  private readonly filled = new Map<string, FilledValue[]>();
   /** Tabs the owner has taken, each by which of their windows. */
   private readonly held = new Map<string, string>();
   /** How often each tab's page has moved under its agent: navigated, taken by the owner, let go. */
@@ -385,11 +388,20 @@ export class BrowserLive {
       // The session is looked up at each call, so a tab re-attached after a detach is still reached.
       page = new Page(
         { send: async (method, params, timeoutMs) => this.cdp.send(method, params, await this.sessionFor(tab), timeoutMs) },
-        { now: this.now, ...(this.options.pageLimits ? { limits: this.options.pageLimits } : {}), gate: (signal) => this.whileHeld(tab, signal) },
+        { now: this.now, ...(this.options.pageLimits ? { limits: this.options.pageLimits } : {}), gate: (signal) => this.whileHeld(tab, signal), kin: () => this.kinOf(tab) },
       );
       this.pages.set(tab, page);
     }
     return page;
+  }
+
+  /** The tabs a tab shares its secrets with: its conversation's, popups among them. None for a tab of no one's. */
+  private kinOf(tab: string): Kin | undefined {
+    const conversationId = [...this.bindings].find(([, b]) => b.tabs.has(tab))?.[0];
+    if (conversationId === undefined) return undefined;
+    let values = this.filled.get(conversationId);
+    if (!values) this.filled.set(conversationId, (values = []));
+    return { values, holding: () => this.tabsOf(conversationId).some((t) => this.pages.get(t)?.holdsSecret() === true) };
   }
 
   /**
@@ -610,6 +622,7 @@ export class BrowserLive {
     for (const [conversationId, b] of [...this.bindings]) {
       if (b.lastUsed > cutoff || keep(conversationId)) continue;
       this.bindings.delete(conversationId);
+      this.filled.delete(conversationId);
       for (const tab of b.tabs) {
         await this.cdp.send("Target.closeTarget", { targetId: tab }).catch(() => undefined);
         closed.push(tab);
@@ -639,9 +652,9 @@ export class BrowserLive {
    */
   async capture(tab: string, maxEdge = 900): Promise<string | undefined> {
     if (!this.targets.has(tab)) return undefined;
-    // A page a secret was filled into is pictured masked, or not at all.
-    const page = this.pages.get(tab);
-    return page ? page.masked(() => this.shoot(tab, maxEdge)).catch(() => undefined) : this.shoot(tab, maxEdge);
+    // A tab whose conversation filled a secret anywhere is pictured masked, or not at all.
+    const page = await this.page(tab);
+    return page.masked(() => this.shoot(tab, maxEdge)).catch(() => undefined);
   }
 
   private async shoot(tab: string, maxEdge: number): Promise<string | undefined> {

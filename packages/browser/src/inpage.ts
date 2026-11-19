@@ -570,8 +570,10 @@ export function fillable(this: Element, slot: string, secret: boolean): string {
   })();
   if (!fits) return `a ${type} field does not take a ${slot.replace("-", " ")}`;
   // A form sent by GET puts every field in the address, where history, logs and the next page's referrer keep it.
+  // As the browser reads the form: no method, or one it does not know, is GET; and so is a submit button's formmethod=get.
   const form = this.form;
-  if (form && form.getAttribute("method")?.toLowerCase() === "get" && secret) return "the form sends what is typed in the address (method=get)";
+  const byGet = (el: Element): boolean => (el instanceof HTMLButtonElement || (el instanceof HTMLInputElement && /^(submit|image)$/.test(el.type))) && el.formMethod === "get";
+  if (secret && form && (form.method === "get" || Array.from(form.elements).some(byGet))) return "the form sends what is typed in the address (GET)";
   if (this.disabled) return "the field is disabled";
   if (this.readOnly) return "the field is read-only";
   const box = this.getBoundingClientRect();
@@ -616,91 +618,99 @@ export function taint(this: Element): void {
 }
 
 /**
- * Every place text is typed on this frame's page (inputs that take text,
- * textareas, anything contenteditable), through open shadow roots, made
- * unseeable for a picture: a page may copy a secret into any of them (a
- * preview, a show-password toggle). What each had in its style attribute
- * is kept in this world, for unmaskEntries. Answers how many.
+ * One root of a frame's page (its document, or a shadow root, open or
+ * closed) made safe to picture, run on that root in KOS's own world. Every
+ * place text is typed (inputs that take text, textareas, anything
+ * contenteditable) and every select is made unseeable, since a page may
+ * copy a secret into any of them; text that holds a filled value (each of
+ * `patterns`, a RegExp source) is painted over with a CSS highlight
+ * (`kos-secret`), SVG text that holds one is not drawn, and neither is a
+ * ::before or ::after of an element whose attributes hold one (content:
+ * attr()); placeholders are not drawn either. How to put each back is kept
+ * in this world, for unmaskAll. Answers how many things were masked.
  */
-export function maskEntries(): number {
-  const g = globalThis as unknown as { kosMasked?: { el: HTMLElement; before: string | null }[] };
-  const kept = (g.kosMasked = [] as { el: HTMLElement; before: string | null }[]);
+export function maskRoot(this: Document | ShadowRoot, patterns: string[]): number {
+  const g = globalThis as unknown as { kosUndo?: (() => void)[] };
+  const undo = (g.kosUndo ??= []);
+  const found = patterns.map((p) => new RegExp(p, "g"));
+  const holds = (text: string): boolean =>
+    found.some((p) => {
+      p.lastIndex = 0;
+      return p.test(text);
+    });
   const NOT_TEXT = /^(hidden|checkbox|radio|button|submit|reset|image|file|range|color)$/;
-  const walk = (root: Document | ShadowRoot): void => {
-    for (const el of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
-      const entry = (el instanceof HTMLInputElement && !NOT_TEXT.test(el.type)) || el instanceof HTMLTextAreaElement || el.isContentEditable;
-      if (entry) {
-        kept.push({ el, before: el.getAttribute("style") });
-        el.style.setProperty("-webkit-text-security", "disc", "important");
-        el.style.setProperty("color", "transparent", "important");
-        el.style.setProperty("caret-color", "transparent", "important");
-        el.style.setProperty("text-shadow", "none", "important");
-      }
-      if (el.shadowRoot) walk(el.shadowRoot);
-    }
+  let masked = 0;
+  const restyle = (el: HTMLElement | SVGElement, props: Record<string, string>): void => {
+    const before = el.getAttribute("style");
+    undo.push(() => {
+      // Read first: Chrome writes a style changed through el.style to the attribute only when it is next read, which would put an empty one back after the remove.
+      el.getAttribute("style");
+      if (before === null) el.removeAttribute("style");
+      else el.setAttribute("style", before);
+    });
+    for (const [name, value] of Object.entries(props)) el.style.setProperty(name, value, "important");
+    masked++;
   };
-  walk(document);
-  return kept.length;
-}
-
-/** Each entry maskEntries masked, its style attribute as it was. */
-export function unmaskEntries(): void {
-  const g = globalThis as unknown as { kosMasked?: { el: HTMLElement; before: string | null }[] };
-  for (const { el, before } of g.kosMasked ?? []) {
-    // Read first: Chrome writes a style changed through el.style to the attribute only when it is next read, which would put an empty one back after the remove.
-    el.getAttribute("style");
-    if (before === null) el.removeAttribute("style");
-    else el.setAttribute("style", before);
-  }
-  g.kosMasked = [];
-}
-
-/**
- * Text on the page that holds a filled secret, painted over for a picture
- * with a CSS highlight (`kos-secret`): a page that echoes what was typed
- * (a preview, a title) shows nothing of it. A number matches however it is
- * spaced. Answers how many places were painted over.
- */
-export function maskEchoes(values: { text: string; digits: boolean }[]): number {
-  const g = globalThis as unknown as { kosMaskStyle?: HTMLStyleElement };
-  const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const patterns = values.filter((v) => v.text.length > 0).map((v) => new RegExp(v.digits ? v.text.replace(/\D/g, "").split("").map(escape).join("[\\s.\\-]?") : escape(v.text), "g"));
+  const style = document.createElement("style");
+  style.textContent =
+    "::placeholder{color:transparent!important}::highlight(kos-secret){color:transparent;background-color:#000;text-shadow:none}" +
+    "[data-kos-masked]::before,[data-kos-masked]::after{content:none!important}";
+  (this instanceof Document ? (this.head ?? this.documentElement) : this).append(style);
+  undo.push(() => style.remove());
   const ranges: Range[] = [];
-  // Open shadow roots are walked as they are met.
-  const roots: Node[] = [document.documentElement];
-  for (let i = 0; i < roots.length; i++) {
-    const walker = document.createTreeWalker(roots[i]!, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (node instanceof Element) {
-        if (node.shadowRoot && !roots.includes(node.shadowRoot)) roots.push(node.shadowRoot);
-        continue;
+  const walker = document.createTreeWalker(this, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node instanceof Element) {
+      const el = node;
+      if ((el instanceof HTMLInputElement && !NOT_TEXT.test(el.type)) || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)) {
+        restyle(el as HTMLElement, { "-webkit-text-security": "disc", color: "transparent", "caret-color": "transparent", "text-shadow": "none" });
+      } else if (el instanceof HTMLSelectElement) {
+        restyle(el, { color: "transparent", "text-shadow": "none" });
+      } else if (el instanceof SVGTextContentElement && holds(el.textContent ?? "")) {
+        restyle(el, { fill: "transparent", stroke: "transparent" });
       }
-      const text = (node as Text).data;
-      for (const pattern of patterns) {
-        pattern.lastIndex = 0;
-        for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
-          const range = document.createRange();
-          range.setStart(node, m.index);
-          range.setEnd(node, m.index + m[0].length);
-          ranges.push(range);
-          if (m[0].length === 0) pattern.lastIndex++;
-        }
+      if (Array.from(el.attributes).some((a) => holds(a.value))) {
+        el.setAttribute("data-kos-masked", "");
+        undo.push(() => el.removeAttribute("data-kos-masked"));
+        masked++;
+      }
+      continue;
+    }
+    const text = (node as Text).data;
+    for (const pattern of found) {
+      pattern.lastIndex = 0;
+      for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
+        const range = document.createRange();
+        range.setStart(node, m.index);
+        range.setEnd(node, m.index + m[0].length);
+        ranges.push(range);
+        if (m[0].length === 0) pattern.lastIndex++;
       }
     }
   }
-  if (ranges.length === 0) return 0;
-  // A maplike the DOM types leave out.
-  (CSS.highlights as unknown as Map<string, Highlight>).set("kos-secret", new Highlight(...ranges));
-  const style = (g.kosMaskStyle ??= document.createElement("style"));
-  style.textContent = "::highlight(kos-secret){color:transparent;background-color:#000;text-shadow:none}";
-  (document.head ?? document.documentElement).append(style);
-  return ranges.length;
+  if (ranges.length > 0) {
+    // A maplike and a setlike the DOM types leave out.
+    const registry = CSS.highlights as unknown as Map<string, Highlight>;
+    const highlight = registry.get("kos-secret") ?? new Highlight();
+    for (const range of ranges) (highlight as unknown as Set<AbstractRange>).add(range);
+    registry.set("kos-secret", highlight);
+    masked += ranges.length;
+  }
+  return masked;
 }
 
-/** The highlight maskEchoes painted taken off again. */
-export function unmaskEchoes(): void {
+/** Everything maskRoot did in this frame put back as it was. */
+export function unmaskAll(): void {
+  const g = globalThis as unknown as { kosUndo?: (() => void)[] };
+  for (const step of (g.kosUndo ?? []).reverse()) {
+    try {
+      step();
+    } catch {
+      // Gone from the page: nothing to put back.
+    }
+  }
+  g.kosUndo = [];
   (CSS.highlights as unknown as Map<string, Highlight>).delete("kos-secret");
-  (globalThis as unknown as { kosMaskStyle?: HTMLStyleElement }).kosMaskStyle?.remove();
 }
 
 /** The element that has the keyboard in this frame, through open shadow roots. */

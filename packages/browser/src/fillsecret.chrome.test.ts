@@ -21,6 +21,9 @@ import type { SecretSlot } from "./taint.js";
 const PASSWORD = "pw-Canary-7f3k9q2x";
 const CARD = "4242424242424242";
 const MAGENTA = "#ff00ff";
+const TOKEN = "tok-Canary-55h2m";
+/** A password a page's address would carry only encoded. */
+const SYMBOLS = `Sym &=+%/?#"<>' x!`;
 
 const page = (title: string, body: string): string =>
   `<!doctype html><meta charset=utf-8><title>${title}</title><style>input{color:${MAGENTA};font-size:28px;width:360px;height:44px;display:block;margin:6px}</style>${body}`;
@@ -80,6 +83,35 @@ ${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTru
     // Keys only, and nothing in the way: typed for real.
     if (req.url === "/keys") return html(page("Keys", `<label>Password <input id=pw type=password></label><script>const pw = document.getElementById('pw'); pw.addEventListener('input', (e) => { if (!e.isTrusted) pw.value = ''; });</script>`));
     if (req.url === "/getform") return html(page("Get", `<form method=get action="/echo"><label>Password <input id=pw type=password name=pw></label></form>`));
+    // Forms the browser sends by GET though they do not say so: no method, one it does not know, a submit button's formmethod.
+    if (req.url === "/nomethod") return html(page("Get", `<form action="/echo"><label>Password <input id=pw type=password name=pw></label></form>`));
+    if (req.url === "/badmethod") return html(page("Get", `<form method=bogus action="/echo"><label>Password <input id=pw type=password name=pw></label></form>`));
+    if (req.url === "/submitget")
+      return html(page("Get", `<form method=post action="/echo"><label>Password <input id=pw type=password name=pw></label><button formmethod=get>Go</button></form>`));
+    // A page that sends the password in the address by script, encoded every way a page may.
+    if (req.url === "/jsget")
+      return html(
+        page(
+          "Script get",
+          `<label>Password <input id=pw type=password></label><button id=go onclick="const v = document.getElementById('pw').value; location.href = '/sent?a=' + encodeURIComponent(v) + '&' + new URLSearchParams({ b: v }) + '&c=' + encodeURIComponent(v).replace(/%[0-9A-F]{2}/g, (h) => h.toLowerCase())">Go</button>`,
+        ),
+      );
+    if (req.url?.startsWith("/sent")) return html(page("Sent", `<p>Raw ${req.url}</p>`));
+    // A token in a plain box, which the browser puts back when history comes back to the page.
+    if (req.url === "/token") return html(page("Token", `<label>API token <input id=tok></label>`));
+    // A page that echoes the password where only KOS's own tree of the page reaches (a closed shadow root), and as a placeholder, a select, SVG text and a ::before.
+    if (req.url === "/hidden-echoes")
+      return html(
+        page(
+          "Echoes",
+          `<style>::placeholder{color:${MAGENTA}} #before::before{content:attr(data-v);color:${MAGENTA};font-size:40px}</style>
+<label>Password <input id=pw type=password></label><input id=ph style="color:#000" placeholder="magenta words here">
+<div id=host></div><select id=sel style="font-size:28px;color:${MAGENTA}"><option id=opt></option></select>
+<svg width=600 height=60><text id=svgtext x=0 y=45 font-size=40 fill="${MAGENTA}"></text></svg><div id=before></div>
+<script>const inner = document.getElementById('host').attachShadow({ mode: 'closed' }); inner.innerHTML = '<input id=deep style="color:${MAGENTA};font-size:28px"><span id=said style="color:${MAGENTA};font-size:40px"></span>';
+document.getElementById('pw').addEventListener('input', (e) => { const v = e.target.value; inner.getElementById('deep').value = v; inner.getElementById('said').textContent = v; document.getElementById('opt').textContent = v; document.getElementById('svgtext').textContent = v; document.getElementById('before').dataset.v = v; });</script>`,
+        ),
+      );
     if (req.url?.startsWith("/echo")) return html(page("Echo", `<p>You sent ${decodeURIComponent(req.url.split("=")[1] ?? "")}</p>`));
     html(login());
   };
@@ -197,6 +229,7 @@ ${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTru
     await expect(act(tab, stepsOf([{ click: pw }, { press: "Meta+c" }]), "none")).rejects.toThrow(/Meta\+c is refused/);
     await expect(act(tab, stepsOf([{ type: { target: pw, text: "x" } }]), "none")).rejects.toThrow(/typing into .* is refused/);
     await expect(act(tab, stepsOf([{ fill: { target: pw, text: "x" } }]), "none")).rejects.toThrow(/filling .* is refused/);
+    await expect(act(tab, stepsOf([{ drag: { from: pw, to: refOf(seen, "Username") } }]), "none")).rejects.toThrow(/dragging is refused/);
     // A copy key on a field that holds no secret goes through.
     await act(tab, stepsOf([{ click: refOf(seen, "Username") }, { press: "Meta+a" }]), "none");
     expect(await peek("document.getElementById('pw').value")).toBe(PASSWORD);
@@ -271,10 +304,10 @@ ${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTru
     expect(await magentaIn(masked!)).toBeLessThan(20);
   });
 
-  const fillPassword = async (path: string): Promise<string> => {
+  const fillPassword = async (path: string, value = PASSWORD): Promise<string> => {
     const seen = (await visit(tab, [`${base}${path}`], { then: "look", until: "load" })).text;
     const pw = refOf(seen, "Password");
-    await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: await expectFor(pw, "password") }], "none");
+    await fillSecrets(tab, [{ ref: pw, value, expect: await expectFor(pw, "password") }], "none");
     return seen;
   };
 
@@ -305,7 +338,9 @@ ${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTru
   });
 
   it("refuses a form that sends in the address, and masks a value a later page echoes", async () => {
-    await expect(fillPassword("/getform")).rejects.toMatchObject({ code: "field", message: expect.stringMatching(/method=get/) });
+    for (const path of ["/getform", "/nomethod", "/badmethod", "/submitget"]) {
+      await expect(fillPassword(path)).rejects.toMatchObject({ code: "field", message: expect.stringMatching(/in the address \(GET\)/) });
+    }
     await fillPassword("/");
     const echoed = await visit(tab, [`${base}/echo?x=${PASSWORD}`], { then: "read" });
     expect(echoed.text).toContain("You sent (hidden)");
@@ -325,6 +360,65 @@ ${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTru
     await visit(tab, [`${base}/next`], { then: "none" });
     await act(tab, stepsOf([{ open: "data:text/html,<title>plain</title>" }]), "none");
     expect(await peek("document.title")).toBe("plain");
+  });
+
+  it("masks a symbol-heavy password a script sends in the address, however it is encoded", async () => {
+    const seen = await fillPassword("/jsget", SYMBOLS);
+    const sent = await act(tab, stepsOf([{ click: refOf(seen, "Go") }]), "read");
+    const said = [sent.text, (await look(tab, "read")).text, await evaluate(tab, "location.href"), await evaluate(tab, "({ href: location.href, search: decodeURIComponent(location.search) })")];
+    expect(said[0]).toContain("Raw /sent?a=(hidden)&b=(hidden)&c=(hidden)");
+    for (const text of said) {
+      for (const form of [SYMBOLS, encodeURIComponent(SYMBOLS), new URLSearchParams({ b: SYMBOLS }).toString().slice(2), encodeURIComponent(SYMBOLS).replace(/%[0-9A-F]{2}/g, (h) => h.toLowerCase())]) expect(text).not.toContain(form);
+    }
+  });
+
+  it("holds a page come back to by history as it held it: the browser may put the secret back", async () => {
+    const seen = (await visit(tab, [`${base}/token`], { then: "look", until: "load" })).text;
+    const tok = refOf(seen, "API token");
+    await fillSecrets(tab, [{ ref: tok, value: TOKEN, expect: await expectFor(tok, "token") }], "none");
+    await visit(tab, [`${base}/next`], { then: "none" });
+    expect(await evaluate(tab, "document.title")).toContain("Next");
+    const back = await act(tab, stepsOf([{ go: "back" }]), "look");
+    expect(await peek("location.pathname")).toBe("/token");
+    await expect(evaluate(tab, "document.getElementById('tok').value")).rejects.toThrow(/browser\.eval is refused/);
+    await expect(look(tab, "read", "#tok")).rejects.toThrow(/refused/);
+    for (const text of [back.text, (await look(tab, "snapshot")).text]) expect(text).not.toContain(TOKEN);
+  });
+
+  it("keeps every tab of the conversation from a secret: a popup reads nothing of its opener", async () => {
+    const seen = (await visit(tab, [`${base}/?popup`], { then: "look", until: "load" })).text;
+    const before = live.tabsOf("fill").length;
+    await evaluate(tab, "window.open('/next', 'kid'); 1");
+    const deadline = Date.now() + 5_000;
+    while (live.tabsOf("fill").length === before && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    const kid = live.tabsOf("fill").find((t) => t !== live.tabOf("fill"))!;
+    expect(kid).toBeDefined();
+    const popup: Tab = { page: await live.page(kid), capture: (w) => live.capture(kid, w) };
+    try {
+      const pw = refOf(seen, "Password");
+      await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: await expectFor(pw, "password") }], "none");
+      await expect(evaluate(popup, "opener.document.getElementById('pw').value")).rejects.toThrow(/browser\.eval is refused/);
+      await expect(act(popup, stepsOf([{ open: "data:text/html,<script>1</script>" }]), "none")).rejects.toThrow(/data: address is refused/);
+      // The popup's own words are cleaned of what its opener holds.
+      await sessionOf(popup).send("Runtime.evaluate", { expression: `document.body.textContent = ${JSON.stringify(`echo ${PASSWORD}`)}` });
+      expect((await look(popup, "read")).text).toContain("echo (hidden)");
+      // Once no tab holds it, scripts run again.
+      await visit(tab, [`${base}/next`], { then: "none" });
+      expect(await evaluate(popup, "document.title")).toContain("Next");
+    } finally {
+      await live.closeTab(kid);
+    }
+  });
+
+  it("paints out of a picture what only KOS's tree reaches: a closed shadow root, a placeholder, a select, SVG text, a ::before", async () => {
+    await fillPassword("/hidden-echoes");
+    const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
+    const masked = await tab.capture(1000);
+    expect(await peek("CSS.highlights.has('kos-secret')")).toBe(false);
+    expect(await peek("document.querySelectorAll('[data-kos-masked]').length")).toBe(0);
+    await visit(tab, [`${base}/next`], { then: "none" });
+    expect(await magentaIn(raw)).toBeGreaterThan(1000);
+    expect(await magentaIn(masked!)).toBeLessThan(20);
   });
 
   it("takes only refs while the page holds a secret: no selector, no scope, no wait for words", async () => {

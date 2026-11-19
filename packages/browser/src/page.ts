@@ -4,7 +4,7 @@ import * as inpage from "./inpage.js";
 import { parseKeys, type KeyPress } from "./keys.js";
 import { controlsOf, HIDDEN_VALUE, holdsValue, indexOf, INDEX_MAX, Refs, secretField, treeOf, type AxNode, type Control, type PageIndex } from "./snapshot.js";
 import { WAIT_FOR_MS, type Step } from "./steps.js";
-import { isDigitSlot, isSecretSlot, unechoed, type FilledValue, type SecretSlot, type Taint } from "./taint.js";
+import { echoPatterns, isDigitSlot, isSecretSlot, unechoed, type FilledValue, type Kin, type SecretSlot, type Taint } from "./taint.js";
 
 /**
  * One tab's hands.
@@ -72,6 +72,8 @@ export interface PageOptions {
    * aborts, the wait is dropped.
    */
   gate?: (signal?: AbortSignal) => Promise<boolean>;
+  /** The tabs this one shares its secrets with (its conversation's), looked up at each use: none for a tab of no one's. */
+  kin?: () => Kin | undefined;
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
@@ -301,6 +303,10 @@ export class Page {
   private objects = { loader: "", ids: new Map<number, string>() };
   /** The fields of this document a secret was filled into, until it changes. */
   private taint: Taint | undefined;
+  /** The main frame's address now. */
+  private url = "";
+  /** Addresses (less their fragment) of documents a secret was filled into: one come back to (back, forward, a reload) may hold it again, as the page restores what was typed. */
+  private readonly taintedUrls = new Set<string>();
   /** Every value filled in this tab, for as long as the tab lives: a later page may echo one (a GET form's address, a confirmation). */
   private readonly filled: FilledValue[] = [];
   /** Masked pictures under way, in turn. */
@@ -309,6 +315,7 @@ export class Page {
   private readonly limits: PageLimits;
   private readonly now: () => number;
   private readonly gate: (signal?: AbortSignal) => Promise<boolean>;
+  private readonly kin: () => Kin | undefined;
 
   constructor(
     private readonly session: Session,
@@ -317,6 +324,7 @@ export class Page {
     this.limits = { ...LIMITS, ...options.limits };
     this.now = options.now ?? Date.now;
     this.gate = options.gate ?? (async () => false);
+    this.kin = options.kin ?? (() => undefined);
   }
 
   /**
@@ -370,9 +378,17 @@ export class Page {
         if (frame?.id && !frame.parentId) {
           this.mainFrame = frame.id;
           this.site = siteOf(frame.url ?? "");
+          this.url = frame.url ?? "";
         }
         break;
       }
+      case "Page.navigatedWithinDocument":
+        if (p["frameId"] === this.mainFrame) {
+          this.url = String(p["url"] ?? "");
+          // The document keeps its secret at its new address, and history keeps both.
+          if (this.taint && this.taint.loader === this.life.loader) this.taintedUrls.add(urlKey(this.url));
+        }
+        break;
       case "Page.javascriptDialogOpening":
         this.onDialog(String(p["type"] ?? "alert"), String(p["message"] ?? ""));
         break;
@@ -438,6 +454,7 @@ export class Page {
     const frame = (tree["frameTree"] as { frame?: { id?: string; loaderId?: string; url?: string } } | undefined)?.frame;
     this.mainFrame = frame?.id ?? "";
     this.site = siteOf(frame?.url ?? "");
+    this.url = frame?.url ?? "";
     // A page already there when KOS came to it: what it has reached is asked, not heard.
     const state = await this.value<string>("document.readyState").catch(() => "complete");
     const reached = state === "complete" ? ["DOMContentLoaded", "load"] : state === "interactive" ? ["DOMContentLoaded"] : [];
@@ -541,10 +558,11 @@ export class Page {
       { expression: code, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
       EVAL_MS + 2_000,
     );
-    if (answer["exceptionDetails"]) throw new Error(`the script threw: ${exceptionText(answer["exceptionDetails"])}`);
+    if (answer["exceptionDetails"]) throw new Error(`the script threw: ${this.clean(exceptionText(answer["exceptionDetails"]))}`);
     const result = answer["result"] as { type?: string; value?: unknown; description?: string } | undefined;
     if (!result || result.type === "undefined") return "undefined";
-    const out = typeof result.value === "string" ? result.value : result.value !== undefined ? JSON.stringify(result.value, null, 2) : (result.description ?? "");
+    // Cleaned whole, then cut: a value cut in half would not be found.
+    const out = this.clean(typeof result.value === "string" ? result.value : result.value !== undefined ? JSON.stringify(result.value, null, 2) : (result.description ?? ""));
     return out.length > READ_MAX ? `${out.slice(0, READ_MAX)}\n(cut at ${READ_MAX} characters)` : out;
   }
 
@@ -586,6 +604,8 @@ export class Page {
       return `right-clicked ${step.rightclick}`;
     }
     if ("drag" in step) {
+      // A drag carries what it picks up, a secret's text among it.
+      if (this.tainted()) throw new Error(`dragging is refused: ${TAINTED}`);
       const { from, to } = step.drag;
       await this.acting(async () => this.drag(await this.element(from), from, await this.element(to), to));
       return `dragged ${from} to ${to}`;
@@ -683,9 +703,10 @@ export class Page {
     // Marked before it goes in: a field that took part of it holds a secret too, and so may the page.
     if (secret) {
       await this.callIn(frame, node, inpage.taint);
-      const fresh: Taint = { loader: this.life.loader, nodes: new Map() };
-      (this.tainted() ?? (this.taint = fresh)).nodes.set(node, frame);
-      if (!this.filled.some((v) => v.text === value)) this.filled.push({ text: value, digits });
+      if (this.taint?.loader !== this.life.loader) this.taint = { loader: this.life.loader, nodes: new Map() };
+      this.taint.nodes.set(node, frame);
+      this.taintedUrls.add(urlKey(this.url));
+      for (const values of [this.filled, this.kin()?.values]) if (values && !values.some((v) => v.text === value)) values.push({ text: value, digits });
     }
     let held = false;
     await this.acting(async () => {
@@ -710,7 +731,7 @@ export class Page {
    * taken rather than one that shows a secret.
    */
   masked<T>(shoot: () => Promise<T>): Promise<T> {
-    if (this.filled.length === 0) return shoot();
+    if (this.values().length === 0) return shoot();
     // One at a time: two pictures at once would each put back what the other masked, mid-shot.
     const next = this.pictures.then(() => this.maskedNow(shoot));
     this.pictures = next.catch(() => undefined);
@@ -718,48 +739,79 @@ export class Page {
   }
 
   private async maskedNow<T>(shoot: () => Promise<T>): Promise<T> {
-    const undo: (() => Promise<unknown>)[] = [];
+    const patterns = echoPatterns(this.values(), 1);
+    const masked = new Set<number>();
     try {
-      // Every frame KOS can reach: a value may be copied into any text box or echoed into any text of any of them.
-      for (const frame of (await this.frameTree()).keys()) {
+      // Every root of every frame KOS can reach, closed shadow roots among them: a value may be copied into any text box or echoed into any text.
+      for (const [frame, roots] of await this.roots()) {
         const context = await this.world(frame);
-        // A frame KOS cannot enter (another process) held no field it filled; the page itself must be masked, or there is no picture.
+        // A frame KOS cannot enter held no field it filled; the page itself must be masked, or there is no picture.
         if (context === undefined) {
           if (frame === this.mainFrame) throw new Error("no world of KOS's own to mask the page from");
           continue;
         }
-        const call = (fn: (...args: never[]) => unknown, args: CallArg[] = []): Promise<Record<string, unknown>> =>
-          this.send("Runtime.callFunctionOn", { functionDeclaration: fn.toString(), executionContextId: context, arguments: args, returnByValue: true });
-        undo.push(() => call(inpage.unmaskEntries));
-        undo.push(() => call(inpage.unmaskEchoes));
-        for (const masked of [await call(inpage.maskEntries), await call(inpage.maskEchoes, [{ value: this.filled }])]) {
-          if (masked["exceptionDetails"]) throw new Error("the page could not be masked");
+        masked.add(context);
+        for (const root of roots) {
+          const resolved = await this.send("DOM.resolveNode", { backendNodeId: root, executionContextId: context, objectGroup: GROUP });
+          const objectId = (resolved["object"] as { objectId?: string } | undefined)?.objectId;
+          const answer = objectId
+            ? await this.send("Runtime.callFunctionOn", { objectId, functionDeclaration: inpage.maskRoot.toString(), arguments: [{ value: patterns }], returnByValue: true })
+            : { exceptionDetails: true };
+          if (answer["exceptionDetails"]) throw new Error("the page could not be masked");
         }
       }
       return await shoot();
     } finally {
-      for (const restore of undo.reverse()) await restore().catch(() => undefined);
+      for (const context of masked) await this.send("Runtime.callFunctionOn", { functionDeclaration: inpage.unmaskAll.toString(), executionContextId: context }).catch(() => undefined);
     }
+  }
+
+  /** The roots of the page's documents and shadow trees, open and closed, by the frame each is in, from the browser's own tree of the page. */
+  private async roots(): Promise<Map<string, number[]>> {
+    type DomNode = { backendNodeId?: number; nodeType?: number; frameId?: string; children?: DomNode[]; shadowRoots?: DomNode[]; contentDocument?: DomNode };
+    const out = new Map<string, number[]>();
+    const walk = (n: DomNode | undefined, frame: string): void => {
+      if (!n) return;
+      if ((n.nodeType === 9 || n.nodeType === 11) && n.backendNodeId !== undefined) out.set(frame, [...(out.get(frame) ?? []), n.backendNodeId]);
+      for (const child of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) walk(child, frame);
+      if (n.contentDocument && n.frameId) walk(n.contentDocument, n.frameId);
+    };
+    walk((await this.send("DOM.getDocument", { depth: -1, pierce: true }, AX_MS))["root"] as DomNode | undefined, this.mainFrame);
+    return out;
   }
 
   /** The secrets filled into this document, if any: a new document has none. */
   private tainted(): Taint | undefined {
     if (this.taint && this.taint.loader !== this.life.loader) this.taint = undefined;
-    return this.taint;
+    if (this.taint) return this.taint;
+    // A document a secret was in, come back to: which fields hold it again is not known, so the whole page is held to.
+    return this.taintedUrls.has(urlKey(this.url)) ? { loader: this.life.loader, nodes: new Map() } : undefined;
+  }
+
+  /** Whether this tab holds a secret KOS filled in its page now. */
+  holdsSecret(): boolean {
+    return this.tainted() !== undefined;
   }
 
   /** Whether a secret KOS filled is in this page now, where a script could reach it. */
   private holding(): boolean {
-    return this.tainted() !== undefined;
+    return this.holdsSecret() || this.kin()?.holding() === true;
+  }
+
+  /** Every value filled in this tab or any it shares its secrets with. */
+  private values(): FilledValue[] {
+    const kin = this.kin()?.values ?? [];
+    return [...this.filled, ...kin.filter((v) => !this.filled.some((own) => own.text === v.text))];
   }
 
   /** Text read from the page with every secret filled into it said as hidden, where the page echoes one. */
   private clean(text: string): string {
-    return this.filled.length ? unechoed(text, this.filled) : text;
+    const values = this.values();
+    return values.length ? unechoed(text, values) : text;
   }
 
   private cleanIndex(index: PageIndex): PageIndex {
-    return this.filled.length ? { ...index, lines: index.lines.map((line) => this.clean(line)) } : index;
+    return this.values().length ? { ...index, lines: index.lines.map((line) => this.clean(line)) } : index;
   }
 
   /** While the page holds a secret, only a ref names what to act on or read: a selector or a text could find the secret by guessing at it. */
@@ -1539,6 +1591,11 @@ export class Page {
       }),
     );
   }
+}
+
+/** An address as a document is known by in history: less its fragment. */
+function urlKey(url: string): string {
+  return url.split("#")[0] ?? "";
 }
 
 /**
