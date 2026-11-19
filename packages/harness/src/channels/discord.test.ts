@@ -312,7 +312,7 @@ describe("the answer a turn shaped", () => {
     await p2!.complete({ text: "here", files: [big, ...many] });
     const capped = edits.at(-1) as { content: string; files: unknown[] };
     expect(capped.files).toHaveLength(10);
-    expect(capped.content).toBe("here\n-# 2 files not sent here (Discord takes 10 per message, 10 MB each): [big.bin](<https://kos.example/#/files/uploads%2Fbig.bin>), [f10.txt](<https://kos.example/#/files/uploads%2Ff10.txt>)");
+    expect(capped.content).toBe("here\n-# 2 files not sent here (Discord takes 10 per message, 10 MB each, 25 MB in all): [big.bin](<https://kos.example/#/files/uploads%2Fbig.bin>), [f10.txt](<https://kos.example/#/files/uploads%2Ff10.txt>)");
   });
 
   it("says a failure in one plain line, marked, with the thinking line taken down", async () => {
@@ -529,7 +529,7 @@ describe("the approval prompt", () => {
       args: { command: "rm -rf build", cwd: "/w" },
       reason: "deletes files",
     });
-    expect(text.split("\n")).toEqual(["**Needs your OK** · Run", "```", "rm -rf build (in /w)", "```", "-# shell.run · #12 · deletes files"]);
+    expect(text.split("\n")).toEqual(["**Needs your OK** · Run", "-# In /w", "```", "rm -rf build", "```", "-# ⚠ Deletes files · shell.run · #12"]);
   });
 
   it("keeps a command literal, whatever Discord would make of its characters", () => {
@@ -543,7 +543,7 @@ describe("the approval prompt", () => {
     const lines = text.split("\n");
     expect(lines[0]).toMatch(/^\*\*Needs your OK\*\* · Delete project/);
     expect(lines.slice(1, 4)).toEqual(["```", "slug: old_site", "```"]);
-    expect(lines[4]).toBe("-# systems.project_delete · #5");
+    expect(lines[lines.length - 1]).toBe("-# systems.project_delete · #5");
   });
 
   it("shows every action of a step said by its purpose, whatever the purpose says", () => {
@@ -556,10 +556,10 @@ describe("the approval prompt", () => {
       tool: "computer.act",
       args: { intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] },
     });
-    expect(text.split("\n")).toEqual(["> KOS says: Note: just closing the popup", "**Needs your OK** · On your Mac", "```", "Type “hunter2”", "Press ⌘Q", "```", "-# computer.act · #21"]);
+    expect(text.split("\n")).toEqual(["**Needs your OK** · Use your Mac", "-# KOS says: “Note: just closing the popup”", "-# On your Mac", "1. Type “hunter2”", "2. Press `⌘Q`", "-# computer.act · #21"]);
     // Repeats are said once with their exact count: an approval leaves nothing out.
     const tabs = approvalText({ id: "22", text: "x", tool: "browser.act", args: { intent: "move on", steps: [{ press: "Tab" }, { press: "Tab" }, { press: "Enter" }] } });
-    expect(tabs).toContain("```\nPress Tab twice, then ⏎\n```");
+    expect(tabs).toContain("\n1. Press `Tab` twice, then `⏎`\n");
   });
 
   it("reads the model's words literally: no ping, no link, no bold", () => {
@@ -570,10 +570,11 @@ describe("the approval prompt", () => {
       args: { intent: "**Safe** [close the popup](https://evil.example) @everyone <@&42>", steps: [{ click: "@e1" }] },
       why: "# Heads up @here, see [the docs](https://evil.example)",
     });
-    const [why, intent, head] = card.split("\n");
-    // The model's words are quoted, literal; the headline is where the call acts.
-    expect(intent).toBe("> KOS says: \\*\\*Safe\\*\\* \\[close the popup\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\>");
-    expect(head).toBe("**Needs your OK** · In KOS's browser");
+    const [why, head, intent, place] = card.split("\n");
+    // The model's words are quoted, literal; the headline is what the call acts on, the place under it.
+    expect(intent).toBe("-# KOS says: “\\*\\*Safe\\*\\* \\[close the popup\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\>”");
+    expect(head).toBe("**Needs your OK** · Act on the page");
+    expect(place).toBe("-# In KOS's browser");
     expect(why).toBe("> \\# Heads up \\@here, see \\[the docs\\]\\(<https://evil.example>\\)");
     expect(settledText("approved", "**Done** @everyone", "24")).toBe("-# ✅ Approved · \\*\\*Done\\*\\* \\@everyone");
     // A step line in the story too, its references still linked.
@@ -636,7 +637,7 @@ describe("the approval prompt", () => {
     expect(approvalText({ id: "3", text: "Post to #general?" })).toBe("**Needs your OK** · Post to #general?\n-# #3");
     // What KOS was saying comes first, as one quoted line, so the card is a sentence and not a command.
     expect(approvalText({ id: "4", text: "x", tool: "shell.run", args: { command: "rm -rf build" }, why: "I'll clear the build folder\nso the rebuild is clean." })).toBe(
-      "> I'll clear the build folder so the rebuild is clean.\n**Needs your OK** · Run\n```\nrm -rf build\n```\n-# shell.run · #4",
+      "> I'll clear the build folder so the rebuild is clean.\n**Needs your OK** · Run\n-# In the workspace\n```\nrm -rf build\n```\n-# shell.run · #4",
     );
   });
 
@@ -653,7 +654,7 @@ describe("the approval prompt", () => {
     const lines = String(payloads[0]?.content).split("\n");
     expect(lines[0]).toMatch(/^\*\*Needs your OK\*\*/);
     expect(lines[lines.length - 1]).toMatch(/^-# /);
-    expect(lines.length).toBeLessThanOrEqual(5);
+    expect(lines.length).toBeLessThanOrEqual(6);
     expect((payloads[0]?.components as unknown[])).toHaveLength(1);
   });
 });
@@ -718,8 +719,7 @@ describe("a prompt with a picture", () => {
     expect(files[0]?.attachment.toString("utf8")).toBe("PIC");
     // The step as it reads, and the step as given, under it.
     const lines = String(payloads[0]?.content).split("\n");
-    expect(lines.slice(0, 4)).toEqual(["**Needs your OK** · In KOS's browser", "```", "Click element e5", "```"]);
-    expect(lines[4]).toBe("-# browser.act · #7 · on shop.example");
+    expect(lines).toEqual(["**Needs your OK** · Act on the page", "-# In KOS's browser", "1. Click element e5", "-# browser.act · #7 · on shop.example"]);
   });
 });
 
@@ -1642,17 +1642,34 @@ describe("DiscordAdapter authorization", () => {
     expect(presses[2]).toEqual({ buttonId: "", label: "Ship it", token: "tok9", pressedBy: "owner-id" });
   });
 
-  it("asks in #needs-you alone for an owner's chat bound to a place guests read, and in a room's own place", async () => {
+  /** Discord's permission overwrites as a channel carries them: who is denied the view, who is allowed it. */
+  function overwrites(deny: string[], allow: string[] = []): { cache: Map<string, { deny: { has: (b: bigint) => boolean }; allow: { has: (b: bigint) => boolean } }> } {
+    const view = PermissionFlagsBits.ViewChannel;
+    const cache = new Map<string, { deny: { has: (b: bigint) => boolean }; allow: { has: (b: bigint) => boolean } }>();
+    for (const id of deny) cache.set(id, { deny: { has: (b) => b === view }, allow: { has: () => false } });
+    for (const id of allow) cache.set(id, { deny: { has: () => false }, allow: { has: (b) => b === view } });
+    return { cache };
+  }
+
+  it("asks only where the owner alone reads: never a place guests or anyone else read, a room's own asks included", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "chat-board" });
-    const posts: Record<string, Record<string, unknown>[]> = { ny: [], c8: [], c9: [] };
-    const sendable = (id: string, topic: string) => ({ id, topic, isThread: () => false, isSendable: () => true, send: async (p: Record<string, unknown>) => { posts[id]!.push(p); return { id: `m${posts[id]!.length}`, edit: async () => undefined }; } });
-    const places: Record<string, unknown> = { ny: sendable("ny", "kos:needs-you · Approvals"), c8: sendable("c8", "kos:chat-board · Board"), c9: sendable("c9", "kos:chat-mine · Mine") };
+    const posts: Record<string, Record<string, unknown>[]> = { ny: [], c8: [], c9: [], c10: [] };
+    const sendable = (id: string, topic: string, perms: ReturnType<typeof overwrites>) => ({ id, topic, guildId: "g1", permissionOverwrites: perms, isThread: () => false, isSendable: () => true, send: async (p: Record<string, unknown>) => { posts[id]!.push(p); return { id: `m${posts[id]!.length}`, edit: async () => undefined }; } });
+    const mine = overwrites(["g1"], ["owner-id"]);
+    const places: Record<string, unknown> = {
+      ny: sendable("ny", "kos:needs-you · Approvals", mine),
+      // Opened to guests: everyone reads and writes.
+      c8: sendable("c8", "kos:chat-board · Board", overwrites([])),
+      c9: sendable("c9", "kos:chat-mine · Mine", mine),
+      // Shut to everyone, but a role let in by hand.
+      c10: sendable("c10", "kos:chat-team · Team", overwrites(["g1"], ["owner-id", "role-team"])),
+    };
     const inner = adapter as unknown as { client: unknown; approvalsChannelId: string; boundIds: Map<string, string> };
     inner.client = { channels: { fetch: async (id: string) => places[id] ?? null }, users: { fetch: async () => ({ send: async () => { throw new Error("no DM"); } }) } };
     inner.approvalsChannelId = "ny";
-    inner.boundIds.set("chat-board", "c8").set("chat-mine", "c9");
+    inner.boundIds.set("chat-board", "c8").set("chat-mine", "c9").set("chat-team", "c10");
     const ask = (id: string, conversationId: string) => adapter.requestApproval("owner-id", { id, text: "x", tool: "sql", args: { sql: "UPDATE secrets SET v = 1" }, asker: { name: "Board", conversationId } });
-    // The owner's chat bound to #leetcode, which guests read: the card, with all it would do, stays in #needs-you.
+    // The owner's chat bound to a place guests read: the card, with all it would do, stays in #needs-you.
     await ask("1", "chat-board");
     expect(posts["c8"]).toHaveLength(0);
     expect(posts["ny"]).toHaveLength(1);
@@ -1660,10 +1677,50 @@ describe("DiscordAdapter authorization", () => {
     // A chat whose place only the owner reads is asked there too, as before.
     await ask("2", "chat-mine");
     expect(posts["c9"]).toHaveLength(1);
-    // The room's own ask, what a guest's words asked for, shows in its place.
+    // The room's own ask spells out the call too: guests never see it.
     await ask("3", "discord:room:c8");
-    expect(posts["c8"]).toHaveLength(1);
-    expect(posts["ny"]).toHaveLength(3);
+    expect(posts["c8"]).toHaveLength(0);
+    // A place a role reads is not the owner's alone.
+    await ask("4", "chat-team");
+    expect(posts["c10"]).toHaveLength(0);
+    expect(posts["ny"]).toHaveLength(4);
+  });
+
+  it("counts the server's administrators as readers of a place shut to everyone", async () => {
+    const admin = PermissionFlagsBits.Administrator;
+    const role = (id: string, members: string[], perms = admin) => [id, { id, permissions: { has: (b: bigint) => b === perms }, members: new Map(members.map((m) => [m, {}])) }] as const;
+    const asked = async (guild: unknown): Promise<"ny" | "dm"> => {
+      const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+      let where: "ny" | "dm" = "dm";
+      const inner = adapter as unknown as { client: unknown; approvalsChannelId: string };
+      inner.client = {
+        user: { id: "bot-id" },
+        channels: { fetch: async () => ({ id: "ny", guildId: "g1", guild, permissionOverwrites: overwrites(["g1"], ["owner-id"]), isSendable: () => true, send: async () => ((where = "ny"), { id: "n1" }) }) },
+        users: { fetch: async () => ({ send: async () => ({ id: "d1" }) }) },
+      };
+      inner.approvalsChannelId = "ny";
+      await adapter.requestApproval("owner-id", { id: "6", text: "x", tool: "shell.run", args: { command: "ls" } });
+      return where;
+    };
+    expect(await asked({ ownerId: "owner-id", roles: { cache: new Map([role("r-bot", ["bot-id"]), role("r-mods", ["ana"], PermissionFlagsBits.ManageMessages)]) } })).toBe("ny");
+    expect(await asked({ ownerId: "owner-id", roles: { cache: new Map([role("r-admin", ["owner-id", "ana"])]) } })).toBe("dm");
+    expect(await asked({ ownerId: "owner-id", roles: { cache: new Map([role("r-admin", [])]) } })).toBe("dm");
+    expect(await asked({ ownerId: "someone-else", roles: { cache: new Map() } })).toBe("dm");
+  });
+
+  it("asks in the DM when #needs-you has been opened to others", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    const dm: Record<string, unknown>[] = [];
+    const ny: Record<string, unknown>[] = [];
+    const inner = adapter as unknown as { client: unknown; approvalsChannelId: string };
+    inner.client = {
+      channels: { fetch: async () => ({ id: "ny", guildId: "g1", permissionOverwrites: overwrites([]), isSendable: () => true, send: async (p: Record<string, unknown>) => (ny.push(p), { id: "n1" }) }) },
+      users: { fetch: async () => ({ send: async (p: Record<string, unknown>) => (dm.push(p), { id: "d1" }) }) },
+    };
+    inner.approvalsChannelId = "ny";
+    await adapter.requestApproval("owner-id", { id: "5", text: "x", tool: "shell.run", args: { command: "rm -rf build" } });
+    expect(ny).toHaveLength(0);
+    expect(dm).toHaveLength(1);
   });
 
   it("reads a channel's messages and reactions, reacts, and hands back what it posted", async () => {
@@ -1754,7 +1811,7 @@ describe("DiscordAdapter authorization", () => {
     expect(decisions).toEqual([
       { id: "5", approved: true, deciderId: "owner-id" },
     ]);
-    expect(button.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: "-# ✅ Approved · #5" }));
+    expect(button.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringMatching(/^-# ✅ Approved <t:\d+:t> · #5$/) }));
   });
 
   it("labels a pressed card with how the ask really went, when it was decided elsewhere first", async () => {
@@ -1784,10 +1841,10 @@ describe("DiscordAdapter authorization", () => {
     const press = adapter.receiveInteraction(button as unknown as Interaction);
     await new Promise((r) => setTimeout(r, 5));
     // Labelled within the press's first seconds; the action still runs.
-    expect(order).toEqual(["-# ✅ Approved · #5"]);
+    expect(order).toEqual([expect.stringMatching(/^-# ✅ Approved <t:\d+:t> · #5$/)]);
     finish();
     await press;
-    expect(order).toEqual(["-# ✅ Approved · #5", "action done"]);
+    expect(order).toEqual([expect.stringMatching(/^-# ✅ Approved <t:\d+:t> · #5$/), "action done"]);
   });
 
   it("says a second press was decided here, and an ask gone is no longer waiting rather than what was pressed", async () => {
@@ -2032,10 +2089,8 @@ describe("/run from Discord", () => {
         { id: 9, name: "School Evening Nudge", enabled: true },
       ],
       current: () => undefined,
-      target: () => undefined,
       home: () => "h",
-      stop: () => false,
-      create: () => ({ id: "x", title: "x" }),
+      run: async () => ({ reply: "" }),
     });
     const edits: string[] = [];
     const respond: unknown[] = [];
@@ -2129,16 +2184,12 @@ describe("a guest's slash commands", () => {
       list: () => [{ id: "c1", title: "Private", kind: "chat" }],
       jobs: () => [{ id: 7, name: "Morning brief", enabled: true }],
       current: () => undefined,
-      target: () => undefined,
       home: () => "h",
-      stop: (id) => {
-        stopped.push(id);
-        return true;
-      },
-      create: () => ({ id: "x", title: "x" }),
+      run: async (text) => (stopped.push(text), { reply: "" }),
+      pending: () => [{ id: "3", text: "x", tool: "shell.run", args: { command: "rm -rf build" } }],
     });
     const open = { id: "c1", isThread: () => false, topic: "kos:project:club · Club", isSendable: () => true };
-    for (const commandName of ["chats", "stop", "run", "new"]) {
+    for (const commandName of ["chats", "stop", "run", "new", "mode", "inbox", "approve", "halt"]) {
       const reply = vi.fn(async () => undefined);
       const respond = vi.fn(async () => undefined);
       const base = { isButton: () => false, commandName, user: { id: "u1" }, guildId: "g1", channel: open, options: { data: [], getFocused: () => "" }, reply, respond, deferReply: vi.fn(), editReply: vi.fn() };
@@ -2555,13 +2606,77 @@ describe("catching up after a drop or a restart", () => {
     const open = room("c1", said, { topic: "kos:project:garden · Garden" });
     const { adapter, heard } = adapterOver({ c1: open.channel }, { c1: "500" }, true);
     await adapter.catchUp();
-    expect(heard.map((m) => [m.text, m.missed, m.late, m.sentAt, m.guest?.id])).toEqual([
-      ["said 502", ["said 501", "ana: said 502"], true, said[1]!.at, "ana"],
-      ["said 504", undefined, true, said[3]!.at, undefined],
+    // One note per sender, each line naming who said it: a guest's words never ride as the owner's.
+    expect(heard.map((m) => [m.text, m.missed, m.late, m.sentAt, m.guest?.id, m.senderId])).toEqual([
+      ["said 501", ["owner: said 501"], true, said[0]!.at, undefined, "owner"],
+      ["said 502", ["ana: said 502"], true, said[1]!.at, "ana", "ana"],
+      ["said 504", undefined, true, said[3]!.at, undefined, "owner"],
     ]);
     // Read once: nothing of it is run or told again.
     await adapter.catchUp();
-    expect(heard).toHaveLength(2);
+    expect(heard).toHaveLength(3);
+  });
+
+  it("never puts a guest's old words in the owner's chat when the guest spoke last", async () => {
+    const MIN = 60_000;
+    const open = room("c1", [
+      { id: "801", author: "owner", at: Date.now() - 40 * MIN },
+      { id: "802", author: "ana", at: Date.now() - 30 * MIN },
+    ], { topic: "kos:project:garden · Garden" });
+    const { adapter, heard } = adapterOver({ c1: open.channel }, { c1: "800" }, true);
+    await adapter.catchUp();
+    const owners = heard.filter((m) => !m.guest);
+    const guests = heard.filter((m) => m.guest);
+    expect(owners.flatMap((m) => m.missed ?? [])).toEqual(["owner: said 801"]);
+    expect(guests.map((m) => [m.senderId, m.missed])).toEqual([["ana", ["ana: said 802"]]]);
+  });
+
+  it("keeps a room's place while it waits to be read, so a live message cannot carry it past what was missed", async () => {
+    const dm = room("dm1", [{ id: "901", author: "owner" }, { id: "902", author: "owner" }]);
+    const cursors: Record<string, string> = { dm1: "900" };
+    const { adapter, heard } = adapterOver({ dm1: dm.channel }, cursors);
+    // A new session: the room is marked to be read before anything live is taken.
+    const up = adapter.onUp();
+    const live = { ...(dm.messages[1] as unknown as Record<string, unknown>), id: "903", content: "said 903" } as unknown as Message;
+    await adapter.receiveMessage(live);
+    expect(cursors.dm1).toBe("900");
+    await up;
+    await vi.waitFor(() => expect(heard.map((m) => m.text)).toEqual(["said 903", "said 901", "said 902"]));
+    // Read: the place is past all of it, the live one too.
+    expect(cursors.dm1).toBe("903");
+  });
+
+  it("keeps a room's place when reading it fails, and reads it on the next catch-up", async () => {
+    const dm = room("dm1", [{ id: "911", author: "owner" }, { id: "912", author: "owner" }]);
+    const fetch = (dm.channel.messages as { fetch: (o: { limit: number }) => Promise<unknown> }).fetch;
+    let down = true;
+    let refused = 0;
+    dm.channel.messages = { fetch: async (o: { limit: number }) => (down ? (refused++, Promise.reject(new Error("Service Unavailable"))) : fetch(o)) };
+    const cursors: Record<string, string> = { dm1: "910" };
+    const { adapter, heard } = adapterOver({ dm1: dm.channel }, cursors);
+    const up = adapter.onUp();
+    await up;
+    await vi.waitFor(() => expect(refused).toBe(1));
+    await vi.waitFor(() => expect((adapter as unknown as { catchingUp: Set<string> }).catchingUp.size).toBe(0));
+    // A live message while the room is still to be read does not carry its place past what was missed.
+    await adapter.receiveMessage({ ...(dm.messages[1] as unknown as Record<string, unknown>), id: "913", content: "said 913" } as unknown as Message);
+    expect(cursors.dm1).toBe("910");
+    down = false;
+    await adapter.catchUp();
+    expect(heard.map((m) => m.text)).toEqual(["said 913", "said 911", "said 912"]);
+    expect(cursors.dm1).toBe("913");
+  });
+
+  it("moves a room's place only once the harness has taken the message", async () => {
+    const dm = room("dm1", []);
+    const cursors: Record<string, string> = { dm1: "500" };
+    const { adapter } = adapterOver({ dm1: dm.channel }, cursors);
+    let seenAt: string | undefined;
+    adapter.onMessage(async () => void (seenAt = cursors.dm1));
+    const message = { id: "501", content: "hi", createdTimestamp: Date.now(), author: { id: "owner", bot: false, username: "owner" }, system: false, guild: null, channel: dm.channel } as unknown as Message;
+    await adapter.receiveMessage(message);
+    expect(seenAt).toBe("500");
+    expect(cursors.dm1).toBe("501");
   });
 
   it("moves the cursor past a message once it is handed over, so a restart mid-turn does not run it twice", async () => {
@@ -2740,13 +2855,13 @@ describe("a slash command in a room", () => {
     const stopped: string[] = [];
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", threadOf: (id) => (id === "t5" ? "chat-5" : undefined) });
     adapter.setAuthorizer((id) => id === "owner-id");
-    adapter.onCommand({ list: () => [], current: () => "dm-chat", target: () => undefined, home: () => "h", stop: (id) => (stopped.push(id), true), create: () => ({ id: "x", title: "x" }) });
+    adapter.onCommand({ list: () => [], current: () => "dm-chat", home: () => "h", run: async (text, id) => (stopped.push(`${text} ${id}`), { reply: "Stopping this turn." }) });
     const stop = (guildId: string | null, channel: unknown) =>
-      ({ isButton: () => false, isAutocomplete: () => false, isChatInputCommand: () => true, commandName: "stop", guildId, channel, user: { id: "owner-id" }, options: { data: [] }, reply: async () => undefined }) as unknown as Interaction;
+      ({ isButton: () => false, isAutocomplete: () => false, isChatInputCommand: () => true, commandName: "stop", guildId, channel, user: { id: "owner-id" }, options: { data: [] }, reply: async () => undefined, deferReply: async () => undefined, editReply: async () => undefined }) as unknown as Interaction;
     await adapter.receiveInteraction(stop("g1", { id: "t5", isThread: () => true, parent: { topic: "kos:project:garden · Garden" } }));
     await adapter.receiveInteraction(stop("g1", { id: "c1", topic: "kos:agent:recap · Recap" }));
     await adapter.receiveInteraction(stop(null, { id: "dm" }));
-    expect(stopped).toEqual(["chat-5", "agent:recap", "dm-chat"]);
+    expect(stopped).toEqual(["/stop chat-5", "/stop agent:recap", "/stop dm-chat"]);
   });
 });
 

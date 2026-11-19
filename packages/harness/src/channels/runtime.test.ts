@@ -269,9 +269,53 @@ describe("telling the turn's story on a surface with a presence", () => {
     await adapter.receive({ channel: "memory", senderId: "u1", text: "look" });
     expect(watched).toEqual(["memory:owner"]);
     // A step is shown the moment it starts; the text after it waits for the timer; the end keeps the steps.
-    expect(adapter.shown).toEqual(["Let me look.\n› List x", "Let me look.\n› List x (done)\nThree files, all fine.", "Let me look.\n› List x (done)"]);
+    expect(adapter.shown).toEqual([
+      "Let me look.\n› List x",
+      "Let me look.\n› List x (done)\nThree files, all fine.",
+      "Let me look.\n› List x (done)",
+    ]);
     expect(adapter.completed).toEqual([{ text: "Three files, all fine." }]);
     expect(tell).toBeUndefined();
+  });
+
+  it("redraws a running step's time, says a held turn waits on you, and carries Auto and the newest picture", async () => {
+    const adapter = new InMemoryAdapter();
+    adapter.withPresence = true;
+    let tell: ((event: ProgressEvent) => void) | undefined;
+    const runtime = new ChannelRuntime({
+      adapter,
+      narrateEveryMs: 1,
+      tickEveryMs: 20,
+      isAuto: () => true,
+      pictureOf: (id) => (id === 7 ? "UElD" : undefined),
+      watchTurn: (_ctx, listener) => {
+        tell = listener;
+        return () => {
+          tell = undefined;
+        };
+      },
+      handleTurn: async () => {
+        tell!({ kind: "tool-start", conversationId: "c", tool: "browser.act", summary: "Click Pay", at: Date.now() - 5_000 });
+        tell!({ kind: "frame", conversationId: "c", tool: "browser.act", frameId: 7 });
+        await new Promise((r) => setTimeout(r, 70));
+        return { text: "waiting on you", suspended: true };
+      },
+    });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "pay" });
+    await new Promise((r) => setTimeout(r, 30));
+    // The step's time so far was redrawn while it ran, untouched by any event.
+    expect(adapter.shown.filter((s) => /› Click Pay · [\d.]+s so far/.test(s)).length).toBeGreaterThanOrEqual(2);
+    // Held on the owner: said so, and no more ticking.
+    expect(adapter.shown.at(-1)).toBe("› Click Pay · waiting on you");
+    const count = adapter.shown.length;
+    await new Promise((r) => setTimeout(r, 60));
+    expect(adapter.shown).toHaveLength(count);
+    expect(adapter.extras.at(-1)).toEqual({ auto: true, picture: { id: 7, image: "UElD" } });
+    tell!({ kind: "tool-end", conversationId: "c", tool: "browser.act", isError: false, ms: 400, waitedMs: 61_000 });
+    tell!({ kind: "turn-end", conversationId: "c" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(adapter.shown.at(-1)).toBe("› Click Pay · waited 1m 01s for you (done)");
   });
 
   it("says a message is queued when a turn is already running where it goes, and tells only its own turn's story", async () => {

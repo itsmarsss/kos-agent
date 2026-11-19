@@ -118,6 +118,8 @@ export {
 export {
   CHAT_COMMANDS,
   COMMAND_NAMES,
+  type CommandOption,
+  type CommandPick,
   type CommandSpec,
 } from "./commands.js";
 

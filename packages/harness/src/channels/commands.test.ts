@@ -1,36 +1,16 @@
+import { ApplicationCommandOptionType, InteractionContextType } from "discord.js";
+import { CHAT_COMMANDS } from "@kos/shared";
 import { describe, expect, it } from "vitest";
 
-import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
+import { approvalCompletions, commandCard, commandText, completions, jobCompletions, jobNamed, slashCommands, surfaceCommand, surfaceCommands, type SlashContext } from "./commands.js";
 
-function ctxWith(
-  chats: { id: string; title: string; kind: string }[],
-  start?: string,
-): SlashContext & { pointed: string | undefined; stopped: string[] } {
-  const link = (id: string): string => `http://host/#/chats/${id}`;
-  let pointed = start;
-  const stopped: string[] = [];
-  const made: { id: string; title: string; kind: string }[] = [];
+function ctxWith(chats: { id: string; title: string; kind: string }[], start?: string): SlashContext {
   return {
-    get pointed() {
-      return pointed;
-    },
-    stopped,
-    list: () => [...chats, ...made],
-    current: () => pointed,
-    target: (id) => {
-      pointed = id;
-    },
+    list: () => chats,
+    current: () => start,
     home: () => "discord:owner",
-    stop: (id) => {
-      stopped.push(id);
-      return id !== "quiet";
-    },
-    create: (title) => {
-      const one = { id: `new-${made.length}`, title, kind: "chat" };
-      made.push(one);
-      return one;
-    },
-    link,
+    run: async (text) => ({ reply: text }),
+    link: (id: string) => `http://host/#/chats/${id}`,
   };
 }
 
@@ -38,15 +18,12 @@ const chats = [
   { id: "discord:owner", title: "Discord", kind: "surface" },
   { id: "a", title: "Book CRM", kind: "chat" },
   { id: "b", title: "3js shooter", kind: "chat" },
+  { id: "project:garden", title: "Garden", kind: "project" },
 ];
 
 describe("slash commands", () => {
   it("offers every chat when nothing has been typed", () => {
-    expect(completions(ctxWith(chats), "").map((c) => c.value)).toEqual([
-      "discord:owner",
-      "a",
-      "b",
-    ]);
+    expect(completions(ctxWith(chats), "").map((c) => c.value)).toEqual(["discord:owner", "a", "b", "project:garden"]);
   });
 
   it("narrows as you type, on the title rather than the id", () => {
@@ -68,134 +45,86 @@ describe("slash commands", () => {
     expect(name.endsWith("…")).toBe(true);
   });
 
-  it("makes a named chat something the owner can open", () => {
-    // A chat named in an answer is usually one they want to look at, and a
-    // name they cannot open is a name they have to go and find.
-    const said = runCommand(ctxWith(chats), "target", "a");
-    expect(said.card?.body).toContain("[Book CRM](http://host/#/chats/a)");
+  it("marks a project's orchestrator so it reads as the project", () => {
+    expect(completions(ctxWith(chats), "gard")[0]?.name).toBe("◆ Garden");
+  });
+});
+
+describe("one registry for every surface", () => {
+  it("registers every command a chat surface runs, from the shared list, and none of the dashboard's own", () => {
+    const names = (slashCommands("everywhere") as { name: string }[]).map((c) => c.name);
+    expect(names).toEqual(CHAT_COMMANDS.filter((c) => c.where !== "dashboard").flatMap((c) => [c.name, ...(c.aliases ?? [])]));
+    for (const name of ["mode", "stop", "status", "new", "inbox", "approve", "deny", "compact", "retry", "fork", "rename", "archive", "project", "run", "halt", "resume", "switch", "here"]) expect(names, name).toContain(name);
+    expect(names).not.toContain("btw");
+    expect(names).not.toContain("export");
   });
 
-  it("does not let a title break the link it is inside", () => {
-    // Brackets in a title would close the link early and leave the rest of
-    // it as loose text.
-    const odd = [{ id: "x", title: "notes [draft] (old)", kind: "chat" }];
-    const said = runCommand(ctxWith(odd), "target", "x");
-    expect(said.card?.body).toBe("**[notes draft old](http://host/#/chats/x)**");
-  });
-
-  it("points the surface at what was picked, and names it as a heading", () => {
-    /*
-     * A title here is the owner's first message, so a sentence containing
-     * one has eaten its own subject: "Sending to what capabilities does
-     * notify have (fork)." Given a heading it reads as a name again.
-     */
-    const ctx = ctxWith(chats);
-    const said = runCommand(ctx, "target", "a");
-    expect(said.card?.title).toBe("Now sending to");
-    expect(said.card?.body).toContain("Book CRM");
-    expect(ctx.pointed).toBe("a");
-  });
-
-  it("says so when the picker was ignored and text typed instead", () => {
-    const ctx = ctxWith(chats);
-    expect(runCommand(ctx, "target", "Book CRM").card?.title).toBe("No such chat");
-    expect(ctx.pointed).toBeUndefined();
-  });
-
-  it("goes back to the surface's own thread", () => {
-    const ctx = ctxWith(chats, "a");
-    runCommand(ctx, "here");
-    expect(ctx.pointed).toBe("discord:owner");
-  });
-
-  it("lists the chats and marks where you are", () => {
-    /*
-     * The surface's own stream is not listed: /here is how you get back to
-     * it, and a picker whose first entry is where you already were is a line
-     * spent saying nothing.
-     */
-    const card = runCommand(ctxWith(chats, "a"), "chats").card!;
-    const listed = card.fields![0]!;
-    /*
-     * One fenced block, not a pill each: boxes of fifteen different widths
-     * are a ragged edge rather than a list.
-     */
-    expect(listed.value.startsWith("```")).toBe(true);
-    expect(listed.value.endsWith("```")).toBe(true);
-    expect(listed.value).toContain("→ Book CRM");
-    expect(listed.value).toContain("  3js shooter");
-    expect(listed.value).not.toContain("Discord");
-  });
-
-  it("lists a screenful, and says how many there are in all", () => {
-    // Fifteen short names read fine; it was long ones set as prose that did
-    // not. The picker still searches the rest.
-    const many = Array.from({ length: 30 }, (_, i) => ({
-      id: `c${i}`,
-      title: `chat ${i}`,
-      kind: "chat",
-    }));
-    const card = runCommand(ctxWith(many), "chats").card!;
-    // Two of the lines are the fence itself.
-    expect(card.fields![0]!.value.split("\n")).toHaveLength(17);
-    expect(card.footer).toContain("30 in all");
-  });
-
-  it("keeps a long list inside what a field will hold", () => {
-    // A title here is a whole message, so a dozen of them overrun the
-    // thousand characters a field may be, and Discord refuses the message
-    // rather than trimming it.
-    const many = Array.from({ length: 40 }, (_, i) => ({
-      id: `c${i}`,
-      title: `${"a very long conversation title ".repeat(3)}${i}`,
-      kind: "chat",
-    }));
-    const card = runCommand(ctxWith(many), "chats").card!;
-    for (const field of card.fields ?? []) {
-      expect(field.value.length).toBeLessThanOrEqual(1000);
+  it("keeps within what Discord takes: names, descriptions, options", () => {
+    for (const c of slashCommands("everywhere") as { name: string; description: string; options?: { name: string; description: string; type: number }[] }[]) {
+      expect(c.name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
+      expect(c.description.length).toBeGreaterThan(0);
+      expect(c.description.length).toBeLessThanOrEqual(100);
+      for (const o of c.options ?? []) {
+        expect(o.name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
+        expect(o.description.length).toBeLessThanOrEqual(100);
+        expect(o.type).toBe(ApplicationCommandOptionType.String);
+      }
     }
-    expect(card.footer).toContain("in all");
   });
 
-  it("stops the chat it is pointed at, and says when there was nothing to stop", () => {
-    const ctx = ctxWith(chats, "a");
-    expect(runCommand(ctx, "stop").card?.title).toBe("Asked it to stop");
-    expect(ctx.stopped).toEqual(["a"]);
-    expect(runCommand(ctxWith(chats, "quiet"), "stop").card?.title).toBe(
-      "Nothing to stop",
-    );
+  it("offers a picker where the registry says what to pick, and fixed choices for /mode", () => {
+    const by = new Map((slashCommands("everywhere") as { name: string; options?: { autocomplete?: boolean; choices?: { value: string }[]; required?: boolean }[] }[]).map((c) => [c.name, c.options?.[0]]));
+    expect(by.get("switch")).toMatchObject({ autocomplete: true, required: true });
+    expect(by.get("approve")).toMatchObject({ autocomplete: true, required: false });
+    expect(by.get("run")).toMatchObject({ autocomplete: true });
+    expect(by.get("mode")?.choices?.map((c) => c.value)).toEqual(["ask", "auto"]);
+    expect(by.get("status")).toBeUndefined();
   });
 
-  it("starts a chat and points at it in one go", () => {
-    const ctx = ctxWith(chats);
-    expect(runCommand(ctx, "new", "Taxes").card?.body).toContain("Taxes");
-    expect(ctx.pointed).toBe("new-0");
+  it("registers /target as /switch, picker and all, typed as the kernel reads it", () => {
+    const by = new Map((slashCommands("everywhere") as { name: string; description: string; options?: unknown[] }[]).map((c) => [c.name, c]));
+    expect(by.get("target")?.options).toEqual(by.get("switch")?.options);
+    expect(by.get("target")?.description).toBe(by.get("switch")?.description);
+    expect(surfaceCommand("target")?.option?.pick).toBe("chat");
+    expect(commandText("target", "Garden")).toBe("/target Garden");
   });
 
-  it("asks for the missing word rather than guessing", () => {
-    expect(runCommand(ctxWith(chats), "new", "  ").card?.title).toContain(
-      "what it is for",
-    );
-    // Nothing picked is a question, not a mistake: it shows the list.
-    expect(runCommand(ctxWith(chats), "target").card?.title).toBe(
-      "Where you can send",
-    );
+  it("shows the server's commands to its administrators alone, and the DM's to the owner", () => {
+    const guild = slashCommands("guild") as { defaultMemberPermissions?: bigint }[];
+    expect(guild.every((c) => c.defaultMemberPermissions === 0n)).toBe(true);
+    expect((slashCommands("dm") as { defaultMemberPermissions?: bigint }[]).every((c) => c.defaultMemberPermissions === undefined)).toBe(true);
   });
 
-  it("declares every command it answers, and answers every one declared", () => {
-    // A command Discord offers and the daemon does not know is a dead entry
-    // in the owner's picker.
-    // /run fires a job asynchronously, so the adapter answers it, not runCommand.
-    for (const spec of COMMANDS.filter((c) => c.name !== "run")) {
-      const said = runCommand(ctxWith(chats), spec.name, "a");
-      expect(said.card?.title, spec.name).not.toBe("No such command");
-      // Every one answers with a card, so they read as one set of commands
-      // rather than as unrelated features.
-      expect(Boolean(said.card), spec.name).toBe(true);
-    }
-    expect(runCommand(ctxWith(chats), "nonsense").card?.title).toBe(
-      "No such command",
-    );
+  it("registers for the DM alone globally when the server has its own", () => {
+    const dm = slashCommands("dm") as { contexts?: number[] }[];
+    expect(dm.every((c) => c.contexts?.length === 1 && c.contexts[0] === InteractionContextType.BotDM)).toBe(true);
+    expect((slashCommands("guild") as { contexts?: number[] }[]).every((c) => c.contexts === undefined)).toBe(true);
+  });
+
+  it("types a command as the kernel reads it", () => {
+    expect(commandText("mode", "auto")).toBe("/mode auto");
+    expect(commandText("status")).toBe("/status");
+    expect(commandText("rename", "  Taxes  ")).toBe("/rename Taxes");
+  });
+
+  it("answers with a card, saying when a move made in a room moves the DM", () => {
+    expect(commandCard("status", { reply: "Nothing is running." })).toMatchObject({ title: "/status", body: "Nothing is running." });
+    expect(commandCard("new", { reply: "Started", switchedTo: "c9" }, { room: true }).footer).toBe("moves your DMs; this channel stays with its own chat");
+    expect(commandCard("new", { reply: "Started", switchedTo: "c9" }).footer).toBeUndefined();
+    expect(commandCard("tools", { reply: "Opening", opens: "tools" }, { tools: "http://host/#/chats/a" }).body).toContain("[Open the tool scope](http://host/#/chats/a)");
+  });
+
+  it("offers waiting asks by what they do, chosen by number", () => {
+    const ctx: SlashContext = { ...ctxWith(chats), pending: () => [{ id: "12", text: "x" }, { id: "13", text: "y" }] };
+    expect(approvalCompletions(ctx, "", (r) => (r.id === "12" ? "Run rm" : "Post to #general"))).toEqual([
+      { name: "#12 Run rm", value: "12" },
+      { name: "#13 Post to #general", value: "13" },
+    ]);
+    expect(approvalCompletions(ctx, "#13", () => "x").map((c) => c.value)).toEqual(["13"]);
+  });
+
+  it("is the list surfaceCommands gives every surface but the dashboard", () => {
+    expect(surfaceCommands().every((c) => c.where !== "dashboard")).toBe(true);
   });
 });
 
@@ -228,28 +157,5 @@ describe("picking a job for /run", () => {
     expect(jobNamed(ctx, "nothing like it")).toBeUndefined();
     expect(jobNamed(ctx, "")).toBeUndefined();
     expect(jobNamed(ctx, undefined)).toBeUndefined();
-  });
-});
-
-describe("a slash command typed in a bound channel or thread", () => {
-  it("stops the room's chat, not the one the DM points at", () => {
-    const ctx = ctxWith(chats, "a");
-    runCommand(ctx, "stop", undefined, "b");
-    expect(ctx.stopped).toEqual(["b"]);
-    runCommand(ctx, "stop");
-    expect(ctx.stopped).toEqual(["b", "a"]);
-  });
-
-  it("marks the room's chat as the current one in the list", () => {
-    const value = runCommand(ctxWith(chats, "a"), "chats", undefined, "b").card!.fields![0]!.value;
-    expect(value).toContain("→ 3js shooter");
-    expect(value).not.toContain("→ Book CRM");
-  });
-
-  it("says that a move made there moves the DM, not the room", () => {
-    const ctx = ctxWith(chats, "a");
-    expect(runCommand(ctx, "target", "b", "a").card!.footer).toMatch(/moves your DMs; this channel stays with its own chat$/);
-    expect(ctx.pointed).toBe("b");
-    expect(runCommand(ctx, "target", "a").card!.footer).not.toMatch(/moves your DMs/);
   });
 });
