@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { CdpSocket } from "./cdp.js";
 import type { ChromeHost } from "./chrome.js";
@@ -53,7 +53,7 @@ class FakeChrome implements CdpSocket {
         return;
       }
       case "Page.navigate":
-        return reply(String(m.params["url"]).startsWith("bad:") ? { errorText: "net::ERR_INVALID_URL" } : { frameId: "F1" });
+        return reply(String(m.params["url"]).startsWith("https://bad.") ? { errorText: "net::ERR_NAME_NOT_RESOLVED" } : { frameId: "F1" });
       case "Page.getNavigationHistory":
         return reply({ currentIndex: 1, entries: [{ id: 10 }, { id: 11 }] });
       case "Browser.close":
@@ -347,7 +347,10 @@ describe("the owner's tabs, and an agent's second one", () => {
 
     await live.navigate(tab, "https://example.org/a");
     expect(chrome.calls("Page.navigate")[0]).toMatchObject({ params: { url: "https://example.org/a" }, sessionId: `S-${tab}` });
-    await expect(live.navigate(tab, "bad:url")).rejects.toThrow(/ERR_INVALID_URL/);
+    await expect(live.navigate(tab, "https://bad.example/")).rejects.toThrow(/ERR_NAME_NOT_RESOLVED/);
+    // The web only, as for an agent: a tab sent to a file would show it to whoever works in the tab next.
+    for (const url of ["file:///etc/passwd", "javascript:alert(1)", "chrome://settings"]) await expect(live.navigate(tab, url)).rejects.toThrow(/addresses are not opened/);
+    expect(chrome.calls("Page.navigate")).toHaveLength(2);
     await expect(live.navigate("nope", "https://x")).rejects.toThrow(/no such tab/);
 
     // History: at index 1 of 2 entries, back goes, forward has nowhere.
@@ -397,6 +400,19 @@ describe("the owner's tabs, and an agent's second one", () => {
     expect(live.tabOf("c2")).toBe("T3");
   });
 
+  it("takes no tab of another conversation's that the owner holds", async () => {
+    const { live } = setup();
+    const theirs = await live.tabFor("c1");
+    live.hold(theirs, "window-1");
+    expect(() => live.useTab("c2", theirs)).toThrow(/the owner has it now/);
+    expect(live.tabOf("c1")).toBe(theirs);
+    // A tab of no one's the owner holds is still theirs to point an agent at.
+    const owners = await live.openTab("https://example.com");
+    live.hold(owners, "window-1");
+    live.useTab("c2", owners);
+    expect(live.tabOf("c2")).toBe(owners);
+  });
+
   it("closes Chrome and starts it again, dropping every tab and keeping the sign-ins", async () => {
     const { live, chrome, host } = setup();
     await live.tabFor("c1");
@@ -410,6 +426,31 @@ describe("the owner's tabs, and an agent's second one", () => {
     expect(host.starts).toBe(2);
     expect(live.status()).toMatchObject({ attached: true, chrome: "running" });
     expect(live.tabOf("c1")).toBeUndefined();
+  });
+
+  it("hears each event once after a restart, so a dialog is answered once", async () => {
+    const { live, chrome } = setup();
+    await live.tabFor("c1");
+    await live.restart();
+    const tab = await live.tabFor("c1");
+    await (await live.page(tab)).ready();
+    chrome.event("Page.javascriptDialogOpening", { type: "alert", message: "hi" }, `S-${tab}`);
+    await flush();
+    expect(chrome.calls("Page.handleJavaScriptDialog").filter((c) => c.sessionId === `S-${tab}`)).toHaveLength(1);
+  });
+
+  it("starts a cast again on a new session when the tab's session is detached", async () => {
+    const { live, chrome } = setup();
+    const tab = await live.tabFor("c1");
+    const unwatch = live.subscribe(() => undefined, tab);
+    await flush();
+    const casts = chrome.calls("Page.startScreencast").length;
+    expect(casts).toBeGreaterThan(0);
+    chrome.event("Target.detachedFromTarget", { sessionId: `S-${tab}`, targetId: tab });
+    await flush();
+    expect(chrome.calls("Target.attachToTarget").filter((c) => c.params["targetId"] === tab).length).toBe(2);
+    expect(chrome.calls("Page.startScreencast").length).toBe(casts + 1);
+    unwatch();
   });
 
   it("closes Chrome properly when KOS stops, its sign-ins kept first", async () => {
@@ -536,6 +577,68 @@ describe("downloads and idle tabs", () => {
     expect(await live.closeIdle(20 * 60_000, (id) => id === "c2")).toEqual([]);
     expect(await live.closeIdle(20 * 60_000)).toEqual(["T2"]);
     expect(await live.tabFor("c1")).toBe("T3");
+  });
+});
+
+describe("idle tabs the owner is in", () => {
+  it("closes no tab the owner holds or watches, and counts the owner's work in one as use", async () => {
+    const { live, tick } = setup();
+    const held = await live.tabFor("c1");
+    const watched = await live.tabFor("c2");
+    live.hold(held, "window-1");
+    const unwatch = live.subscribe(() => undefined, watched);
+    await flush();
+    tick(25 * 60_000);
+    expect(await live.closeIdle(20 * 60_000)).toEqual([]);
+    // Let go just now: not idle yet.
+    live.release(held, "window-1");
+    unwatch();
+    expect(await live.closeIdle(20 * 60_000)).toEqual([watched]);
+    tick(25 * 60_000);
+    expect(await live.closeIdle(20 * 60_000)).toEqual([held]);
+  });
+});
+
+describe("clearing credential sites' service workers", () => {
+  it("gives up on a list that never goes quiet, leaving the sites uncleared, and attaches meanwhile", async () => {
+    vi.useFakeTimers();
+    try {
+      const chrome = new FakeChrome();
+      const reports: string[] = [];
+      let stream: ReturnType<typeof setInterval> | undefined;
+      const send = chrome.send.bind(chrome);
+      chrome.send = (data: string): void => {
+        const m = JSON.parse(data) as { method: string; sessionId?: string };
+        // A page somewhere registering a worker every 100 ms keeps the list from going quiet.
+        if (m.method === "ServiceWorker.enable") stream = setInterval(() => chrome.event("ServiceWorker.workerRegistrationUpdated", { registrations: [{ scopeURL: "https://shop.example/s/", isDeleted: false }] }, m.sessionId), 100);
+        send(data);
+      };
+      const live = new BrowserLive({
+        config: () => DEFAULT_CONFIG,
+        chrome: fakeHost(),
+        connect: () => {
+          queueMicrotask(() => chrome.onopen?.({}));
+          return chrome;
+        },
+        report: (m) => reports.push(m),
+        workerSites: () => ["shop.example"],
+      });
+      await live.ensure();
+      expect(live.status().attached).toBe(true);
+      let done = false;
+      void live.purgeWorkers([]).then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(done).toBe(true);
+      expect(reports.join("\n")).toMatch(/never went quiet/);
+      // Its own tab is closed, and nothing about the sites says they were cleared.
+      expect(chrome.calls("Target.closeTarget")).toHaveLength(1);
+      expect(chrome.calls("ServiceWorker.unregister")).toHaveLength(0);
+      clearInterval(stream);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

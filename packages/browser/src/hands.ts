@@ -99,6 +99,15 @@ export function fenced(text: string): string {
 }
 
 /**
+ * Where the tab is, or nowhere when the browser does not say: for what is
+ * only told (a heading, a note of where a run went). A check that the tab
+ * is somewhere asks `whereAmI` itself, and fails when it cannot know.
+ */
+export async function whereOrNowhere(page: Pick<Page, "whereAmI">): Promise<{ url: string; title: string }> {
+  return page.whereAmI().catch(() => ({ url: "", title: "" }));
+}
+
+/**
  * The page after a call, as `then` asks: its picture and index, its outline,
  * its text, or nothing. A look whose picture is the one the chat last saw
  * keeps the index and says so in words instead of sending the picture again.
@@ -108,7 +117,7 @@ export async function seeAfter(tab: Tab, then: Then, scope?: string, options: Se
   if (then === "none") return { text: lines(page.takeNotes().join("\n")).trim(), images: [] };
   // Where the tab is, asked beside the look rather than before it: each is a round trip to the tab.
   const heading = async (): Promise<{ head: string; url: string }> => {
-    const where = await page.whereAmI();
+    const where = await whereOrNowhere(page);
     return { head: `${where.title ? `Title: ${where.title}\n` : ""}${where.url ? `URL: ${where.url}\n` : ""}`, url: where.url };
   };
   if (then === "read") {
@@ -240,18 +249,18 @@ export async function act(tab: Tab, steps: Step[], then: Then, signal?: AbortSig
   const { site, ...see } = options;
   const before = site
     ? async (index: number): Promise<string | undefined> => {
-        const here = hostOf((await page.whereAmI()).url);
+        const here = hostOf((await whereOrNowhere(page)).url);
         return here === site ? undefined : leftSite(site, here, index);
       }
     : undefined;
   return page.run(async () => {
     await page.ready();
-    const from = (await page.whereAmI()).url;
+    const from = (await whereOrNowhere(page)).url;
     try {
       const done = await runActions(webSteps(page), steps, { ...(signal ? { signal } : {}), deadlineMs: RUN_MS, ...(before ? { before } : {}) });
       // The look says where the tab ended up; asked separately only when the run does not look.
       const seen = await seeAfter(tab, then, undefined, see);
-      const to = seen.url ?? (await page.whereAmI()).url;
+      const to = seen.url ?? (await whereOrNowhere(page)).url;
       const moved = to && to !== from ? ` Now at ${to}.` : "";
       return { text: `${doneText(done)}${moved}\n${seen.text}`.trim(), images: seen.images };
     } finally {

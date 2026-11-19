@@ -6,7 +6,7 @@ import { controlsOf, HIDDEN_VALUE, holdsValue, indexOf, INDEX_MAX, Refs, secretF
 import { WAIT_FOR_MS, type Step } from "./steps.js";
 import { boxesOf, pixelBoxes, steadyShot, type SecretBoxes } from "./boxes.js";
 import { paintedJpeg } from "./paint.js";
-import { echoPatterns, isDigitSlot, isSecretSlot, keepFilled, unechoed, type FilledValue, type Kin, type SecretSlot, type Taint } from "./taint.js";
+import { echoPatterns, isDigitSlot, isSecretSlot, keepFilled, noSecrets, unechoed, type FilledValue, type Kin, type SecretSlot, type TabSecrets, type Taint } from "./taint.js";
 
 /**
  * One tab's hands.
@@ -116,6 +116,8 @@ export interface PageOptions {
    * page, since which fields hold it is not known here.
    */
   heldElsewhere?: () => HeldElsewhere | undefined;
+  /** What the tab holds of the secrets filled into it, kept by whoever outlives the Page: a Page made again holds the page as the last did. */
+  secrets?: TabSecrets;
 }
 
 /** A tab's hold as the browser that fills reports it (heldElsewhere). */
@@ -194,6 +196,8 @@ const AX_MS = 20_000;
 const INPUT_MS = 10_000;
 /** How much of a page's text, or of a script's answer, is handed back. */
 const READ_MAX = 24_000;
+/** Kinds of dialog note kept for the agent between its calls, at most. */
+const NOTES_MAX = 20;
 /** Embedded frames read into a look, at most. */
 const FRAMES_MAX = 8;
 /** Objects made for one call, released after it. */
@@ -355,7 +359,10 @@ export class Page {
   private answer: { accept: boolean; text?: string } | null = null;
   /** What a drag the page started would carry, while a drag of the hands' is under way. */
   private dragged: unknown;
-  private readonly heard: string[] = [];
+  /** What the agent is to hear on its next call, each note once with how often it came: a page may raise dialogs as fast as they are answered. */
+  private readonly heard: { text: string; times: number; dialog: boolean }[] = [];
+  /** Dialogs' notes past NOTES_MAX kinds since the agent last heard, not kept. */
+  private unheard = 0;
   private crashed = false;
   private prepared: Promise<void> | null = null;
   private queue: Promise<unknown> = Promise.resolve();
@@ -364,14 +371,16 @@ export class Page {
   private stop: AbortSignal | undefined;
   /** Elements resolved for this call, by node, and the document they were resolved in. */
   private objects = { loader: "", ids: new Map<number, string>() };
-  /** The fields of this document a secret was filled into, until it changes. */
-  private taint: Taint | undefined;
   /** The main frame's address now. */
   private url = "";
-  /** Addresses (less their fragment) of documents a secret was filled into: one come back to (back, forward, a reload) may hold it again, as the page restores what was typed. */
-  private readonly taintedUrls = new Set<string>();
-  /** Every value filled in this tab, for as long as the tab lives: a later page may echo one (a GET form's address, a confirmation). */
-  private readonly filled: FilledValue[] = [];
+  /**
+   * What this tab holds of the secrets filled into it: the fields of the
+   * document holding one, the addresses of documents one was in (come back
+   * to by history, the page may restore what was typed), and every value
+   * filled, which a later page may echo (a GET form's address, a
+   * confirmation). For the tab's life, so kept by whoever outlives the Page.
+   */
+  private readonly secrets: TabSecrets;
   /** Masked pictures under way, in turn. */
   private pictures: Promise<unknown> = Promise.resolve();
 
@@ -408,6 +417,7 @@ export class Page {
     this.tick = options.tick ?? (() => performance.now());
     this.putSecret = options.putSecret;
     this.heldElsewhere = options.heldElsewhere ?? (() => undefined);
+    this.secrets = options.secrets ?? noSecrets();
   }
 
   /**
@@ -432,7 +442,7 @@ export class Page {
 
   /** While the owner has the tab, nothing; once they let go, a word that the page may have changed. A Stop ends the wait. */
   private async waitForOwner(stop = this.stop): Promise<void> {
-    if (await this.guard(this.gate(stop), stop)) this.heard.push("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
+    if (await this.guard(this.gate(stop), stop)) this.note("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
   }
 
   /** An event from the tab's session. */
@@ -465,11 +475,19 @@ export class Page {
         }
         break;
       }
+      case "Page.frameDetached": {
+        const frame = String(p["frameId"] ?? "");
+        this.worlds.delete(frame);
+        // Its fields went with it. A page that held only those is still held whole: which of its own may echo them is not known.
+        const taint = this.secrets.taint;
+        if (taint) for (const [node, at] of taint.nodes) if (at === frame) taint.nodes.delete(node);
+        break;
+      }
       case "Page.navigatedWithinDocument":
         if (p["frameId"] === this.mainFrame) {
           this.url = String(p["url"] ?? "");
           // The document keeps its secret at its new address, and history keeps both.
-          if (this.taint && this.taint.loader === this.life.loader) this.taintedUrls.add(urlKey(this.url));
+          if (this.secrets.taint && this.secrets.taint.loader === this.life.loader) this.secrets.urls.add(urlKey(this.url));
         }
         break;
       case "Runtime.executionContextCreated": {
@@ -514,7 +532,18 @@ export class Page {
 
   /** What happened on the page that the agent should hear: dialogs answered, a crash recovered. */
   takeNotes(): string[] {
-    return this.heard.splice(0).map((note) => this.clean(note));
+    const notes = this.heard.splice(0).map(({ text, times }) => this.clean(times > 1 ? `${text} (${times.toLocaleString("en-US")} times)` : text));
+    if (this.unheard) notes.push(`${this.unheard.toLocaleString("en-US")} more dialogs were not kept.`);
+    this.unheard = 0;
+    return notes;
+  }
+
+  /** A note for the agent: once, counted when it comes again; of a dialog's, which a page raises at will, at most NOTES_MAX kinds. */
+  private note(text: string, dialog = false): void {
+    const had = this.heard.find((n) => n.text === text);
+    if (had) had.times++;
+    else if (!dialog || this.heard.filter((n) => n.dialog).length < NOTES_MAX) this.heard.push({ text, times: 1, dialog });
+    else this.unheard++;
   }
 
   /** The tab ready to be driven, and well: a crashed page is loaded again. */
@@ -529,7 +558,7 @@ export class Page {
       const [before, since] = [this.life.loader, this.now()];
       await this.send("Page.reload", {});
       await this.settle(before, since);
-      this.heard.push("The tab had crashed, and was loaded again.");
+      this.note("The tab had crashed, and was loaded again.");
     }
   }
 
@@ -586,10 +615,14 @@ export class Page {
       await this.send("Page.reload", {});
     } else {
       const history = await this.send("Page.getNavigationHistory");
-      const entries = (history["entries"] as { id: number }[] | undefined) ?? [];
+      const entries = (history["entries"] as { id: number; url?: string }[] | undefined) ?? [];
       const at = typeof history["currentIndex"] === "number" ? history["currentIndex"] : -1;
       const entry = entries[at + (where === "back" ? -1 : 1)];
       if (!entry) return false;
+      // History holds what anyone opened in the tab, the owner's file among it: only what goto would open is gone to.
+      const url = entry.url ?? "";
+      if (!opens(url)) throw new Error(`going ${where} is refused: it is not a web page`);
+      if (isDataUrl(url) && this.holding()) throw new Error(`going ${where} to a data: address is refused: ${TAINTED}`);
       await this.send("Page.navigateToHistoryEntry", { entryId: entry.id });
     }
     await this.settle(before, since);
@@ -598,10 +631,18 @@ export class Page {
 
   // Seeing.
 
-  /** Where the tab is and what the page is called. */
+  /**
+   * Where the tab is and what the page is called, as the browser holds them
+   * (its history's current entry), not as a script of the page says: a busy
+   * or hostile page cannot hide where it is. Throws when the browser does not
+   * say, rather than answering nowhere.
+   */
   async whereAmI(): Promise<{ url: string; title: string }> {
-    const where = await this.value<{ url: string; title: string }>(`(${inpage.whereAmI.toString()})()`, 3_000).catch(() => ({ url: "", title: "" }));
-    return { url: this.clean(where.url), title: this.clean(where.title) };
+    const history = await this.send("Page.getNavigationHistory", {}, 3_000);
+    const entries = (history["entries"] as { url?: string; title?: string }[] | undefined) ?? [];
+    const entry = typeof history["currentIndex"] === "number" ? entries[history["currentIndex"]] : undefined;
+    if (typeof entry?.url !== "string") throw new Error("the browser did not say where the tab is");
+    return { url: this.clean(entry.url), title: this.clean(entry.title ?? "") };
   }
 
   /** What can be acted on, each with its ref; `scope` limits it to the part of the page a CSS selector names. */
@@ -674,7 +715,7 @@ export class Page {
       this.scripted.mark(after.loader);
       throw new Error("the page loaded another document while the script ran, so its answer is withheld; look at the page again");
     }
-    if (answer["exceptionDetails"]) throw new Error(`the script threw: ${this.clean(exceptionText(answer["exceptionDetails"]))}`);
+    if (answer["exceptionDetails"]) throw new Error(`the script threw: ${this.thrown(answer["exceptionDetails"])}`);
     const result = answer["result"] as { type?: string; value?: unknown; description?: string } | undefined;
     if (!result || result.type === "undefined") return "undefined";
     // Cleaned whole, then cut: a value cut in half would not be found.
@@ -742,7 +783,7 @@ export class Page {
     }
     if ("press" in step) {
       const press = parseKeys(step.press);
-      if (await this.copiesSecret(press)) throw new Error(`${step.press} is refused: ${TAINTED}`);
+      if (await this.keyRefused(press)) throw new Error(`${step.press} is refused: ${TAINTED}`);
       await this.acting(() => this.key(press), typed);
       return `pressed ${step.press}`;
     }
@@ -827,10 +868,10 @@ export class Page {
     // Marked before it goes in: a field that took part of it holds a secret too, and so may the page.
     if (secret) {
       await this.callIn(frame, node, inpage.taint);
-      if (this.taint?.loader !== this.life.loader) this.taint = { loader: this.life.loader, nodes: new Map() };
-      this.taint.nodes.set(node, frame);
-      this.taintedUrls.add(urlKey(this.url));
-      for (const values of [this.filled, this.kin()?.values]) if (values) keepFilled(values, { text: value, digits, origins: [...new Set([origin, frameOrigin])] });
+      const taint = this.secrets.taint?.loader === this.life.loader ? this.secrets.taint : (this.secrets.taint = { loader: this.life.loader, nodes: new Map() });
+      taint.nodes.set(node, frame);
+      this.secrets.urls.add(urlKey(this.url));
+      for (const values of [this.secrets.filled, this.kin()?.values]) if (values) keepFilled(values, { text: value, digits, origins: [...new Set([origin, frameOrigin])] });
     }
     // A browser that puts it in itself checks all this again on its side, and the field's holding it.
     const put = this.putSecret;
@@ -883,12 +924,13 @@ export class Page {
 
   /** The secrets filled into this document, if any: a new document has none. */
   private tainted(): Taint | undefined {
-    if (this.taint && this.taint.loader !== this.life.loader) this.taint = undefined;
-    if (this.taint) return this.taint;
+    // A Page not yet ready does not know its document: what the tab held is held until it does.
+    if (this.secrets.taint && this.life.loader && this.secrets.taint.loader !== this.life.loader) this.secrets.taint = undefined;
+    if (this.secrets.taint) return this.secrets.taint;
     // A document a secret was in, come back to, or one the browser says was filled before this Page: which fields hold it is not known, so the whole page is held to.
     const elsewhere = this.heldElsewhere();
     const before = elsewhere !== undefined && ((elsewhere.loader !== "" && elsewhere.loader === this.life.loader) || elsewhere.urls.includes(urlKey(this.url)));
-    return before || this.taintedUrls.has(urlKey(this.url)) ? { loader: this.life.loader, nodes: new Map() } : undefined;
+    return before || this.secrets.urls.has(urlKey(this.url)) ? { loader: this.life.loader, nodes: new Map() } : undefined;
   }
 
   /** Whether a field may hold a secret KOS filled: one it filled, or any on a page a secret was in come back to, where which is not known. */
@@ -909,13 +951,13 @@ export class Page {
 
   /** Every value filled in this tab or any it shares its secrets with, and every saved one: what is cleaned out of what KOS reads back, in the host. */
   private values(): FilledValue[] {
-    return merged(this.filled, this.kin()?.values ?? [], this.saved());
+    return merged(this.secrets.filled, this.kin()?.values ?? [], this.saved());
   }
 
   /** The values a page on these origins may be sent to mask: those filled in this tab or its kin on one of them, and the saved ones for its site. */
   private pageValues(origins: readonly string[]): FilledValue[] {
     const here = (v: FilledValue): boolean => v.origins === undefined || v.origins.some((o) => origins.includes(o));
-    return merged(this.filled.filter(here), (this.kin()?.values ?? []).filter(here), this.savedFor(origins));
+    return merged(this.secrets.filled.filter(here), (this.kin()?.values ?? []).filter(here), this.savedFor(origins));
   }
 
   /** The main frame's document as one answer of the browser has it: its frame, its loader, and every frame with its origin. */
@@ -944,6 +986,11 @@ export class Page {
     return new Map(this.contexts);
   }
 
+  /** What a script in the page threw, which the page wrote, cleaned as its words are. */
+  private thrown(details: unknown): string {
+    return this.clean(exceptionText(details));
+  }
+
   /** Text read from the page with every secret filled into it said as hidden, where the page echoes one. */
   private clean(text: string): string {
     const values = this.values();
@@ -960,25 +1007,48 @@ export class Page {
   }
 
   /**
-   * Whether a key would carry a secret out of its field: a copy, a cut, a
-   * select-all or a paste key (keys.copyKey), or any editing command, aimed
-   * at a field holding one (the one with the keyboard in a frame KOS
-   * filled). On a page a secret was in come back to, no field is known, so
-   * any of them anywhere.
+   * Whether a key would carry a secret out of its field or change it in
+   * place: a copy, a cut, a select-all or a paste key (keys.copyKey), any
+   * editing command, a key that types a character, or a delete, aimed at a
+   * field holding one (the one with the keyboard in a frame KOS filled). A
+   * page that echoes its field would then show a value cleaning no longer
+   * finds. Enter, which sends the form, is no edit. On a page a secret was in
+   * come back to, no field is known, so a copy key anywhere, while typing is
+   * left as typing a step is.
    */
-  private async copiesSecret(press: KeyPress): Promise<boolean> {
+  private async keyRefused(press: KeyPress): Promise<boolean> {
     const taint = this.tainted();
-    if (!taint || !(copyKey(press.key, press.code, press.keyCode, press.modifiers, press.commands) || press.commands?.length)) return false;
-    if (taint.nodes.size === 0) return true;
-    for (const frame of new Set(taint.nodes.values())) {
+    const carries = copyKey(press.key, press.code, press.keyCode, press.modifiers, press.commands) || (press.commands?.length ?? 0) > 0;
+    const edits = (press.text !== undefined && press.key !== "Enter") || press.key === "Backspace" || press.key === "Delete";
+    if (!taint || !(carries || edits)) return false;
+    if (taint.nodes.size === 0) return carries;
+    const focused = await this.keyboardAt();
+    // Where the keyboard is cannot be told: a copy is refused, as it could carry the secret; a key that types is let be.
+    if (focused === "unknown") return carries;
+    return focused !== undefined && taint.nodes.has(focused);
+  }
+
+  /**
+   * The element a key goes to, followed down from the main frame: the
+   * focused element in each frame, into the frame it is, if it is one. A
+   * frame keeps its own focused element after the keyboard leaves it, so
+   * only the chain from the top says where a key lands. Unknown where a
+   * frame on the way has no world of KOS's own (another process's).
+   */
+  private async keyboardAt(): Promise<number | undefined | "unknown"> {
+    let frame = this.mainFrame;
+    for (let depth = 0; depth <= FRAMES_MAX; depth++) {
       const context = await this.world(frame);
-      // A frame KOS cannot look into is taken to have the field focused.
-      if (context === undefined) return true;
+      if (context === undefined) return "unknown";
       const got = await this.send("Runtime.evaluate", { expression: `(${inpage.focusedHere.toString()})()`, contextId: context, objectGroup: GROUP });
       const objectId = (got["result"] as { objectId?: string } | undefined)?.objectId;
-      if (objectId && taint.nodes.has(await this.backendOf(objectId))) return true;
+      if (!objectId) return undefined;
+      const node = (await this.send("DOM.describeNode", { objectId }))["node"] as { backendNodeId?: number; frameId?: string } | undefined;
+      if (node?.backendNodeId === undefined) return "unknown";
+      if (!node.frameId) return node.backendNodeId;
+      frame = node.frameId;
     }
-    return false;
+    return "unknown";
   }
 
   /** The element a ref from this document's last look names. */
@@ -1081,7 +1151,7 @@ export class Page {
       }
       const left = end() - this.now();
       if (left <= 0) {
-        if (this.requesting(since) === "started" && !this.heard.includes(STILL_LOADING)) this.heard.push(STILL_LOADING);
+        if (this.requesting(since) === "started" && !this.heard.some((n) => n.text === STILL_LOADING)) this.note(STILL_LOADING);
         return;
       }
       const socket = this.socketAt;
@@ -1270,7 +1340,7 @@ export class Page {
     const [before, since] = [this.life.loader, this.now()];
     const got = await this.call<{ picked?: string[]; error?: string; options?: string[] }>(node, inpage.selectOptions, [{ value: values }]);
     if (got.error === "not-select") throw new Error(`${label} is not a list box (<select>); click it, then click the option`);
-    if (!got.picked?.length) throw new Error(`${label} has no option ${values.map((v) => JSON.stringify(v)).join(" or ")}; it has ${(got.options ?? []).join(", ")}`);
+    if (!got.picked?.length) throw new Error(`${label} has no option ${values.map((v) => JSON.stringify(v)).join(" or ")}; it has ${this.clean((got.options ?? []).join(", "))}`);
     await this.settle(before, since);
     return got.picked;
   }
@@ -1328,7 +1398,7 @@ export class Page {
     const byText = textSelector(target);
     const expression = byText ? `(${inpage.byText.toString()})(${JSON.stringify(byText.base)}, ${JSON.stringify(byText.text)})` : `document.querySelector(${JSON.stringify(target)})`;
     const found = await this.send("Runtime.evaluate", { expression, objectGroup: GROUP }, EVAL_MS);
-    if (found["exceptionDetails"]) throw new Error(`${target} is not a selector I can use: ${exceptionText(found["exceptionDetails"])}`);
+    if (found["exceptionDetails"]) throw new Error(`${target} is not a selector I can use: ${this.thrown(found["exceptionDetails"])}`);
     const objectId = (found["result"] as { objectId?: string } | undefined)?.objectId;
     if (!objectId) throw new Error(`nothing on the page matches ${target}`);
     return this.backendOf(objectId);
@@ -1361,7 +1431,7 @@ export class Page {
       { objectId, functionDeclaration: fn.toString(), arguments: args, returnByValue: true, awaitPromise: true },
       EVAL_MS,
     );
-    if (answer["exceptionDetails"]) throw new Error(exceptionText(answer["exceptionDetails"]));
+    if (answer["exceptionDetails"]) throw new Error(this.thrown(answer["exceptionDetails"]));
     return (answer["result"] as { value?: T } | undefined)?.value as T;
   }
 
@@ -1376,7 +1446,7 @@ export class Page {
   /** An expression in the page, its answer by value. */
   private async value<T>(expression: string, timeoutMs = EVAL_MS): Promise<T> {
     const answer = await this.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
-    if (answer["exceptionDetails"]) throw new Error(exceptionText(answer["exceptionDetails"]));
+    if (answer["exceptionDetails"]) throw new Error(this.thrown(answer["exceptionDetails"]));
     return (answer["result"] as { value?: T } | undefined)?.value as T;
   }
 
@@ -1412,7 +1482,7 @@ export class Page {
     const centred = await this.point(node, label);
     if ((await this.blocker(node, centred)) === undefined) return centred;
     for (const spot of await this.spots(node)) if ((await this.blocker(node, spot)) === undefined) return spot;
-    const what = await this.call<string>(first, inpage.describe).catch(() => "something");
+    const what = this.clean(await this.call<string>(first, inpage.describe).catch(() => "something"));
     throw new Error(`${label} is covered by ${what} @${this.refs.refOf(first)}; close or answer that first`);
   }
 
@@ -1575,8 +1645,8 @@ export class Page {
       throw err;
     }
     if (answer["exceptionDetails"]) {
-      if (scope) throw new Error(`${scope} is not a selector I can use: ${exceptionText(answer["exceptionDetails"])}`);
-      throw new Error(`the page could not be read: ${exceptionText(answer["exceptionDetails"])}`);
+      if (scope) throw new Error(`${scope} is not a selector I can use: ${this.thrown(answer["exceptionDetails"])}`);
+      throw new Error(`the page could not be read: ${this.thrown(answer["exceptionDetails"])}`);
     }
     const objectId = (answer["result"] as { objectId?: string } | undefined)?.objectId;
     const props = objectId ? await this.send("Runtime.getProperties", { objectId, ownProperties: true }) : {};
@@ -1690,7 +1760,7 @@ export class Page {
   /** Every node inside what a selector names, through shadow roots and frames. */
   private async scopeNodes(scope: string): Promise<Set<number>> {
     const found = await this.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(scope)})`, objectGroup: GROUP }, EVAL_MS);
-    if (found["exceptionDetails"]) throw new Error(`${scope} is not a selector I can use: ${exceptionText(found["exceptionDetails"])}`);
+    if (found["exceptionDetails"]) throw new Error(`${scope} is not a selector I can use: ${this.thrown(found["exceptionDetails"])}`);
     const objectId = (found["result"] as { objectId?: string } | undefined)?.objectId;
     if (!objectId) throw new Error(`nothing on the page matches ${scope}`);
     const described = await this.send("DOM.describeNode", { objectId, depth: -1, pierce: true });
@@ -1716,7 +1786,7 @@ export class Page {
       .catch(() => undefined);
     const said = message ? ` said ${JSON.stringify(message.length > 200 ? `${message.slice(0, 199)}…` : message)}` : " opened";
     const how = type === "alert" ? "was closed" : chosen.accept ? "was accepted" : `was dismissed; {dialog: "accept"} before the step that opens it accepts it`;
-    this.heard.push(`A ${type === "beforeunload" ? "leave-this-page" : type} dialog${said}, and ${how}.`);
+    this.note(`A ${type === "beforeunload" ? "leave-this-page" : type} dialog${said}, and ${how}.`, true);
   }
 
   /** Until `ok`, or `ms` has gone (false); a Stop ends it at once. */
@@ -1744,6 +1814,15 @@ function merged(...lists: (readonly FilledValue[])[]): FilledValue[] {
   const out: FilledValue[] = [];
   for (const list of lists) for (const v of list) if (!out.some((had) => had.text === v.text)) out.push(v);
   return out;
+}
+
+/** Whether goto would open a url as it is. */
+function opens(url: string): boolean {
+  try {
+    return urlFor(url) === url;
+  } catch {
+    return false;
+  }
 }
 
 /** An address as a document is known by in history: less its fragment. */
