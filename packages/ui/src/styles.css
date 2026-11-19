@@ -8125,7 +8125,7 @@ img.ov-shape { object-fit: fill; }
 .secret-reveal-row { display: flex; align-items: flex-end; gap: 0.5rem; }
 .secret-reveal-row > .kos-field { flex: 1; min-width: 0; }
 .secret-revealed { display: flex; flex-direction: column; gap: 0.5rem; }
-.secret-revealed-value { display: block; padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); font-family: var(--mono); font-size: var(--text-base); word-break: break-all; user-select: all; }
+.secret-revealed-value { display: block; padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); font-family: var(--mono); font-size: var(--text-base); white-space: pre-wrap; word-break: break-all; user-select: all; }
 .secret-revealed-acts { display: flex; align-items: center; gap: 0.5rem; }
 .secret-revealed-acts .secret-line-meta { margin-right: auto; }
 .secret-foot-end { margin-left: auto; }

@@ -198,8 +198,9 @@ export function detectSecret(text: string): FoundSecret | null {
     re.lastIndex = 0;
     if (m) found.push({ kind: "apikey", field: "token", what, value: m[0], start: m.index, end: m.index + m[0].length });
   }
-  const pw = /\bpass(?:word|wd)\s*[:=]\s*(\S+)/i.exec(text);
-  if (pw) found.push({ kind: "login", field: "password", what: "a password", value: pw[1]!, start: pw.index, end: pw.index + pw[0].length });
+  // A sentence's own punctuation after it ("password: hunter2.") is not the password's.
+  const pw = /\bpass(?:word|wd)\s*[:=]\s*(\S+?)[.,;:!?)\]"']*(?=\s|$)/i.exec(text);
+  if (pw) found.push({ kind: "login", field: "password", what: "a password", value: pw[1]!, start: pw.index, end: pw.index + pw[0].lastIndexOf(pw[1]!) + pw[1]!.length });
   found.sort((a, b) => a.start - b.start);
   return found[0] ?? null;
 }

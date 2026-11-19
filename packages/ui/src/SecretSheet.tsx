@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 
-import { Chips, Empty, Field, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, takeSecretValues, type Tone } from "@kos/kit";
+import { Chips, Countdown, Empty, Field, hintWords, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, takeSecretValues, type Tone } from "@kos/kit";
 
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
@@ -27,7 +27,8 @@ export interface SecretSeed {
   value: string;
 }
 
-export type SecretSheetMode = { kind: "add"; seed?: SecretSeed } | { kind: "edit"; secret: SecretSummary };
+/** `takeSeed` hands over what to start a new secret with, once: the opener gives it up as it is taken. */
+export type SecretSheetMode = { kind: "add"; takeSeed?: () => SecretSeed | null } | { kind: "edit"; secret: SecretSummary };
 
 const FORM_ID = "secret-form";
 /** How long a revealed value stays on screen. */
@@ -110,7 +111,13 @@ export function SecretSheet({
 
 function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheetMode; status: VaultStatus | null; conversations: readonly { id: string; title: string }[]; onSaved: (secret: SecretSummary | { handle: string }) => void }): ReactElement {
   const editing = mode.kind === "edit" ? mode.secret : null;
-  const seed = mode.kind === "add" ? mode.seed : undefined;
+  // Taken once, on the first render, and let go once the fields have it.
+  const seedRef = useRef<SecretSeed | null | undefined>(undefined);
+  if (seedRef.current === undefined) seedRef.current = (mode.kind === "add" ? mode.takeSeed?.() : null) ?? null;
+  const seed = seedRef.current;
+  useEffect(() => {
+    seedRef.current = null;
+  }, []);
   const readOnly = editing?.source === "env";
   const [summary, setSummary] = useState<SecretSummary | null>(editing);
   const [label, setLabel] = useState(editing?.label ?? "");
@@ -153,8 +160,11 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
   };
 
   const set = (field: SecretFieldName): boolean => editing?.fields.includes(field) ?? false;
-  const hintFor = (field: SecretFieldName): string | undefined => (editing && field === editing.fields.find((f) => MAIN.has(f)) ? editing.hint : undefined);
-  const seedFor = (field: SecretFieldName): string | undefined => (seed && seed.kind === kind && seed.field === field ? seed.value : undefined);
+  const hintFor = (field: SecretFieldName): string | undefined => (editing && field === editing.fields.find((f) => MAIN.has(f)) ? hintWords(editing.hint) : undefined);
+  const seedFor = (field: SecretFieldName): string | undefined => {
+    const now = seedRef.current;
+    return now && now.kind === kind && now.field === field ? now.value : undefined;
+  };
   const field = (name: SecretFieldName, extra: { plain?: boolean; multiline?: boolean; required?: boolean; inputMode?: "numeric"; placeholder?: string } = {}): ReactElement => {
     const s = seedFor(name);
     const h = hintFor(name);
@@ -210,7 +220,7 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
                 <SecretField key={p.key} label={p.label} name={`billing.${p.key}`} plain disabled={readOnly} {...(set("billing") ? { placeholder: "Unchanged" } : {})} />
               ))}
             </div>
-            {set("billing") && <p className="hint secret-section-hint">Fill every part to replace the address.</p>}
+            {set("billing") && <p className="hint secret-section-hint">Leave it blank to keep the address. Parts you type replace those parts; the rest are kept.</p>}
           </Section>
         )}
 
@@ -400,14 +410,16 @@ function Uses({ handle }: { handle: string }): ReactElement {
  * is written into the page directly and wiped, never kept in state.
  */
 function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus | null }): ReactElement {
-  const fields = secret.fields.filter((f) => f !== "billing");
-  const [field, setField] = useState<SecretFieldName>(fields.find((f) => MAIN.has(f)) ?? fields[0] ?? "password");
+  const fields = secret.fields.filter((f): f is Exclude<SecretFieldName, "billing"> => f !== "billing");
+  const [field, setField] = useState<Exclude<SecretFieldName, "billing">>(fields.find((f) => MAIN.has(f)) ?? fields[0] ?? "password");
   const [until, setUntil] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
   const out = useRef<HTMLElement>(null);
   const value = useRef("");
+  const copied = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const live = useRef(true);
   const byPassphrase = status?.slots.includes("passphrase") ?? false;
 
   const clear = (): void => {
@@ -415,10 +427,20 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
     if (out.current) out.current.textContent = "";
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
+    // What was copied goes with it, while the page can still write the clipboard.
+    if (copied.current && document.hasFocus()) void navigator.clipboard.writeText("").catch(() => undefined);
+    copied.current = false;
+    if (!live.current) return;
     setUntil(null);
-    setCopied(false);
+    setCopy("idle");
   };
-  useEffect(() => clear, []);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+      clear();
+    };
+  }, []);
 
   const reveal = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
@@ -430,13 +452,14 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
     setError(null);
     try {
       const shown = await secretsApi.reveal(secret.handle, field, byPassphrase ? { passphrase: proof } : { label: proof });
+      // The sheet closed while it was asked for: the answer is dropped, not drawn.
+      if (!live.current) return;
       clear();
-      // Billing is not offered here, so the answer is a string; an address would be read as its lines.
-      value.current = typeof shown === "string" ? shown : Object.values(shown).filter(Boolean).join("\n");
+      value.current = shown;
       setUntil(Date.now() + REVEAL_MS);
       timer.current = setTimeout(clear, REVEAL_MS);
     } catch (err) {
-      setError(refusal(err));
+      if (live.current) setError(refusal(err));
     }
   };
   // Written once the box is drawn, so the value goes from the answer to the page and nowhere else.
@@ -450,17 +473,24 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
         <div className="secret-revealed">
           <code ref={out} className="secret-revealed-value" aria-label={`${FIELD_LABEL[field]}, shown for 30 seconds`} />
           <div className="secret-revealed-acts">
-            <span className="secret-line-meta">Hidden again in 30 s</span>
+            <span className="secret-line-meta">
+              <Countdown until={until} lead="Hidden in" />
+            </span>
+            {copy === "failed" && <span className="field-error">Could not copy</span>}
             <button
               type="button"
               className="btn btn--sm"
               onClick={() =>
-                void navigator.clipboard.writeText(value.current).then(() => {
-                  setCopied(true);
-                })
+                void navigator.clipboard.writeText(value.current).then(
+                  () => {
+                    copied.current = true;
+                    if (live.current) setCopy("copied");
+                  },
+                  () => live.current && setCopy("failed"),
+                )
               }
             >
-              {copied ? "Copied" : "Copy"}
+              {copy === "copied" ? "Copied" : "Copy"}
             </button>
             <button type="button" className="btn btn--sm btn--ghost" onClick={clear}>
               Hide

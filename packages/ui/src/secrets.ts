@@ -55,8 +55,9 @@ export const secretsApi = {
   remove: (handle: string) => call<{ ok: true }>("DELETE", at(handle)),
   revokeGrant: (handle: string, origin: string) => call<SecretSummary>("DELETE", `${at(handle)}/grants/${encodeURIComponent(origin)}`),
   uses: (handle: string, limit = 50) => call<{ uses: SecretUseRow[] }>("GET", `${at(handle)}/uses?limit=${limit}`).then((r) => r.uses),
-  reveal: (handle: string, field: SecretFieldName, proof: { passphrase: string } | { label: string }) =>
-    call<{ value: string | SecretBilling }>("POST", `${at(handle)}/reveal`, { field, ...proof }).then((r) => r.value),
+  /** A field's value; billing (which answers with an address) is not revealed here. */
+  reveal: (handle: string, field: Exclude<SecretFieldName, "billing">, proof: { passphrase: string } | { label: string }) =>
+    call<{ value: string }>("POST", `${at(handle)}/reveal`, { field, ...proof }).then((r) => r.value),
   rotate: () => call<VaultStatus>("POST", "/api/secrets/rotate"),
   /** Add or change the passphrase (`passphrase` given), or remove it; `current` when the vault has one. */
   passphrase: (change: { current?: string; passphrase?: string }) => call<VaultStatus>("POST", "/api/secrets/passphrase", change),
