@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { asked, EMPTY, givenBack, isCommand, sent, shown, statused, storyStep } from "./chat.js";
+import { asked, EMPTY, givenBack, givenBackAsk, isCommand, sent, shown, statused, storyStep } from "./chat.js";
 
 /** KOS's acknowledgement of words, as the host sends it: a chat not yet made is null, and it says whether they were a command. */
 const taken = (said: string, conversation: string | null): Record<string, unknown> => ({ chat: conversation, conversation, held: false, said, taken: true, command: isCommand(said) });
@@ -194,5 +194,16 @@ describe("the side panel's chat", () => {
     expect(c.working).toBe(true);
     c = shown(c, { conversation: "c1", title: "Chat", messages: [you("go"), kos("Done.")] });
     expect(c).toMatchObject({ working: false, sending: [], stories: [] });
+  });
+});
+
+describe("an ask given back", () => {
+  const ask = { id: "9", tool: "secrets.fill", title: "Fill a one-time code you type on this card" };
+  it("comes back once, with nothing running for it", () => {
+    const back = givenBackAsk({ ...EMPTY, working: true }, ask);
+    expect(back.asks).toEqual([ask]);
+    expect(back.working).toBe(false);
+    expect(givenBackAsk(back, ask)).toBe(back);
+    expect(givenBackAsk(EMPTY, undefined)).toBe(EMPTY);
   });
 });

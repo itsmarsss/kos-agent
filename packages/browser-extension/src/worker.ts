@@ -5,7 +5,7 @@ import { ENDED_KEY, HELD_KEY, afterRestart, endedFor, endedWords, helloSession, 
 import { forgetKeys, keepKeys, keysFor, newKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
-import { WAITING_KEY, due, lapsed, queued, readWaiting, stopWith, type WaitingEvent } from "./waiting.js";
+import { WAITING_KEY, due, lapsed, queued, readWaiting, stopWith, withCode, type WaitingEvent } from "./waiting.js";
 import { note, recent, saveLog } from "./log.js";
 import { iconPixels } from "./icon.js";
 import { CURSOR } from "./cursorlook.js";
@@ -1783,8 +1783,10 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       // A one-time code goes to KOS now or not at all: never kept in storage to wait for the line.
       if (code !== undefined) {
         const link = links.get(panel.kos);
-        if (link?.online) link.event("chat.decide", { ...decision, code });
-        else note("chat.decide with a one-time code from the side panel was not sent: KOS's line is down");
+        const went = withCode(link?.online === true, decision, code);
+        if ("send" in went) return void link!.event("chat.decide", went.send);
+        note("chat.decide with a one-time code from the side panel was not sent: KOS's line is down");
+        panel.port.postMessage(went.unsent);
         return;
       }
       fromOwner(panel.kos, "chat.decide", decision);
