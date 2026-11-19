@@ -1,10 +1,11 @@
-import { useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { Chips, CloseIcon, Count, EditIcon, Empty, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
 import { useEdgeFade } from "./edgefade.js";
+import { useHashParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
 import { ConfirmButton } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
@@ -165,6 +166,11 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
   const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);
   const [only, setOnly] = useState(() => idsInHash(window.location.hash));
+  // Named again from outside (a search hit while the page is open): the list follows the address.
+  const [ids] = useHashParam("ids");
+  useEffect(() => {
+    if (ids !== undefined) setOnly(idsInHash(window.location.hash));
+  }, [ids]);
   /** Scopes opened past their first few. */
   const [whole, setWhole] = useState<ReadonlySet<string>>(() => new Set());
   /** The entry being read in full, which is where its actions live too. */

@@ -152,6 +152,20 @@ export class AuditLog {
     return rows.map(toRecord);
   }
 
+  /**
+   * Calls whose tool or arguments hold `term`, newest first: the palette's
+   * search of what KOS did. Any case for ASCII, as SQLite lowers only that;
+   * instr rather than LIKE, for the reason `touching` gives.
+   */
+  search(term: string, limit = 20): AuditRecord[] {
+    const needle = term.trim().toLowerCase();
+    if (needle === "") return [];
+    const rows = this.db
+      .prepare(`SELECT * FROM audit_log WHERE instr(lower(tool), ?) > 0 OR instr(lower(args), ?) > 0 ORDER BY id DESC LIMIT ?`)
+      .all(needle, needle, limit) as Row[];
+    return rows.map(toRecord);
+  }
+
   recent(limit = 50): AuditRecord[] {
     const rows = this.db
       .prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT ?`)

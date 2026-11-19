@@ -9,7 +9,7 @@ import { basename, dirname, extname, join, normalize, relative, resolve, sep } f
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { askView, isExportFormat, outlineOf, parseChatMode, stepMechanics, summarizeAction, usesSecret, type AskView, type ChatMode, type WidgetOutline } from "@kos/shared";
+import { askView, isExportFormat, isSearchKind, outlineOf, parseChatMode, stepMechanics, summarizeAction, usesSecret, type AskView, type ChatMode, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -47,6 +47,7 @@ import {
   parseModelSettings,
 } from "../models/settings.js";
 import { historyEvents, type ChatEvent } from "./transcript.js";
+import { kernelSources, SEARCH_LIMIT, searchAll } from "./search.js";
 import { isUndone } from "./guarded.js";
 import { defaultFilesDeps, handleFilesRoute } from "./filesroutes.js";
 import { copyEntry, dispositionOf, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
@@ -1512,6 +1513,12 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/runs") {
+    // One run by its id, for a search hit that opens it.
+    const one = queryParams(req.url).get("id");
+    if (one !== null) {
+      const run = kernel.runs.get(Number(one));
+      return run ? ok([run]) : { status: 404, body: { error: "no such run" } };
+    }
     const limit = clampLimit(queryParams(req.url).get("limit"), 100);
     const onlyFailed = queryParams(req.url).get("failed") === "1";
     return ok(
@@ -2963,6 +2970,17 @@ export async function handleApiRequest(
       mentions: mentionsOf(kernel, params.get("q") ?? "", clampLimit(params.get("limit"), 12), params.get("kind") ?? undefined, project),
       commands: CHAT_COMMANDS,
     });
+  }
+
+  /**
+   * Search everything (docs/dashboard.md, the palette): chats' words, files'
+   * text, memory, runs and secrets' names, ranked, each source capped and
+   * all of them answered by one deadline. `kinds` narrows to some.
+   */
+  if (method === "GET" && path === "/api/search") {
+    const params = queryParams(req.url);
+    const kinds = (params.get("kinds") ?? "").split(",").filter(isSearchKind);
+    return ok(await searchAll(kernelSources(kernel), params.get("q") ?? "", { kinds, limit: clampLimit(params.get("limit"), SEARCH_LIMIT) }));
   }
 
   if (method === "GET" && path === "/api/conversations") {
