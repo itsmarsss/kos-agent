@@ -936,8 +936,8 @@ export async function handleApiRequest(
     kernel.settings.set(MODEL_SETTINGS_KEY, settings);
     // Applied in place: the owner changing a model should not have to restart
     // the host to see it take effect.
-    kernel.applyModelSettings(settings);
-    return ok({ saved: settings, routes: kernel.routes() ?? null });
+    const warnings = kernel.applyModelSettings(settings);
+    return ok({ saved: settings, routes: kernel.routes() ?? null, ...(warnings.length ? { warnings } : {}) });
   }
 
   if (method === "GET" && path === "/api/models") {
@@ -1759,7 +1759,7 @@ export async function handleApiRequest(
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
     if (got.kind === "html") return ok({ record: got.record, kind: "html", page: got.page });
-    const { data, errors } = await loadPageData(kernel, got.spec);
+    const { data, errors } = await loadPageData(kernel, got.record.projectSlug, got.spec);
     return ok({ record: got.record, kind: "spec", spec: got.spec, data, errors });
   }
 
@@ -1821,6 +1821,11 @@ export async function handleApiRequest(
       return { status: 400, body: { error: "invalid op" } };
     }
 
+    // Held again now, not only when the page was written: a spec on disk can name any table.
+    const slug = page.record.projectSlug;
+    if (slug === null || !kernel.pages.specMayWrite(slug, target.table)) {
+      return { status: 403, body: { error: `"${target.table}" is not a table of this page's project` } };
+    }
     try {
       return ok(executeMutation(kernel.workspace.db, target, edit));
     } catch (err) {
@@ -2245,8 +2250,11 @@ export async function handleApiRequest(
       name,
       ...(timezone ? { timezone } : {}),
     };
+    const moved = next.timezone !== kernel.profile.timezone;
     saveProfile(kernel.workspace, next);
     Object.assign(kernel.profile, next);
+    // Every schedule is read in the profile's timezone, so a new one re-registers them all.
+    if (moved) kernel.reloadCron();
     return ok({ profile: next });
   }
 
@@ -3171,7 +3179,13 @@ export async function handleApiRequest(
   /** Read everything new now, whatever the toggle says: the owner asked. */
   if (method === "POST" && path === "/api/memory/extract") {
     if (kernel.extractor.busy) return { status: 409, body: { error: "the extractor is already running" } };
-    const report = await kernel.extractMemory();
+    let report: Awaited<ReturnType<typeof kernel.extractMemory>>;
+    try {
+      report = await kernel.extractMemory();
+    } catch (err) {
+      // What was read is kept; what could not be is read again next time.
+      return { status: 502, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
     return ok({ ...report, claims: report.claims.map((c) => ({ key: c.key, value: c.value, scope: c.scope, trust: c.trust, replaced: c.supersedes !== null })) });
   }
 
@@ -3509,13 +3523,16 @@ interface PageData {
   errors: Record<number, string>;
 }
 
-async function loadPageData(kernel: Kernel, spec: PageSpec): Promise<PageData> {
+async function loadPageData(kernel: Kernel, projectSlug: string | null, spec: PageSpec): Promise<PageData> {
   const data: PageData["data"] = {};
   const errors: PageData["errors"] = {};
   for (let i = 0; i < spec.widgets.length; i++) {
     const w = spec.widgets[i] as Widget & { query?: string };
     if (typeof w.query === "string" && w.query.trim()) {
       try {
+        // A widget reads its project's tables only, checked as it is drawn: the spec on disk is not trusted to be the one written.
+        if (projectSlug === null) throw new Error("a widget page needs a project to read from");
+        kernel.pages.refuseSpecQuery(projectSlug, w.query);
         data[i] = runDisplayQuery(kernel.workspace.reader, w.query).rows;
       } catch (err) {
         // An empty result and a broken query must not look the same.
