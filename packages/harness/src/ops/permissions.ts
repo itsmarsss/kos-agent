@@ -23,7 +23,7 @@ import { parseTarget } from "../tools/notify.js";
 export interface PermissionRule {
   id: number;
   tool: string;
-  /** `dir:<prefix>`, `host:<name>`, `table:<name>`, or null for tool-wide. */
+  /** `dir:<prefix>`, `file:<root-level file>`, `host:<name>`, `table:<name>`, or null for tool-wide. */
   scope: string | null;
   /** The project slug it applies in, or null for everywhere. */
   project: string | null;
@@ -135,8 +135,13 @@ export function scopeOf(tool: string, input: Record<string, unknown>, context?: 
     return browser.site ? `${browser.yours ? "your-chrome" : "site"}:${browser.site}` : undefined;
   }
   if (tool.startsWith("files.")) {
-    const path = typeof input["path"] === "string" ? input["path"] : typeof input["from"] === "string" ? input["from"] : "";
-    return `dir:${parentDir(placed(path, context))}`;
+    const raw = typeof input["path"] === "string" ? input["path"] : typeof input["from"] === "string" ? input["from"] : "";
+    const path = placed(raw, context).replace(/\\/g, "/").replace(/^(\.?\/)+/, "").replace(/\/+$/, "");
+    // The workspace's root names no rule: a yes there would cover every path in it.
+    if (path === "" || path === ".") return undefined;
+    // A file at the root is kept to itself, never to the root it sits in.
+    const dir = parentDir(path);
+    return dir ? `dir:${dir}` : `file:${path}`;
   }
   if (tool === "http.fetch") {
     const host = typeof input["url"] === "string" ? hostOf(input["url"]) : undefined;
@@ -195,7 +200,8 @@ export function scopeCovers(rule: string | null, call: string | null): boolean {
   if (rule.startsWith("dir:") && call.startsWith("dir:")) {
     const r = rule.slice(4);
     const c = call.slice(4);
-    return c === r || (r === "" ? true : c.startsWith(`${r}/`));
+    // An empty directory is the root, which no rule covers: one kept by an older build matches nothing.
+    return r !== "" && (c === r || c.startsWith(`${r}/`));
   }
   return rule === call;
 }

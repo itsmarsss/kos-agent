@@ -189,7 +189,7 @@ describe("a remembered yes", () => {
   it("says on its button what it covers", () => {
     expect(alwaysWords("your-chrome:shop.example")).toBe("Always allow on shop.example");
     expect(alwaysWords("dir:projects/budget")).toBe("Always allow in projects/budget");
-    expect(alwaysWords("dir:")).toBe("Always allow in the workspace");
+    expect(alwaysWords("file:notes.txt")).toBe("Always allow on notes.txt");
     expect(alwaysWords("cmd:git")).toBe("Always allow git");
     expect(alwaysWords("host:api.example.com")).toBe("Always allow for api.example.com");
     expect(alwaysWords(null)).toBe("Always allow");
@@ -203,6 +203,7 @@ describe("a remembered yes", () => {
       "Approves this, and from now on running git on its own stops asking in the project site. A chain or a pipe still asks. Undo it in Settings, Permissions.",
     );
     expect(alwaysTip({ tool: "files.rm", scope: "dir:notes" })).toBe("Approves this, and from now on files.rm in notes and the folders under it stops asking. Undo it in Settings, Permissions.");
+    expect(alwaysTip({ tool: "files.rm", scope: "file:notes.txt" })).toBe("Approves this, and from now on files.rm on notes.txt, that file alone, stops asking. Undo it in Settings, Permissions.");
     expect(alwaysTip({ tool: "cron.run", scope: null })).toBe("Approves this, and from now on cron.run stops asking, whatever it is given. Undo it in Settings, Permissions.");
   });
 });

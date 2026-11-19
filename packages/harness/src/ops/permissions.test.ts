@@ -59,7 +59,9 @@ describe("naming a call's scope", () => {
     expect(scopeCovers("dir:projects/books", "dir:projects/books")).toBe(true);
     expect(scopeCovers("dir:projects/books", "dir:projects/books/2026")).toBe(true);
     expect(scopeCovers("dir:projects/books", "dir:projects/bookshelf")).toBe(false);
-    expect(scopeCovers("dir:", "dir:anything/at/all")).toBe(true);
+    // A rule for the workspace's root, kept by an older build, covers nothing.
+    expect(scopeCovers("dir:", "dir:anything/at/all")).toBe(false);
+    expect(scopeCovers("dir:", "dir:")).toBe(false);
     expect(scopeCovers("host:a.com", "host:b.com")).toBe(false);
     expect(scopeCovers(null, "host:b.com")).toBe(true);
   });
@@ -77,6 +79,23 @@ describe("remembered decisions", () => {
     expect(s.allows("files.rm", { path: "projects/books/2026/old.md" })).toBe(true);
     expect(s.allows("files.rm", { path: "projects/budget/old.md" })).toBe(false);
     expect(s.allows("files.write", { path: "projects/books/old.md" })).toBe(false);
+  });
+
+  it("keeps a yes for a file at the workspace's root to that file, never the whole workspace", () => {
+    const s = store();
+    expect(scopeOf("files.rm", { path: "notes.txt" })).toBe("file:notes.txt");
+    expect(scopeOf("files.mv", { from: "notes.txt", to: "projects/x.txt" })).toBe("file:notes.txt");
+    // The root itself names no rule, so it always asks.
+    expect(scopeOf("files.rm", { path: "" })).toBeUndefined();
+    expect(scopeOf("files.rm", { path: "/" })).toBeUndefined();
+    expect(s.ruleFor("files.rm", { path: "." }, null)).toBeUndefined();
+    const rule = s.ruleFor("files.rm", { path: "notes.txt" }, null)!;
+    expect(rule.scope).toBe("file:notes.txt");
+    s.add(rule);
+    expect(s.allows("files.rm", { path: "notes.txt" })).toBe(true);
+    expect(s.allows("files.rm", { path: "other.txt" })).toBe(false);
+    expect(s.allows("files.rm", { path: "projects/books/old.md" })).toBe(false);
+    expect(s.allows("files.rm", { path: "projects" })).toBe(false);
   });
 
   it("asks about every skills.commit, after an always as before it", () => {
