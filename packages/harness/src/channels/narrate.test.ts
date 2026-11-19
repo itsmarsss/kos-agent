@@ -24,14 +24,14 @@ describe("narrating a turn", () => {
     expect(n.render()).toBe("Let me look at the folder.\n› List projects/x · 4.0s so far");
     expect(n.ticking()).toBe(true);
     expect(n.take({ kind: "tool-end", conversationId: c, tool: "files.ls", isError: false, ms: 4_200 })).toBe(true);
-    expect(n.render()).toBe("Let me look at the folder.\n› List projects/x · 4.2s");
+    expect(n.render()).toBe("Let me look at the folder.\n› List projects/x · 4.2s (done)");
     expect(n.ticking()).toBe(false);
     n.take({ kind: "delta", conversationId: c, of: "text", text: "Two stale builds. " });
     n.take({ kind: "delta", conversationId: c, of: "text", text: "I'll clear them." });
     n.take({ kind: "tool-start", conversationId: c, tool: "shell.run", summary: "Run: rm -rf build" });
     now += 75_000;
     n.take({ kind: "tool-end", conversationId: c, tool: "shell.run", isError: true });
-    expect(n.render()).toBe("Let me look at the folder.\n› List projects/x · 4.2s\nTwo stale builds. I'll clear them.\n› Run: rm -rf build (failed) · 1m 15s");
+    expect(n.render()).toBe("Let me look at the folder.\n› List projects/x · 4.2s (done)\nTwo stale builds. I'll clear them.\n› Run: rm -rf build · 1m 15s (failed)");
   });
 
   it("says a step waits on the owner, and how long it waited once decided", () => {
@@ -43,7 +43,7 @@ describe("narrating a turn", () => {
     expect(n.ticking()).toBe(false);
     now = 130_000;
     n.take({ kind: "tool-end", conversationId: c, tool: "shell.run", isError: false, ms: 900, waitedMs: 128_000 });
-    expect(n.render()).toBe("› Run: rm -rf build · 0.9s · waited 2m 08s for you");
+    expect(n.render()).toBe("› Run: rm -rf build · waited 2m 08s for you (done)");
   });
 
   it("keeps the newest step's picture", () => {
@@ -59,7 +59,7 @@ describe("narrating a turn", () => {
     n.take({ kind: "tool-start", conversationId: c, tool: "files.read", summary: "Read a" });
     n.take({ kind: "tool-start", conversationId: c, tool: "web.fetch", summary: "Fetch b" });
     n.take({ kind: "tool-end", conversationId: c, tool: "files.read", isError: false, ms: 300 });
-    expect(n.render()).toBe("› Read a · 0.3s\n› Fetch b");
+    expect(n.render()).toBe("› Read a (done)\n› Fetch b");
     // An end with no step of its own running changes nothing.
     expect(n.take({ kind: "tool-end", conversationId: c, tool: "files.read", isError: false })).toBe(false);
   });
@@ -69,9 +69,9 @@ describe("narrating a turn", () => {
     n.take({ kind: "tool-start", conversationId: c, tool: "computer.act", summary: "Open the tab" });
     n.take({ kind: "tool-end", conversationId: c, tool: "computer.act", isError: false, ms: 1_500 });
     expect(n.take({ kind: "fresh", conversationId: c })).toBe(true);
-    expect(n.render()).toBe("› Open the tab · 1.5s\n› Looking again");
+    expect(n.render()).toBe("› Open the tab · 1.5s (done)\n› Looking again");
     n.take({ kind: "tool-start", conversationId: c, tool: "computer.act", summary: "Click Save" });
-    expect(n.render()).toBe("› Open the tab · 1.5s\n› Looking again\n› Click Save");
+    expect(n.render()).toBe("› Open the tab · 1.5s (done)\n› Looking again (done)\n› Click Save");
   });
 
   it("leaves the answer out of the story once the turn is over", () => {
@@ -102,9 +102,10 @@ describe("a short story", () => {
   const steps = (n: number, say = (i: number) => `Step ${i}`): string => Array.from({ length: n }, (_, i) => `› ${say(i + 1)}`).join("\n");
 
   it("folds a run of a step whatever each took, showing the newest one's time", () => {
-    expect(shortStory("› Look · 1.2s\n› Look · 0.8s\n› Look · 3s so far\n› Click (failed) · 0.2s")).toBe("› Look ×3 · 3s so far\n› Click (failed) · 0.2s");
+    expect(shortStory("› Look · 1.2s (done)\n› Look (done)\n› Look · 3s so far\n› Click · 2.0s (failed)")).toBe("› Look ×3 · 3s so far\n› Click (failed) · 2.0s");
+    expect(shortStory("› Click (failed)\n› Click (done)")).toBe("› Click (failed)\n› Click");
     expect(shortStory("› Run · waiting on you")).toBe("› Run · waiting on you");
-    expect(shortStory("› Run · 0.9s · waited 2m 08s for you\n› Run · 1.0s")).toBe("› Run ×2 · 1.0s");
+    expect(shortStory("› Run · waited 2m 08s for you (done)\n› Run · 1.0s (done)")).toBe("› Run ×2 · 1.0s");
   });
 
   it("folds a run of the same step into one line", () => {

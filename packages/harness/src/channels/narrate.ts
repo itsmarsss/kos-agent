@@ -14,7 +14,12 @@ import type { ProgressEvent } from "../kernel/progress.js";
 
 /** Marks a step line, so a surface can set it apart from the agent's words. */
 export const STEP_MARK = "› ";
-/** Ends a step line that failed, before its time. */
+/**
+ * Ends a step line that finished, after its time: KOS for Chrome and KOS for
+ * Mac read the story's lines by these marks, so a line ends with one.
+ */
+export const DONE_MARK = " (done)";
+/** Ends a step line that failed. */
 export const FAILED_MARK = " (failed)";
 /** The step a turn carried on in a fresh query takes first: a look at the screen again. */
 export const LOOKING_AGAIN = "Looking again";
@@ -32,12 +37,16 @@ export function durationWords(ms: number): string {
 
 const DURATION = String.raw`(?:\d+\.\d+s|\d+s|\d+m \d{2}s|\d+h \d{2}m)`;
 /** The time a step line ends with: how long it ran or has run so far, its wait for the owner, or that it waits now. */
-const STEP_TIME = new RegExp(String.raw`(?: · (?:${DURATION}(?: so far)?|${WAITING_ON_YOU}))(?: · waited ${DURATION} for you)?$`);
+const STEP_TIME = new RegExp(String.raw`(?: · (?:${DURATION}(?: so far)?|${WAITING_ON_YOU}))?(?: · waited ${DURATION} for you)?$`);
 
 /** A step line as what it did and when: the time it ends with set apart, so like steps fold whatever each took. */
 export function stepParts(line: string): { what: string; time: string } {
-  const m = STEP_TIME.exec(line);
-  return m ? { what: line.slice(0, m.index), time: m[0] } : { what: line, time: "" };
+  // A failed step stays apart from the same step done: its mark is part of what it did.
+  const failed = line.endsWith(FAILED_MARK);
+  const bare = failed ? line.slice(0, -FAILED_MARK.length) : line;
+  const m = STEP_TIME.exec(bare);
+  const what = m && m[0] ? bare.slice(0, m.index) : bare;
+  return { what: failed ? `${what}${FAILED_MARK}` : what, time: m?.[0] ?? "" };
 }
 
 interface Step {
@@ -139,14 +148,16 @@ export class TurnNarrator {
 
   /** A step as its line: what it does, then how long it took or has taken, and its wait for the owner. */
   private stepLine(step: Step): string {
-    const head = `${STEP_MARK}${step.summary}${step.failed ? FAILED_MARK : ""}`;
+    const head = `${STEP_MARK}${step.summary}`;
     if (step.ms === undefined) {
       if (this.held && step.tool !== "") return `${head} · ${WAITING_ON_YOU}`;
       const so = this.now() - step.startedAt;
       return so >= 1000 && step.tool !== "" ? `${head} · ${durationWords(so)} so far` : head;
     }
+    // Under a second is not worth saying; a wait for the owner always is.
+    const took = step.tool !== "" && step.ms >= 1000 ? ` · ${durationWords(step.ms)}` : "";
     const waited = step.waitedMs !== undefined && step.waitedMs >= 1000 ? ` · waited ${durationWords(step.waitedMs)} for you` : "";
-    return step.tool === "" ? head : `${head} · ${durationWords(step.ms)}${waited}`;
+    return `${head}${took}${waited}${step.failed ? FAILED_MARK : DONE_MARK}`;
   }
 
   private step(summary: string, tool: string, at?: number): void {
@@ -201,7 +212,9 @@ const STEP_LINE_MAX = 160;
 export function shortStory(story: string, keep = KEEP_STEPS): string {
   const cut = story.startsWith("…");
   const lines: { text: string; time: string; times: number; step: boolean }[] = [];
-  for (const line of (cut ? story.slice(1) : story).split("\n")) {
+  for (const told of (cut ? story.slice(1) : story).split("\n")) {
+    // A line redrawn as one message has no room for which steps finished: the last one is the one at work.
+    const line = told.startsWith(STEP_MARK) && told.endsWith(DONE_MARK) ? told.slice(0, -DONE_MARK.length) : told;
     // Folded on what the step did, its whole line before any of it is cut
     // (two fills that share their first hundred and sixty characters are two
     // fills), whatever each took: the time shown is the last one's.

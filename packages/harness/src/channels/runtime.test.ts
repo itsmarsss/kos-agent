@@ -271,8 +271,8 @@ describe("telling the turn's story on a surface with a presence", () => {
     // A step is shown the moment it starts; the text after it waits for the timer; the end keeps the steps.
     expect(adapter.shown).toEqual([
       "Let me look.\n› List x",
-      expect.stringMatching(/^Let me look\.\n› List x · \d\.\ds\nThree files, all fine\.$/),
-      expect.stringMatching(/^Let me look\.\n› List x · \d\.\ds$/),
+      "Let me look.\n› List x (done)\nThree files, all fine.",
+      "Let me look.\n› List x (done)",
     ]);
     expect(adapter.completed).toEqual([{ text: "Three files, all fine." }]);
     expect(tell).toBeUndefined();
@@ -315,7 +315,7 @@ describe("telling the turn's story on a surface with a presence", () => {
     tell!({ kind: "tool-end", conversationId: "c", tool: "browser.act", isError: false, ms: 400, waitedMs: 61_000 });
     tell!({ kind: "turn-end", conversationId: "c" });
     await new Promise((r) => setTimeout(r, 10));
-    expect(adapter.shown.at(-1)).toBe("› Click Pay · 0.4s · waited 1m 01s for you");
+    expect(adapter.shown.at(-1)).toBe("› Click Pay · waited 1m 01s for you (done)");
   });
 
   it("says a message is queued when a turn is already running where it goes, and tells only its own turn's story", async () => {
