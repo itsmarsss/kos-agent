@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import type { SecretSummary, VaultStatus } from "@kos/shared";
-import { Card, Empty, NavIcon, Pill, SecretField, Tag, takeSecretValues } from "@kos/kit";
+import { Card, Empty, hintWords, NavIcon, Pill, SecretField, Tag, takeSecretValues } from "@kos/kit";
 
 import { PageHead } from "./PageHead.js";
 import { agoWords } from "./schedulewords.js";
@@ -119,7 +119,7 @@ function SecretList({ secrets, onOpen, onAdd }: { secrets: SecretSummary[]; onOp
                 {s.source === "env" && <Tag title="Set in the environment; read-only here">From env</Tag>}
               </span>
               <span className="secret-row-detail">
-                {s.hint && <span className="kos-mono">{s.hint}</span>}
+                {s.hint && <span className="kos-mono">{hintWords(s.hint)}</span>}
                 <span>{whereWords(s.use)}</span>
               </span>
             </span>
@@ -131,12 +131,29 @@ function SecretList({ secrets, onOpen, onAdd }: { secrets: SecretSummary[]; onOp
   );
 }
 
+/**
+ * Whether a new passphrase was typed the same twice, read without taking
+ * it from the form; on a mismatch the second is cleared to type again.
+ */
+function typedTwice(form: HTMLFormElement, first: string, again: string): boolean {
+  const a = form.elements.namedItem(first) as HTMLInputElement | null;
+  const b = form.elements.namedItem(again) as HTMLInputElement | null;
+  if (!a || !b || a.value === b.value) return true;
+  b.value = "";
+  b.focus();
+  return false;
+}
+
+const MISMATCH = "The two passphrases do not match. Type it again.";
+
 function InitCard({ onDone }: { onDone: (s: VaultStatus) => void }): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
+    if (!typedTwice(e.currentTarget, "passphrase", "again")) return setError(MISMATCH);
     const { passphrase } = takeSecretValues(e.currentTarget);
+    setError(null);
     setBusy(true);
     try {
       onDone(await secretsApi.init(passphrase));
@@ -153,7 +170,8 @@ function InitCard({ onDone }: { onDone: (s: VaultStatus) => void }): ReactElemen
           Secrets are kept encrypted on this computer, outside the workspace. Without a passphrase, a key file beside the vault opens it when KOS starts. With one, there is no key file: the vault stays locked after each start until you type it, and a forgotten passphrase loses every secret.
         </p>
         <div className="secret-gate-row">
-          <SecretField label="Passphrase (optional)" name="passphrase" />
+          <SecretField label="Passphrase (optional)" name="passphrase" newPassword />
+          <SecretField label="Type it again" name="again" newPassword />
           <button type="submit" className="btn btn--primary" disabled={busy}>
             Create vault
           </button>
@@ -237,6 +255,7 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
   };
 
   const changePassphrase = (form: HTMLFormElement, remove: boolean): void => {
+    if (!remove && !typedTwice(form, "next", "again")) return setError(MISMATCH);
     const { current, next } = takeSecretValues(form);
     if (hasPassphrase && !current) return setError("Type the current passphrase.");
     if (!remove && !next) return setError("Type the new passphrase.");
@@ -284,7 +303,8 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
           </p>
           <div className="secret-gate-row">
             {hasPassphrase && <SecretField label="Current passphrase" name="current" />}
-            <SecretField label={hasPassphrase ? "New passphrase" : "Passphrase"} name="next" />
+            <SecretField label={hasPassphrase ? "New passphrase" : "Passphrase"} name="next" newPassword />
+            <SecretField label="Type it again" name="again" newPassword />
           </div>
           <div className="secret-vault-acts">
             <button type="submit" className="btn btn--primary" disabled={busy}>

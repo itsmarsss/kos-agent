@@ -70,6 +70,7 @@ describe("the Secrets page", () => {
     fireEvent.click(screen.getByText("Create vault"));
     await waitFor(() => expect(calls.some((c) => c.path === "/api/secrets/init")).toBe(true));
     expect(calls.find((c) => c.path === "/api/secrets/init")!.body).toEqual({});
+    expect(screen.getByLabelText(/^Type it again/).getAttribute("autocomplete")).toBe("new-password");
     expect((pass as HTMLInputElement).type).toBe("password");
   });
 
@@ -97,6 +98,12 @@ describe("the Secrets page", () => {
     fireEvent.click(await screen.findByText("Add passphrase"));
     const next = screen.getByLabelText(/^Passphrase/) as HTMLInputElement;
     fireEvent.change(next, { target: { value: "long and secret" } });
+    fireEvent.change(screen.getByLabelText(/^Type it again/), { target: { value: "long and secrt" } });
+    fireEvent.click(screen.getByText("Set passphrase"));
+    expect(await screen.findByText(/do not match/)).toBeTruthy();
+    expect(calls.some((c) => c.path === "/api/secrets/passphrase")).toBe(false);
+    expect(next.value).toBe("long and secret");
+    fireEvent.change(screen.getByLabelText(/^Type it again/), { target: { value: "long and secret" } });
     fireEvent.click(screen.getByText("Set passphrase"));
     await waitFor(() => expect(calls.find((c) => c.path === "/api/secrets/passphrase")?.body).toEqual({ passphrase: "long and secret" }));
     expect(next.value).toBe("");
@@ -144,7 +151,7 @@ describe("the Secrets page", () => {
     const fields = Array.from(document.querySelectorAll<HTMLInputElement>("[data-secret]"));
     expect(fields.length).toBeGreaterThan(0);
     for (const f of fields) expect(f.value).toBe("");
-    expect((screen.getByLabelText(/^Password/) as HTMLInputElement).placeholder).toBe("Unchanged (••••••)");
+    expect((screen.getByLabelText(/^Password/) as HTMLInputElement).placeholder).toBe("Unchanged");
   });
 
   it("sends only what was typed on a save, blank meaning unchanged", async () => {
@@ -240,6 +247,7 @@ describe("the Secrets page", () => {
     expect(calls.find((c) => c.path.endsWith("/reveal"))?.body).toEqual({ field: "password", label: "GitHub" });
     expect(document.querySelector(".secret-revealed-value")?.textContent).toBe("hunter2");
     expect(screen.getByText("Copy")).toBeTruthy();
+    expect(screen.getByText(/Hidden in 30s/)).toBeTruthy();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(REVEAL_MS);
     });
