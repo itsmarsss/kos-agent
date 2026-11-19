@@ -49,7 +49,7 @@ describe.skipIf(!findChrome(undefined))("no script on a credential site", { time
       );
     if (req.url === "/stash") return html(page("Stash", `<p id=out></p><script>document.getElementById('out').textContent = 'Kept ' + localStorage.getItem('kept') + ' cookie ' + document.cookie;</script>`));
     // A worker that copies every POST it sees to /stolen before passing it on.
-    if (req.url === "/sw.js")
+    if (req.url?.endsWith("/sw.js"))
       return void res
         .writeHead(200, { "content-type": "text/javascript" })
         .end(
@@ -76,6 +76,7 @@ describe.skipIf(!findChrome(undefined))("no script on a credential site", { time
           `<p>guess-one</p><p>${ELSEWHERE}</p><p>guess-two</p><script>window.told = []; new MutationObserver((ms) => { for (const m of ms) window.told.push(m.attributeName + ' ' + m.target.textContent); }).observe(document, { attributes: true, subtree: true }); setInterval(() => { if (CSS.highlights.size) window.told.push('highlight'); }, 5);</script>`,
         ),
       );
+    if (req.url === "/popblank") return html(page("Blank", `<button id=blank onclick="window.open('')">Open blank</button>`));
     if (req.url === "/opener") return html(page("Opener", `<label>Password <input id=pw type=password></label>`));
     if (req.url === "/framed") return html(page("Framed", `<iframe src="${base}/next"></iframe>`));
     html(page("Next", `<p>Elsewhere.</p>`));
@@ -197,29 +198,97 @@ describe.skipIf(!findChrome(undefined))("no script on a credential site", { time
     await expect(evaluate(d, "localStorage.getItem('kept')")).rejects.toThrow(refused);
   });
 
-  it("clears a service worker planted before the vault listed the site, so it catches no fill", async () => {
-    const e = await tabOf("e");
+  /** A worker planted on the site while the vault does not know it, as a script of KOS's could have; the page then reloaded so it runs through it. */
+  const plant = async (t: Tab, scripts: string[]): Promise<void> => {
     known = false;
     try {
-      await visit(e, [`${base}/swlogin`], { then: "none", until: "load" });
-      await evaluate(e, "await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready; 1");
-      // It works: a POST from the page goes through it.
-      await visit(e, [`${base}/swlogin`], { then: "none", until: "load" });
-      await peek(e, "fetch('/submit', { method: 'POST', body: 'probe' }).then(() => 1)");
-      expect(stolen).toContain("/stolen?probe");
+      await visit(t, [`${base}/swlogin`], { then: "none", until: "load" });
+      for (const script of scripts) await evaluate(t, `await navigator.serviceWorker.register(${JSON.stringify(script)}); 1`);
+      await peek(t, "navigator.serviceWorker.ready.then(() => 1)");
+      await visit(t, [`${base}/swlogin`], { then: "none", until: "load" });
+      await expect.poll(() => peek(t, "Boolean(navigator.serviceWorker.controller)"), { timeout: 5_000 }).toBe(true);
     } finally {
       known = true;
     }
+  };
+  const fillOn = async (t: Tab, fresh: boolean): Promise<string> => {
+    const seen = fresh ? (await visit(t, [`${base}/swlogin`], { then: "look", until: "load" })).text : (await look(t, "look")).text;
+    const pw = refOf(seen, "Password");
+    await fillSecrets(t, [{ ref: pw, value: PASSWORD, expect: { ...(await fieldSpots(t, [pw]))[0]!, slot: "password" } }], "none");
+    return seen;
+  };
+  const registrations = (t: Tab): Promise<unknown> => peek(t, "navigator.serviceWorker.getRegistrations().then((r) => r.length)");
+
+  it("clears a service worker planted before the vault listed the site; a page it still runs takes no fill until opened afresh", async () => {
+    const e = await tabOf("e");
+    await plant(e, ["/sw.js"]);
+    await peek(e, "fetch('/submit', { method: 'POST', body: 'probe' }).then(() => 1)");
+    expect(stolen).toContain("/stolen?probe");
+    // Another tab on the site, run by the worker too, never reloaded.
+    const other = await tabOf("e2");
+    await visit(other, [`${base}/swlogin`], { then: "none", until: "load" });
+    expect(await peek(other, "Boolean(navigator.serviceWorker.controller)")).toBe(true);
     // The site is listed now: what the host does when the vault lists a site.
     await live.purgeWorkers(["127.0.0.1"]);
-    expect(await peek(e, "navigator.serviceWorker.getRegistrations().then((r) => r.length)")).toBe(0);
+    expect(await registrations(e)).toBe(0);
+    for (const t of [e, other]) await expect(fillOn(t, false)).rejects.toMatchObject({ code: "worker", message: expect.stringMatching(/loaded before a service worker .* was cleared/) });
     stolen.length = 0;
-    const seen = (await visit(e, [`${base}/swlogin`], { then: "look", until: "load" })).text;
-    const pw = refOf(seen, "Password");
-    await fillSecrets(e, [{ ref: pw, value: PASSWORD, expect: { ...(await fieldSpots(e, [pw]))[0]!, slot: "password" } }], "none");
+    const seen = await fillOn(e, true);
     await act(e, stepsOf([{ click: refOf(seen, "Sign in") }]), "none");
     await expect.poll(() => submitted.includes(PASSWORD), { timeout: 5_000 }).toBe(true);
     expect(stolen).toEqual([]);
+  });
+
+  it("clears every scope though one fails, and takes no fill on the site until a clearing works", async () => {
+    const h = await tabOf("h");
+    await plant(h, ["/sw.js", "/a/sw.js"]);
+    expect(await registrations(h)).toBe(2);
+    const cdp = (live as unknown as { cdp: { send: (...args: unknown[]) => Promise<Record<string, unknown>> } }).cdp;
+    const send = cdp.send.bind(cdp);
+    let failures = 1;
+    cdp.send = async (...args: unknown[]) => {
+      if (args[0] === "Storage.clearDataForOrigin" && failures-- > 0) throw new Error("Internal error");
+      return send(...args);
+    };
+    try {
+      await live.purgeWorkers(["127.0.0.1"]);
+    } finally {
+      cdp.send = send;
+    }
+    expect(await registrations(h)).toBe(0);
+    await expect(fillOn(h, true)).rejects.toMatchObject({ code: "worker", message: expect.stringMatching(/could not be cleared/) });
+    await live.purgeWorkers(["127.0.0.1"]);
+    await fillOn(h, true);
+  });
+
+  it("runs no script in a blank popup a credential site opened, which has the site's origin", async () => {
+    const p = await tabOf("p");
+    const seen = (await visit(p, [`${base}/popblank`], { then: "look", until: "load" })).text;
+    const before = live.tabsOf("p").length;
+    await act(p, stepsOf([{ click: refOf(seen, "Open blank") }]), "none");
+    await expect.poll(() => live.tabsOf("p").length, { timeout: 5_000 }).toBeGreaterThan(before);
+    const kid = live.tabsOf("p").find((t) => t !== live.tabOf("p"))!;
+    try {
+      const popup: Tab = { page: await live.page(kid), capture: (w) => live.capture(kid, w) };
+      expect(await peek(popup, "self.origin")).toBe(base);
+      await expect(evaluate(popup, "localStorage.getItem('kept')")).rejects.toThrow(refused);
+    } finally {
+      await live.closeTab(kid);
+    }
+  });
+
+  it("lists no tab of KOS's own work", async () => {
+    const shown: string[] = [];
+    const off = live.subscribe((event) => {
+      if (event.type === "tabs") shown.push(...event.tabs.map((t) => t.url));
+    });
+    try {
+      await live.purgeWorkers(["127.0.0.1"]);
+    } finally {
+      off();
+    }
+    expect(shown.filter((u) => u.includes("kos-internal"))).toEqual([]);
+    expect(live.tabs().some((t) => t.url.includes("kos-internal"))).toBe(false);
   });
 
   it("tells a page elsewhere nothing of which of its words is a saved secret, and still cleans them from what KOS reads", async () => {
