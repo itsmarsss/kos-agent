@@ -5,7 +5,8 @@ import type { ChromeHost, ChromeLaunch, ChromeState } from "./chrome.js";
 import { keptSessionCookies, type CdpCookie } from "./cookies.js";
 import { PICTURE } from "./hands.js";
 import { Page, type PageLimits, type PageShot } from "./page.js";
-import type { FilledValue, Kin } from "./taint.js";
+import { urlFor } from "./address.js";
+import { noSecrets, type FilledValue, type Kin, type TabSecrets } from "./taint.js";
 
 /**
  * The browser, watched.
@@ -296,6 +297,8 @@ const SHUTDOWN_MS = 4_000;
 export const HOLD_WAIT_MS = 10 * 60_000;
 /** How long the list of service workers may go quiet before it is taken as whole. */
 const WORKERS_QUIET_MS = 300;
+/** The most the list may take: a page that keeps registering workers keeps it from going quiet, and its sites then stay uncleared. */
+const WORKERS_LIST_MS = 3_000;
 /** The address of a tab KOS makes for its own work: never listed, never given to a conversation. */
 const INTERNAL_URL = "about:blank#kos-internal";
 
@@ -307,6 +310,8 @@ export class BrowserLive {
   private readonly bindings = new Map<string, Binding>();
   /** Each tab's hands, made on first use. */
   private readonly pages = new Map<string, Page>();
+  /** Tab -> what it holds of the secrets filled into it: kept here, as the tab outlives its hands (made again after a detach). */
+  private readonly secrets = new Map<string, TabSecrets>();
   /** Tab -> its documents (by loader) a script of KOS's ran in, or loaded while one ran: none takes a fill. */
   private readonly scripted = new Map<string, Set<string>>();
   /** Tabs a script of KOS's in a related tab (an opener or a popup) could reach: none of their documents takes a fill. */
@@ -350,6 +355,8 @@ export class BrowserLive {
     this.maxFps = options.maxFps ?? 30;
     this.now = options.now ?? Date.now;
     this.report = options.report ?? ((m) => console.error(`[browser] ${m}`));
+    // Once, for every connection the client makes: one listener per dial would hear each event once per reconnect.
+    this.cdp.on((event) => this.onEvent(event));
     options.chrome.onExit(() => this.onChromeGone());
   }
 
@@ -436,11 +443,18 @@ export class BrowserLive {
           settled: () => this.purging,
           workerBar: (origin, loadedAt, controlled) => this.workerBar(origin, loadedAt, controlled),
           tick: this.tick,
+          secrets: this.secretsOf(tab),
         },
       );
       this.pages.set(tab, page);
     }
     return page;
+  }
+
+  private secretsOf(tab: string): TabSecrets {
+    let held = this.secrets.get(tab);
+    if (!held) this.secrets.set(tab, (held = noSecrets()));
+    return held;
   }
 
   /**
@@ -509,7 +523,16 @@ export class BrowserLive {
       try {
         // Enabling it lists every registration in the profile, in a burst: taken once it goes quiet.
         await this.cdp.send("ServiceWorker.enable", {}, sessionId);
-        for (let quiet = false; !quiet; ) quiet = !(await new Promise<boolean>((r) => ((heard = () => r(true)), setTimeout(() => r(false), WORKERS_QUIET_MS))));
+        let late = false;
+        const deadline = setTimeout(() => ((late = true), heard()), WORKERS_LIST_MS);
+        try {
+          for (let quiet = false; !quiet; ) {
+            quiet = !(await new Promise<boolean>((r) => ((heard = () => r(true)), setTimeout(() => r(false), WORKERS_QUIET_MS))));
+            if (late) throw new Error("the list of service workers never went quiet");
+          }
+        } finally {
+          clearTimeout(deadline);
+        }
         for (const scope of scopes) {
           const url = new URL(scope);
           const domain = registrableDomain(url.hostname);
@@ -580,6 +603,7 @@ export class BrowserLive {
   hold(tab: string, holder: string): void {
     if (!this.targets.has(tab)) throw new Error("no such tab");
     this.held.set(tab, holder);
+    this.used(tab);
     this.moved(tab);
     this.emitTabs();
   }
@@ -595,6 +619,11 @@ export class BrowserLive {
     for (const [tab, by] of [...this.held]) if (by === holder) this.letGo(tab);
   }
 
+  /** The owner is at work in a tab: whoever's it is, it is not idle. */
+  private used(tab: string): void {
+    for (const b of this.bindings.values()) if (b.tabs.has(tab)) b.lastUsed = this.now();
+  }
+
   private moved(tab: string): void {
     this.moves.set(tab, (this.moves.get(tab) ?? 0) + 1);
   }
@@ -606,6 +635,7 @@ export class BrowserLive {
   }
 
   private letGo(tab: string): void {
+    this.used(tab);
     this.moved(tab);
     this.held.delete(tab);
     const waiting = this.waiters.get(tab);
@@ -669,10 +699,18 @@ export class BrowserLive {
    * A conversation moves to a tab that is open: one the owner pointed at,
    * or another's. A tab is one conversation's at a time, so whoever had it
    * is moved to another of theirs, or starts afresh on their next call.
+   * Another's tab the owner holds (a handoff, a payment) is not taken, nor
+   * one of a conversation that filled a secret in any of its tabs: a page
+   * there may echo it, and a popup can reach its opener.
    */
   useTab(conversationId: string, target: string): void {
     const t = this.targets.get(target);
     if (!t || t.type !== "page" || this.internal.has(target)) throw new Error("no such tab");
+    const other = [...this.bindings].find(([id, b]) => id !== conversationId && b.tabs.has(target))?.[0];
+    if (other !== undefined && this.held.has(target)) throw new Error("that tab is another conversation's, and the owner has it now; open a tab of your own");
+    if (other !== undefined && (this.filled.get(other)?.length || this.secrets.get(target)?.filled.length)) {
+      throw new Error("that tab is another conversation's, and a secret was filled in its tabs; open a tab of your own");
+    }
     this.take(conversationId, target);
     this.emitTabs();
   }
@@ -703,6 +741,9 @@ export class BrowserLive {
     this.targets.delete(target);
     this.sessions.delete(target);
     this.pages.delete(target);
+    this.secrets.delete(target);
+    this.moves.delete(target);
+    this.waiters.delete(target);
     this.scripted.delete(target);
     this.reached.delete(target);
     this.internal.delete(target);
@@ -724,8 +765,10 @@ export class BrowserLive {
   /** Send a tab somewhere, as the address bar does. */
   async navigate(tab: string, url: string): Promise<void> {
     if (!this.targets.has(tab)) throw new Error("no such tab");
+    // The web only, as for an agent: a tab sent to a file would show it to whoever works in the tab next.
+    const address = urlFor(url);
     const sessionId = await this.sessionFor(tab);
-    const result = await this.cdp.send("Page.navigate", { url }, sessionId);
+    const result = await this.cdp.send("Page.navigate", { url: address }, sessionId);
     if (typeof result["errorText"] === "string" && result["errorText"]) throw new Error(result["errorText"]);
   }
 
@@ -784,14 +827,15 @@ export class BrowserLive {
    * Close the tabs of conversations nothing has used for a while, so a
    * browser that served twenty agents today is not twenty windows tonight.
    * One whose tabs went is given a fresh one the next time it browses.
-   * The owner's own tabs are nobody's and stay until they close them.
+   * The owner's own tabs are nobody's and stay until they close them, and
+   * so does every tab of a conversation the owner holds or watches one of.
    */
   async closeIdle(maxIdleMs: number, keep: (conversationId: string) => boolean = () => false): Promise<string[]> {
     if (!this.cdp.open) return [];
     const closed: string[] = [];
     const cutoff = this.now() - maxIdleMs;
     for (const [conversationId, b] of [...this.bindings]) {
-      if (b.lastUsed > cutoff || keep(conversationId)) continue;
+      if (b.lastUsed > cutoff || keep(conversationId) || [...b.tabs].some((tab) => this.held.has(tab) || this.watches.has(tab))) continue;
       this.bindings.delete(conversationId);
       this.filled.delete(conversationId);
       for (const tab of b.tabs) {
@@ -860,6 +904,7 @@ export class BrowserLive {
   async input(tab: string, raw: unknown): Promise<void> {
     const command = inputCommand(parseInput(raw));
     if (!this.targets.has(tab)) throw new Error("no such tab");
+    this.used(tab);
     const sessionId = await this.sessionFor(tab);
     await this.cdp.send(command.method, command.params, sessionId);
   }
@@ -892,6 +937,7 @@ export class BrowserLive {
     this.watches.clear();
     this.sessions.clear();
     this.pages.clear();
+    this.secrets.clear();
     this.bindings.clear();
   }
 
@@ -903,13 +949,12 @@ export class BrowserLive {
   private async attach(): Promise<void> {
     const url = await this.options.chrome.ensure();
     await this.cdp.dial(url, () => this.onChromeGone());
-    this.cdp.on((event) => this.onEvent(event));
     const listed = await this.cdp.send("Target.getTargets");
     this.targets.clear();
     for (const info of (listed["targetInfos"] as Record<string, unknown>[] | undefined) ?? []) this.remember(info);
     await this.cdp.send("Target.setDiscoverTargets", { discover: true });
-    // A worker planted on a credential site while KOS was away is cleared before anything is filled.
-    await this.purgeWorkers(this.options.workerSites?.() ?? []);
+    // A worker planted on a credential site while KOS was away is cleared before anything is filled: fills wait for it, the rest need not.
+    void this.purgeWorkers(this.options.workerSites?.() ?? []);
     // Downloads land in the staging folder named by guid, and Chrome says
     // when each is done, so KOS can move it to where it belongs.
     if (this.options.downloadsDir) {
@@ -939,6 +984,7 @@ export class BrowserLive {
     this.watches.clear();
     this.sessions.clear();
     this.pages.clear();
+    this.secrets.clear();
     this.scripted.clear();
     this.reached.clear();
     this.internal.clear();
@@ -1028,12 +1074,18 @@ export class BrowserLive {
         return;
       }
       case "Target.detachedFromTarget": {
-        // The tab's hands go with its session: a new one is attached, and set up, on next use.
+        // The tab's hands go with its session: a new one is attached, and set up, on next use, holding what the tab held.
         const sessionId = String(event.params["sessionId"] ?? "");
         for (const [tab, s] of this.sessions) {
           if (s !== sessionId) continue;
           this.sessions.delete(tab);
           this.pages.delete(tab);
+        }
+        // A cast on that session went with it: started again on a new one.
+        for (const [tab, watch] of this.watches) {
+          if (watch.sessionId !== sessionId) continue;
+          watch.sessionId = undefined;
+          void this.startCast(tab, watch).catch((err: unknown) => this.report(`screencast of ${tab} not started again: ${err instanceof Error ? err.message : String(err)}`));
         }
         return;
       }

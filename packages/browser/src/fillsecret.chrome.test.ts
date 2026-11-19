@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { ChromeHost, findChrome } from "./chrome.js";
 import { act, evaluate, fieldSpots, fillSecrets, look, stepsOf, visit, type Tab } from "./hands.js";
+import type { CdpClient } from "./cdp.js";
 import { BrowserLive, DEFAULT_CONFIG } from "./live.js";
 import { SecretRefused, type FillExpect, type SecretPut, type Session } from "./page.js";
 import type { SecretSlot } from "./taint.js";
@@ -545,5 +546,21 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     await expect(look(tab, "look", "#pw")).rejects.toThrow(/looking within #pw is refused/);
     await expect(look(tab, "read", "body")).rejects.toThrow(/refused/);
   });
-});
 
+  it("holds the page through hands made again after a detach, and gives the tab to no other conversation", async () => {
+    const id = live.tabOf("fill")!;
+    await fillPassword("/");
+    const inner = live as unknown as { cdp: CdpClient; sessions: Map<string, string> };
+    await inner.cdp.send("Target.detachFromTarget", { sessionId: inner.sessions.get(id) });
+    await expect.poll(() => inner.sessions.has(id)).toBe(false);
+    const before = tab.page;
+    tab = { page: await live.page(id), capture: (w) => live.capture(id, w) };
+    expect(tab.page).not.toBe(before);
+    await expect(evaluate(tab, "document.getElementById('pw').value")).rejects.toThrow(/browser\.eval is refused: a secret was filled/);
+    expect((await look(tab, "look")).text).toContain('textbox "Password" = "(hidden)"');
+    // Its secrets are its conversation's: another taking the tab would hold none of them.
+    expect(() => live.useTab("another", id)).toThrow(/a secret was filled in its tabs/);
+    expect(live.tabOf("fill")).toBe(id);
+    await visit(tab, [`${base}/next`], { then: "none" });
+  });
+});
