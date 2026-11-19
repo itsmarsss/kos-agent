@@ -208,6 +208,12 @@ describe("an ask that places a secret", () => {
     expect(container.querySelector(".kos-ask-note")?.textContent).toBe("Secrets always ask");
   });
 
+  it("says a fill goes into the owner's Chrome, and on which device", () => {
+    const secret = { handle: "github-login-9xq1", label: "GitHub", kind: "login" as const, fields: ["password" as const], origin: "https://github.com", frameOrigins: [], surface: "chrome" as const, device: "Chrome on macOS", warnings: [], remember: [] };
+    const { container } = render(<AskCard view={askView({ tool: "secrets.fill", args: { secret: secret.handle }, secret })} tool="secrets.fill" onDecide={vi.fn()} />);
+    expect(container.querySelector(".kos-ask-secret-frames")?.textContent).toBe("In your Chrome (Chrome on macOS)");
+  });
+
   it("offers a site's always only where the secret's policy keeps one", () => {
     const secret = { handle: "github-login-9xq1", label: "GitHub", kind: "login" as const, fields: ["password" as const], origin: "https://github.com", frameOrigins: [], surface: "kos-browser" as const, warnings: [], remember: ["site" as const] };
     const onDecide = vi.fn();

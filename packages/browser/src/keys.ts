@@ -112,3 +112,38 @@ export function parseKeys(combo: string): KeyPress {
   if (base.text !== undefined && !shortcut) press.text = /^[a-z]$/i.test(base.key) ? press.key : base.text;
   return press;
 }
+
+/**
+ * Editing commands that carry text out of a field, or make it ready to be
+ * carried: a copy, a cut, a select-all, and the deletes that keep what they
+ * take for a yank (Emacs's kill ring, which macOS text fields have), and the
+ * yank itself. Lower-cased, as Chrome matches them.
+ */
+const CARRYING = /^(copy|cut|selectall|yank|yankandselect|deletetoendof\w*|deletetobeginningof\w*|deleteword\w*)$/;
+
+/** Whether an editing command, as a key event carries it, could carry text out of a field. */
+export function carriesText(command: string): boolean {
+  return CARRYING.test(command.toLowerCase());
+}
+
+/** Modifier bits: Control, Meta, Shift. */
+const CONTROL = 2;
+const META = 4;
+const SHIFT = 8;
+
+/**
+ * Whether a key copies, cuts, selects all or pastes in the ways a field
+ * takes it: Control or Meta with A, C or X; Control or Meta with Insert
+ * (copy); Shift with Insert (paste) or Delete (cut); or an editing command
+ * that carries text out (carriesText). By key, code or Windows key code,
+ * whichever a sender gives.
+ */
+export function copyKey(key: string, code: string, keyCode: number, modifiers: number, commands: readonly string[] = []): boolean {
+  if (commands.some(carriesText)) return true;
+  const k = key.toLowerCase();
+  const shortcut = (modifiers & (CONTROL | META)) !== 0;
+  const insert = k === "insert" || code === "Insert" || keyCode === 45;
+  const del = k === "delete" || code === "Delete" || keyCode === 46;
+  if (shortcut && (["a", "c", "x"].includes(k) || /^Key[ACX]$/.test(code) || [65, 67, 88].includes(keyCode) || insert)) return true;
+  return (modifiers & SHIFT) !== 0 && (insert || del);
+}

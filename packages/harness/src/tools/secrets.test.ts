@@ -15,7 +15,7 @@ import { SecretUses } from "../ops/secretuses.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Vault } from "../secrets/vault.js";
 import { Workspace } from "../store/workspace.js";
-import { createSecretsModule, type SecretsBrowser } from "./secrets.js";
+import { createSecretsModule, type SecretPlace, type SecretsBrowser } from "./secrets.js";
 
 /**
  * The secrets tools over a real vault and the guarded path, with a stand-in
@@ -46,6 +46,8 @@ describe("the secrets tools", () => {
   let told: string[];
   let filled: SecretFill[][];
   let browser: SecretsBrowser;
+  /** Which browser the stand-in tab is in. */
+  let place: SecretPlace;
   /** Permission rules a decision kept: a secret's yes never makes one. */
   let rules: unknown[];
 
@@ -65,8 +67,10 @@ describe("the secrets tools", () => {
     told = [];
     filled = [];
     rules = [];
+    place = { surface: "kos-browser" };
     browser = {
       unready: () => undefined,
+      where: () => place,
       url: () => page.url,
       spots: async (refs) =>
         refs.map((ref): FieldSpot => ({ origin: new URL(page.url).origin, frameOrigin: page.frames[ref] ?? new URL(page.url).origin, doc: page.doc, field: { label: `Field ${ref}`, type: page.types[ref] ?? "text", action: `${SITE}/session`, method: "post" } })),
@@ -77,7 +81,7 @@ describe("the secrets tools", () => {
     };
     registry = new ToolRegistry();
     await new ModuleLoader(toolRegistryContext(registry)).load([
-      createSecretsModule({ vault: () => secrets.attached(), uses, browser: { unready: () => browser.unready(), url: () => browser.url(), spots: (r) => browser.spots(r), fill: (f, t) => browser.fill(f, t) }, onDecided: (l) => approvals.onDecided(l), tellOwner: (text) => void told.push(text) }),
+      createSecretsModule({ vault: () => secrets.attached(), uses, browser: { unready: () => browser.unready(), where: () => browser.where(), url: () => browser.url(), spots: (r) => browser.spots(r), fill: (f, t) => browser.fill(f, t) }, onDecided: (l) => approvals.onDecided(l), tellOwner: (text) => void told.push(text) }),
     ]);
   });
 
@@ -239,6 +243,47 @@ describe("the secrets tools", () => {
       const decisions = new Decisions({ ownerId: "owner", approvals, permissions: { add: () => undefined }, audit, registry, secrets, queue: { enqueue: (w) => w() }, inConversation: (_i, w) => w(), onToolRan: () => undefined, handleMessage: async () => ({ reply: "" }) });
       expect(await decisions.approve(ask.id, "owner", { surface: "discord" })).toMatchObject({ ok: false, message: expect.stringMatching(/Decide on the dashboard or a paired device/) });
       expect(approvals.get(ask.id)?.status).toBe("pending");
+    });
+
+    it("fills in the owner's Chrome with the same ask, decided beside it, and records the device", async () => {
+      place = { surface: "chrome", device: { id: "dev_chrome", name: "Chrome on macOS" } };
+      const running = guarded().execute("secrets.fill", { ...loginFill(), surface: "kos-browser", device: "forged" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      const ask = approvals.pending()[0]!;
+      // Where it goes is read from the tab, never the model.
+      expect(ask.secret).toMatchObject({ handle: login, origin: SITE, surface: "chrome", device: "Chrome on macOS" });
+      expect(JSON.parse(ask.args)).toMatchObject({ surface: "chrome", device: "Chrome on macOS" });
+      const decisions = new Decisions({ ownerId: "owner", approvals, permissions: { add: () => undefined }, audit, registry, secrets, queue: { enqueue: (w) => w() }, inConversation: (_i, w) => w(), onToolRan: () => undefined, handleMessage: async () => ({ reply: "" }) });
+      for (const chat of ["discord", "sms", "imessage"]) expect(await decisions.approve(ask.id, "owner", { surface: chat })).toMatchObject({ ok: false });
+      await decisions.approve(ask.id, "dev_chrome", { surface: "chrome" });
+      const done = await running;
+      expect(done.content).toContain(`on ${SITE}, in the owner's Chrome (Chrome on macOS).`);
+      expect(filled[0]!.map((f) => f.value)).toEqual(["owner", PASSWORD]);
+      expect(uses.list(login)[0]).toMatchObject({ outcome: "filled", surface: "chrome", deviceId: "dev_chrome", origin: SITE });
+    });
+
+    it("refuses a fill approved in one browser once the tab is in the other", async () => {
+      place = { surface: "chrome", device: { id: "dev_chrome", name: "Chrome on macOS" } };
+      const running = guarded().execute("secrets.fill", loginFill());
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      place = { surface: "kos-browser" };
+      await decide(true);
+      expect((await running).content).toMatch(/the page changed since you approved/);
+      expect(filled).toHaveLength(0);
+      expect(uses.list(login)[0]?.outcome).toBe("refused:changed");
+    });
+
+    it("refuses a fill approved for one Chrome once the session is on another device", async () => {
+      place = { surface: "chrome", device: { id: "dev_chrome", name: "Chrome on macOS" } };
+      const running = guarded().execute("secrets.fill", { ...loginFill(), deviceId: "forged" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      // The approved device is stamped from the tab, never the model's.
+      expect(JSON.parse(approvals.pending()[0]!.args)).toMatchObject({ deviceId: "dev_chrome" });
+      place = { surface: "chrome", device: { id: "dev_other", name: "Chrome on Linux" } };
+      await decide(true);
+      expect((await running).content).toMatch(/another Chrome now/);
+      expect(filled).toHaveLength(0);
+      expect(uses.list(login)[0]).toMatchObject({ outcome: "refused:changed", deviceId: "dev_other" });
     });
 
     it("splits a card's expiry for two fields and goes into a payment frame the card allows", async () => {

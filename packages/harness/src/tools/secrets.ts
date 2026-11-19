@@ -1,5 +1,5 @@
 import { isSecretSlot, type FieldSpot, type SecretFill, type SecretSlot, type Seen, type Then } from "@kos/browser";
-import { SECRET_FIELDS, SECRET_KINDS, secretFieldWords, type AskSecret, type SecretBilling, type SecretFieldName, type SecretKind } from "@kos/shared";
+import { SECRET_FIELDS, SECRET_KINDS, secretFieldWords, type AskSecret, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSurface } from "@kos/shared";
 
 import { approvedAs, caller, guestOrigin, isAttended, turn } from "../kernel/caller.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
@@ -21,10 +21,18 @@ import { SECRET_TYPE } from "./secrettype.js";
  * audit or a log. Each use, refused or denied, is a row in secret_uses.
  */
 
-/** Where the caller browses, as the secrets tools need it: KOS's own Chrome only, for now. */
+/** Which browser a fill goes into: KOS's own, or the owner's Chrome through KOS for Chrome, on a paired device. */
+export interface SecretPlace {
+  surface: Extract<SecretSurface, "kos-browser" | "chrome">;
+  device?: { id: string; name: string };
+}
+
+/** Where the caller browses, as the secrets tools need it: KOS's own Chrome, or the owner's while the turn works there. */
 export interface SecretsBrowser {
-  /** Why a secret cannot go into the caller's tab, when it cannot: none open, or the tab is in the owner's Chrome. */
+  /** Why a secret cannot go into the caller's tab, when it cannot: it has none open, or no page yet. */
   unready(): string | undefined;
+  /** Which browser the caller's tab is in now. */
+  where(): SecretPlace;
   /** The address of the caller's tab, when it has one. */
   url(): string | undefined;
   /** Where the elements refs name are (Page.fieldSpot). */
@@ -46,7 +54,6 @@ export interface SecretsToolsDeps {
 }
 
 const FILL = "secrets.fill";
-const SURFACE = "kos-browser";
 /** Yes-for-this-turn grants kept, at most; the oldest turn's go first. */
 const TURNS_KEPT = 50;
 /** Refused fills in one turn before the owner is told. */
@@ -54,7 +61,7 @@ const REFUSALS_TOLD = 3;
 /** Asks to allow a secret on a new site, at most, in one turn. */
 const ALLOW_SITE_MAX = 3;
 /** The keys only the harness sets on a fill: anything the model passed under them is dropped. */
-const STAMPED = ["label", "origin", "frameOrigins", "doc", "targets"];
+const STAMPED = ["label", "origin", "frameOrigins", "doc", "targets", "surface", "device", "deviceId"];
 
 /** A field of a secret as a fill names it, and the field of the form it goes into. */
 interface Placement {
@@ -149,6 +156,11 @@ function onlyPasswordBoxes(input: Record<string, unknown>, meta: SecretMeta): bo
   return typeof call !== "string" && call.places.every((p, i) => !isSecretSlot(p.slot) || targets[i]?.type === "password");
 }
 
+/** Which browser a fill went into, in words for its result. */
+function placeWords(place: SecretPlace): string {
+  return place.surface === "chrome" ? `in the owner's Chrome${place.device ? ` (${place.device.name})` : ""}` : "in KOS's own browser";
+}
+
 const words = (list: string[]): string => (list.length <= 1 ? (list[0] ?? "") : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`);
 
 /** A refusal for the model, recorded as a use when it is about a secret. */
@@ -215,10 +227,12 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
   const record = (meta: Pick<SecretMeta, "handle">, outcome: string, extra: Partial<SecretUseInput> = {}): void => {
     const yes = approvedAs.getStore();
     const chat = caller.getStore();
+    const place = deps.browser.where();
     deps.uses.record({
       secret: meta.handle,
       tool: FILL,
-      surface: SURFACE,
+      surface: place.surface,
+      ...(place.device ? { deviceId: place.device.id } : {}),
       outcome,
       ...(chat ? { conversationId: chat } : {}),
       ...(yes ? { approvalId: yes.id, decidedBy: yes.by } : {}),
@@ -236,7 +250,7 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
 
   /**
    * Everything a fill must pass before anyone is asked: the vault open, the
-   * secret there and this turn allowed it, the tab in KOS's own browser, each
+   * secret there and this turn allowed it, the tab ready (in KOS's own browser or the owner's Chrome), each
    * field found on this page, the page on an origin the secret allows and
    * each field's frame that origin or a frame it allows, and an unattended
    * turn only with a grant on the site. A refusal about the secret is
@@ -355,7 +369,7 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
         {
           name: FILL,
           description:
-            "Fill a saved secret into the form on your tab, in KOS's own browser, without seeing it: a login's username and " +
+            "Fill a saved secret into the form on your tab, in KOS's own browser or the owner's Chrome, without seeing it: a login's username and " +
             "password, a card's number, expiry, CVC, name and billing address, a key's token. Look at the page first: each " +
             'field\'s target is its @ref from that look, e.g. {secret: "github-login-9xq1", fields: [{field: "username", target: ' +
             '"@e3"}, {field: "password", target: "@e4"}], intent: "sign in to GitHub"}. A card\'s expiry goes as expiry (MM/YY), or ' +
@@ -387,6 +401,18 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
         },
         async (input) => {
           const { meta, call, spots } = await judgeFill(input);
+          // As approved: in the same browser. A tab moved between KOS's own and the owner's Chrome is another page.
+          const place = deps.browser.where();
+          const stampedSurface = str(input, "surface");
+          if (stampedSurface && stampedSurface !== place.surface) {
+            record(meta, "refused:changed", { fields: call.places.map((p) => p.field) });
+            throw new Error("Not filled: the page changed since you approved (the tab is in another browser now); look again and ask again.");
+          }
+          // And on the same device: the owner approved a fill into one Chrome, not whichever holds the session now.
+          if (stampedSurface === "chrome" && str(input, "deviceId") !== place.device?.id) {
+            record(meta, "refused:changed", { fields: call.places.map((p) => p.field) });
+            throw new Error("Not filled: the page changed since you approved (the tab is in another Chrome now); look again and ask again.");
+          }
           // As approved: the page, the frames and the document stamped when the owner was asked.
           const stampedFrames = Array.isArray(input["frameOrigins"]) ? (input["frameOrigins"] as unknown[]).map(String) : spots.map((s) => s.frameOrigin);
           const expect = { origin: str(input, "origin") ?? spots[0]!.origin, doc: str(input, "doc") ?? spots[0]!.doc };
@@ -413,7 +439,7 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
           }
           record(meta, "filled", { fields, origin: expect.origin, ...(frameOrigin ? { frameOrigin } : {}) });
           if (meta.policy.ask === "turn") keepTurn(meta.handle, expect.origin);
-          const head = `Filled ${words(fields.map(secretFieldWords))} from ${meta.label} (${meta.handle}) on ${expect.origin}, in KOS's own browser.`;
+          const head = `Filled ${words(fields.map(secretFieldWords))} from ${meta.label} (${meta.handle}) on ${expect.origin}, ${placeWords(place)}.`;
           const text = `${head}\n${seen.text}`.trim();
           return seen.images.length ? { text, images: seen.images, ...(seen.endUnseen ? { endUnseen: true } : {}) } : text;
         },
@@ -437,7 +463,17 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
             if (!meta || !call || typeof call === "string") return own;
             const spots = await spotsOf(input, call).catch(() => undefined);
             if (!spots?.length) return own;
-            return { ...own, label: meta.label, origin: spots[0]!.origin, frameOrigins: spots.map((s) => s.frameOrigin), doc: spots[0]!.doc, targets: spots.map((s) => s.field) };
+            const place = deps.browser.where();
+            return {
+              ...own,
+              label: meta.label,
+              origin: spots[0]!.origin,
+              frameOrigins: spots.map((s) => s.frameOrigin),
+              doc: spots[0]!.doc,
+              targets: spots.map((s) => s.field),
+              surface: place.surface,
+              ...(place.device ? { device: place.device.name, deviceId: place.device.id } : {}),
+            };
           },
           why: (input) => `puts a saved secret into a page${typeof input["origin"] === "string" ? ` on ${input["origin"]}` : ""}`,
           granted: (input) => {
@@ -471,7 +507,8 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
               fields: [...new Set(fields)],
               origin,
               frameOrigins: frames,
-              surface: SURFACE,
+              surface: str(input, "surface") === "chrome" ? "chrome" : "kos-browser",
+              ...(str(input, "device") ? { device: str(input, "device")! } : {}),
               hint: meta.hint,
               warnings,
               remember: meta.policy.ask === "site" && onlyPasswordBoxes(input, meta) ? ["site"] : meta.policy.ask === "turn" ? ["turn"] : [],
@@ -599,7 +636,7 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
             const meta = deps.vault()?.get(str(input, "secret")?.toLowerCase() ?? "");
             const origin = str(input, "origin");
             if (!meta || !origin) return undefined;
-            return { handle: meta.handle, label: meta.label, kind: meta.kind, fields: meta.fields, origin, frameOrigins: [], surface: SURFACE, hint: meta.hint, warnings: [], remember: [] };
+            return { handle: meta.handle, label: meta.label, kind: meta.kind, fields: meta.fields, origin, frameOrigins: [], surface: deps.browser.where().surface, hint: meta.hint, warnings: [], remember: [] };
           },
         },
       );

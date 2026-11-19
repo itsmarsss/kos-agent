@@ -5,7 +5,7 @@ import { requireServices, SecretUses, type ApiExtension, type AuditEntry, type B
 import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
 import type { Build, BuildKind } from "./builds.js";
-import { OwnerChrome } from "./chrome.js";
+import { OwnerChrome, type PageSecrets } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
 import { loadHostKey, loadLocalKey } from "./keys.js";
 import { DeviceLan, type LanOptions } from "./lan.js";
@@ -35,6 +35,8 @@ export interface ComputerUseOptions {
   watchKey?: (name: "device_host_key" | "device_local_key", value: string) => void;
   /** The conversation calling a tool, read at call time. */
   caller(): string | undefined;
+  /** The owner's secrets as the pages of their Chrome need them: cleaned from what KOS reads, masked in pictures, no script on a credential site. */
+  pageSecrets?: PageSecrets;
   titleOf(conversation: string): string;
   halted(): boolean;
   /** KOS's face as the owner set it, sent to every device to draw KOS by. */
@@ -173,7 +175,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         mac.onSettled(() => updates?.poke());
       }
       updates?.start();
-      chrome ??= new OwnerChrome(hub);
+      chrome ??= new OwnerChrome(hub, options.pageSecrets);
       panel.attach(hub);
       mac.attach(hub);
       phone.attach(hub);
@@ -260,6 +262,10 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     actsAlone: (c, site) => chrome?.actsAlone(c, site) ?? false,
     picture: async (c, w) => chrome?.picture(c, w),
     describe: (c) => chrome?.describe(c) ?? "the owner's Chrome",
+    device: (c) => {
+      const device = chrome?.deviceOf(c);
+      return device ? { id: device.id, name: device.name } : undefined;
+    },
   };
 
   return {
