@@ -1,13 +1,13 @@
 import { createServer } from "node:http";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir, networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { bubblewrap, bwrapCommand, natTool, type BwrapOptions } from "./bwrap.js";
 import { runCaptured } from "./capture.js";
 import { GIT_CONTROL_WRITES, GIT_INFO_ATTRIBUTES } from "./githold.js";
-import { jailedCommand, jailedProgram, ownJail, type JailedCommand, type JailOptions } from "./jail.js";
+import { jailedCommand, jailedProgram, ownJail, type JailedCommand, type JailOptions, type Released } from "./jail.js";
 import { NEEDS_NAT, type JailPlan } from "./jailrun.js";
 import { trustedProgram } from "./trusted.js";
 
@@ -32,7 +32,7 @@ function mountAt(args: string[], ...mount: string[]): number {
 
 describe("the bubblewrap jail's command line", () => {
   let ws: string;
-  const build = (options: Omit<BwrapOptions, "workspaceRoot" | "secretFiles"> & { secretFiles?: string[] }, file = "/bin/sh"): { args: string[]; plan: JailPlan; release?: () => string[] } => {
+  const build = (options: Omit<BwrapOptions, "workspaceRoot" | "secretFiles"> & { secretFiles?: string[] }, file = "/bin/sh"): { args: string[]; plan: JailPlan; release?: () => Released } => {
     const command = bwrapCommand("/usr/bin/bwrap", file, ["-c", "true"], { workspaceRoot: ws, secretFiles: [], ...options });
     const plan = planOf(command);
     return { args: lineOf(plan), plan, ...(command.release ? { release: command.release } : {}) };
@@ -302,15 +302,24 @@ describe.runIf(bubblewrap() !== undefined)("the bubblewrap jail on Linux", { tim
     const host = createServer((_q, r) => r.end("host"));
     await new Promise<void>((done) => host.listen(0, "127.0.0.1", done));
     const port = (host.address() as { port: number }).port;
+    // KOS's Wi-Fi listener stands bound to every address: reached by the host's own LAN address through a NAT, it would answer.
+    const lan = createServer((_q, r) => r.end("lan"));
+    await new Promise<void>((done) => lan.listen(0, "0.0.0.0", done));
+    const lanPort = (lan.address() as { port: number }).port;
+    const lanAddress = Object.values(networkInterfaces()).flat().find((a) => a && !a.internal && a.family === "IPv4")?.address ?? "127.0.0.1";
+    // The gateway is where a NAT would map the host's loopback (pasta's gateway, slirp4netns's 10.0.2.2): read from the run's own routes.
     const script = `import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 const tryFetch = (url) => fetch(url, { signal: AbortSignal.timeout(3000) }).then((r) => r.text().then((t) => t.slice(0, 40)), () => "refused");
+const hex = readFileSync("/proc/net/route", "utf8").split("\\n").map((l) => l.split("\\t")).find((f) => f[1] === "00000000")?.[2];
+const gw = hex ? [3, 2, 1, 0].map((i) => parseInt(hex.slice(i * 2, i * 2 + 2), 16)).join(".") : "";
 const own = createServer((_q, r) => r.end("own"));
 await new Promise((done) => own.listen(0, "127.0.0.1", done));
-console.log(JSON.stringify({ self: await tryFetch("http://127.0.0.1:" + own.address().port + "/"), host: await tryFetch("http://127.0.0.1:${port}/"), world: await tryFetch("http://1.1.1.1/") }));
+console.log(JSON.stringify({ self: await tryFetch("http://127.0.0.1:" + own.address().port + "/"), host: await tryFetch("http://127.0.0.1:${port}/"), gateway: gw ? await tryFetch("http://" + gw + ":${port}/") : "refused", lan: await tryFetch("http://${lanAddress}:${lanPort}/"), world: await tryFetch("http://1.1.1.1/") }));
 own.close();`;
     try {
       for (const network of [false, "local"] as const) {
-        expect(await node(script, { network })).toEqual({ self: "own", host: "refused", world: "refused" });
+        expect(await node(script, { network })).toEqual({ self: "own", host: "refused", gateway: "refused", lan: "refused", world: "refused" });
       }
       // Networked, through each NAT there is: the outside, and still not the host's loopback.
       for (const tool of ["pasta", "slirp4netns"] as const) {
@@ -320,6 +329,8 @@ own.close();`;
         const out = await node(script, { nat: { tool, path } });
         expect(out.self, tool).toBe("own");
         expect(out.host, tool).toBe("refused");
+        expect(out.gateway, tool).toBe("refused");
+        expect(out.lan, tool).toBe("refused");
         expect(out.world, tool).not.toBe("refused");
         expect(await run("getent hosts example.com >/dev/null && echo named", { network: true, nat: { tool, path } }), tool).toBe("named");
       }
@@ -328,6 +339,7 @@ own.close();`;
       expect(none.stderr).toContain(NEEDS_NAT);
     } finally {
       await new Promise((done) => host.close(done));
+      await new Promise((done) => lan.close(done));
     }
   });
 
@@ -367,6 +379,13 @@ own.close();`;
     const [stamp] = readdirSync(join(ws, ".kos", "quarantine"));
     expect(existsSync(join(ws, ".kos", "quarantine", stamp!, "made", ".git", "hooks", "pre-commit"))).toBe(true);
     expect(readFileSync(join(ws, ".kos", "quarantine", stamp!, "NOTE.txt"), "utf8")).toContain("made/.git");
+  });
+
+  it("takes away a repository planted in a folder the run locked with chmod", async () => {
+    const out = await captured("git init -q n && printf '#!/bin/sh\\ntouch PLANTED\\n' > n/.git/hooks/pre-commit && chmod 555 n && echo made", { unwritable: GIT_CONTROL_WRITES, network: "local" });
+    expect(out.stdout.trim()).toBe("made");
+    expect(out.quarantined).toEqual(["n/.git"]);
+    expect(existsSync(join(ws, "n", ".git"))).toBe(false);
   });
 
   it("refuses the system calls a jailed program has no business making", async () => {
