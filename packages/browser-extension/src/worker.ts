@@ -901,7 +901,8 @@ async function attachNow(tab: number): Promise<void> {
   await send("Runtime.addBinding", { name: BINDING, executionContextName: WORLD });
   await send("Page.addScriptToEvaluateOnNewDocument", { source: OVERLAY_SOURCE, worldName: WORLD, runImmediately: true });
   // Frames from other sites run in processes of their own: each is attached too, so the owner's hand in one is seen.
-  await handFrames.watch({ tabId: tab });
+  // Best effort: a Chrome that will not attach them still has its tab worked in, with its frames' hands unseen.
+  await handFrames.watch({ tabId: tab }).catch((err: unknown) => note(`frames of other sites not watched: ${err instanceof Error ? err.message : String(err)}`));
 }
 
 const record = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -1395,8 +1396,8 @@ async function fromOverlay(tab: number, world: number, payload: string, frame?: 
 /**
  * Input an overlay reported, where it landed in the tab: a frame's report is
  * in that frame's coordinates, and KOS aims its own in the tab's. One whose
- * frame cannot be placed is left with no point, so no click of KOS's matches
- * it: taken for the owner's, which only pauses.
+ * frame cannot be placed is left with no point, and is matched against KOS's
+ * own input by kind and time alone (session.ts).
  */
 async function inTab(tab: number, world: number, frame: string | undefined, input: PageInput): Promise<PageInput> {
   if (typeof input.x !== "number" || typeof input.y !== "number") return input;

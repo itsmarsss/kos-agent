@@ -200,7 +200,9 @@ While KOS works in your Chrome:
   any extension that drives one;
 - clicking or typing in one of its tabs yourself takes it over, in any of
   its frames, one from another site (a payment or sign-in frame) included,
-  while KOS's own clicks in a frame stay KOS's (scrolling does not, unless
+  but not a challenge's (Turnstile, reCAPTCHA, hCaptcha and the like, which
+  look for a debugger), while KOS's own clicks in a frame stay KOS's
+  (scrolling does not, unless
   you set it to in Settings, nor does anything in the 3 seconds after you
   press Allow or Hand back): KOS waits up to five minutes
   for you to press **Hand back**, and the idle limit does not run meanwhile;

@@ -9,7 +9,46 @@
  * session does not reach: each is attached as a session of its own, under
  * the tab's, and the overlay put in it too, so the owner typing in a payment
  * or sign-in frame still takes the tab over.
+ *
+ * Hearing the overlay there takes the Runtime domain (a binding is heard only
+ * with it on), which a page can detect, and challenge frames (Turnstile,
+ * reCAPTCHA, hCaptcha and the like) look for exactly that. So a frame's
+ * session is first asked only where it is (the Page domain, which a page
+ * does not see), and the Runtime domain and the overlay go only into a frame
+ * that is not on a challenge host; one that goes to one has the Runtime
+ * domain turned off again. The owner's hand in a challenge frame is not
+ * seen. A content script in every frame would see it, but takes host access
+ * to every site, which this extension does not hold, and Chrome gives no way
+ * to name a content script's frame in the debugger's terms, which placing
+ * its reports in the tab needs.
  */
+
+/** Hosts of challenge frames, with the paths that are the challenge where the host serves other things too. */
+const CHALLENGES: readonly { host: string; path?: RegExp }[] = [
+  { host: "challenges.cloudflare.com" },
+  { host: "www.google.com", path: /^\/recaptcha\// },
+  { host: "www.recaptcha.net" },
+  { host: "recaptcha.net" },
+  { host: "hcaptcha.com" },
+  { host: "arkoselabs.com" },
+  { host: "funcaptcha.com" },
+  { host: "captcha-delivery.com" },
+  { host: "geetest.com" },
+  { host: "px-cdn.net" },
+  { host: "px-cloud.net" },
+];
+
+/** Whether a frame's address is a challenge's, on its host or one under it. */
+export function isChallenge(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+  return CHALLENGES.some((c) => (host === c.host || host.endsWith(`.${c.host}`)) && (!c.path || c.path.test(parsed.pathname)));
+}
 
 /** A tab, or a session under it. */
 export interface Target {
@@ -37,6 +76,8 @@ interface Child {
   worlds: Map<number, string>;
   /** Its overlay's worlds, as each said hello. */
   overlays: Set<number>;
+  /** Whether the Runtime domain and the overlay are on in it: never on a challenge host. */
+  heard: boolean;
 }
 
 /** A report from the overlay in a frame's own session. */
@@ -68,8 +109,12 @@ export class HandFrames {
     if (method === "Target.attachedToTarget") return void (await this.attached(tab, session, params));
     if (method === "Target.detachedFromTarget") return void this.children.delete(String(params["sessionId"] ?? ""));
     const child = session ? this.children.get(session) : undefined;
-    if (!child) return undefined;
-    if (method === "Runtime.executionContextCreated") {
+    if (!child || !session) return undefined;
+    const frame = record(params["frame"]);
+    // Its own frame's id is its target's: a frame under it, in its process, is not where it is.
+    if (method === "Page.frameNavigated" && frame["id"] === child.frame && typeof frame["url"] === "string") {
+      await this.placed({ tabId: tab, sessionId: session }, child, frame["url"]).catch(() => undefined);
+    } else if (method === "Runtime.executionContextCreated") {
       const context = record(params["context"]);
       const frame = record(context["auxData"])["frameId"];
       if (typeof context["id"] === "number" && typeof frame === "string") child.worlds.set(context["id"], frame);
@@ -160,17 +205,37 @@ export class HandFrames {
       await this.send({ tabId: tab, ...(parent ? { sessionId: parent } : {}) }, "Target.detachFromTarget", { sessionId }).catch(() => undefined);
       return;
     }
-    this.children.set(sessionId, { tab, parent, frame: info["targetId"], worlds: new Map(), overlays: new Set() });
-    const { source, world, binding } = this.install;
+    const child: Child = { tab, parent, frame: info["targetId"], worlds: new Map(), overlays: new Set(), heard: false };
+    this.children.set(sessionId, child);
     try {
-      await this.send(target, "Runtime.enable");
+      // Where it is, first: told as it commits, or asked now if it already has.
       await this.send(target, "Page.enable");
-      await this.send(target, "Runtime.addBinding", { name: binding, executionContextName: world });
-      await this.send(target, "Page.addScriptToEvaluateOnNewDocument", { source, worldName: world, runImmediately: true });
+      const tree = record(record(await this.send(target, "Page.getFrameTree"))["frameTree"]);
+      const url = record(tree["frame"])["url"];
+      if (typeof url === "string" && url) await this.placed(target, child, url);
       await this.watch(target);
     } catch {
       // A frame gone as it came: nothing of it to watch.
       this.children.delete(sessionId);
     }
+  }
+
+  /** A frame's session where its page now is: the overlay heard there unless it is a challenge's, and not heard once it goes to one. */
+  private async placed(target: Target, child: Child, url: string): Promise<void> {
+    const challenge = isChallenge(url);
+    if (challenge && child.heard) {
+      child.heard = false;
+      child.worlds.clear();
+      child.overlays.clear();
+      await this.send(target, "Runtime.disable").catch(() => undefined);
+      return;
+    }
+    // Only a page of the web: not a blank frame waiting for its page, nor Chrome's own error page.
+    if (challenge || child.heard || !/^https?:/i.test(url)) return;
+    child.heard = true;
+    const { source, world, binding } = this.install;
+    await this.send(target, "Runtime.enable");
+    await this.send(target, "Runtime.addBinding", { name: binding, executionContextName: world });
+    await this.send(target, "Page.addScriptToEvaluateOnNewDocument", { source, worldName: world, runImmediately: true });
   }
 }
