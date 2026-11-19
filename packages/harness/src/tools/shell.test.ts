@@ -401,7 +401,9 @@ describe.runIf(jailed)("shell.run in its own jail", () => {
     for (const path of ["projects/x/.git/hooks/pre-commit", ".gitconfig", "made"]) expect(existsSync(join(root, path)), path).toBe(false);
     const secrets = await held("cat kos.sqlite mcp.json .env; ls .kos");
     expect(secrets.stdout).not.toMatch(/secret/);
-    expect(secrets.stdout).not.toContain("tmp");
+    // macOS hides .kos whole; bubblewrap shows the empty way down to the run's own temp, and nothing else in it.
+    if (onMac) expect(secrets.stdout).not.toContain("tmp");
+    else expect(secrets.stdout.trim()).toBe("tmp");
     const net = await held("/usr/bin/curl -sS -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:9 || /usr/bin/nc -z -w 2 1.1.1.1 443 && echo reached");
     expect(net.stdout).not.toContain("reached");
     // Its own temp folder is writable, and gone afterwards.
