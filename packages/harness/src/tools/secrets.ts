@@ -60,7 +60,7 @@ const REFUSALS_TOLD = 3;
 /** Asks to allow a secret on a new site, at most, in one turn. */
 const ALLOW_SITE_MAX = 3;
 /** The keys only the harness sets on a fill: anything the model passed under them is dropped. */
-const STAMPED = ["label", "origin", "frameOrigins", "doc", "targets", "surface", "device"];
+const STAMPED = ["label", "origin", "frameOrigins", "doc", "targets", "surface", "device", "deviceId"];
 
 /** A field of a secret as a fill names it, and the field of the form it goes into. */
 interface Placement {
@@ -402,6 +402,11 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
             record(meta, "refused:changed", { fields: call.places.map((p) => p.field) });
             throw new Error("Not filled: the page changed since you approved (the tab is in another browser now); look again and ask again.");
           }
+          // And on the same device: the owner approved a fill into one Chrome, not whichever holds the session now.
+          if (stampedSurface === "chrome" && str(input, "deviceId") !== place.device?.id) {
+            record(meta, "refused:changed", { fields: call.places.map((p) => p.field) });
+            throw new Error("Not filled: the page changed since you approved (the tab is in another Chrome now); look again and ask again.");
+          }
           // As approved: the page, the frames and the document stamped when the owner was asked.
           const stampedFrames = Array.isArray(input["frameOrigins"]) ? (input["frameOrigins"] as unknown[]).map(String) : spots.map((s) => s.frameOrigin);
           const expect = { origin: str(input, "origin") ?? spots[0]!.origin, doc: str(input, "doc") ?? spots[0]!.doc };
@@ -461,7 +466,7 @@ export function createSecretsModule(deps: SecretsToolsDeps): KosModule {
               doc: spots[0]!.doc,
               targets: spots.map((s) => s.field),
               surface: place.surface,
-              ...(place.device ? { device: place.device.name } : {}),
+              ...(place.device ? { device: place.device.name, deviceId: place.device.id } : {}),
             };
           },
           why: (input) => `puts a saved secret into a page${typeof input["origin"] === "string" ? ` on ${input["origin"]}` : ""}`,

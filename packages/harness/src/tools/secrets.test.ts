@@ -273,6 +273,19 @@ describe("the secrets tools", () => {
       expect(uses.list(login)[0]?.outcome).toBe("refused:changed");
     });
 
+    it("refuses a fill approved for one Chrome once the session is on another device", async () => {
+      place = { surface: "chrome", device: { id: "dev_chrome", name: "Chrome on macOS" } };
+      const running = guarded().execute("secrets.fill", { ...loginFill(), deviceId: "forged" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      // The approved device is stamped from the tab, never the model's.
+      expect(JSON.parse(approvals.pending()[0]!.args)).toMatchObject({ deviceId: "dev_chrome" });
+      place = { surface: "chrome", device: { id: "dev_other", name: "Chrome on Linux" } };
+      await decide(true);
+      expect((await running).content).toMatch(/another Chrome now/);
+      expect(filled).toHaveLength(0);
+      expect(uses.list(login)[0]).toMatchObject({ outcome: "refused:changed", deviceId: "dev_other" });
+    });
+
     it("splits a card's expiry for two fields and goes into a payment frame the card allows", async () => {
       page.url = `${SITE}/pay`;
       page.frames = { "@e9": PAY, "@e10": PAY, "@e11": PAY };
