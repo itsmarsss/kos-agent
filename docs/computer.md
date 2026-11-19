@@ -126,7 +126,10 @@ While KOS is in control:
   device's idle limit does not run while you have it;
 - its pointer and keys pass KOS for Mac's own windows by: they never land in
   the chat window or the bar;
-- it does not type while a password field has focus;
+- it does not type while a password field has focus, but for a saved secret
+  you approved, typed through `keys.secret` into an app the secret allows
+  (docs/secrets.md, On the Mac); a field it typed one into is blacked out in
+  every picture, and it never copies from it or types into it again;
 - apps on the device's hidden list (password managers by default) are blanked
   from what it sees, and it cannot act on them.
 
@@ -702,6 +705,8 @@ needs a session ([browser-extension.md](browser-extension.md), and below).
 | `pointer.scroll` | `session`, `x`, `y`, `dx`, `dy` (lines; positive is down and right) | `cursor` |
 | `keys.type` | `session`, `text` (at most 4000 characters) | `cursor` |
 | `keys.press` | `session`, `keys` (one combination, `cmd+shift+t`), `repeat?` | `cursor` |
+| `keys.focus` | `session` | `app?` (as `screen.capture` names it), `field?` (`role`, `secure`, `window?`, `label?`, `placeholder?`, `origin?`): the text field with focus in the app in front, never its value |
+| `keys.secret` | `session`, `approved`, `text`, `field`, `app {bundle}`, `apps`, `expect {role, secure, window?}`, `origin?` | `typed: true`, and nothing more |
 
 **What it is at.** KOS sends `session.status` to a computer (never a
 Chrome) as each `computer.act` starts, with the step's line (its `intent`,
@@ -731,6 +736,37 @@ click. A capture with a `region` is that part at up to `maxEdge`, for reading
 detail; calls still take `space` coordinates.
 
 `app` names the app in front: `{ "name": "Safari", "bundle": "com.apple.Safari" }`.
+
+**A saved secret.** `keys.secret` types a secret the owner approved
+(`secrets.type`, docs/secrets.md): `text` is the value, `field` the kind of
+field it goes into (`password`, `username`, `card-number`, `card-cvc`,
+`token`, ...), `app` the app approved and `apps` every app the secret allows,
+`expect` the field approved as `keys.focus` described it, `origin` the
+page's origin for a field on a page, and `approved` the session the owner
+approved it in. KOS for Mac refuses it unless the session is live and is
+the one approved; KOS for Mac's own windows and menu do not have the
+keyboard (`target`); the app in front is the one approved, one of `apps`
+and not hidden (`target`, `hidden_app`); a text field has focus there (never
+a search field), the one approved, and of the kind the field needs: a
+password only into a password field (`AXSecureTextField`), a card's number
+and code only where the field's label or hint, when it has one, says so
+(`field`); and the field's web area is on `origin` (`origin`). A value
+holding a line break or a tab is refused, never pressed as a key. It is
+typed as unicode in chunks from a buffer zeroed afterwards, and every check
+runs again before each chunk and after the last: the first that fails stops
+it. It is never logged, shown, echoed or answered: the answer is `{ typed:
+true }`, a refusal names what is wrong. It is the one call that types while
+a password field has focus.
+
+The field is then kept for the session: every `screen.capture` paints it
+black, with a password field that has focus whether typed into or not, and
+refuses the picture (`secret_field`) while one of them has focus but cannot
+be found. While it has focus, `keys.type` is refused, `keys.press` takes
+only Return, Enter, Tab, shift-Tab and Escape (copy, cut, select all, paste
+and editing are refused, `secret_field`), and a click on a menu's Copy, Cut,
+Select All or Paste is refused. The session's end forgets it. The value
+that came over the line stays in the decoded frame until it is freed, as a
+JavaScript string does on KOS's side.
 
 Key names: letters, digits, `return`, `tab`, `space`, `escape`, `backspace`,
 `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`,
@@ -820,4 +856,8 @@ device). Never the words, a task or a page's address.
 `no_session`, `paused`, `busy` (another session is live, or this chat is already asking), `denied`,
 `permission` (Screen Recording or Accessibility not granted), `secure_input`
 (a password field has focus), `hidden_app` (the target is on the hidden list),
-`bad_request`, `internal`.
+`bad_request`, `internal`; for `keys.secret`, `target` (another app, or KOS
+for Mac's own window, has the keyboard), `origin` (the page is not on the
+site approved), `field` (no field, another field, or one of the wrong kind
+has focus) and `secret_field` (a field KOS typed a secret into is in the
+way of a picture, a key or a copy).

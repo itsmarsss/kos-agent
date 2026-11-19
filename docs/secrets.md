@@ -256,7 +256,8 @@ blocks. Each hit counts toward `scrubbed` in the vault's status.
 
 ## The tools
 
-The agent works with secrets through four tools (`tools/secrets.ts`) and
+The agent works with secrets through four tools (`tools/secrets.ts`), and a
+fifth on the owner's Mac (`secrets.type`, below under On the Mac), and
 never sees a value. A value is read from the vault in the handler, the
 moment before it goes into the page, and goes nowhere else: not the
 call's arguments, its result, the audit, a progress event or a log.
@@ -474,6 +475,60 @@ Each use or refusal of a secret is a row in `secret_uses` in the workspace
 database (`id, secret_id, at, conversation_id, tool, surface, device_id,
 origin, frame_origin, app, fields, outcome, approval_id, decided_by`), never
 a value. It is a kernel trust table: no agent SQL reaches it.
+
+## On the Mac
+
+`secrets.type {secret, field, intent}` (`tools/secrettype.ts`) types one
+field of a saved secret into the field that has focus on the owner's Mac, in
+the calling chat's computer session (KOS for Mac, docs/computer.md). The
+computer module offers it with the computer tools, while a computer is
+paired. The agent clicks into the field with `computer.act` first. Risky,
+asks always, and held to the same policy as a fill:
+
+- `always`, `turn` (one yes covers the same secret in the same app, and on
+  the same page for a browser, for the rest of the turn) or `site`, where
+  the "site" is the app: the card offers "Approve, and always in Safari"
+  ("in Safari on github.com" for a page), kept in the vault as the grant
+  `app:<bundle id>` (`app:<bundle id>@<origin>` for a page). A grant covers
+  a secret field only into a password field; a card's number into a text
+  field asks every time.
+- Never a permission rule, a session yes or Auto; decided only on the
+  dashboard or a paired device, never Discord, SMS or iMessage.
+- A guest's turn never; an unattended one only with `unattended` and a grant
+  in the app.
+
+Before anyone is asked it is refused, and recorded as `refused:<code>`, when
+the vault is not open, the turn may not use the secret, the field is not one
+the secret has (billing goes by `secrets.fill` alone), the secret names no
+apps, the chat holds no session on a Mac, the app in front is not in
+`use.apps`, no text field has focus there, a password would go into a field
+that shows what is typed, or the field is on a page (in a browser) whose
+origin is not in `use.web.origins`. The harness stamps the call with what
+the Mac says (`keys.focus`): the app, the field (its role, whether it is a
+password field, its window's title, its label), the page's origin, the
+session and the device. Any of those the model passed is dropped. When it
+runs, the app, field, page and session must still be the ones stamped
+(`refused:changed` otherwise). Then the value is read from the vault and
+sent in the one `keys.secret` call, the only frame the hub sends that holds
+it (the link scrubs every other), and the Mac checks it all again before
+every chunk it types. The result says it was typed, never the value; the
+Mac's own refusals (`target`, `origin`, `field`, `secret_field`) are said
+in its words, which never hold one either.
+
+The card's secret block carries `surface: mac`, the `app` (`{name,
+bundle}`), the `device` by name, the field as its one target (`{field,
+label, type: "password field" | "text field"}`) and the page's origin when
+there is one. Narration reads "Type password from GitHub (github-login-9xq1)
+into Safari", placed "On your Mac, Studio MacBook". KOS for Mac and KOS for
+iPhone draw the block on their cards (`AskSecretBlock`, DeviceKit). Each
+use is a `secret_uses` row with `surface: mac`, `app` and `device_id`.
+
+After a secret is typed, the field is kept for the rest of the session:
+every picture blacks it out, copying from it or typing into it again is
+refused, and only Return, Enter, Tab, shift-Tab and Escape go through there
+(docs/computer.md, Calls). macOS keeps the Mac's secure input on while a
+password field has focus; whether a posted event reaches such a field under
+it is checked on the owner's Mac.
 
 ## CLI
 
