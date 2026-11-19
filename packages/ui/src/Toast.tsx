@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
 
@@ -31,7 +32,8 @@ export function toastWords(text: string): string {
  * their own, at the top, across the pane and at the bottom.
  */
 export function Toast({ note }: { note: ToastNote | null }): ReactElement {
-  return (
+  // On the body: a pane that is hidden (the thread, on a phone showing the list) hides what is fixed inside it too.
+  return createPortal(
     <AnimatePresence>
       {note && (
         <m.div
@@ -59,6 +61,7 @@ export function Toast({ note }: { note: ToastNote | null }): ReactElement {
           )}
         </m.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
