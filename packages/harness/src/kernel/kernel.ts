@@ -634,6 +634,7 @@ export class Kernel {
   readonly browser: BrowserLive;
   /** The owner's own Chrome, when computer use offers it. */
   private elsewhere: BrowserElsewhere | undefined;
+  private handsOn: ((device: string | undefined, conversationId: string | null) => string | undefined) | undefined;
   /** The owner's Discord server, when KOS lives in one; what a "#channel" in a message is comes from here. */
   readonly discord: DiscordServices | undefined;
   /** What the browser showed after each step, for the thread. */
@@ -828,6 +829,7 @@ export class Kernel {
       },
       onToolRan: (tool) => this.afterToolRan(tool),
       handleMessage: (text, opts) => this.handleMessage(text, opts),
+      handsOn: (device, conversationId) => this.handsOn?.(device, conversationId),
     });
     this.caretaker = new Caretaker({
       ownerId: args.profile.ownerId,
@@ -2967,7 +2969,7 @@ export class Kernel {
   }
 
   /** Carry out the owner's decision on a queued action. Every surface comes through here. */
-  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface }): Promise<DecisionResult> {
+  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface; device?: string }): Promise<DecisionResult> {
     return this.decisions.approve(id, decidedBy, options);
   }
 
@@ -4282,6 +4284,11 @@ export class Kernel {
    * The owner's own Chrome, when a package offers it (KOS for Chrome,
    * through computer use): a conversation working in it browses there.
    */
+  /** Where KOS's own hand is on the paired devices, so a yes on a secret's ask is never taken from it (Decisions). */
+  setHandsOn(judge: (device: string | undefined, conversationId: string | null) => string | undefined): void {
+    this.handsOn = judge;
+  }
+
   setBrowserElsewhere(place: BrowserElsewhere): void {
     this.elsewhere = place;
   }

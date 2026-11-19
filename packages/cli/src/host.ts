@@ -632,7 +632,11 @@ export async function runHost(options: HostOptions): Promise<void> {
   });
   const boot: { kernel?: Kernel } = {};
   const earlyKeys: [string, string][] = [];
+  // KOS's own address, however it is reached.
+  const ownHosts = (): string[] => [`${options.host}:${options.port}`, ...publicHostsOf(process.env.KOS_PUBLIC_URL)];
   const computer = createComputerUse({
+    // No secret is typed on its dashboard.
+    ownHosts,
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
     ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
     // Read by KOS for Mac on this computer to prove it is here, so KOS may rebuild it (docs/computer.md, Builds and updates).
@@ -704,7 +708,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     secrets,
     allowedHosts: options.allowedHosts,
     // KOS's own address, however it is reached: the agent's fetches never come back to its API.
-    ownHosts: () => [`${options.host}:${options.port}`, ...publicHostsOf(process.env.KOS_PUBLIC_URL)],
+    ownHosts,
     ...(Number.isInteger(browserPort) && browserPort > 0 && browserPort < 65_536 ? { chrome: { port: browserPort } } : {}),
     extraModules: [computer.module],
     features: [{ name: "computer", description: "Use a paired computer: its screen, pointer and keyboard" }],
@@ -880,6 +884,8 @@ export async function runHost(options: HostOptions): Promise<void> {
 
   // A chat that borrowed the owner's Chrome browses there.
   kernel.setBrowserElsewhere(computer.chrome);
+  // A yes on a secret's ask is never taken from where KOS's own hand is.
+  kernel.setHandsOn((device, conversation) => computer.handsOn(device, conversation));
 
   // The two upgrades the dashboard server takes: the dashboard's own socket, and a paired device's.
   const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : {}), hostNames });

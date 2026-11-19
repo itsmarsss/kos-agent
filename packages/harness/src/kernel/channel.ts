@@ -142,7 +142,8 @@ export function connectChannel(
       const mirrored = chat ? options.answeredElsewhere?.(chat) === true : false;
       // Recorded before the first await inside: read back at once, below.
       // The surface is named, so a secret's ask is refused here and said where to decide it.
-      const run = ctx.approved ? kernel.approve(id, undefined, { remember: ctx.remember === true, surface: ctx.channel }) : kernel.deny(id);
+      // The decider is named too: a paired device's own id, so a yes from where KOS's hand is can be refused.
+      const run = ctx.approved ? kernel.approve(id, undefined, { remember: ctx.remember === true, surface: ctx.channel, device: ctx.deciderId }) : kernel.deny(id);
       const recorded = kernel.approvals.get(id)?.status;
       const done = run
         .then(async (res) => {

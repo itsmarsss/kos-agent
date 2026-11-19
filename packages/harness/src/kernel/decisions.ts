@@ -76,6 +76,12 @@ export interface DecisionsDeps {
   /** Something a tool did that the kernel must notice, e.g. a schedule changed. */
   onToolRan: (tool: string) => void;
   handleMessage: (text: string, opts: { sessionId: string; userId: string; origin: "system" }) => Promise<{ reply: string }>;
+  /**
+   * Why a yes on an ask that places a secret may be KOS's own hand, if it
+   * may: decided on the device KOS is working on in that chat, or a moment
+   * after a device acted for KOS. Read at each such yes; none, and none is.
+   */
+  handsOn?: (device: string | undefined, conversationId: string | null) => string | undefined;
 }
 
 /**
@@ -144,7 +150,8 @@ export class Decisions {
     return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
   }
 
-  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface }): Promise<DecisionResult> {
+  /** `device`: the paired device the yes came from, by its id, when it came from one. */
+  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface; device?: string }): Promise<DecisionResult> {
     const d = this.deps;
     const action = d.approvals.get(id);
     if (!action || action.status !== "pending") return { ok: false, message: `no pending action #${id}` };
@@ -154,6 +161,9 @@ export class Decisions {
     if (!DECIDING_SURFACES.has(options.surface) && placing) {
       return { ok: false, message: secretAskElsewhere(id) };
     }
+    // Nor from where KOS's own pointer may be: the ask stays, for the owner to decide where KOS is not.
+    const handsOn = placing ? d.handsOn?.(options.device, action.conversationId) : undefined;
+    if (handsOn) return { ok: false, message: `#${id} was not approved: ${handsOn}` };
     const awaited = d.approvals.isAwaited(id);
     // A secrets tool's ask nobody waits on any more is not run later: the page it was for is gone.
     if (!awaited && action.tool.startsWith(SECRETS_PREFIX)) {

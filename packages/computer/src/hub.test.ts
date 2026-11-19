@@ -5,7 +5,7 @@ import { drawingOf, lookOf, type DashboardTheme, type FaceDrawing } from "@kos/s
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FakeDevice } from "./device.fixture.js";
-import { DeviceHub, PairError } from "./hub.js";
+import { DeviceHub, HANDS_OFF_MS, PairError } from "./hub.js";
 import { rawPublicKey } from "./keys.js";
 import { DeviceError, REFUSED_REASON } from "./link.js";
 import { PairingCodes } from "./pairing.js";
@@ -291,6 +291,32 @@ describe("a device connecting", () => {
     expect(first.closed?.code).toBe(CLOSE.replaced);
     expect(again.closed).toBeUndefined();
     expect(hub.list()[0]?.online).toBe(true);
+  });
+});
+
+describe("a yes on a secret's ask, where KOS's hand may be", () => {
+  it("is not taken from the device working in that chat, or from anywhere a moment after a device acted", async () => {
+    let now = 1_000_000;
+    const store = new DeviceStore(openDatabase(":memory:"));
+    const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined, beginTimeoutMs: 200, callTimeoutMs: 200, lineGraceMs: 0, now: () => now });
+    const mac = await online(hub);
+    const phone = await online(hub, "Phone");
+    await hub.begin({ conversation: "c1", device: hub.find("studio")!, task: "sign in", requester: "r", minutes: 15 });
+    // The Mac KOS works on in this chat: never, acted or not; another chat's ask, only once it has not acted for a moment.
+    expect(hub.handsOn(mac.id, "c1")).toMatch(/the one KOS is working on in this chat/);
+    expect(hub.handsOn(phone.id, "c1")).toBeUndefined();
+    expect(hub.handsOn(undefined, "c1")).toBeUndefined();
+    // A look is not an action.
+    await hub.act("c1", "screen.capture", {});
+    expect(hub.handsOn(undefined, "c1")).toBeUndefined();
+    await hub.act("c1", "pointer.click", { x: 5, y: 6 });
+    expect(hub.handsOn(mac.id, "c2")).toMatch(/acted for KOS a moment ago/);
+    expect(hub.handsOn(undefined, "c2")).toMatch(/A paired device acted for KOS a moment ago/);
+    expect(hub.handsOn(phone.id, "c2")).toBeUndefined();
+    now += HANDS_OFF_MS;
+    expect(hub.handsOn(mac.id, "c2")).toBeUndefined();
+    expect(hub.handsOn(undefined, "c2")).toBeUndefined();
+    expect(hub.handsOn(mac.id, "c1")).toMatch(/the one KOS is working on/);
   });
 });
 

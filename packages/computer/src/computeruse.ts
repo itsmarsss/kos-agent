@@ -51,6 +51,8 @@ export interface ComputerUseOptions {
   audit?(entry: AuditEntry): void;
   /** Stop every live turn in a chat, as the owner's Stop does; false when none was running. */
   stopTurn?(conversation: string): boolean;
+  /** KOS's own addresses (host, or host:port): its dashboard, on which no secret is typed. */
+  ownHosts?(): readonly string[];
   /** Keeping the device apps on KOS's build: what it would hand each, and how KOS for Mac is rebuilt here. None, and nothing is compared. */
   updates?: {
     expected(kind: BuildKind): Build | undefined;
@@ -63,6 +65,8 @@ export interface ComputerUse {
   module: KosModule;
   /** The owner's Chrome, for the kernel to send a chat's browser tools to while it works there. */
   chrome: BrowserElsewhere;
+  /** Why a yes on a secret's ask from this device, or from the dashboard, may be KOS's own hand (DeviceHub.handsOn). */
+  handsOn(device: string | undefined, conversation: string | null): string | undefined;
   /** The side panel of each paired Chrome, as a channel. */
   panel: DevicePanel;
   /** The chat window of each paired Mac, as a channel. */
@@ -196,6 +200,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           vault: () => secrets.attached(),
           uses: (secretUses ??= new SecretUses(requireServices(ctx).db)),
           tellOwner: (text) => void requireServices(ctx).notify?.({ text, target: { kind: "owner" } }).catch(() => undefined),
+          ...(options.ownHosts ? { ownHosts: options.ownHosts } : {}),
         },
         // The KOS for Mac window's chat set to Ask: each step on the screen asks first.
         asksEachStep: (conversation) => mac.asksEachStep(conversation),
@@ -271,6 +276,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   return {
     module,
     chrome: elsewhere,
+    handsOn: (device, conversation) => hub?.handsOn(device, conversation),
     panel,
     mac,
     phone,

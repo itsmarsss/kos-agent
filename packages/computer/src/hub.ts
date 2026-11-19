@@ -122,6 +122,11 @@ const MAX_REFUSALS_LOGGED = 100;
 /** What a device claimed, safe for a log line: one line, printable, short. */
 export const loggable = (text: string, max = 64): string => text.replace(/[^\x20-\x7e]/g, "?").slice(0, max);
 
+/** Calls that only look, which leave the screen as it was. */
+const LOOKS: ReadonlySet<string> = new Set(["screen.capture", "keys.focus", "tabs.list"]);
+/** How long after a device acted for KOS a yes on a secret's ask is not taken from it. */
+export const HANDS_OFF_MS = 5_000;
+
 export class DeviceHub {
   readonly codes: PairingCodes;
   private readonly links = new Map<string, DeviceLink>();
@@ -138,6 +143,8 @@ export class DeviceHub {
   private readonly refusalsLogged = new Map<string, number>();
   /** Devices whose line dropped with a session on them: the session ends when the wait runs out, unless they come back holding it. */
   private readonly graces = new Map<string, ReturnType<typeof setTimeout>>();
+  /** When each device last finished an action for KOS (a click, a key, a scroll), by its id. */
+  private readonly acted = new Map<string, number>();
 
   constructor(private readonly deps: HubDeps) {
     this.codes = new PairingCodes(this.now);
@@ -613,7 +620,29 @@ export class DeviceHub {
       if (err instanceof DeviceError && err.code === "no_session") this.drop(session, "host", "the device, which said it holds none");
       if (err instanceof DeviceError && err.code === "paused") session.paused = true;
       throw err;
+    } finally {
+      if (!LOOKS.has(method)) this.acted.set(session.device, this.now());
     }
+  }
+
+  /**
+   * Why a yes from `device` on an ask that places a secret in `conversation`
+   * may be KOS's own hand, if it may: the device holds that chat's live
+   * session, or did something for KOS a moment ago. A device that is not one
+   * of these (the dashboard, the CLI) is asked about any device acting a
+   * moment ago, since KOS's hand on a screen can reach the dashboard too.
+   */
+  handsOn(device: string | undefined, conversation: string | null): string | undefined {
+    const now = this.now();
+    if (device !== undefined && this.links.has(device)) {
+      if (conversation !== null && this.sessionOf(conversation)?.device === device) {
+        return "This device is the one KOS is working on in this chat, so a yes from it could be KOS's own click. Decide on the dashboard, or on another device.";
+      }
+      const at = this.acted.get(device);
+      return at !== undefined && now - at < HANDS_OFF_MS ? "This device acted for KOS a moment ago, so a yes from it could be KOS's own. Wait a few seconds and decide again." : undefined;
+    }
+    const recent = [...this.acted.values()].some((at) => now - at < HANDS_OFF_MS);
+    return recent ? "A paired device acted for KOS a moment ago, so this yes could be KOS's own click. Wait a few seconds and decide again." : undefined;
   }
 
   /**
