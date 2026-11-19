@@ -9,6 +9,7 @@ import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shar
 import { hrefFor } from "../routes.js";
 import { mentionRefusal, openRefusal, pickerPlace } from "./docbridge.js";
 import { MentionPicker } from "./MentionPicker.js";
+import { Modal } from "../Modal.js";
 import { heightBucket, heightGate, ownerIn, rememberHeight, rememberedHeight, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
 
 /**
@@ -126,8 +127,43 @@ export function fixRequest(id: string, left: boolean, error: string | undefined)
 }
 
 interface Asked {
+  /** The page's call, which the dialog answers. */
+  id: unknown;
   text: string;
   answer: (sent: boolean) => void;
+}
+
+/** How long Send waits after a page's ask appears: a click aimed at the page is not a yes to words not yet read. */
+export const ASK_ARM_MS = 700;
+
+/**
+ * A page's ask to message the chat, over the page in a dialog, so it shifts
+ * nothing under the pointer, with the words in full and Send held off for a
+ * moment after it opens.
+ */
+function AskDialog({ asked, onAnswer }: { asked: Asked; onAnswer: (sent: boolean) => void }): ReactElement {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    setArmed(false);
+    const later = setTimeout(() => setArmed(true), ASK_ARM_MS);
+    return () => clearTimeout(later);
+  }, [asked.id, asked.text]);
+  return (
+    <Modal open title="The page asks to message the chat" size="sm" onClose={() => onAnswer(false)}>
+      <div className="artifact-ask">
+        <p>This page wants to send this to the project's chat:</p>
+        <blockquote>{asked.text}</blockquote>
+        <div className="artifact-ask-acts">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => onAnswer(false)}>
+            Don't send
+          </button>
+          <button type="button" className="btn btn--primary btn--sm" disabled={!armed} onClick={() => onAnswer(true)}>
+            Send
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 /** What the viewer around the frame can ask of it. */
@@ -238,6 +274,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const [error, setError] = useState<string>();
   const [left, setLeft] = useState(false);
   const [asked, setAsked] = useState<Asked>();
+  /** Whether a page's ask waits on the owner: one at a time, so a second cannot swap the words under the owner's click. */
+  const asking = useRef(false);
   const [told, setTold] = useState<string>();
   /** A doc's @ mention, asked for at this place in the view: the dashboard's picker answers it. */
   const [mention, setMention] = useState<{ x: number; y: number }>();
@@ -571,8 +609,17 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         return reply(m.id, { error: presenting ? "this deck is being presented; it changes nothing now" : "this is an older version, shown to look at: restore it to change it" });
       if (m.method === "ask") {
         if (!page.capabilities?.ask) return reply(m.id, { error: "this page does not declare ask" });
+        if (asking.current) return reply(m.id, { error: "the owner has not answered this page's last ask yet" });
+        asking.current = true;
         const text = String(args.text ?? "").slice(0, 4000);
-        setAsked({ text, answer: (sent) => reply(m.id, sent ? { result: { sent: true } } : { error: "the owner did not send it" }) });
+        setAsked({
+          id: m.id,
+          text,
+          answer: (sent) => {
+            asking.current = false;
+            reply(m.id, sent ? { result: { sent: true } } : { error: "the owner did not send it" });
+          },
+        });
         return;
       }
       if (m.method === "save") {
@@ -732,35 +779,14 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   return (
     <div className="artifact" data-layout={layout} ref={box} {...(notesShown ? { "data-notes": "" } : {})}>
       {asked && (
-        <div className="artifact-ask" role="dialog" aria-label="The page asks to message the chat">
-          <p>
-            This page wants to send this to the project's chat:
-          </p>
-          <blockquote>{asked.text}</blockquote>
-          <div className="artifact-ask-acts">
-            <button
-              type="button"
-              className="btn btn--primary btn--sm"
-              onClick={() => {
-                send(asked.text);
-                asked.answer(true);
-                setAsked(undefined);
-              }}
-            >
-              Send
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() => {
-                asked.answer(false);
-                setAsked(undefined);
-              }}
-            >
-              Don't send
-            </button>
-          </div>
-        </div>
+        <AskDialog
+          asked={asked}
+          onAnswer={(sent) => {
+            if (sent) send(asked.text);
+            asked.answer(sent);
+            setAsked(undefined);
+          }}
+        />
       )}
       {trouble && !presenting && (
         <div className="ops-alert ops-alert--err artifact-error" role="alert">
