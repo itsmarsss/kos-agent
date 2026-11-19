@@ -168,6 +168,12 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       if (req.url === "/elsewhere") return void res.writeHead(200, { "content-type": "text/html" }).end(`<!doctype html><title>Elsewhere</title><script>${PRESSES}</script><p>Elsewhere`);
       if (req.url === "/away") return void res.writeHead(302, { location: `${base.replace("127.0.0.1", "localhost")}/secret` }).end();
       if (req.url === "/link") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Link</title><a href='/away' style='display:block;margin:80px;padding:20px'>Away</a>");
+      // A frame of this site and one of another, which runs in a process of its own.
+      if (req.url === "/mixed") {
+        const other = base.replace("127.0.0.1", "localhost");
+        const frame = "position:absolute;width:400px;height:200px;border:3px solid;padding:5px";
+        return void res.writeHead(200, { "content-type": "text/html" }).end(`<!doctype html><title>Mixed</title><iframe id='same' src='/inner' style='${frame};left:40px;top:40px'></iframe><iframe id='cross' src='${other}/inner' style='${frame};left:40px;top:320px'></iframe>`);
+      }
       if (req.url === "/framed") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Framed</title><iframe src='/inner' style='width:400px;height:200px'></iframe>");
       res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Shop</title><button id='buy' style='margin:80px;padding:20px'>Buy</button>");
     });
@@ -711,6 +717,33 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await devtools.send("Target.detachFromTarget", { sessionId: page });
   }, 40_000);
 
+  it("knows KOS's own click in a frame for KOS's, and sees the owner's hand in a frame from another site", async () => {
+    const tab = ((await call("tabs.open", { session: "s1", url: `${base}/mixed` }))["result"] as { tab: string }).tab;
+    const page = await devtools.attach((u) => u.endsWith("/mixed"));
+    await devtools.loaded(page);
+    // Each frame's overlay in, the other site's in its own process too.
+    await until(() => false, 1_500);
+    const paused = (): number => events.filter((e) => e.name === "session.paused").length;
+    const before = paused();
+    const buyIn = async (frame: string): Promise<{ x: number; y: number }> =>
+      (await devtools.evaluate(page, `(() => { const r = document.getElementById(${JSON.stringify(frame)}).getBoundingClientRect(); return { x: r.left + 8 + 120, y: r.top + 8 + 110 }; })()`)) as { x: number; y: number };
+    // KOS's own clicks, aimed in the tab, land in a frame of this site and in one of another: neither is the owner's.
+    for (const frame of ["same", "cross"]) {
+      const at = await buyIn(frame);
+      for (const type of ["mousePressed", "mouseReleased"]) await call("cdp.send", { session: "s1", tab, method: "Input.dispatchMouseEvent", params: { type, ...at, button: "left", clickCount: 1 } });
+    }
+    await until(() => false, 800);
+    expect(paused()).toBe(before);
+    // The owner's click in the other site's frame takes the tab over.
+    const at = await buyIn("cross");
+    for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, ...at, button: "left", clickCount: 1 }, page);
+    await until(() => paused() > before);
+    expect(paused()).toBe(before + 1);
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "handback" })`)).toMatchObject({ ok: true });
+    await devtools.send("Target.detachFromTarget", { sessionId: page });
+    expect(await call("tabs.close", { session: "s1", tab })).toMatchObject({ ok: true });
+  }, 30_000);
+
   it("closes a site the owner hid: no look, no way there, and no name in the tab list", async () => {
     const tab = ((await call("tabs.list", { session: "s1" }))["result"] as { tabs: { id: string }[] }).tabs[0]!.id;
     expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "hide", site: "127.0.0.1" })`)).toMatchObject({ ok: true });
@@ -866,10 +899,15 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
 
     it("keeps a session across a short drop of its KOS's line, and says so in the hello", async () => {
       await begin("k1");
+      // The owner takes the tab over, and hands it back while the line is down: the hello says so.
+      expect(await popupSays({ type: "take" })).toMatchObject({ ok: true });
       const before = hellos.length;
-      device!.close();
+      const line = device!;
+      line.close();
+      await until(() => line.readyState === 3);
+      expect(await popupSays({ type: "handback" })).toMatchObject({ ok: true });
       await until(() => hellos.length > before && device?.readyState === 1, 15_000);
-      expect(hellos.at(-1)?.["session"]).toEqual({ id: "k1" });
+      expect(hellos.at(-1)?.["session"]).toEqual({ id: "k1", paused: false });
       expect(await call("tabs.list", { session: "k1" })).toMatchObject({ ok: true });
       expect(await call("session.end", { session: "k1" })).toMatchObject({ ok: true });
     }, 30_000);

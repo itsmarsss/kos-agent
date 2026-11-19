@@ -163,13 +163,16 @@ export class Worlds {
   private readonly ids = new Map<number, WorldKind>();
   private readonly unique = new Map<string, WorldKind>();
   private readonly gone = new Set<number>();
+  /** The frame each world is in. */
+  private readonly frames = new Map<number, string>();
 
   /** A world Chrome made, as Runtime.executionContextCreated gives it. */
-  made(context: { id?: unknown; uniqueId?: unknown; name?: unknown; auxData?: { isDefault?: unknown } }): void {
+  made(context: { id?: unknown; uniqueId?: unknown; name?: unknown; auxData?: { isDefault?: unknown; frameId?: unknown } }): void {
     if (typeof context.id !== "number") return;
     const kind: WorldKind =
       context.name === OVERLAY_WORLD ? "overlay" : context.name === HANDS_WORLD ? "hands" : context.auxData?.isDefault === true ? "page" : "other";
     this.ids.set(context.id, kind);
+    if (typeof context.auxData?.frameId === "string") this.frames.set(context.id, context.auxData.frameId);
     this.gone.delete(context.id);
     if (typeof context.uniqueId === "string") this.unique.set(context.uniqueId, kind);
   }
@@ -177,6 +180,7 @@ export class Worlds {
   /** A world gone with its document. */
   destroyed(id: number, uniqueId?: string): void {
     if (this.ids.delete(id)) this.gone.add(id);
+    this.frames.delete(id);
     if (this.gone.size > GONE_MAX) this.gone.delete(this.gone.values().next().value!);
     if (uniqueId !== undefined) this.unique.delete(uniqueId);
   }
@@ -185,6 +189,11 @@ export class Worlds {
   cleared(): void {
     for (const id of [...this.ids.keys()]) this.destroyed(id);
     this.unique.clear();
+  }
+
+  /** The frame a world is in, as Chrome said when it made it. */
+  frameOf(id: number): string | undefined {
+    return this.frames.get(id);
   }
 
   isOverlay(id: number): boolean {

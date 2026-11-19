@@ -15,6 +15,7 @@ import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { changesPage, checkCommand, forwarded, isInput, isWebPage, isWebUrl, OVERLAY_WORLD as WORLD, withoutFieldText, Worlds } from "./relay.js";
+import { HandFrames } from "./handframes.js";
 import { FILLED_PAGE, TAINTS_KEY, editsField, fillField, focusedOn, heldNow, heldRefusal, hiddenValues, marked, maskedShot, movedWithin, readMasks, readPut, readTaints, typesText, type SecretPut, type Send, type Shot, type TabTaint } from "./secret.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
@@ -133,6 +134,10 @@ const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.sw
 
 const BINDING = "kosOverlay";
 const GROUP = "KOS";
+/** The overlay as each frame is given it, in its own world. */
+const OVERLAY_SOURCE = `(${installOverlay.toString()})(${JSON.stringify(CURSOR)})`;
+/** Each tab's frames in processes of their own, which the overlay reports the owner's hand from too. */
+const handFrames = new HandFrames((target, method, params) => chrome.debugger.sendCommand(target, method, params), { source: OVERLAY_SOURCE, world: WORLD, binding: BINDING });
 
 let pairings: Paired[] = [];
 let settings: ExtensionSettings = DEFAULTS;
@@ -701,14 +706,15 @@ function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promi
 async function toOverlays(tab: number, expression: string, withinMs = 1_500, awaitPromise = false): Promise<void> {
   const worlds = overlays.get(tab);
   if (!worlds) return;
-  await Promise.all(
-    [...worlds].map((world) =>
+  await Promise.all([
+    handFrames.toOverlays(tab, expression, withinMs),
+    ...[...worlds].map((world) =>
       Promise.race([
         chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression, contextId: world, awaitPromise }).catch(() => worlds.delete(world)),
         new Promise((r) => setTimeout(r, withinMs)),
       ]),
     ),
-  );
+  ]);
 }
 
 /** The most KOS's hands wait on the cursor: its quick glide is 45 to 135 ms, and a busy page holds nothing up past this. */
@@ -768,6 +774,7 @@ async function end(reason: EndReason): Promise<void> {
     [...attached].map(async (tab) => {
       await toOverlays(tab, "window.__kos && window.__kos.remove()");
       await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
+      handFrames.forget(tab);
     }),
   );
   attached.clear();
@@ -878,7 +885,9 @@ async function attachNow(tab: number): Promise<void> {
   // The document a secret may be in, as the debugger finds it: a tab attached again is held to what was filled before.
   if (typeof main?.loaderId === "string") loaders.set(tab, main.loaderId);
   await send("Runtime.addBinding", { name: BINDING, executionContextName: WORLD });
-  await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installOverlay.toString()})(${JSON.stringify(CURSOR)})`, worldName: WORLD, runImmediately: true });
+  await send("Page.addScriptToEvaluateOnNewDocument", { source: OVERLAY_SOURCE, worldName: WORLD, runImmediately: true });
+  // Frames from other sites run in processes of their own: each is attached too, so the owner's hand in one is seen.
+  await handFrames.watch({ tabId: tab });
 }
 
 const record = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -1306,11 +1315,22 @@ async function resume(): Promise<void> {
   await Promise.all([paint(), badge()]);
 }
 
-async function fromOverlay(tab: number, world: number, payload: string): Promise<void> {
+/**
+ * What an overlay said: in the tab's own session, or in a frame's of its own
+ * (`frame`), where it draws nothing and only reports the owner's hand.
+ */
+async function fromOverlay(tab: number, world: number, payload: string, frame?: string): Promise<void> {
   let message: Record<string, unknown>;
   try {
     message = JSON.parse(payload) as Record<string, unknown>;
   } catch {
+    return;
+  }
+  if (frame !== undefined && message["kind"] !== "input") {
+    if (message["kind"] === "hello") {
+      handFrames.hello(frame, world);
+      await chrome.debugger.sendCommand({ tabId: tab, sessionId: frame }, "Runtime.evaluate", { expression: "window.__kos && window.__kos.alive()", contextId: world }).catch(() => undefined);
+    }
     return;
   }
   switch (message["kind"]) {
@@ -1324,12 +1344,16 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
       }
       return;
     }
-    case "input":
+    case "input": {
       // The owner may scroll a KOS tab freely, if they said so.
       if (settings.takeover === "clicksAndKeys" && message["type"] === "wheel") return;
+      if (!session || session.paused) return;
+      const now = Date.now();
+      const input = await inTab(tab, world, frame, message as unknown as PageInput);
       // A click or a key takes over at once; a scroll just after they allowed it or handed it back is their hand still letting go.
-      if (session && !session.paused && session.takesOver(message as unknown as PageInput, Date.now())) await pause();
+      if (session && !session.paused && session.takesOver(input, now)) await pause();
       return;
+    }
     case "place": {
       const x = Number(message["x"]);
       const y = Number(message["y"]);
@@ -1354,6 +1378,25 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
 }
 
 /**
+ * Input an overlay reported, where it landed in the tab: a frame's report is
+ * in that frame's coordinates, and KOS aims its own in the tab's. One whose
+ * frame cannot be placed is left with no point, so no click of KOS's matches
+ * it: taken for the owner's, which only pauses.
+ */
+async function inTab(tab: number, world: number, frame: string | undefined, input: PageInput): Promise<PageInput> {
+  if (typeof input.x !== "number" || typeof input.y !== "number") return input;
+  const from = frame !== undefined ? handFrames.frameOf(frame, world) : worldsOf.get(tab)?.frameOf(world);
+  const at = await handFrames.inTab(tab, frame, from, { x: input.x, y: input.y }, mainFrames.get(tab));
+  return at ? { ...input, ...at } : { type: input.type };
+}
+
+/** An event about a tab's frames in processes of their own, or on one's session: the overlay's word there is heard as any other's. */
+async function fromFrames(tab: number, frame: string | undefined, method: string, params: Record<string, unknown>): Promise<void> {
+  const heard = await handFrames.heard(tab, frame, method, params);
+  if (heard && frame !== undefined && session?.tabs.has(tab)) await fromOverlay(tab, heard.world, heard.payload, frame);
+}
+
+/**
  * The owner's Stop on the bar, in the popup or in the side panel: the
  * chat the session is for is told to stop its turn too, then the session
  * ends as theirs to end.
@@ -1368,6 +1411,8 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   const tab = source.tabId;
   if (tab === undefined || !attached.has(tab)) return;
   const p = (params ?? {}) as Record<string, unknown>;
+  // A frame's own session, or a frame attached or gone: the extension's alone, never passed on to KOS.
+  if (source.sessionId !== undefined || method.startsWith("Target.")) return void fromFrames(tab, source.sessionId, method, p);
   if (heardWorld(tab, method, p)) return;
   if (!session?.tabs.has(tab)) return;
   if (method === "Runtime.bindingCalled") {
@@ -1429,6 +1474,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   if (tab === undefined) return;
   attached.delete(tab);
   overlays.delete(tab);
+  handFrames.forget(tab);
   pointed.delete(tab);
   restsAt.delete(tab);
   tabUrls.delete(tab);

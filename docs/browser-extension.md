@@ -198,9 +198,11 @@ While KOS works in your Chrome:
   by the extension;
 - Chrome's own bar says the extension is debugging the tab, as it does for
   any extension that drives one;
-- clicking or typing in one of its tabs yourself takes it over (scrolling
-  does not, unless you set it to in Settings, nor does anything in the 3
-  seconds after you press Allow or Hand back): KOS waits up to five minutes
+- clicking or typing in one of its tabs yourself takes it over, in any of
+  its frames, one from another site (a payment or sign-in frame) included,
+  while KOS's own clicks in a frame stay KOS's (scrolling does not, unless
+  you set it to in Settings, nor does anything in the 3 seconds after you
+  press Allow or Hand back): KOS waits up to five minutes
   for you to press **Hand back**, and the idle limit does not run meanwhile;
 - acting on a page asks you, trusted per site apart from KOS's own Chrome
   (a site trusted there is asked about again here, where you are signed in);

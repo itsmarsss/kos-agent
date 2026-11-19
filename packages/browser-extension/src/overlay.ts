@@ -20,7 +20,9 @@
  *
  * Only the top frame draws: a page of frames would otherwise wear a border
  * and a bar in each. Every frame reports the owner's hand, since a click in
- * a frame is still the owner taking over. It goes by itself when the
+ * a frame is still the owner taking over, in that frame's own coordinates:
+ * the extension places it in the tab's, and puts the overlay in frames that
+ * run in processes of their own too (handframes.ts). It goes by itself when the
  * extension stops checking in, so a session that ended leaves nothing on
  * the page whatever became of the connection.
  *
