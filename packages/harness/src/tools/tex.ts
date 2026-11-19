@@ -11,6 +11,15 @@ import { childEnv, findProgram } from "../sandbox/env.js";
 import { isContained, jailedProgram } from "../sandbox/jail.js";
 import { placeFor, reachOutside } from "./home.js";
 
+
+/**
+ * What tectonic looks up, sealed, to fetch its bundle over HTTPS: names,
+ * the network settings its HTTP client reads, and certificate trust (trustd,
+ * and the security server its TLS stack asks). Tectonic is the program, run
+ * --untrusted, so the TeX it reads cannot reach these itself.
+ */
+const BUNDLE_SERVICES = ["com.apple.dnssd.service", "com.apple.SystemConfiguration.configd", "com.apple.trustd", "com.apple.trustd.agent", "com.apple.SecurityServer"];
+
 /**
  * tex.pdf: a LaTeX document in the workspace, typeset.
  *
@@ -113,6 +122,7 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
               hidden: [...RESERVED, ".env"].map((name) => join(ws.root, name)),
               // It runs unasked, so nothing it starts may act for it outside the sandbox; the network stays, for the bundle.
               sealed: true,
+              services: BUNDLE_SERVICES,
               contained,
               ...(options.platform ? { platform: options.platform } : {}),
             });
