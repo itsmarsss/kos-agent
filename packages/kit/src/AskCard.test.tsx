@@ -217,6 +217,55 @@ describe("a press on a card that has not sat still", () => {
   });
 });
 
+describe("a press after the page moved", () => {
+  it("counts a click a moment after a scroll, and says so when it lets one go", () => {
+    const { onDecide, section } = card();
+    settle();
+    let top = 100;
+    vi.spyOn(section, "getBoundingClientRect").mockImplementation(() => ({ top, left: 0 }) as DOMRect);
+    const approve = screen.getByRole("button", { name: "Approve" });
+    fireEvent.pointerMove(approve, { clientX: 5, clientY: 5 });
+    // The owner scrolls with the pointer over the card: it moves under the pointer.
+    top = 40;
+    fireEvent.scroll(window);
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toBe("This card just moved. Press again.");
+    // A moment later the same click is a click.
+    settle();
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).toHaveBeenCalledWith(true);
+  });
+
+  it("counts a click on a card the pointer moved onto after a scroll elsewhere", () => {
+    const { onDecide, section } = card();
+    settle();
+    let top = 300;
+    vi.spyOn(section, "getBoundingClientRect").mockImplementation(() => ({ top, left: 0 }) as DOMRect);
+    top = 120;
+    fireEvent.scroll(window);
+    const approve = screen.getByRole("button", { name: "Approve" });
+    fireEvent.pointerMove(approve, { clientX: 9, clientY: 9 });
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).toHaveBeenCalledWith(true);
+  });
+
+  it("lets go a click on a card that came to a resting pointer", () => {
+    const { onDecide, section } = card();
+    fireEvent.pointerMove(document.body, { clientX: 7, clientY: 7 });
+    settle();
+    const approve = screen.getByRole("button", { name: "Approve" });
+    // Pointer enter goes to the card itself, as a browser sends it to each thing the pointer comes to be over.
+    fireEvent.pointerEnter(section, { clientX: 7, clientY: 7 });
+    fireEvent.pointerDown(approve);
+    fireEvent.click(approve);
+    expect(onDecide).not.toHaveBeenCalled();
+  });
+});
+
 describe("the approval card's sheet", () => {
   const css = readFileSync(join(__dirname, "kit.css"), "utf8");
 

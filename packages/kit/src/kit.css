@@ -560,6 +560,8 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .kos-ask-meta { margin: 0; color: var(--faint); font-size: var(--text-sm); }
 .kos-ask-meta button { font-size: inherit; }
 .kos-ask-note { align-self: center; margin-right: auto; color: var(--faint); font-size: var(--text-sm); }
+.kos-ask-held { align-self: center; color: var(--warn); font-size: var(--text-sm); animation: kos-ask-held 160ms ease-out; }
+@keyframes kos-ask-held { from { opacity: 0; } to { opacity: 1; } }
 .kos-ask-tip { display: block; max-width: 18rem; text-align: left; font-size: var(--text-sm); font-weight: 400; line-height: 1.45; }
 .kos-ask-actions { display: flex; flex-flow: row-reverse wrap; justify-content: flex-start; gap: 6px; margin-top: 6px; }
 .kos-ask-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding-block: 0; white-space: nowrap; }

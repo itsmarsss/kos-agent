@@ -49,6 +49,8 @@ export interface AskCardProps {
 
 /** How long a card is on screen, still and unchanged, before a press decides it. */
 export const ASK_SETTLE_MS = 500;
+/** How long the line saying a press was let go stays. */
+const HELD_CUE_MS = 1600;
 
 export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false, onDecide, labels, noRemember = false, compact = false, bare = false, meta, extra, children }: AskCardProps): ReactElement {
   const [pressed, setPressed] = useState<"yes" | "always" | "no" | null>(null);
@@ -58,9 +60,20 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
   const box = useRef<HTMLElement>(null);
   // A card just arrived, just moved or just changed is not decided by a press meant for what was there.
   const steady = useSteadyPress(box, ASK_SETTLE_MS, `${tool}\n${JSON.stringify(view)}`);
+  // A press let go because the card had just moved, said so for a moment beside the buttons.
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (!held) return;
+    const later = setTimeout(() => setHeld(false), HELD_CUE_MS);
+    return () => clearTimeout(later);
+  }, [held]);
   const decide = (which: "yes" | "always" | "no"): void => {
     // One decision per card: a second press, or a key held down, sends nothing more.
-    if (busy || pressed || !steady()) return;
+    if (busy || pressed) return;
+    if (!steady()) {
+      setHeld(true);
+      return;
+    }
     setPressed(which);
     if (which === "no") onDecide(false);
     else if (which === "always") onDecide(true, true);
@@ -157,6 +170,11 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           {working("no", labels?.no ?? "Deny")}
         </button>
         {extra}
+        {held && (
+          <span className="kos-ask-held" role="status">
+            This card just moved. Press again.
+          </span>
+        )}
         {/* Why there is no remembered yes, beside the buttons where it would have been. */}
         {!always && !noRemember && view.alwaysNote && <span className="kos-ask-note">{view.alwaysNote}</span>}
       </div>
