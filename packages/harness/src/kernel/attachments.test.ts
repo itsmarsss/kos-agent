@@ -56,6 +56,16 @@ describe("readAttachments", () => {
     );
   });
 
+  it("names a document that does not read, keeping the words and the rest", async () => {
+    const bad = Buffer.from("not a pdf at all").toString("base64");
+    const [note, rest] = await readAttachments([
+      { name: "Invoice 1042.pdf", mediaType: "application/pdf", data: bad },
+      { name: "notes.txt", mediaType: "text/plain", data: Buffer.from("hi").toString("base64") },
+    ]);
+    expect(utf8(note!.data)).toMatch(/^\[Invoice 1042\.pdf: could not be read: not a PDF/);
+    expect(rest).toMatchObject({ name: "notes.txt" });
+  });
+
   it("refuses a file of 120 MB, saying the limit and why", async () => {
     const data = Buffer.alloc(120 * MB).toString("base64");
     await expect(readAttachments([{ name: "video.mov", mediaType: "video/quicktime", data, path: "uploads/video.mov" }])).rejects.toThrow(

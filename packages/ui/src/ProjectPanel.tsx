@@ -4,9 +4,8 @@ import { Card, Empty, lookOf, Pill } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
-import { FileIcon } from "./FileIcon.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
-import { markInk } from "./ProjectMark.js";
+import { markInk, markLetter } from "./ProjectMark.js";
 import { isProjectAgent } from "./ProjectsPage.js";
 
 /**
@@ -98,7 +97,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
     { n: detail.agents.filter(isProjectAgent).length, one: "Agent" },
     { n: detail.pages.filter((p) => p.trashedAt === undefined).length, one: "Artifact", section: "Artifacts" },
     { n: tables.length, one: "Table", section: "Tables" },
-    { n: detail.crons.length, one: "Job" },
+    { n: detail.crons.length, one: "Schedule" },
   ];
   const jump = (section: string): void => {
     const to = panel.current?.querySelector<HTMLElement>(`section[aria-label="${section}"]`);
@@ -125,8 +124,8 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
           what it is for, how much it holds, and what can be done with it. */}
       <header className="project-head">
         <div className="project-head-top">
-          <span className="hero-mark hero-mark--sm" aria-hidden="true" style={project.colour ? { background: project.colour, color: markInk(project.colour) } : undefined}>
-            <FileIcon name={project.slug} kind="dir" size={16} />
+          <span className="hero-mark hero-mark--sm hero-mark--letter" aria-hidden="true" style={project.colour ? { background: project.colour, color: markInk(project.colour) } : undefined}>
+            {markLetter(project.name)}
           </span>
           <div className="project-head-titles">
             <h2>{project.name}</h2>
@@ -160,9 +159,12 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
           <button type="button" className="btn btn--sm" title="The project's folder on the Files page" onClick={() => onOpenFile(detail.folder)}>
             Open in Files
           </button>
-          <button type="button" className="btn btn--sm btn--ghost" aria-expanded={colouring} onClick={() => setColouring((v) => !v)} title="Give the project a colour of its own">
-            Colour
-          </button>
+          {/* Maintenance is KOS's own: its look is not the owner's to set. */}
+          {project.type !== "system" && (
+            <button type="button" className="btn btn--sm btn--ghost" aria-expanded={colouring} onClick={() => setColouring((v) => !v)} title="Give the project a colour of its own">
+              Colour
+            </button>
+          )}
         </div>
         {colouring && (
           /* The same swatches and picker a face has; a project's swatch is the plain colour. */

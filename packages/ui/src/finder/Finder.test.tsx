@@ -39,7 +39,7 @@ function transfer(): DataTransfer {
 
 beforeEach(() => {
   tree = {
-    ".": [d("projects", "dir"), d("downloads", "dir"), d("kos.sqlite")],
+    ".": [d("projects", "dir"), d("downloads", "dir"), { ...d("kos.sqlite"), reserved: true }],
     projects: [d("projects/garden", "dir")],
     "projects/garden": [d("projects/garden/beds", "dir"), d("projects/garden/a.md"), d("projects/garden/b.txt"), d("projects/garden/plan.docx"), d("projects/garden/c.txt")],
     "projects/garden/beds": [d("projects/garden/beds/bed-1.md")],
@@ -230,6 +230,25 @@ describe("the finder", () => {
     fireEvent.mouseDown(row("projects/garden/beds/bed-1.md"));
     expect(await screen.findByText("Project")).toBeTruthy();
     expect(JSON.parse(localStorage.getItem("kos.finder.views")!)).toEqual({ "projects/garden": "columns" });
+  });
+
+  it("marks KOS's own files and offers nothing that would change them", async () => {
+    const trash = vi.spyOn(api, "trashFile");
+    render(<Finder path="." />);
+    await screen.findByText("kos.sqlite");
+    const own = row("kos.sqlite");
+    expect(own.dataset.reserved).toBe("true");
+    expect(own.getAttribute("draggable")).toBe("false");
+    fireEvent.contextMenu(own, { clientX: 5, clientY: 5 });
+    const items = screen.getAllByRole("menuitem").map((el) => el.textContent ?? "");
+    expect(items.some((t) => t.startsWith("Get Info"))).toBe(true);
+    for (const word of ["Rename", "Duplicate", "Move to", "Move to Trash"]) expect(items.some((t) => t.startsWith(word))).toBe(false);
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.mouseDown(own);
+    key("Enter");
+    expect(screen.queryByRole("textbox", { name: "Rename kos.sqlite" })).toBeNull();
+    key("Backspace", { metaKey: true });
+    expect(trash).not.toHaveBeenCalled();
   });
 
   it("asks KOS about what is chosen, and shows its facts on Cmd+I", async () => {

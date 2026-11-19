@@ -420,6 +420,9 @@ export function CronEditor({
       )}
 
       <div className="settings-actions cron-actions">
+        <button type="button" className="btn" onClick={onCancel}>
+          Cancel
+        </button>
         <button
           type="button"
           className="btn btn--primary"
@@ -427,9 +430,6 @@ export function CronEditor({
           onClick={save}
         >
           {saving ? "Saving…" : job ? "Save changes" : "Create schedule"}
-        </button>
-        <button type="button" className="btn" onClick={onCancel}>
-          Cancel
         </button>
       </div>
     </div>

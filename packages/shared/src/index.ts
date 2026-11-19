@@ -208,7 +208,8 @@ export {
   type RunAdapter,
   type RunOptions,
 } from "./screenrun.js";
-export { GAP_MS, clockWords, dayNumber, dayWords, markWords, timeMarks, type TimeMark } from "./chattime.js";
+export { APPROVED_PREFIX, DENIED_PREFIX, LAPSED_PREFIX, NOT_RUN_PREFIX, OLD_DENIED_PREFIX, isUndone, outcomeOf, type CallOutcome } from "./calloutcome.js";
+export { GAP_MS, clockWords, dayNumber, dayWords, markWords, momentWords, readerTime, timeMarks, type TimeMark } from "./chattime.js";
 export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timeCard, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
 export { pathsIn, type PathPart } from "./workspacepath.js";
 export { CHANNEL_TOKEN, channelNamesIn, surfaceName } from "./channel.js";
@@ -328,3 +329,4 @@ export type {
   SlidesView,
   ViewFormat,
 } from "./officeview.js";
+export { bytesWords } from "./bytes.js";

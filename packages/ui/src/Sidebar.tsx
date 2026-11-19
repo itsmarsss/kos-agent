@@ -20,6 +20,7 @@ import { hrefFor, NAV, navActive, type Route } from "./routes.js";
 export function Sidebar({
   route,
   status,
+  down,
   inboxCount,
   busy,
   onSearch,
@@ -34,6 +35,8 @@ export function Sidebar({
 }: {
   route: Route;
   status: Status | null;
+  /** KOS has stopped answering this tab: the status above is from before. */
+  down: boolean;
   /** (KOS's face is read from context; see @kos/kit's Face.tsx.) */
   /** Everything waiting on the owner, for the badge beside Inbox. */
   inboxCount: number;
@@ -81,8 +84,9 @@ export function Sidebar({
   useDismiss(open, () => setOpen(false), { away: false, scroll: false, resize: false, escape: "dialog" });
 
   const failing = status?.unhealthy ?? 0;
-  const healthClass = status?.halted ? "health--halted" : failing > 0 ? "health--bad" : "health--ok";
-  const healthText = status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "Running";
+  // A status read before KOS stopped answering says nothing about now.
+  const healthClass = down ? "health--bad" : status?.halted ? "health--halted" : failing > 0 ? "health--bad" : "health--ok";
+  const healthText = down ? "Can't reach KOS" : status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "Running";
   const model = status?.routes?.["reasoning"];
 
   return (
@@ -94,20 +98,19 @@ export function Sidebar({
         </button>
         <a className="brand" href="#/">
           <Face seed={KOS_SEED} look={faceLookOf(kos)} size={20} mood={kosMood} label="KOS" />
-          <span className="brand-k">K</span>
-          <span>-OS</span>
+          <span>KOS</span>
         </a>
-        <button type="button" className="btn btn--ghost phonebar-search" aria-label="Search" onClick={onSearch}>
-          ⌘K
-        </button>
+        {/* A touch screen has no ⌘K: the search is its mark. */}
+        <IconButton className="phonebar-search" label="Search" onClick={onSearch}>
+          <NavIcon name="search" />
+        </IconButton>
       </header>
       {open && <div className="side-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />}
       <aside className={`side${open ? " is-open" : ""}`} aria-label="Primary">
         <div className="side-brand-row">
           <a className="brand side-brand" href="#/">
             <Face seed={KOS_SEED} look={faceLookOf(kos)} size={22} mood={kosMood} label="KOS" />
-            <span className="brand-k">K</span>
-          <span>-OS</span>
+            <span>KOS</span>
           </a>
           {/* Collapse to a rail. Desktop only; on a phone the sidebar is a
               drawer and this button is hidden. */}
@@ -142,10 +145,10 @@ export function Sidebar({
             type="button"
             className="side-link side-search"
             onClick={onAsk}
-            title="Quick question about the open chat"
+            title="Quick ask about the open chat"
           >
             <NavIcon name="ask" />
-            <span className="side-label">Quick question</span>
+            <span className="side-label">Quick ask</span>
             <kbd>⌘⇧K</kbd>
           </button>
           <button

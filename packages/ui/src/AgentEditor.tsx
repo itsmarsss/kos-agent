@@ -225,11 +225,11 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
 
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
       <div className="rename-actions">
-        <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || nameTaken || nameOdd || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim() || (draft.schedule.trim() !== "" && !draft.prompt.trim())}>
-          {busy ? "Saving…" : isNew ? "Make it" : "Save"}
-        </button>
         <button type="button" className="btn" disabled={busy} onClick={onCancel}>
           Cancel
+        </button>
+        <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || nameTaken || nameOdd || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim() || (draft.schedule.trim() !== "" && !draft.prompt.trim())}>
+          {busy ? "Saving…" : isNew ? "Make it" : "Save"}
         </button>
       </div>
     </form>

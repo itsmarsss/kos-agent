@@ -69,6 +69,9 @@ describe("parseRoute", () => {
     expect(navActive({ name: "projects" }, { name: "page", id: "x" })).toBe(true);
     // A project's workspace is a place inside Projects, like one of its pages.
     expect(navActive({ name: "projects" }, { name: "project", slug: "x" })).toBe(true);
+    // Maintenance is KOS's own, listed with the chats, not a project of the owner's.
+    expect(navActive({ name: "projects" }, { name: "project", slug: "maintenance" })).toBe(false);
+    expect(navActive({ name: "chats" }, { name: "project", slug: "maintenance" })).toBe(true);
     expect(navActive({ name: "chats" }, { name: "inbox" })).toBe(false);
   });
 

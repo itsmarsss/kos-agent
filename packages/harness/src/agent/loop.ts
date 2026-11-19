@@ -1,3 +1,5 @@
+import { NOT_RUN_PREFIX } from "@kos/shared";
+
 import type { Route, Task } from "../models/router.js";
 import { toolUse } from "../kernel/caller.js";
 import type {
@@ -219,7 +221,7 @@ export async function runAgent(
         type: "tool_result",
         toolUseId: call.id,
         content:
-          "not run: this conversation takes one tool call at a time, so you can read each result before choosing the next. Call it again if you still need it.",
+          `${NOT_RUN_PREFIX}this conversation takes one tool call at a time, so you can read each result before choosing the next. Call it again if you still need it.`,
         isError: false,
       });
     }

@@ -181,6 +181,7 @@ describe("why an ask asks", () => {
     expect(askRisk("on shop.example")).toBeUndefined();
     expect(askRisk("risky tool")).toBeUndefined();
     expect(askRisk(null)).toBeUndefined();
+    expect(askRisk("example.com is not on the allowed hosts")).toBe("example.com is not on the allowed hosts");
     expect(askRisk("deletes files")).toBe("Deletes files");
   });
 });

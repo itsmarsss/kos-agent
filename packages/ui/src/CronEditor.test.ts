@@ -16,7 +16,7 @@ describe("the jobs offered to start from", () => {
       else if (t.id === "command") expect(t.actions?.[0]).toMatchObject({ tool: "shell.run" });
       else expect(t.prompt).toContain("notify");
     }
-    expect(describeCron(TEMPLATES[0]!.schedule)).toBe("Weekdays at 07:30");
+    expect(describeCron(TEMPLATES[0]!.schedule, "en-GB")).toBe("Weekdays at 07:30");
     expect(describeCron(TEMPLATES[2]!.schedule)).toBe("Every 6 hours, on the hour");
   });
 });
@@ -28,13 +28,13 @@ describe("the jobs offered to start from", () => {
  */
 describe("reading a cron line back in words", () => {
   it("reads a daily time", () => {
-    expect(describeCron("0 9 * * *")).toBe("Every day at 09:00");
-    expect(describeCron("30 6 * * *")).toBe("Every day at 06:30");
+    expect(describeCron("0 9 * * *", "en-GB")).toBe("Every day at 09:00");
+    expect(describeCron("30 6 * * *", "en-GB")).toBe("Every day at 06:30");
   });
 
   it("reads a weekday", () => {
-    expect(describeCron("0 9 * * 1")).toBe("Every Monday at 09:00");
-    expect(describeCron("0 17 * * 5")).toBe("Every Friday at 17:00");
+    expect(describeCron("0 9 * * 1", "en-GB")).toBe("Every Monday at 09:00");
+    expect(describeCron("0 17 * * 5", "en-GB")).toBe("Every Friday at 17:00");
   });
 
   it("reads intervals", () => {
@@ -46,12 +46,12 @@ describe("reading a cron line back in words", () => {
   });
 
   it("reads a day of the month", () => {
-    expect(describeCron("0 8 1 * *")).toBe("On day 1 of each month at 08:00");
+    expect(describeCron("0 8 1 * *", "en-GB")).toBe("On day 1 of each month at 08:00");
   });
 
   it("says nothing rather than guessing", () => {
     // A confident wrong reading is worse than none: the owner would trust it.
-    expect(describeCron("0 9 * * 1,3,5")).toBe("Mon, Wed, Fri at 09:00");
+    expect(describeCron("0 9 * * 1,3,5", "en-GB")).toBe("Mon, Wed, Fri at 09:00");
     expect(describeCron("0 9 1-7 * *")).toBeNull();
     expect(describeCron("nonsense")).toBeNull();
     expect(describeCron("0 9 * *")).toBeNull();

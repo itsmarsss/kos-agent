@@ -211,7 +211,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
           ...(record.blobRemoved ? [] : [{ label: "Duplicate", act: () => void run(() => did("duplicate", api.duplicateArtifact(record.id))) }]),
           { label: "Move to…", act: () => setDialog({ kind: "move", record }) },
           ...exports(record, page),
-          { label: "Move to trash", act: () => void run(() => did("trash", api.trashArtifact(record.id))), danger: true, divided: true },
+          { label: "Move to Trash", act: () => void run(() => did("trash", api.trashArtifact(record.id))), danger: true, divided: true },
         ];
 
   const places: Place[] = [
@@ -242,9 +242,9 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
             key="exporting"
             className="ops-toast"
             role="status"
-            initial={{ opacity: 0, y: -10, x: "-50%", scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
-            exit={{ opacity: 0, y: -6, x: "-50%", scale: 0.98 }}
+            initial={{ opacity: 0, y: 10, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.98 }}
             transition={spring}
           >
             <span className="ops-toast-text">{exporting}</span>

@@ -69,11 +69,36 @@ Where each one lives, in the dashboard, KOS for Chrome and KOS for Mac, is
 - **Buttons**: `.btn`; `.btn--primary` once per form, last; `.btn--sm`
   inside cards and rows; `.btn--ghost` for the quiet choice; a delete is
   `.btn--danger` and asks through `ConfirmButton`.
+- **Form actions** (`.drawer-foot` in a drawer, `.rename-actions` in a
+  dialog): right-aligned, Cancel then the primary; a destructive one
+  (Delete, Forget) alone at the far left in `.foot-start`. The order on
+  screen is the order in the markup, so Tab follows what is seen.
+- **Times**: a clock time is `clockWords` (the reader's 12- or 24-hour
+  clock, "9:41 AM"), a moment in a list or a schedule `momentWords` ("9:41
+  AM" today, "Tomorrow 9:41 AM", "Mon 9:41 AM", "Nov 19, 9:41 AM"), both in
+  `@kos/shared`; how long ago is `agoWords`. A time token in KOS's words is
+  `readerTime`, the same shapes. Nothing writes `toLocaleString` itself.
 - **Uppercase** is for section and card titles and table column heads, and
   nothing else. Form labels are not uppercase.
 - **Faces** (`Face`, from `@kos/kit`): a blob's or KOS's face, at 16 to 18 in rows, 26
   in list rows, 44 to 72 in a head. Its hue is the column's accent on the
   blob page (`--blob-h`).
+
+## Words
+
+One word per thing, wherever the owner reads it.
+
+| Thing | The word | Not |
+| --- | --- | --- |
+| Entries of what was said, kept in memory | Log, log entries | moments |
+| Where a claim came from | from you, from KOS, from a chat | a bare "KOS" or "you" |
+| Memory's three jobs | Read, Tidy, Condense ("Memory: Read" outside Memory) | kos.memory, kos.dream, kos.observe, the dream job |
+| KOS's other jobs | Backup, Faces, Improve | kos.backup, kos.face |
+| When things run on their own | Schedule | Jobs, crons |
+| What KOS did | Runs (the page; History, Schedule and Builds its tabs); a run is a turn, a job, a check or memory | chat #id |
+| Something that did not work | failed | error, Failures, What broke |
+| What waits on the owner | Inbox; inside it, Approvals | Tool approvals; "Needs you" is only the Overview card's title |
+| KOS's own project | Maintenance, under "KOS's own" | a fourth project |
 
 ## Audit, 2026-10-18
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
-import { AUTO_DECIDER } from "@kos/shared";
+import { AUTO_DECIDER, momentWords, timeCard } from "@kos/shared";
 import { ChevronDown, Chips, Collapse, Count, Empty, Pill, spring, Tag, type Tone } from "@kos/kit";
 
 import { api, type DecidedAction, type DecidedStatus, type InboxData } from "./api.js";
@@ -223,7 +223,7 @@ export function InboxDecided({
               className="list-search inbox-decided-search"
               type="search"
               aria-label="Search what was decided"
-              placeholder="Search decided…"
+              placeholder="Search decided"
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -281,7 +281,7 @@ export function InboxDecided({
                   {a.decidedBy === AUTO_DECIDER && <Tag title="This chat was set to Auto, so KOS went ahead without asking you">auto mode</Tag>}
                   {a.id === linked?.id && !rows.some((r) => r.id === a.id) && <Tag>Linked</Tag>}
                   {a.asker && <span className="inbox-decided-where">{a.asker}</span>}
-                  <time className="inbox-decided-when" dateTime={new Date(when).toISOString()} title={new Date(when).toLocaleString()}>
+                  <time className="inbox-decided-when" dateTime={new Date(when).toISOString()} title={timeCard(when / 1000).join(" ")}>
                     {agoWords(when)}
                   </time>
                   <m.span className="chev" animate={{ rotate: isOpen ? 180 : 0 }} transition={spring}>
@@ -303,10 +303,10 @@ export function InboxDecided({
                         </>
                       )}
                       <dt>Asked</dt>
-                      <dd>{new Date(a.requestedAt).toLocaleString()}</dd>
+                      <dd>{momentWords(a.requestedAt)}</dd>
                       <dt>{outcome.word[0]!.toUpperCase() + outcome.word.slice(1)}</dt>
                       <dd>
-                        {a.decidedAt ? new Date(a.decidedAt).toLocaleString() : "unknown"}
+                        {a.decidedAt ? momentWords(a.decidedAt) : "unknown"}
                         {a.decidedBy ? ` by ${a.decidedBy}` : ""}
                       </dd>
                       {a.reason && (

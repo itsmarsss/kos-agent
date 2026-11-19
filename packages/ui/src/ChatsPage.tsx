@@ -27,7 +27,7 @@ import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
-import { ArtifactRail, ArtifactStrip, type RailOwner, useOwnedArtifacts } from "./ArtifactRail.js";
+import { ArtifactRail, ArtifactStrip, type RailOwner, useArtifactTitles, useOwnedArtifacts } from "./ArtifactRail.js";
 import { ArtifactViewer, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
 import { chatIdOf } from "./artifactowner.js";
 import { PANEL_ROOM, usePanelDrawer, useRoomFor } from "./paneldrawer.js";
@@ -36,6 +36,7 @@ import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
   api,
   type CronJob,
+  type Attachment,
   type ChatEvent,
   type Conversation,
   type PageSummary,
@@ -65,6 +66,9 @@ import {
 import { Thinking } from "./Thinking.js";
 import { MessageEditor } from "./MessageActions.js";
 import { MessageTurn, type TurnAction } from "./MessageTurn.js";
+import { UnsentNote } from "./UnsentNote.js";
+import { Toast } from "./Toast.js";
+import { useReach } from "./reach.js";
 import { useStable } from "./stable.js";
 
 import {
@@ -85,7 +89,7 @@ import { Modal } from "./Modal.js";
 import { HandoffForm } from "./HandoffForm.js";
 import { hrefFor } from "./routes.js";
 import { fileMention } from "./finder/model.js";
-import { backInComposer, composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
+import { backInComposer, composerKeyDown, unsentHome, useAutoGrow, useStickToBottom } from "./composer.js";
 
 /**
  * The chats page: a list that stays usable at fifty conversations, and the
@@ -179,6 +183,17 @@ export interface ChatsPageProps {
 }
 
 
+/** A title cut to a length, with an ellipsis: the composer's placeholder names the chat however long it is. */
+/** A message that did not reach KOS, as Retry sends it again. */
+interface Unsent {
+  text: string;
+  files: Attachment[];
+}
+
+function clipped(title: string, max: number): string {
+  return title.length > max ? `${title.slice(0, max - 1).trimEnd()}…` : title;
+}
+
 function relative(ts: number): string {
   const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
   if (mins < 60) return `${mins}m`;
@@ -265,6 +280,10 @@ export function ChatsPage({
       : [];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  // KOS not answering this tab: sending waits, and says so, until it is back.
+  const reach = useReach();
+  // The files of each message that did not reach KOS, by its bubble, for its Retry and Edit.
+  const unsentFiles = useRef(new Map<ChatEvent, Attachment[]>());
   /** References put in the composer after what is typed, and the composer focused for the question. */
   const addToDraft = (words: string): void => {
     setDraft((d) => (d.trim() ? `${d.replace(/\s+$/, "")} ${words} ` : `${words} `));
@@ -443,10 +462,6 @@ export function ChatsPage({
   activeIdRef.current = activeId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useAutoGrow(inputRef, draft);
-  // Opening a chat puts the cursor in its box: that is what you came to do.
-  useEffect(() => {
-    if (activeId && !narrow) inputRef.current?.focus();
-  }, [activeId, narrow]);
 
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   // The server's channels, so "#name" in a chat is coloured and chipped as
@@ -509,6 +524,16 @@ export function ChatsPage({
   const inlineScroll = useOverlayScroll<HTMLDivElement>();
 
   const active = conversations.find((c) => c.id === activeId);
+  // Opening a chat puts the cursor in its box: that is what you came to do. Keyed on the chat being drawn, not
+  // on its id alone: the box is not there until the list has the chat, and focus was left on the page. Not over
+  // something else that has the focus (a dialog, a field), and not on a phone, where it would raise the keyboard.
+  const shownId = active?.id;
+  useEffect(() => {
+    if (!shownId || narrow) return;
+    const held = document.activeElement;
+    if (held && held !== document.body && !held.closest(".side, .chats-list")) return;
+    inputRef.current?.focus({ preventScroll: true });
+  }, [shownId, narrow]);
   const [chatMode, setChatMode] = useChatMode(active, onChanged);
   /*
    * A turn is running here, on both accounts.
@@ -543,8 +568,11 @@ export function ChatsPage({
    * build are addressed by id, and an id is not a name. A blob (@blob:, and
    * @agent: from before blobs had their name) is addressed by its name.
    */
+  const artifactTitles = useArtifactTitles();
   const nameFor = (kind: string, id: string): string | undefined => {
     if (kind === "chat") return conversations.find((c) => c.id === id)?.title;
+    // An artifact by its title; its id while the list is still coming.
+    if (kind === "page") return artifactTitles.get(id);
     if (kind === "build") {
       const build = agents.find((b) => String(b.id) === id);
       return build ? build.dir : undefined;
@@ -971,11 +999,18 @@ export function ChatsPage({
    * Sends what is in the composer, or, given words, those words alone: a
    * typed block's Send speaks for the owner and leaves the composer as it is.
    */
-  async function send(spoken?: string): Promise<void> {
-    const composed = spoken === undefined;
-    const text = composed ? draft.trim() : spoken;
+  /**
+   * Send what the composer holds; or words said another way (`spoken`); or,
+   * `again`, a message that did not reach KOS, from its bubble, which leaves
+   * whatever the composer holds now alone.
+   */
+  async function send(spoken?: string, again?: Unsent): Promise<void> {
+    const composed = spoken === undefined && again === undefined;
+    const text = again ? again.text : composed ? draft.trim() : (spoken ?? "");
     const target = activeId;
-    if ((!text && (!composed || attachments.files.length === 0)) || !target) return;
+    if ((!text && (!composed || attachments.files.length === 0) && !again?.files.length) || !target) return;
+    // Nothing goes while KOS is not answering: the words stay in the box until it is back.
+    if (reach.down) return;
     if (composed && runLocally(text)) {
       setDraft("");
       return;
@@ -984,7 +1019,7 @@ export function ChatsPage({
     // way: the bubble carries its attachments straight away and the composer
     // is empty. Waiting for the turn meant the files sat in the composer,
     // looking unsent, until the answer came back.
-    const files = composed ? attachments.files : [];
+    const files = again ? again.files : composed ? attachments.files : [];
     // A command is not part of the conversation, so it gets no bubble: one
     // appeared and was taken away again by the reload a moment later.
     const looksLikeCommand = /^\/\S/.test(text) && files.length === 0;
@@ -1073,7 +1108,6 @@ export function ChatsPage({
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setEvents((e) => [...e.filter((x) => x !== bubble), { kind: "message", role: "kos", text: `Error: ${msg}` }]);
       /*
        * Back in the composer only when it is not waiting on the server: an
        * answer lost on the way back can follow a message that was queued all
@@ -1082,7 +1116,16 @@ export function ChatsPage({
        */
       const waiting = await api.conversation(target).then((r) => r.pending).catch(() => undefined);
       if (waiting) showPending(target, waiting);
-      if (composed && (!waiting || !queuedAnyway(waiting, before, text))) {
+      const unsent = !waiting || !queuedAnyway(waiting, before, text);
+      // The owner's own bubble stays, marked as not sent and why, where KOS's reply would have gone before.
+      // Never the browser's words in KOS's slot: that read as KOS answering "Error: Failed to fetch".
+      // Its words and files are kept with it, for Retry or Edit, and not put back in the composer as well:
+      // in both places, Send and Retry sent it twice.
+      const home = unsentHome({ reached: !unsent, command: looksLikeCommand, midTurn: aside !== null });
+      if (home === "bubble") unsentFiles.current.set(bubble, files);
+      setEvents((e) => (home === "bubble" ? e.map((x) => (x === bubble ? { ...bubble, unsent: msg } : x)) : e.filter((x) => x !== bubble)));
+      if (looksLikeCommand || aside) onNotice(msg);
+      if (composed && home === "composer") {
         setDraft((d) => backInComposer(d, text));
         attachments.restore(files);
       }
@@ -1336,8 +1379,32 @@ export function ChatsPage({
       );
     }
 
+    const said = <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} />;
+    if (e.kind !== "message" || e.unsent === undefined) return said;
     return (
-      <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} />
+      <Fragment key={i}>
+        {said}
+        <UnsentNote
+          reason={e.unsent}
+          down={reach.down}
+          onRetry={() => {
+            // Sent again from the bubble, which the send draws anew; the composer is left as it is.
+            const files = unsentFiles.current.get(e) ?? [];
+            unsentFiles.current.delete(e);
+            setEvents((all) => all.filter((x) => x !== e));
+            void send(undefined, { text: e.text, files });
+          }}
+          onEdit={() => {
+            // Back in the composer to change, and gone from the thread, so it is in one place only.
+            const files = unsentFiles.current.get(e) ?? [];
+            unsentFiles.current.delete(e);
+            setEvents((all) => all.filter((x) => x !== e));
+            setDraft((d) => backInComposer(d, e.text));
+            attachments.restore(files);
+            inputRef.current?.focus();
+          }}
+        />
+      </Fragment>
     );
   };
 
@@ -1506,7 +1573,7 @@ export function ChatsPage({
               <input
                 className="chats-search"
                 value={query}
-                placeholder="Search agents…"
+                placeholder="Search chats"
                 onChange={(e) => setQuery(e.target.value)}
               />
             </div>
@@ -1541,7 +1608,7 @@ export function ChatsPage({
               )}
             </div>
             <div className="label chats-group-head">
-              <span>Agents</span>
+              <span>Chats</span>
               {/* Like New chat: the thread opens empty and the first message
                   names it. A form asking for a name, a brief and a task first
                   was three fields in the way of saying what you wanted. */}
@@ -1562,7 +1629,7 @@ export function ChatsPage({
                 <li><Empty inline className="chats-empty">
                   {q
                     ? "Nothing matches."
-                    : "No agents yet. The orchestrator starts them as work comes up, or start one with +."}
+                    : "No chats yet. The orchestrator starts them as work comes up, or start one with +."}
                 </Empty></li>
               )}
             </ul>
@@ -1684,7 +1751,7 @@ export function ChatsPage({
                 <input
                   className="chats-search"
                   value={query}
-                  placeholder={showArchived ? "Search archived…" : "Search chats…"}
+                  placeholder={showArchived ? "Search archived" : "Search chats"}
                   aria-label={showArchived ? "Search archived chats" : "Search chats"}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -2005,25 +2072,22 @@ export function ChatsPage({
               />
             </div>
           )}
-          {undo && (
-            <div className="chats-undo" role="status">
-              <span>Archived “{undo.title}”.</span>
-              <button
-                type="button"
-                className="link"
-                onClick={() => {
+          <Toast
+            note={
+              undo && {
+                kind: "ok",
+                text: `Archived “${undo.title}”.`,
+                undo: () => {
                   const back = undo;
                   setUndo(null);
                   void api.archiveConversation(back.id, false).then(() => {
                     onChanged();
                     onOpen(back.id);
                   });
-                }}
-              >
-                Undo
-              </button>
-            </div>
-          )}
+                },
+              }
+            }
+          />
           {!active && (project || agent) ? (
             /* Inside a project there is no landing: the thread is the
                orchestrator's by default, and it is being stood up if it is not
@@ -2189,7 +2253,6 @@ export function ChatsPage({
                     {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
                     {active.title}
                     {active.kind === "project" && <span className="chats-role">orchestrator</span>}
-                    {active.kind === "chat" && active.projectSlug && !active.role && <span className="chats-role">agent</span>}
                     {(active.kind === "agent" || active.role) && <span className="chats-role">blob</span>}
                   </h1>
                   {/* Inside the project the rail lists the agents, so the count
@@ -2199,7 +2262,13 @@ export function ChatsPage({
                       {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? [])}
                     </p>
                   )}
-                  {active.brief && <p className="chats-brief">{active.brief}</p>}
+                  {(() => {
+                    // A project's orchestrator and Maintenance carry KOS's own prompt as their brief, written for
+                    // the model: their line is the project's description, or none. Any other chat's brief is the
+                    // owner's own, set in Configure.
+                    const line = active.kind === "project" ? (projects.find((p) => p.slug === active.projectSlug)?.description ?? null) : active.brief;
+                    return line ? <p className="chats-brief">{line}</p> : null;
+                  })()}
                   {/* Counts are not something anyone came here to read. Only
                       the tool scope is said, and only when it is not the
                       default, because that is a capability the chat lacks. */}
@@ -2235,7 +2304,8 @@ export function ChatsPage({
                     <GearIcon />
                     <span className="head-act-label">{editing ? "Close" : "Configure"}</span>
                   </button>
-                  {active.kind !== "orchestrator" && (
+                  {/* KOS's own thread and Maintenance are KOS's: neither is archived. */}
+                  {active.kind !== "orchestrator" && !(active.kind === "project" && projects.find((p) => p.slug === active.projectSlug)?.type === "system") && (
                     <button
                       type="button"
                       className="head-act"
@@ -2319,18 +2389,18 @@ export function ChatsPage({
                   />
                   <div className="rename-actions">
                     <button
-                      type="submit"
-                      className="btn btn--primary"
-                      disabled={!renaming?.title.trim()}
-                    >
-                      Rename
-                    </button>
-                    <button
                       type="button"
                       className="btn"
                       onClick={() => setRenaming(null)}
                     >
                       Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn--primary"
+                      disabled={!renaming?.title.trim()}
+                    >
+                      Rename
                     </button>
                   </div>
                 </form>
@@ -2631,10 +2701,18 @@ export function ChatsPage({
                   <textarea
                     className="hl-area"
                     ref={inputRef}
+                    // Where the focus goes after the last ask here is decided from the keyboard.
+                    data-after-ask=""
                     rows={1}
                     value={draft}
                     // On a narrow window the hints ran out of the box: who it goes to is the part to keep.
-                    placeholder={narrow ? `Message ${active.title.length > 20 ? "KOS" : active.title}` : `Message ${active.title.length > 32 ? "KOS" : active.title}, / for commands, @ to name things`}
+                    placeholder={
+                      reach.down
+                        ? "KOS is not answering, retrying"
+                        : narrow
+                          ? `Message ${clipped(active.title, 20)}`
+                          : `Message ${clipped(active.title, 32)}, / for commands, @ to name things`
+                    }
                     onChange={(e) => {
                       setDraft(e.target.value);
                       syncTrigger();
@@ -2736,7 +2814,7 @@ export function ChatsPage({
                       aria-label="Send"
                       title="Send (Enter)"
                       onClick={() => void send()}
-                      disabled={draft.trim() === "" && attachments.files.length === 0}
+                      disabled={reach.down || (draft.trim() === "" && attachments.files.length === 0)}
                     >
                       <SendIcon />
                     </button>

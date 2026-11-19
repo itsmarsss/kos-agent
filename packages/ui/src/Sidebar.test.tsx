@@ -6,11 +6,12 @@ import { Sidebar } from "./Sidebar.js";
 
 afterEach(cleanup);
 
-function show(route: Parameters<typeof Sidebar>[0]["route"], inboxCount = 0, halted = false) {
+function show(route: Parameters<typeof Sidebar>[0]["route"], inboxCount = 0, halted = false, down = false) {
   render(
     <Sidebar
       route={route}
       status={{ halted, queueDepth: 0, crons: 0, pendingApprovals: 0, unhealthy: 0, routes: { reasoning: { provider: "openai", model: "gpt-5.5" } } }}
+      down={down}
       inboxCount={inboxCount}
       busy={null}
       onSearch={vi.fn()}
@@ -37,5 +38,11 @@ describe("the sidebar", () => {
     show({ name: "chats" }, 0, true);
     expect(screen.getByText("Halted")).toBeTruthy();
     expect(screen.getByText("gpt-5.5")).toBeTruthy();
+  });
+
+  it("says KOS cannot be reached once it stops answering, whatever the last status said", () => {
+    show({ name: "chats" }, 0, false, true);
+    expect(screen.getByText("Can't reach KOS")).toBeTruthy();
+    expect(screen.queryByText("Running")).toBeNull();
   });
 });

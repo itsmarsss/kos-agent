@@ -181,12 +181,17 @@ export function chatShown(route: Route): string | undefined {
   return undefined;
 }
 
+/** Maintenance, KOS's own project: where it repairs itself, kept at the chats rail's foot and out of Projects. */
+export const MAINTENANCE_SLUG = "maintenance";
+
 /** Whether a nav entry is the one the current route belongs to. */
 export function navActive(item: Route, route: Route): boolean {
   if (item.name === "history") return RUNS_ROUTES.has(route.name);
+  const maintenance = route.name === "project" && route.slug === MAINTENANCE_SLUG;
   if (item.name === "projects") {
-    return route.name === "projects" || route.name === "project" || route.name === "page";
+    return (route.name === "projects" || route.name === "project" || route.name === "page") && !maintenance;
   }
+  if (item.name === "chats") return route.name === "chats" || maintenance;
   return item.name === route.name;
 }
 

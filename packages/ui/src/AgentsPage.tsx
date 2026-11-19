@@ -7,6 +7,8 @@ import { api, type AgentInfo, type InvalidAgent } from "./api.js";
 import { Drawer } from "./Drawer.js";
 import { PageHead } from "./PageHead.js";
 import { hrefFor } from "./routes.js";
+import { momentWords } from "@kos/shared";
+
 import { agoWords } from "./schedulewords.js";
 
 /**
@@ -30,13 +32,6 @@ export interface AgentsPageProps {
 
 const POLL_MS = 5000;
 
-function when(ts: number): string {
-  const d = new Date(ts);
-  const today = new Date();
-  const sameDay = d.toDateString() === today.toDateString();
-  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  return sameDay ? time : `${d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} ${time}`;
-}
 
 /** A line of markdown as the words alone: no emphasis marks, no code ticks, no heading hashes. */
 function plain(text: string): string {
@@ -58,7 +53,7 @@ export function upTo(a: AgentInfo): string {
 export function runsWhen(a: AgentInfo): string {
   if (!a.job) return "runs when dispatched or spoken to";
   if (!a.job.enabled) return `paused · ${a.job.schedule}`;
-  const next = a.job.nextRunAt ? `next ${when(a.job.nextRunAt)}` : a.job.schedule;
+  const next = a.job.nextRunAt ? `next ${momentWords(a.job.nextRunAt)}` : a.job.schedule;
   return a.job.lastRunAt ? `${next} · last run ${agoWords(a.job.lastRunAt)}` : `${next} · not run yet`;
 }
 

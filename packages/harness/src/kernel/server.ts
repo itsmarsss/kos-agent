@@ -92,7 +92,7 @@ import {
 } from "../catalog/catalog.js";
 import { DEFAULT_SEARCH } from "@kos/browser";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
-import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize } from "./session.js";
+import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize, picturesIn } from "./session.js";
 
 /** Where the owner's home arrangement lives. */
 export const HOME_LAYOUT_KEY = "home.layout";
@@ -721,7 +721,7 @@ export async function handleApiRequest(
   // A change comes from the page KOS served, which holds this boot's key, or from a holder of the owner's token:
   // not from a program on this machine that merely sends no Origin.
   const refusedChange = changeRefusal(req, options);
-  if (refusedChange) return { status: 403, body: { error: refusedChange } };
+  if (refusedChange) return { status: 403, body: { error: refusedChange, ...(refusedChange === WRITE_KEY_REFUSAL ? { code: "write-key" } : {}) } };
 
   if (extension) return (await extension.handle(req)) ?? notFound;
 
@@ -2661,6 +2661,8 @@ export async function handleApiRequest(
       conversationId: id,
       history: {
         historyChars,
+        // Counted apart: each is in historyChars at its allowance, not its bytes.
+        pictures: picturesIn(retained),
         maxChars: retention.maxChars,
         exchanges,
         maxExchanges: retention.maxExchanges,
@@ -3403,8 +3405,16 @@ export function changeRefusal(req: ApiRequest, options: DashboardServerOptions):
     return token ? undefined : "In the container a change to KOS needs the dashboard token: set KOS_DASHBOARD_TOKEN and send it as x-kos-token.";
   }
   if (!options.writeKey || token || sameSecret(header(req.headers ?? {}, WRITE_KEY_HEADER), options.writeKey)) return undefined;
-  return "A change to KOS needs this boot's write key. From the dashboard, reload the page (KOS may have restarted). From a terminal, use the kos CLI, or send the key in ~/.kos/write.key (write-<port>.key for another port) as the x-kos-write header.";
+  return WRITE_KEY_REFUSAL;
 }
+
+/**
+ * A change sent without this boot's write key. Its body carries `code:
+ * "write-key"` beside the words, so the dashboard can renew its key from the
+ * page and go again rather than show the terminal's instructions.
+ */
+export const WRITE_KEY_REFUSAL =
+  "A change to KOS needs this boot's write key. From the dashboard, reload the page (KOS may have restarted). From a terminal, use the kos CLI, or send the key in ~/.kos/write.key (write-<port>.key for another port) as the x-kos-write header.";
 
 /**
  * Whether a request names KOS by a name it goes by, or by an address. A

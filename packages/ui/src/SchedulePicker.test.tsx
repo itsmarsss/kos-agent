@@ -11,7 +11,7 @@ describe("the schedule picker", () => {
     render(<SchedulePicker value="30 7 * * 1-5" onChange={() => {}} />);
     expect(screen.getByRole("button", { name: "Weekdays" }).getAttribute("aria-pressed")).toBe("true");
     expect((screen.getByLabelText("Time") as HTMLInputElement).value).toBe("07:30");
-    expect(screen.getByText("Weekdays at 07:30")).toBeTruthy();
+    expect(screen.getByText(/^Weekdays at 0?7:30/)).toBeTruthy();
   });
 
   it("writes the line from the choices, keeping the time across kinds", () => {

@@ -208,6 +208,8 @@ describe("approving", () => {
     const { d } = deps(pending(), false, { handleMessage: async () => { throw new Error("model down"); } });
     const r = await new Decisions(d).approve(5, undefined, { surface: "dashboard" });
     expect(r.reply).toBe("Approved @approval:5 but resume failed: model down");
+    // Said apart from the decision, which stood: a surface tells it in its own tone.
+    expect(r).toMatchObject({ ok: true, resumed: false, resumeError: "model down" });
   });
 
   it("leaves a build's request to the build itself", async () => {
