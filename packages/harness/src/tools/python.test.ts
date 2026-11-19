@@ -33,13 +33,15 @@ describe("python.run's tier", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("runs without asking only where the macOS jail holds it", async () => {
+  it("runs without asking only where KOS's own jail holds it: macOS, or bubblewrap on Linux", async () => {
     const mac = await registryWith(ws, { platform: "darwin", contained: false });
     expect(mac.classify("python.run", { code: "print(1)" }).tier).toBe("safe");
     const container = await registryWith(ws, { platform: "linux", contained: true });
     expect(container.classify("python.run", { code: "print(1)" })).toMatchObject({ tier: "risky", beyondAuto: CONTAINED_BEYOND_AUTO });
-    const linux = await registryWith(ws, { platform: "linux", contained: false });
+    const linux = await registryWith(ws, { platform: "linux", contained: false, bubblewrap: false });
     expect(linux.classify("python.run", { code: "print(1)" }).beyondAuto).toBe(CONTAINED_BEYOND_AUTO);
+    const bwrap = await registryWith(ws, { platform: "linux", contained: false, bubblewrap: "/usr/bin/bwrap" });
+    expect(bwrap.classify("python.run", { code: "print(1)" }).tier).toBe("safe");
   });
 });
 
