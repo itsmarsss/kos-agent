@@ -67,6 +67,8 @@ export interface SecretUseRow {
   conversationId?: string;
   tool: string;
   surface: SecretSurface;
+  /** The paired device it went into, for a fill in the owner's Chrome. */
+  deviceId?: string;
   origin?: string;
   frameOrigin?: string;
   app?: string;
@@ -134,6 +136,8 @@ export interface AskSecret {
   /** The frames the fields are in, where those are not the page's origin. */
   frameOrigins: string[];
   surface: SecretSurface;
+  /** The paired device it goes into, by name, for a fill in the owner's Chrome. */
+  device?: string;
   hint?: string;
   /** What the owner should weigh: a plain-http page, a site the secret was never used on. */
   warnings: string[];

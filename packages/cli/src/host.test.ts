@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SurfaceDownError, type ChannelAdapter, type NotifyPayload } from "@kos/harness";
 
-import { dashboardUrlFor, PlaceNotifier, roomCursorsIn, scrubOutput, surfaceUp, waitForPortFree, type PlaceNotifierDeps } from "./host.js";
+import { dashboardUrlFor, PlaceNotifier, roomCursorsIn, scrubOutput, surfaceUp, unsentCards, waitForPortFree, type PlaceNotifierDeps } from "./host.js";
 import { postSaid, type JobFacts, type Said } from "./saidpost.js";
 
 describe("waitForPortFree", () => {
@@ -312,5 +312,17 @@ describe("scrubOutput", () => {
     stream.write("key sk-log-canary\n");
     stream.write(Buffer.from("bytes sk-log-canary\n"));
     expect(written).toEqual(["key [secret stripe]\n", "bytes [secret stripe]\n"]);
+  });
+});
+
+describe("Discord back from a drop", () => {
+  it("cards each ask whose card never went out, and never a secret's use", () => {
+    const pending = [
+      { id: 1, tool: "email.send", args: JSON.stringify({ to: "a@example.com" }) },
+      { id: 2, tool: "secrets.fill", args: JSON.stringify({ secret: "github-login-9xq1", fields: [] }) },
+      { id: 3, tool: "email.send", args: JSON.stringify({ to: "b@example.com" }) },
+      { id: 4, tool: "secrets.allow_site", args: JSON.stringify({ secret: "github-login-9xq1", origin: "https://github.com" }) },
+    ];
+    expect(unsentCards(pending, (id) => id === "3").map((a) => a.id)).toEqual([1]);
   });
 });
