@@ -88,6 +88,7 @@ import { ChatConfig } from "./ChatConfig.js";
 import { Modal } from "./Modal.js";
 import { HandoffForm } from "./HandoffForm.js";
 import { hrefFor } from "./routes.js";
+import { useHashParam } from "./hashparams.js";
 import { fileMention } from "./finder/model.js";
 import { backInComposer, composerKeyDown, unsentHome, useAutoGrow, useStickToBottom } from "./composer.js";
 
@@ -692,6 +693,30 @@ export function ChatsPage({
       cancelled = true;
     };
   }, [activeId, stamp, sendingIn, loadedFor, justEnded, turnRunningHere]);
+
+  /*
+   * The message a search opened this chat at (`?at=` on the address, an
+   * index into the transcript the view draws): scrolled to and lit once
+   * the transcript is here, and taken off the address so a reload opens
+   * at the newest message again.
+   */
+  const [at, clearAt] = useHashParam("at");
+  const [foundAt, setFoundAt] = useState<number | null>(null);
+  useEffect(() => setFoundAt(null), [activeId]);
+  useEffect(() => {
+    if (at === undefined || !activeId || loadedFor?.id !== activeId) return;
+    clearAt();
+    const index = Number(at);
+    if (Number.isInteger(index) && index >= 0 && index < events.length) setFoundAt(index);
+  }, [at, activeId, loadedFor, events.length, clearAt]);
+  useEffect(() => {
+    if (foundAt === null) return;
+    // Again a frame on, after the thread has followed its newest message down.
+    const show = (): void => boxRef.current?.querySelector(".bubble.is-found")?.scrollIntoView({ block: "center" });
+    show();
+    const frame = requestAnimationFrame(show);
+    return () => cancelAnimationFrame(frame);
+  }, [foundAt]);
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
   useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text, asides.length], `${activeId}:${sendingIn === activeId}`);
@@ -1379,7 +1404,7 @@ export function ChatsPage({
       );
     }
 
-    const said = <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} />;
+    const said = <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} found={i === foundAt} />;
     if (e.kind !== "message" || e.unsent === undefined) return said;
     return (
       <Fragment key={i}>

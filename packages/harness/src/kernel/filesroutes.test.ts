@@ -74,6 +74,24 @@ describe("the file manager's routes", () => {
     expect(scan(root, root, "tomato", { deadline: Date.now() - 1 }).truncated).toBe(true);
   });
 
+  it("leaves a hidden file out of a contents search, as its listing does, and marks where a line matched", async () => {
+    writeFileSync(join(root, "projects/garden/.env"), "TOMATO_KEY=sk-not-for-search");
+    const found = (await get("/api/files/search", { path: ".", q: "tomato", contents: "1" }))?.body as { entries: { path: string; text: string; marks: [number, number][] }[] };
+    expect(found.entries.map((e) => e.path)).toEqual(["projects/garden/beds/tomato notes.md"]);
+    const [hit] = found.entries;
+    expect(hit!.marks.map(([s, e]) => hit!.text.slice(s, e))).toEqual(["Tomato"]);
+  });
+
+  it("keeps a search in one lane from stopping another's", async () => {
+    const { searchContents } = await import("./fileinfo.js");
+    const [files, palette] = await Promise.all([searchContents(ws, ".", "water", { lane: "files" }), searchContents(ws, ".", "water", { lane: "palette" })]);
+    expect(files.entries).toHaveLength(1);
+    expect(palette.entries).toHaveLength(1);
+    const stopped = new AbortController();
+    stopped.abort();
+    expect(await searchContents(ws, ".", "water", { lane: "palette", signal: stopped.signal })).toEqual({ entries: [], truncated: true });
+  });
+
   it("lists the latest files and gives one's facts with its project", async () => {
     const recents = (await get("/api/files/recents"))?.body as { entries: { path: string }[] };
     expect(recents.entries.map((e) => e.path).sort()).toEqual(["projects/garden/beds/tomato notes.md", "projects/garden/plan.docx", "projects/garden/talk.key"]);

@@ -6,6 +6,7 @@ import { momentWords } from "@kos/shared";
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 import { PageHead, PageTabs, tabId } from "./PageHead.js";
+import { useHashParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
 import { agoWords } from "./schedulewords.js";
 
@@ -49,6 +50,12 @@ export function MemoryPage({
     const m = /[?&]tab=([a-z]+)/.exec(window.location.hash);
     return (TABS.find((t) => t.id === m?.[1])?.id ?? "claims");
   });
+  // An address that names a tab (a search hit, a turn's claims) opens it, here already or not.
+  const [asked] = useHashParam("tab");
+  useEffect(() => {
+    const named = TABS.find((t) => t.id === asked);
+    if (named) setTab(named.id);
+  }, [asked]);
   /** Another tab leaves a turn's claims behind: back on Claims, every claim shows. */
   const choose = (next: Tab): void => {
     if (/[?&]ids=/.test(window.location.hash)) history.replaceState(null, "", `${hrefFor({ name: "memory" })}?tab=${next}`);
@@ -334,6 +341,13 @@ function PagesTab(): ReactElement {
     void api.memoryReview().then((r) => { setPages(r.pages); setEdited(r.edited ?? []); }).catch(() => undefined);
   }, []);
   useEffect(load, [load]);
+  // A page the address names (a search hit): opened once, and taken off the address.
+  const [named, clearNamed] = useHashParam("page");
+  useEffect(() => {
+    if (!named) return;
+    clearNamed();
+    void api.memoryPage(named).then(setOpen).catch(() => undefined);
+  }, [named, clearNamed]);
   return (
     <Group title="Pages" shown={false} blurb={'One for you everywhere, one per project, written by Tidy from current claims. Edit a line in the form "- key: value" and it reads back as your word.'}>
       {pages.length === 0 && <Empty inline>No pages yet. Tidy writes them; Run now on the Schedule tab if you do not want to wait for 4 AM.</Empty>}

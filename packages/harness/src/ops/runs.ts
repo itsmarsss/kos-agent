@@ -85,6 +85,11 @@ export class RunsLog {
       .run(status, error, finishedAt, duration, id);
   }
 
+  get(id: number): RunRecord | undefined {
+    const row = this.db.prepare(`SELECT * FROM runs_log WHERE id = ?`).get(id) as Row | undefined;
+    return row ? toRecord(row) : undefined;
+  }
+
   recent(limit = 50): RunRecord[] {
     const rows = this.db
       .prepare(`SELECT * FROM runs_log ORDER BY id DESC LIMIT ?`)

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
-import { ease, Empty } from "@kos/kit";
+import { isSearchKind, marksOfLetters, SEARCH_KINDS, type HitKind, type SearchHit, type SearchKind, type SearchTarget, type Snippet } from "@kos/shared";
+import { ease, Empty, Marked } from "@kos/kit";
 
 import { api } from "./api.js";
 import { NAV, type Route } from "./routes.js";
+import { SECTIONS, searchSettings } from "./settingsindex.js";
 
 /**
  * One box that gets you anywhere.
@@ -16,12 +18,15 @@ import { NAV, type Route } from "./routes.js";
  * nothing new to learn:
  *
  * - `project:`, `file:`, `page:`, `schedule:`, `chat:`, `site:` scope a search
- *   to one kind, the same prefixes the composer's @ menu uses.
+ *   to one kind, the same prefixes the composer's @ menu uses; `msg:`,
+ *   `text:`, `memory:`, `run:`, `secret:` and `settings:` scope it to what
+ *   is said, written, known, run or kept, which Everywhere searches.
  * - `>` shows only actions, as it does in the editors people already know.
  *
  * Type nothing and it offers what you would most likely want. Type anything
  * else and it searches everything at once, because most of the time you know
- * the name and not the category it lives under.
+ * the name and not the category it lives under: names at once, and under
+ * them Everywhere, filling in as the host's full-text search answers.
  */
 
 export interface Action {
@@ -32,6 +37,10 @@ export interface Action {
   group: string;
   /** Words that should match this beyond its label. */
   keywords?: string;
+  /** Where in the label a search matched. */
+  labelMarks?: [number, number][];
+  /** The words around a full-text match, under the label. */
+  snippet?: Snippet;
   run: () => void;
 }
 
@@ -47,6 +56,8 @@ export interface PaletteContext {
   openAgent: (id: number) => void;
   /** Where sites are served, when they are. */
   sitesBase: string | null;
+  /** Opens a full-text hit where it is: a chat at the message, a file at the line. */
+  openTarget: (target: SearchTarget) => void;
 }
 
 const KINDS = [
@@ -60,6 +71,8 @@ const KINDS = [
   "build",
   "channel",
   "approval",
+  ...SEARCH_KINDS,
+  "settings",
 ] as const;
 
 /** Split `file:budget` into the kind being narrowed to and the term. */
@@ -128,6 +141,104 @@ export function clusterByGroup<T extends { group: string }>(items: T[]): T[] {
     byGroup.get(item.group)!.push(item);
   }
   return order.flatMap((g) => byGroup.get(g)!);
+}
+
+/** Shorter than this is matched by name only: one letter is in everything. */
+export const FULL_TEXT_MIN = 2;
+/** How long typing rests before Everywhere asks the host. */
+const FULL_TEXT_WAIT_MS = 150;
+/** Settings hits shown in Everywhere when not narrowed to them. */
+const SETTINGS_SHOWN = 3;
+
+/** Which of the host's sources a query asks: all of them, the one its prefix names, or none. */
+export function fullTextKinds(parsed: ReturnType<typeof parseQuery>): SearchKind[] {
+  if (parsed.actionsOnly || parsed.term.length < FULL_TEXT_MIN) return [];
+  if (parsed.kind === undefined) return [...SEARCH_KINDS];
+  return isSearchKind(parsed.kind) ? [parsed.kind] : [];
+}
+
+/** Whether names (the @ menu's index) are searched: not when the prefix names a full-text kind. */
+export function searchesNames(parsed: ReturnType<typeof parseQuery>): boolean {
+  return !parsed.actionsOnly && (parsed.kind === undefined || !(isSearchKind(parsed.kind) || parsed.kind === "settings"));
+}
+
+/**
+ * Settings, from the index the Settings page searches. Unnarrowed, only a
+ * setting whose words hold the query's: the index matches letters in order,
+ * which finds "tmzn" on its own page and too much among everything else.
+ */
+export function settingsHits(parsed: ReturnType<typeof parseQuery>): SearchHit[] {
+  if (parsed.actionsOnly || (parsed.kind !== undefined && parsed.kind !== "settings")) return [];
+  const narrowed = parsed.kind === "settings";
+  const label = (id: string): string => SECTIONS.find((s) => s.id === id)?.label ?? id;
+  if (narrowed && !parsed.term) {
+    return SECTIONS.map((s, i) => ({ kind: "settings", id: s.id, title: s.label, hint: s.blurb, snippet: { text: "", marks: [] }, score: 1 - i / 100, target: { kind: "settings", section: s.id } }));
+  }
+  if (parsed.term.length < FULL_TEXT_MIN) return [];
+  const words = parsed.term.split(/\s+/).filter(Boolean).length;
+  return searchSettings(parsed.term)
+    .filter((h) => narrowed || h.score >= 100 * words)
+    .slice(0, narrowed ? 12 : SETTINGS_SHOWN)
+    .map((h): SearchHit => {
+      const title = h.label ?? label(h.section);
+      return {
+        kind: "settings",
+        id: `${h.section}:${h.label ?? ""}`,
+        title,
+        ...(h.label ? { hint: label(h.section) } : {}),
+        snippet: { text: title, marks: marksOfLetters(h.marks) },
+        score: h.score >= 100 * words ? 0.95 : 0.4,
+        target: { kind: "settings", section: h.section },
+      };
+    });
+}
+
+/** What each kind of hit is called on its row. */
+const HIT_WORD: Record<HitKind, string> = {
+  msg: "message",
+  text: "file",
+  memory: "memory",
+  run: "run",
+  secret: "secret",
+  settings: "setting",
+};
+
+/**
+ * Everywhere's rows, best first across every source. A hit whose words are
+ * its name (a secret, a setting) is marked in its label, on one line; the
+ * rest show the words around the match under it.
+ */
+export function everywhereRows(hits: readonly SearchHit[], open: (target: SearchTarget) => void): Action[] {
+  return [...hits]
+    .sort((a, b) => b.score - a.score)
+    .map((h): Action => {
+      const named = h.snippet.text === "" || h.snippet.text === h.title;
+      const word = h.target.kind === "call" ? "tool call" : HIT_WORD[h.kind];
+      return {
+        id: `hit:${h.kind}:${h.id}`,
+        label: h.title,
+        group: "Everywhere",
+        hint: [word, h.hint].filter(Boolean).join(" · "),
+        ...(named ? (h.snippet.text ? { labelMarks: h.snippet.marks } : {}) : { snippet: h.snippet }),
+        run: () => open(h.target),
+      };
+    });
+}
+
+/** Sources still out, said as what they read. */
+const SOURCE_WORDS: Record<SearchKind, string> = { msg: "chats", text: "files", memory: "memory", run: "runs", secret: "secrets" };
+
+export function sourcesWords(kinds: readonly SearchKind[]): string {
+  const words = kinds.map((k) => SOURCE_WORDS[k]);
+  return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+/** What the host said for one query: each source's hits as they came, and those still out or late. */
+interface Everywhere {
+  term: string;
+  hits: Partial<Record<SearchKind, SearchHit[]>>;
+  waiting: SearchKind[];
+  late: SearchKind[];
 }
 
 /** The things you can do, as opposed to the things you can open. */
@@ -244,20 +355,24 @@ export function CommandPalette({
   ctx: PaletteContext;
 }): ReactElement {
   const [query, setQuery] = useState("");
-  const [cursor, setCursor] = useState(0);
+  /** The row under the cursor, by id, so it stays put while Everywhere's rows arrive above or below it. */
+  const [cursorId, setCursorId] = useState<string | null>(null);
   const [found, setFound] = useState<
     { kind: string; id: string; label: string; hint?: string; url?: string }[]
   >([]);
+  const [everywhere, setEverywhere] = useState<Everywhere | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const parsed = useMemo(() => parseQuery(query), [query]);
   const actions = useMemo(() => buildActions(ctx), [ctx]);
+  const kinds = useMemo(() => fullTextKinds(parsed), [parsed]);
+  const settings = useMemo(() => settingsHits(parsed), [parsed]);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
-    setCursor(0);
+    setCursorId(null);
     // A frame later: the input does not exist until the sheet has mounted.
     const timer = setTimeout(() => inputRef.current?.focus(), 0);
     return () => clearTimeout(timer);
@@ -266,7 +381,7 @@ export function CommandPalette({
   // Search the workspace. Actions are matched locally; everything else lives
   // on the server, which already indexes it for the composer's @ menu.
   useEffect(() => {
-    if (!open || parsed.actionsOnly) {
+    if (!open || !searchesNames(parsed)) {
       setFound([]);
       return;
     }
@@ -282,7 +397,38 @@ export function CommandPalette({
     return () => {
       cancelled = true;
     };
-  }, [open, parsed.term, parsed.kind, parsed.actionsOnly]);
+  }, [open, parsed]);
+
+  // Everywhere: one ask per source, so each group of hits shows as it comes
+  // rather than all of them waiting on the slowest (a walk of the files).
+  const kindsKey = kinds.join(",");
+  useEffect(() => {
+    if (!open || kinds.length === 0) {
+      setEverywhere(null);
+      return;
+    }
+    const term = parsed.term;
+    const stop = new AbortController();
+    setEverywhere({ term, hits: {}, waiting: kinds, late: [] });
+    const settle = (kind: SearchKind, hits: SearchHit[], late: boolean): void =>
+      setEverywhere((e) =>
+        e && e.term === term
+          ? { ...e, hits: { ...e.hits, [kind]: hits }, waiting: e.waiting.filter((k) => k !== kind), late: late ? [...e.late, kind] : e.late }
+          : e,
+      );
+    const timer = setTimeout(() => {
+      for (const kind of kinds) {
+        void api
+          .search(term, [kind], stop.signal)
+          .then((r) => settle(kind, r.hits, r.late.includes(kind)))
+          .catch(() => !stop.signal.aborted && settle(kind, [], false));
+      }
+    }, FULL_TEXT_WAIT_MS);
+    return () => {
+      clearTimeout(timer);
+      stop.abort();
+    };
+  }, [open, parsed.term, kindsKey]);
 
   const results = useMemo((): Action[] => {
     const term = parsed.term;
@@ -329,10 +475,17 @@ export function CommandPalette({
     // Nothing typed: a short list of what you probably want beats a long list
     // of everything the workspace contains.
     if (!term && !parsed.kind) return [...actions.slice(0, 6), ...opened.slice(0, 8)];
-    return [...matchedActions, ...opened];
-  }, [actions, found, parsed.kind, parsed.term, ctx]);
+    const said = everywhere?.term === term ? Object.values(everywhere.hits).flat() : [];
+    return [...matchedActions, ...opened, ...everywhereRows([...said, ...settings], ctx.openTarget)];
+  }, [actions, found, everywhere, settings, parsed.kind, parsed.term, ctx]);
 
-  useEffect(() => setCursor(0), [query]);
+  /** Sources still being read for what is typed now. */
+  const waiting = everywhere?.term === parsed.term ? everywhere.waiting : [];
+  const late = everywhere?.term === parsed.term && everywhere.waiting.length === 0 ? everywhere.late : [];
+  const searchedEverywhere = kinds.length > 0 || parsed.kind === "settings";
+  const cursor = Math.max(0, results.findIndex((r) => r.id === cursorId));
+
+  useEffect(() => setCursorId(null), [query]);
 
   useEffect(() => {
     listRef.current
@@ -346,13 +499,15 @@ export function CommandPalette({
     action.run();
   };
 
+  const moveTo = (index: number): void => setCursorId(results[index]?.id ?? null);
+
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setCursor((c) => (results.length ? (c + 1) % results.length : 0));
+      if (results.length) moveTo((cursor + 1) % results.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setCursor((c) => (results.length ? (c - 1 + results.length) % results.length : 0));
+      if (results.length) moveTo((cursor - 1 + results.length) % results.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
       choose(results[cursor]);
@@ -361,6 +516,16 @@ export function CommandPalette({
       onClose();
     }
   };
+
+  /** Everywhere's last line: what is still being read, or what did not answer in time, or that nothing else holds it. */
+  const shownEverywhere = results.some((r) => r.group === "Everywhere");
+  const everywhereNote = waiting.length > 0
+    ? shownEverywhere ? null : `Searching ${sourcesWords(waiting)}…`
+    : late.length > 0
+      ? `${sourcesWords(late).replace(/^./, (c) => c.toUpperCase())} did not answer in time; try again or narrow with ${late.map((k) => `${k}:`).join(" ")}`
+      : searchedEverywhere && !shownEverywhere
+        ? "No message, file, memory, run or secret holds it."
+        : null;
 
   return (
     <AnimatePresence>
@@ -396,9 +561,11 @@ export function CommandPalette({
 
               {results.length === 0 ? (
                 <Empty inline className="pal-empty">
-                  {parsed.term || parsed.kind
-                    ? "Nothing matches."
-                    : "Start typing."}
+                  {waiting.length > 0
+                    ? `Searching ${sourcesWords(waiting)}…`
+                    : parsed.term || parsed.kind
+                      ? "Nothing matches."
+                      : "Start typing."}
                 </Empty>
               ) : (
                 <ul className="pal-list" ref={listRef}>
@@ -406,19 +573,37 @@ export function CommandPalette({
                     const first = i === 0 || results[i - 1]?.group !== r.group;
                     return (
                       <li key={r.id}>
-                        {first && <div className="label pal-group">{r.group}</div>}
+                        {first && (
+                          <div className="label pal-group">
+                            {r.group}
+                            {r.group === "Everywhere" && waiting.length > 0 && <span className="pal-group-note" role="status">searching {sourcesWords(waiting)}…</span>}
+                          </div>
+                        )}
                         <button
                           type="button"
-                          className={`pal-item ${i === cursor ? "is-cursor" : ""}`}
-                          onMouseMove={() => setCursor(i)}
+                          className={`pal-item${r.snippet ? " pal-item--hit" : ""}${i === cursor ? " is-cursor" : ""}`}
+                          onMouseMove={() => setCursorId(r.id)}
                           onClick={() => choose(r)}
                         >
-                          <span className="pal-label">{r.label}</span>
-                          {r.hint && <span className="pal-hint">{r.hint}</span>}
+                          <span className="pal-line">
+                            <span className="pal-label">{r.labelMarks ? <Marked text={r.label} marks={r.labelMarks} /> : r.label}</span>
+                            {r.hint && <span className="pal-hint">{r.hint}</span>}
+                          </span>
+                          {r.snippet && (
+                            <span className="pal-snippet">
+                              <Marked text={r.snippet.text} marks={r.snippet.marks} />
+                            </span>
+                          )}
                         </button>
                       </li>
                     );
                   })}
+                  {everywhereNote && (
+                    <li>
+                      {!shownEverywhere && <div className="label pal-group">Everywhere</div>}
+                      <p className="pal-note" role="status">{everywhereNote}</p>
+                    </li>
+                  )}
                 </ul>
               )}
 
@@ -434,7 +619,7 @@ export function CommandPalette({
                   <kbd>&gt;</kbd> commands
                 </span>
                 <span>
-                  <kbd>file:</kbd> narrow
+                  <kbd>file:</kbd> <kbd>msg:</kbd> narrow
                 </span>
               </footer>
             </m.div>

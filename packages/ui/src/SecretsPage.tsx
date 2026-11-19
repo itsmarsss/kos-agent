@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactElement } f
 import type { SecretSummary, VaultStatus } from "@kos/shared";
 import { Card, clearSecretValues, Empty, hintWords, NavIcon, Pill, readSecretValues, SecretField, Tag, takeSecretValues } from "@kos/kit";
 
+import { useHashParam } from "./hashparams.js";
 import { PageHead } from "./PageHead.js";
 import { agoWords } from "./schedulewords.js";
 import { SecretSheet, type SecretSheetMode } from "./SecretSheet.js";
@@ -36,6 +37,14 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  // A secret the address names (a search hit): its sheet, once the list has it.
+  const [asked, clearAsked] = useHashParam("open");
+  useEffect(() => {
+    const secret = asked ? secrets?.find((s) => s.handle === asked) : undefined;
+    if (!secret) return;
+    clearAsked();
+    setSheet({ kind: "edit", secret });
+  }, [asked, secrets, clearAsked]);
   const changed = (s: VaultStatus): void => {
     setStatus(s);
     void refresh();

@@ -2,6 +2,42 @@
 
 The sidebar is the map. `⌘K` opens search and commands from anywhere.
 
+## Search and commands
+
+`⌘K` is one box. Nothing typed, it offers the likely actions and the latest
+things. Typed, it shows at once what is named that way (actions, pages to
+go to, and the @ menu's index: projects, pages, files, chats, schedules,
+sites, blobs, builds, channels, approvals), and under them **Everywhere**,
+which fills in as the host's full-text search answers, one source at a
+time, best first across all of them:
+
+| Prefix | What it searches | Opens |
+| --- | --- | --- |
+| `msg:` | what you and KOS said in every chat the list shows | the chat, scrolled to that message and lit |
+| `text:` | the workspace's text files, as the Files page's Contents search reads them | Files, the file in Quick Look at that line, lit |
+| `memory:` | claims, as recall finds them, and the memory pages | the claim on Memory, or the page on its Pages tab |
+| `run:` | turns and jobs by their name or error, and tool calls by what they were given | the record over Runs |
+| `secret:` | the names of secrets: the vault's while it is open, and the env file's | the secret's sheet |
+| `settings:` | the Settings index the Settings page searches | the section |
+
+Each row says its kind and, under its name, the words around the match
+with the match marked, two lines at most. A prefix asks that source alone
+and leaves names out; the @ menu's prefixes (`file:`, `chat:` and the rest)
+ask names alone; `>` is actions only. The foot of Everywhere says which
+sources are still being read, which did not answer in time, or that none
+holds the words. The arrows move, the row under the cursor stays put as
+rows arrive, Return opens it and Escape closes.
+
+Full text starts at two characters and waits 150 ms on typing. The host
+answers `GET /api/search?q=&kinds=&limit=`: each source (`msg`, `text`,
+`memory`, `run`, `secret`) gives at most eight hits, all of them answer
+within 800 ms or are named in `late`, and each hit carries its words as
+plain text with the matched stretches as offsets, never markup, and the
+target it opens. The fences are the pages' own: only the owner's chats,
+files through the jail without KOS's own files, `.kos` or any hidden name,
+claims and pages from the memory store, and a secret's label and handle,
+never its value or hint; a locked vault lists only the env file's names.
+
 ## Chats
 
 Opening KOS opens a conversation. With nothing open, the landing is a
@@ -315,7 +351,8 @@ file manager in a project's or a blob's panel, kept inside its folder.
   iWork file's first page or slide). The view is remembered per folder.
 - **Toolbar**: back and forward, the view, sort, actions, new folder,
   upload, Get Info, and search, by name or, with Contents, inside text
-  files too, over the folder and everything below it.
+  files too (never a hidden one, such as a project's `.env`), over the
+  folder and everything below it.
 - **Path bar** at the foot: where the chosen thing is, each step a place
   to go and to drop on, and a count.
 - **Quick Look**: Space on a file opens it large over the page (pictures,
@@ -339,7 +376,8 @@ file manager in a project's or a blob's panel, kept inside its folder.
   instead), no Columns view, rows a thumb tall.
 
 A file opened by its address (`#/files/<path>`) opens its folder with the
-file chosen and in Quick Look. A PDF or an Office file has File | Raw in
+file chosen and in Quick Look; `?line=<n>` on it shows the text as written
+with that line lit, as a search hit opens it. A PDF or an Office file has File | Raw in
 its header: the document itself, or the words KOS reads out of it.
 
 ### Office files
