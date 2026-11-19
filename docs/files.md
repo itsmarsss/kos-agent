@@ -21,7 +21,10 @@ SQLite's backup API into `kos.snapshot.sqlite`, and that copy is what
 history keeps. The workspace's `.kos` folder (logs, caches, scratch, the host's state) is never
 committed either; a restore needs nothing in it. To restore, stop the host,
 check out the snapshot, move `kos.snapshot.sqlite` over `kos.sqlite` and
-delete the old `kos.sqlite-wal` and `kos.sqlite-shm`.
+delete the old `kos.sqlite-wal` and `kos.sqlite-shm`. A snapshot taken by an
+older KOS holds `kos.sqlite` itself, with its `-wal` and `-shm` as they were
+at that moment, and no `kos.snapshot.sqlite`: checked out, those three files
+are the database, and may be torn.
 
 ## Office views
 
