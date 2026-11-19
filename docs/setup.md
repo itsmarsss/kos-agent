@@ -135,23 +135,27 @@ own and may not make more, a seccomp filter (no keyrings, BPF, io_uring,
 ptrace, mounts or typing into a terminal), no core files, files of at most
 8 GiB and at most 4096 processes. Its network is its own: a loopback alone
 without the network or kept to this machine, and with the network a NAT
-through pasta or slirp4netns that does not reach the host's loopback, so
-KOS's ports, its Chrome's debugging port among them, are out of reach.
-Where it differs from macOS:
+through pasta or slirp4netns that does not reach the host's loopback, and
+in which every one of the host's own addresses is refused by route (the
+`ip` of iproute2 sets that up; without it such a command fails), so KOS's
+ports, its Chrome's debugging port and its Wi-Fi listener among them, are
+out of reach. Where it differs from macOS:
 
-- A networked command reaches what the outside reaches, the host's own
-  network address included: a service KOS or anything else listens on
-  there (the Wi-Fi listener for phones, say) is reachable, as from the LAN.
+- Other machines on the LAN are reachable from a networked command, as
+  from the host; only the host itself is refused.
 - A path the jail holds by pattern (a repository's config and hooks) is
   held where it is when the run starts. After a run nobody approved, git
   control that is new or changed (a repository it made, a hooks folder or
   config.worktree it added) is moved to `.kos/quarantine` with a note, and
-  the result names it. `node_modules` is not searched, and a workspace of
+  the result names it; one that cannot be moved is deleted, and one that
+  cannot be deleted either is named to the owner, and commands nobody
+  approved are refused in that repository until it is gone. `node_modules` is not searched, and a workspace of
   over 200,000 files is refused for such runs.
 - A read-only KOS file or folder that is not there yet (`mcp.json`, say)
   is stood in for by an empty one while the run lasts, and taken away
   after; one a crash left is taken away on the next run.
-- A read-only path reached through a link is refused rather than held.
+- A read-only or hidden path reached through a link is refused rather
+  than held.
 - A hidden folder with a run's own temp inside it (`.kos`) shows the
   empty folders down to that temp, and nothing else.
 
