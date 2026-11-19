@@ -18,6 +18,8 @@ final class ChatController {
   var target: () -> (id: String, name: String?, link: LinkState)? = { nil }
   var faceOf: (String) -> FaceLook = { _ in .kos }
   var isHidden: (String?) -> Bool = { _ in false }
+  /// The fields KOS typed a secret into this session: the selection is never read from them.
+  var typedFields: () -> [AXUIElement] = { [] }
   /// The session on this Mac, and the ask for one, by the KOS and the chat they are for: the window shows its own chat's alone.
   var session: (origin: String, conversation: String?, paused: Bool)? { didSet { scope() } }
   var asking: (origin: String, conversation: String?, task: String, until: Date)? { didSet { scope() } }
@@ -327,7 +329,7 @@ final class ChatController {
   private static let accessHint = "Allow Accessibility for KOS for Mac, in System Settings, Privacy & Security, to bring in what you select."
 
   /// What the owner selected in the app beside the window (SelectionReader), read on its own queue. Never from a
-  /// password field, nor from an app they hid from KOS. The opening reads; asked again after (the box focused), it
+  /// password field or one KOS typed a secret into, nor from an app they hid from KOS. The opening reads; asked again after (the box focused), it
   /// reads only when the app or its focused element changed, and asked while a read is going, once more after it.
   private func readSelection() {
     guard !reading else {
@@ -342,8 +344,9 @@ final class ChatController {
     reading = true
     let reader = selection
     let wait = Self.treeWait
+    let typed = typedFields()
     selectionQueue.async { [weak self] in
-      let read = reader.read(target, hidden: hidden, onlyIfChanged: onlyIfChanged, secureInput: { Targets.passwordFieldHasFocus }) {
+      let read = reader.read(target, hidden: hidden, onlyIfChanged: onlyIfChanged, skipping: { typed.contains($0) }, secureInput: { Targets.passwordFieldHasFocus }) {
         Thread.sleep(forTimeInterval: wait)
       }
       DispatchQueue.main.async {

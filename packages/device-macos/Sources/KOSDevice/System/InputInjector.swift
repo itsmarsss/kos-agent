@@ -10,7 +10,7 @@ import Foundation
 /// an action stopped half way lets go of any button or key it was holding,
 /// so the owner never takes over with a stuck shift or a held drag.
 @MainActor
-final class InputInjector {
+final class InputInjector: SecretKeyboard {
   static let stamp: Int64 = 0x4B4F_5344
 
   private let source = CGEventSource(stateID: .hidSystemState)
@@ -146,20 +146,33 @@ final class InputInjector {
     Array(run.utf16).withUnsafeBufferPointer { postUnits($0) }
   }
 
-  /// UTF-16 units as one key event carrying them, posted straight from the caller's buffer: a secret's chunk goes
-  /// from its SecretBuffer into the event and is kept nowhere here.
-  func postUnits(_ units: UnsafeBufferPointer<UInt16>) {
+  /// UTF-16 units as one key event carrying them, posted straight from the caller's buffer, to `pid` alone when it is
+  /// given: a secret's chunk goes from its SecretBuffer into the event, to the approved app, and is kept nowhere here.
+  func postUnits(_ units: UnsafeBufferPointer<UInt16>, to pid: pid_t? = nil) {
     guard let base = units.baseAddress else { return }
     for down in [true, false] {
-      let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down)
-      event?.flags = []
-      event?.keyboardSetUnicodeString(stringLength: units.count, unicodeString: base)
-      post(event)
+      guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down) else { continue }
+      event.flags = []
+      event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: base)
+      if let pid {
+        event.setIntegerValueField(.eventSourceUserData, value: Self.stamp)
+        event.postToPid(pid)
+      } else {
+        post(event)
+      }
     }
   }
 
-  /// Before each chunk of a secret: the owner's hand or Stop halts it, and the chunks are paced as typing is.
-  func betweenChunks() async throws {
+  // MARK: SecretKeyboard
+
+  var canPost: Bool { CGPreflightPostEventAccess() }
+
+  func post(_ units: UnsafeBufferPointer<UInt16>, to pid: Int32) throws {
+    postUnits(units, to: pid)
+  }
+
+  /// After each character of a secret: the owner's hand or Stop halts it, and the characters are paced as typing is.
+  func between() async throws {
     onKeys?()
     try check()
     try await wait(0.012)

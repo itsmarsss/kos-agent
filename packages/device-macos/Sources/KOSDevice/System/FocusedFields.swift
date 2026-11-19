@@ -1,8 +1,9 @@
 import ApplicationServices
 import DeviceCore
+import Foundation
 
-/// FieldAccess over the system's Accessibility API: the field in focus in an app, what it is and where, and the menu
-/// item under a point. Never a field's value: AXValue is not read here.
+/// FieldAccess over the system's Accessibility API: the field in focus in an app, what it is, where and how long, and
+/// what is under a point. Never a field's value: AXValue is not read here.
 final class FocusedFields: FieldAccess {
   /// How long an app is given to answer each question, so one that hangs cannot hold a call.
   private static let timeout: Float = 0.1
@@ -36,14 +37,21 @@ final class FocusedFields: FieldAccess {
     return Rect(x: point.x, y: point.y, width: extent.width, height: extent.height)
   }
 
-  /// The menu item at a point on the screen (global, top-left), as a click there would pick it: its role, its key
-  /// equivalent and its title. Nil when there is nothing there Accessibility will name.
-  func menuItem(at point: CGPoint) -> (role: String?, commandKey: String?, title: String?)? {
+  func element(at point: Point) -> AXUIElement? {
     var found: AXUIElement?
     let wide = timed(AXUIElementCreateSystemWide())
     guard AXUIElementCopyElementAtPosition(wide, Float(point.x), Float(point.y), &found) == .success, let found else { return nil }
-    let item = timed(found)
-    return (string(kAXRoleAttribute, of: item), string(kAXMenuItemCmdCharAttribute, of: item), string(kAXTitleAttribute, of: item))
+    return timed(found)
+  }
+
+  func number(_ attribute: String, of element: AXUIElement) -> Int? {
+    (copy(attribute, of: element) as? NSNumber)?.intValue
+  }
+
+  func selectedLength(of element: AXUIElement) -> Int? {
+    guard let value = copy(kAXSelectedTextRangeAttribute, of: element), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+    var range = CFRange()
+    return AXValueGetValue(value as! AXValue, .cfRange, &range) ? range.length : nil
   }
 
   private func copy(_ attribute: String, of element: AXUIElement) -> CFTypeRef? {

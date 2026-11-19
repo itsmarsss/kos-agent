@@ -109,11 +109,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     chat.target = { [unowned self] in chatTarget() }
     chat.faceOf = { origin in Self.face(of: origin) }
     chat.isHidden = { [unowned self] bundle in settings.isHidden(bundle) }
+    chat.typedFields = { [unowned self] in controller.typedFields }
     chat.model.handBack = { [unowned self] in controller.resume() }
     chat.model.stop = { [unowned self] in stopChat() }
     controller.letThrough = { [unowned self] on in chat.letThrough(on) }
     controller.yieldKeys = { [unowned self] in await chat.yieldKeys() }
     controller.ownMenuOpen = { [unowned self] in menu.isOpen }
+    controller.dashboards = { [unowned self] in pairings.map(\.kos) }
     controller.onOwnerStop = { [unowned self] origin, conversation in
       if chat.isMine(origin: origin, conversation: conversation) { chat.tellStop() }
     }

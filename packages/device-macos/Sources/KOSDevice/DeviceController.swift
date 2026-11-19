@@ -29,8 +29,10 @@ final class DeviceController {
   var letThrough: ((Bool) -> Void)?
   /// KOS for Mac's own windows give up the keyboard, so what KOS types lands in the app it works in.
   var yieldKeys: (() async -> Void)?
-  /// Whether KOS for Mac's menu in the menu bar is open: keys then go to it, so no secret is typed.
+  /// Whether KOS for Mac's menu in the menu bar is open: keys then go to it, so none is sent.
   var ownMenuOpen: () -> Bool = { false }
+  /// The dashboards of the KOS this Mac is paired with, by origin: KOS never acts on them, where approvals are decided.
+  var dashboards: () -> [String] = { [] }
 
   private var sessions = Sessions()
   private var display: CGDirectDisplayID?
@@ -83,6 +85,8 @@ final class DeviceController {
   private(set) var asking: Asking?
 
   var live: LiveSession? { sessions.live }
+  /// The fields KOS typed a secret into this session, which the chat's selection reader never reads.
+  var typedFields: [AXUIElement] { secrets.typedFields }
   /// What the live session works in, in AppKit's screen points: its window, or its whole display.
   var liveTarget: CGRect? { sessions.live.map { Displays.cocoa($0.space.display.cg) } }
   /// The KOS the live session is for.
@@ -386,9 +390,8 @@ final class DeviceController {
       let p = try call.params(MoveParams.self)
       let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       let target = try globalPoint(p.x, p.y, in: session)
-      try refuseHidden(at: target)
       await overlay.clear([target])
-      try await throughOwnWindows { [injector] in try await injector.move(to: target) }
+      try await throughOwnWindows(at: [target]) { [injector] in try await injector.move(to: target) }
       return cursor(in: session)
 
     case .pointerClick:
@@ -398,14 +401,11 @@ final class DeviceController {
       guard (1...3).contains(count) else { throw DeviceError.badRequest("count must be 1, 2 or 3.") }
       let modifiers = try KeyCombo.modifiers(named: p.modifiers ?? [])
       let target = try globalPoint(p.x, p.y, in: session)
-      try refuseHidden(at: target)
-      // A menu's Copy, Cut, Select All or Paste is not clicked while a field KOS typed a secret into has focus.
-      let front = Targets.frontmost()?.processIdentifier
-      if secrets.typedHasFocus(pid: front), let item = fields.menuItem(at: target) {
-        try secrets.refuseMenuItem(role: item.role, commandKey: item.commandKey, title: item.title, pid: front)
-      }
+      let button = p.button ?? .left
+      // While a field KOS typed a secret into has focus: one plain click in it, and no menu item off the short list.
+      try secrets.refuseClick(at: Point(target), button: button, count: count, modifiers: modifiers, pid: Targets.frontmost()?.processIdentifier)
       await overlay.clear([target])
-      try await throughOwnWindows { [injector] in try await injector.click(at: target, button: p.button ?? .left, count: count, modifiers: modifiers) }
+      try await throughOwnWindows(at: [target]) { [injector] in try await injector.click(at: target, button: button, count: count, modifiers: modifiers) }
       overlay.ripple(at: target)
       return cursor(in: session)
 
@@ -414,10 +414,9 @@ final class DeviceController {
       let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       let from = try globalPoint(p.from.x, p.from.y, in: session)
       let to = try globalPoint(p.to.x, p.to.y, in: session)
-      try refuseHidden(at: from)
-      try refuseHidden(at: to)
+      try secrets.refuseDrag(from: Point(from), pid: Targets.frontmost()?.processIdentifier)
       await overlay.clear([from, to])
-      try await throughOwnWindows { [injector] in try await injector.drag(from: from, to: to) }
+      try await throughOwnWindows(at: [from, to]) { [injector] in try await injector.drag(from: from, to: to) }
       return cursor(in: session)
 
     case .pointerScroll:
@@ -427,9 +426,8 @@ final class DeviceController {
         throw DeviceError.badRequest("dx and dy are lines, at most \(Int(Limits.scrollLines)) either way.")
       }
       let target = try globalPoint(p.x, p.y, in: session)
-      try refuseHidden(at: target)
       await overlay.clear([target])
-      try await throughOwnWindows { [injector] in try await injector.scroll(at: target, dx: Int(p.dx.rounded()), dy: Int(p.dy.rounded())) }
+      try await throughOwnWindows(at: [target]) { [injector] in try await injector.scroll(at: target, dx: Int(p.dx.rounded()), dy: Int(p.dy.rounded())) }
       return cursor(in: session)
 
     case .keysType:
@@ -451,6 +449,7 @@ final class DeviceController {
       guard (1...Limits.pressRepeats).contains(times) else {
         throw DeviceError.badRequest("repeat must be from 1 to \(Limits.pressRepeats).")
       }
+      if let refusal = OwnKeys.refusal(combo) { throw refusal }
       await yieldKeys?()
       // In a field KOS typed a secret into, only moving on from it goes through, a password field or not.
       let movesOn = try secrets.allowsPress(combo, pid: Targets.frontmost()?.processIdentifier)
@@ -460,11 +459,12 @@ final class DeviceController {
 
     case .keysFocus:
       let p = try call.params(SessionRef.self)
-      _ = try await bringForward(try authorize(p.session, from: origin, needs: .input))
+      let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       await yieldKeys?()
-      let scene = secretScene()
+      let scene = secretScene(in: session)
       if scene.own { throw DeviceError(.target, "KOS for Mac itself is in front; a secret is never typed into its windows or its menu.") }
       if scene.hidden { throw DeviceError(.hiddenApp, "\(scene.front?.name ?? "The app in front") is hidden from KOS on this Mac.") }
+      try secrets.refuseOwnPage(focusedIn: scene.pid, dashboards: dashboards())
       return FocusResult(app: scene.front, field: scene.pid.flatMap { secrets.describe(pid: $0) })
 
     case .keysSecret:
@@ -473,9 +473,9 @@ final class DeviceController {
       let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       await yieldKeys?()
       do {
+        try secrets.refuseOwnPage(focusedIn: Targets.frontmost()?.processIdentifier, dashboards: dashboards())
         let typed = try await secrets.type(
-          p, buffer: SecretBuffer(p.text), live: session.id, scene: { [unowned self] in secretScene() },
-          post: { [injector] in injector.postUnits($0) }, between: { [injector] in try await injector.betweenChunks() })
+          p, buffer: SecretBuffer(p.text), live: session.id, scene: { [unowned self] in secretScene(in: session) }, keys: injector)
         Log.session.notice("a secret was typed")
         return typed
       } catch let error as DeviceError {
@@ -511,9 +511,9 @@ final class DeviceController {
       let scale = Displays.screen(for: display)?.backingScaleFactor ?? 2
       pixels = Space.captureSize(of: part, backingScale: scale, maxEdge: maxEdge)
     }
-    // Every field KOS typed a secret into, and a password field in focus, blacked out; none is pictured while one in
-    // focus cannot be found.
-    let masks = try secrets.masks(pid: Targets.frontmost()?.processIdentifier).map(\.cg)
+    // Every field KOS typed a secret into, and a password field in focus, blacked out, read afresh for each shot just
+    // before and after it; none is pictured while one in focus cannot be found.
+    let masks: () throws -> [CGRect] = { [secrets] in try secrets.masks(pid: Targets.frontmost()?.processIdentifier).map(\.cg) }
     let take: () async throws -> ScreenCapturer.Shot
     if case .window(let id, _, _, _) = session.target {
       let frame = session.space.display.cg
@@ -565,18 +565,33 @@ final class DeviceController {
     CursorResult(cursor: session.space.fromGlobal(Point(Displays.cursor())))
   }
 
-  private func refuseHidden(at point: CGPoint) throws {
-    let app = Targets.app(at: point)
-    if settings.isHidden(app?.bundleIdentifier) {
-      throw DeviceError(.hiddenApp, "\(app?.localizedName ?? "That app") is hidden from KOS on this Mac.")
+  /// Where a pointer action at `point` lands, with KOS for Mac's own windows that let it through passed over: never on
+  /// another of its windows (its menu bar item, its menu, Home, a panel or an alert), never on a hidden app, never
+  /// on a page of KOS's own dashboard or a browser extension's. Asked while those windows let the pointer through.
+  private func refuseLanding(at point: CGPoint) throws {
+    let landing = Landing.of(Targets.windows(at: point), me: getpid()) { number in
+      NSApp.window(withWindowNumber: number)?.ignoresMouseEvents == true
     }
+    switch landing {
+    case .own:
+      throw Landing.ownRefusal
+    case .app(let pid):
+      let app = NSRunningApplication(processIdentifier: pid)
+      if settings.isHidden(app?.bundleIdentifier) {
+        throw DeviceError(.hiddenApp, "\(app?.localizedName ?? "That app") is hidden from KOS on this Mac.")
+      }
+    case .nothing:
+      break
+    }
+    try secrets.refuseOwnPage(at: Point(point), dashboards: dashboards())
   }
 
   /// KOS's pointer goes through KOS for Mac's own windows, the bar and the chat, to what the session sees under them:
   /// a picture leaves them out, so a click there is meant for the app beneath. Between actions the owner reaches Stop.
   /// Counted, so one call ending never lets the windows back while another is still passing through; and limited in
-  /// time, so a call that hangs never leaves the chat window letting clicks through.
-  private func throughOwnWindows(_ act: @escaping @Sendable () async throws -> Void) async throws {
+  /// time, so a call that hangs never leaves the chat window letting clicks through. Each point the action presses
+  /// at is checked once they let it through, so only what is under them counts.
+  private func throughOwnWindows(at points: [CGPoint], _ act: @escaping @Sendable () async throws -> Void) async throws {
     passingThrough += 1
     if passingThrough == 1 {
       overlay.letThrough(true)
@@ -589,24 +604,35 @@ final class DeviceController {
         letThrough?(false)
       }
     }
+    for point in points { try refuseLanding(at: point) }
     try await Deadline.run(seconds: Self.pointerLimit, timedOut: { DeviceError(.internal, "The pointer did not finish in time.") }, act)
   }
 
-  /// What is in front for a secret's typing, read afresh before each chunk: KOS for Mac itself counts as in front
-  /// while one of its windows has the keyboard or its menu is open.
-  private func secretScene() -> SecretScene {
-    let front = Targets.frontmost()
-    let own = NSApp.keyWindow != nil || front?.processIdentifier == getpid() || ownMenuOpen()
-    return SecretScene(front: Targets.describe(front), pid: front?.processIdentifier, own: own, hidden: settings.isHidden(front?.bundleIdentifier))
+  /// Whether KOS for Mac itself has the keyboard or the screen's attention: one of its windows is key or modal, it is
+  /// the app in front, or its menu is open (by a click or the keyboard).
+  private var ownInFront: Bool {
+    NSApp.keyWindow != nil || NSApp.modalWindow != nil || Targets.frontmost()?.processIdentifier == getpid() || ownMenuOpen()
   }
 
-  /// Before KOS types: never into KOS for Mac itself, the chat's box above all. Its windows give up the keyboard
-  /// first; one that still has it is refused. `secureAllowed`: a key that moves on from a field KOS typed a secret
-  /// into goes through though a password field has focus.
+  /// What is in front for a secret's typing, read afresh before each character: KOS for Mac itself counts as in front
+  /// while it has the keyboard or its menu is open, and a one-window session's window is where it is now.
+  private func secretScene(in session: LiveSession) -> SecretScene {
+    let front = Targets.frontmost()
+    var window: Rect?
+    if case .window(let id, _, _, _) = session.target { window = WindowCatalog.frame(of: id).map { Rect($0) } ?? session.space.display }
+    return SecretScene(
+      front: Targets.describe(front), pid: front?.processIdentifier, own: ownInFront, hidden: settings.isHidden(front?.bundleIdentifier),
+      window: window)
+  }
+
+  /// Before KOS types: never into KOS for Mac itself, the chat's box above all, nor its menu or an alert. Its windows
+  /// give up the keyboard first; if it still has it, the keys are refused. Never into KOS's own dashboard or a browser
+  /// extension's page either. `secureAllowed`: a key that moves on from a field KOS typed a secret into goes through
+  /// though a password field has focus.
   private func refuseKeys(secureAllowed: Bool = false) async throws {
     await yieldKeys?()
-    if NSApp.keyWindow != nil {
-      throw DeviceError(.badRequest, "A KOS for Mac window has the keyboard. Click into the app first, then type.")
+    if ownInFront {
+      throw DeviceError(.badRequest, "KOS for Mac's own window, menu or alert has the keyboard. Click into the app first, then type.")
     }
     if !secureAllowed, Targets.passwordFieldHasFocus {
       throw DeviceError(.secureInput, "A password field has focus. KOS does not type there.")
@@ -615,5 +641,6 @@ final class DeviceController {
     if settings.isHidden(front?.bundleIdentifier) {
       throw DeviceError(.hiddenApp, "\(front?.localizedName ?? "The app in front") is hidden from KOS on this Mac.")
     }
+    try secrets.refuseOwnPage(focusedIn: front?.processIdentifier, dashboards: dashboards())
   }
 }
