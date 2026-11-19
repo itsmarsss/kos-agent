@@ -423,22 +423,24 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
           open &&
           (edit ? (
             <>
-              <button type="button" className="btn btn--primary" disabled={saving || !edit.key.trim() || !edit.value.trim()} onClick={() => void saveEdit(open)}>
-                {saving ? "Saving…" : "Save"}
-              </button>
               <button type="button" className="btn" onClick={() => setEdit(null)}>
                 Cancel
+              </button>
+              <button type="button" className="btn btn--primary" disabled={saving || !edit.key.trim() || !edit.value.trim()} onClick={() => void saveEdit(open)}>
+                {saving ? "Saving…" : "Save"}
               </button>
             </>
           ) : (
             <>
-              <button type="button" className="btn btn--primary" onClick={() => startEdit(open)}>
-                Edit
-              </button>
+              <span className="foot-start">
+                <ConfirmButton label="Forget" className="btn btn--danger" text={FORGET_TEXT} onConfirm={() => forget(open)} />
+              </span>
               <button type="button" className="btn" onClick={() => togglePin(open)}>
                 {open.pinned ? "Unpin" : "Pin"}
               </button>
-              <ConfirmButton label="Forget" className="btn btn--danger" text={FORGET_TEXT} onConfirm={() => forget(open)} />
+              <button type="button" className="btn btn--primary" onClick={() => startEdit(open)}>
+                Edit
+              </button>
             </>
           ))
         }

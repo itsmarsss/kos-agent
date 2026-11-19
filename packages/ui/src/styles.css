@@ -5359,7 +5359,8 @@ a.health {
 .note-close:hover { color: var(--text); }
 
 .rename-form { display: flex; flex-direction: column; gap: 0.75rem; }
-.rename-actions { display: flex; gap: 0.5rem; }
+.rename-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
+.foot-start { margin-right: auto; }
 
 .agent-start { display: flex; flex-direction: column; gap: 0.9rem; }
 .agent-start-actions { display: flex; gap: 0.5rem; }
@@ -5406,8 +5407,12 @@ a.health {
   padding: 1.1rem;
 }
 
+/* A form's actions, in a drawer or a dialog: Cancel then the primary, at
+   the right; a destructive one (Delete, Forget) alone at the far left. */
 .drawer-foot {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.5rem;
   align-items: center;
   padding: 0.8rem 1.1rem;
@@ -8188,7 +8193,6 @@ img.ov-shape { object-fit: fill; }
 .secret-row-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .secret-row-detail .kos-mono { flex: none; }
 .secret-row-used { flex: none; color: var(--muted); font-size: var(--text-sm); }
-.secret-empty-act { display: block; margin-top: 0.7rem; }
 .secret-gate-form { display: flex; flex-direction: column; gap: 0.7rem; }
 .secret-gate-form > .hint { margin: 0; max-width: 46rem; line-height: 1.5; }
 .secret-gate-row { display: flex; align-items: flex-end; gap: 0.5rem; flex-wrap: wrap; }
@@ -8228,7 +8232,6 @@ img.ov-shape { object-fit: fill; }
 .secret-revealed-value { display: block; padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); font-family: var(--mono); font-size: var(--text-base); white-space: pre-wrap; word-break: break-all; user-select: all; }
 .secret-revealed-acts { display: flex; align-items: center; gap: 0.5rem; }
 .secret-revealed-acts .secret-line-meta { margin-right: auto; }
-.secret-foot-end { margin-left: auto; }
 
 /* Over the composer: a secret in the draft, and the offer to keep it as one. */
 .secret-offer { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.3rem 0.3rem 0.6rem; border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: var(--r-sm); background: var(--warn-dim); color: var(--warn); font-size: var(--text-sm); }

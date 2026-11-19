@@ -194,7 +194,7 @@ describe("the Secrets page", () => {
   it("saves an API key's hosts with bearer, as its chips show", async () => {
     serve("ready", { "POST /api/secrets": () => ({ handle: "openai-x1y2" }) });
     render(<SecretsPage />);
-    fireEvent.click(await screen.findByText("Add secret"));
+    fireEvent.click(await screen.findByText("New secret"));
     fireEvent.click(await screen.findByRole("button", { name: "API key" }));
     fireEvent.change(screen.getByLabelText("Label", { exact: false }), { target: { value: "OpenAI" } });
     fireEvent.change(screen.getByLabelText(/^Token/), { target: { value: "sk-proj-abcdefghijklmnop" } });

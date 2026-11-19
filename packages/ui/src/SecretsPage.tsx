@@ -58,7 +58,7 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
           ? {
               actions: (
                 <button type="button" className="btn btn--primary" onClick={() => setSheet({ kind: "add" })}>
-                  Add secret
+                  New secret
                 </button>
               ),
             }
@@ -76,7 +76,7 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
       )}
       {status?.state === "absent" && <InitCard onDone={changed} />}
       {status?.state === "locked" && <UnlockCard status={status} onDone={changed} />}
-      {secrets && (ready || secrets.length > 0) && <SecretList secrets={secrets} onOpen={(secret) => setSheet({ kind: "edit", secret })} onAdd={() => setSheet({ kind: "add" })} />}
+      {secrets && (ready || secrets.length > 0) && <SecretList secrets={secrets} onOpen={(secret) => setSheet({ kind: "edit", secret })} />}
       {ready && <VaultCard status={status} onChanged={changed} />}
       <SecretSheet
         open={sheet !== null}
@@ -91,17 +91,11 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
   );
 }
 
-function SecretList({ secrets, onOpen, onAdd }: { secrets: SecretSummary[]; onOpen: (s: SecretSummary) => void; onAdd: () => void }): ReactElement {
+function SecretList({ secrets, onOpen }: { secrets: SecretSummary[]; onOpen: (s: SecretSummary) => void }): ReactElement {
   if (secrets.length === 0) {
     return (
-      <Empty title="No secrets yet">
-        Add a login, a card or a key, and say where it may be used.
-        <span className="secret-empty-act">
-          <button type="button" className="btn btn--primary" onClick={onAdd}>
-            Add secret
-          </button>
-        </span>
-      </Empty>
+      // The head's New secret is the one way in: a second primary here said the same thing twice.
+      <Empty title="No secrets yet">Add a login, a card or a key with New secret, and say where it may be used.</Empty>
     );
   }
   return (
