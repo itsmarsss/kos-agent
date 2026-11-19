@@ -2784,9 +2784,13 @@ li:hover .chats-item-when { opacity: 0; }
 .file-dialog-label { display: flex; flex-direction: column; gap: 0.3rem; font-size: var(--text-sm); color: var(--muted); }
 .file-dialog-folders { display: flex; flex-wrap: wrap; gap: 0.35rem; max-height: 10rem; overflow: auto; }
 .file-dialog-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  min-width: 0;
   font: inherit;
   font-size: var(--text-sm);
-  font-family: var(--mono);
   padding: 0.15rem 0.5rem;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -2794,9 +2798,14 @@ li:hover .chats-item-when { opacity: 0; }
   color: var(--muted);
   cursor: pointer;
 }
-.file-dialog-folder:hover { color: var(--text); border-color: var(--line-strong); }
+.file-dialog-folder:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+.file-dialog-folder[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
+.file-dialog-folder:disabled { cursor: default; opacity: 0.7; }
+.file-dialog-folder .project-mark { width: 14px; height: 14px; font-size: 8.5px; border-radius: 4px; flex: none; }
+.file-dialog-folder-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-dialog-folder-here { flex: none; color: var(--muted); font-size: var(--text-xs); }
 
-.file-dialog-actions { display: flex; gap: 0.5rem; align-items: center; }
+.file-dialog-actions { display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end; }
 
 .chats-item-top .status-dot { margin-right: -0.1rem; }
 /* A button that opens the chat KOS is already in for something. */

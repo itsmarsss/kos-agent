@@ -561,6 +561,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
   /* Drawing. */
 
   const top = (folders.get(".").entries ?? []).filter((e) => e.kind === "dir").map((e) => e.name);
+  /** The top folders the owner's things may go in: not KOS's own (locks, .kos). */
+  const topFolders = (folders.get(".").entries ?? []).filter((e) => e.kind === "dir" && !e.reserved).map((e) => e.name);
   const loading = place.kind === "folder" && !found && !folders.get(folder).entries && !folders.get(folder).error;
   const folderError = place.kind === "folder" ? folders.get(folder).error : undefined;
   const title = found ? `Searching “${query.trim()}”` : place.kind === "recents" ? "Recents" : place.kind === "trash" ? "Trash" : folder === root ? rootName : nameOf(folder);
@@ -727,7 +729,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       {menu && <FinderMenu at={menu.at} items={menu.items} label={menu.label} onClose={() => setMenu(null)} />}
       <MoveDialog
         paths={moving}
-        folders={[".", ...top, ...projects.map((p) => `projects/${p.slug}`), ...trail(folder, root, rootName).map((s) => s.path), ...(entriesOf(here) ?? []).filter((e) => e.kind === "dir").map((e) => e.path)].filter((f) => within(f, root))}
+        projects={projects}
+        folders={[".", ...topFolders, ...projects.map((p) => `projects/${p.slug}`), ...trail(folder, root, rootName).map((s) => s.path), ...(entriesOf(here) ?? []).filter((e) => e.kind === "dir").map((e) => e.path)].filter((f) => within(f, root))}
         onClose={() => setMoving(null)}
         onMove={(dir) => {
           const paths = moving ?? [];

@@ -88,6 +88,9 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
             {items?.length ?? 0} item{items?.length === 1 ? "" : "s"} will be deleted for good. This cannot be undone.
           </p>
           <div className="file-dialog-actions">
+            <button type="button" className="btn" onClick={() => setAsking(false)}>
+              Cancel
+            </button>
             <button
               type="button"
               className="btn btn--danger"
@@ -97,9 +100,6 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
               }}
             >
               Empty Trash
-            </button>
-            <button type="button" className="btn" onClick={() => setAsking(false)}>
-              Cancel
             </button>
           </div>
         </div>
