@@ -972,6 +972,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       },
       // A channel the owner set to listen on mention reaches its chat only when addressed.
       listenOf: (key) => kernel.channelListening()[key] ?? "always",
+      // What a typed block's Send can use: the tools this KOS has.
+      toolNames: () => kernel.registry.defs().map((d) => d.name),
       // Who speaks from a chat, so a blob's story in its channel is the blob's.
       senderOf: (conversationId) => kernel.senderFor(conversationId),
       // Back from a drop: an ask made while the gateway was down, or whose

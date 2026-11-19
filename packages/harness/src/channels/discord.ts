@@ -22,7 +22,9 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { blocksToText, CHANNEL_TOKEN, withUnixTimes } from "@kos/shared";
+import { randomBytes } from "node:crypto";
+
+import { blocksToText, CHANNEL_TOKEN, sendRequestOf, withUnixTimes, type KosBlock } from "@kos/shared";
 
 import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
@@ -35,6 +37,7 @@ import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import { DownLog } from "./downlog.js";
 import { LiveStory, type StoryPayload, type StoryPost } from "./discordstory.js";
+import { BLOCK_COPY_PREFIX, BLOCK_SEND_PREFIX, blockButtons, blockEmbed, copyReply, sendTool, splitBlocks } from "./discordblocks.js";
 import { approvalButtons, approvalCard, askSummary, parseApprovalCustomId, settledText, type ApprovalCard, type Decided } from "./askcard.js";
 import { noPreviews } from "./discordtext.js";
 import type {
@@ -89,6 +92,8 @@ const MODAL_WAIT_MS = 5 * 60 * 1000;
 const THINKING = "-# thinking…";
 /** Discord's limits on uploads: files per message, bytes per file. */
 const DISCORD_FILES = 10;
+/** How many typed blocks' buttons are kept answerable. */
+const BLOCKS_KEPT = 500;
 const DISCORD_FILE_BYTES = 10 * 1024 * 1024;
 /** How much of the message a reply answers is quoted to the turn. */
 const REPLY_QUOTE_MAX = 300;
@@ -268,6 +273,8 @@ export interface DiscordAdapterOptions {
    * between carried along. Absent means always.
    */
   listenOf?: (key: string) => Listen;
+  /** The tools this KOS has, so a typed block offers Send only where one can send it. */
+  toolNames?: () => readonly string[];
   /**
    * Which thread stands for which chat, all of them, so an ask from a chat
    * can be put where the chat is read rather than in the approvals channel.
@@ -879,6 +886,9 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly guestsAllowed?: (key: string) => boolean;
   private readonly onRunCron?: (id: number) => Promise<RunNowOutcome | undefined>;
   private readonly listenOf?: (key: string) => Listen;
+  private readonly toolNames?: () => readonly string[];
+  /** The typed blocks on messages KOS sent, by the key their buttons carry, newest last. */
+  private readonly blocks = new Map<string, KosBlock>();
   /** The last message each mention-gated channel's chat heard, so the next one carries only what came after. */
   private readonly lastHeard = new Map<string, string>();
   /** The server's approvals channel, once sync has found or made it. */
@@ -934,6 +944,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.guestsAllowed) this.guestsAllowed = options.guestsAllowed;
     if (options.onRunCron) this.onRunCron = options.onRunCron;
     if (options.listenOf) this.listenOf = options.listenOf;
+    if (options.toolNames) this.toolNames = options.toolNames;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -2509,6 +2520,13 @@ export class DiscordAdapter implements ChannelAdapter {
       return;
     }
 
+    // A typed block's own buttons.
+    if (interaction.customId.startsWith(BLOCK_COPY_PREFIX) || interaction.customId.startsWith(BLOCK_SEND_PREFIX)) {
+      const send = interaction.customId.startsWith(BLOCK_SEND_PREFIX);
+      await this.pressBlock(interaction, send, interaction.customId.slice((send ? BLOCK_SEND_PREFIX : BLOCK_COPY_PREFIX).length));
+      return;
+    }
+
     const decision = parseApprovalCustomId(interaction.customId);
     if (!decision) return;
 
@@ -2899,10 +2917,15 @@ export class DiscordAdapter implements ChannelAdapter {
   ): Promise<string | undefined> {
     // References become links first, so the split sees the longer text. A
     // message already posted under the speaker's own name carries no tag.
-    const text = tagged ? taggedText(msg) : msg.text;
+    const said = tagged ? taggedText(msg) : msg.text;
+    // KOS's own typed blocks are drawn as what they are; the owner's words are shown as they wrote them.
+    const { words: text, blocks } = said && !this.isOwner(msg.from) ? splitBlocks(said) : { words: said, blocks: [] };
     const chunks = text ? chunkText(this.words(text)) : [];
-    const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: tagged && chunks.length === 0, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] : [];
-    const components = buildButtons(msg.buttons ?? []);
+    const link = (t: string): string => linkMentions(withTimes(t, this.timezone), this.dashboardUrl, this.labelOf);
+    const tools = this.toolNames?.() ?? [];
+    const drawn = blocks.map((block) => ({ embed: blockEmbed(block, link), row: blockButtons(this.keepBlock(block), block, tools, true) }));
+    const embeds = [...drawn.map((d) => d.embed), ...(msg.card ? [buildCard(msg.card, { from: msg.from, named: tagged && chunks.length === 0 && drawn.length === 0, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] : [])];
+    const components = [...drawn.map((d) => d.row), ...buildButtons(msg.buttons ?? [])].slice(0, 5);
     // The files ride on the last chunk with the card, under the whole
     // message. Discord takes ten per message and so many bytes each; what
     // does not fit is named instead, with where it is kept, rather than the
@@ -2936,6 +2959,57 @@ export class DiscordAdapter implements ChannelAdapter {
     }
     const id = (posted as { id?: unknown } | undefined)?.id;
     return typeof id === "string" ? id : undefined;
+  }
+
+  /** Whether a speaker is the owner, whose words are never drawn as KOS's blocks. */
+  private isOwner(from: Sender | undefined): boolean {
+    return from !== undefined && this.owner !== undefined && (from === this.owner || (from.name === this.owner.name && from.avatarUrl === this.owner.avatarUrl));
+  }
+
+  /** A block kept for its buttons, by a short key; the oldest let go past a few hundred. */
+  private keepBlock(block: KosBlock): string {
+    const key = randomBytes(6).toString("base64url");
+    this.blocks.set(key, block);
+    if (this.blocks.size > BLOCKS_KEPT) this.blocks.delete(this.blocks.keys().next().value!);
+    return key;
+  }
+
+  /**
+   * A typed block's Copy or Send. Copy answers the presser alone with the
+   * text. Send is the owner's words asking KOS to send the draft, in the chat
+   * the block is in, so the tool call asks as any other would.
+   */
+  private async pressBlock(interaction: ButtonInteraction, send: boolean, key: string): Promise<void> {
+    if (!this.isAuthorized(interaction.user.id)) {
+      await interaction.reply({ content: OWNER_ONLY, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      return;
+    }
+    const block = this.blocks.get(key);
+    if (!block) {
+      await interaction.reply({ content: "-# That draft is from before KOS last started. Ask for it again.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      return;
+    }
+    if (!send) {
+      await interaction.reply({ content: copyReply(block), flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      return;
+    }
+    const tool = sendTool(block, this.toolNames?.() ?? []);
+    if (!tool) {
+      await interaction.reply({ content: "-# Nothing here can send that.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      return;
+    }
+    await interaction.reply({ content: `-# Asked KOS to send it with ${tool}; it asks you before it does.`, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    const message = interaction.message as unknown as Message;
+    const binding = interaction.guildId ? this.bindingIn(interaction.channel) : undefined;
+    await this.messageHandler?.({
+      channel: this.name,
+      senderId: interaction.user.id,
+      text: sendRequestOf(block, tool),
+      room: this.roomOf(message),
+      ...(binding ? { conversationId: binding.conversationId } : {}),
+      ...(binding?.newIn ? { newIn: binding.newIn } : {}),
+      native: message,
+    });
   }
 
   /**
