@@ -229,7 +229,7 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
   afterAll(async () => {
     await live?.shutdown();
     await host?.waitGone();
-    host?.stop();
+    await host?.stop();
     for (const s of [site, pay]) {
       s?.closeAllConnections();
       s?.close();

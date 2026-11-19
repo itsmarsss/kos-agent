@@ -1,9 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { loadEnv } from "./env.js";
+import { envFilePath, loadEnv } from "./env.js";
 
 describe("loadEnv", () => {
   let dir: string;
@@ -29,20 +30,28 @@ describe("loadEnv", () => {
     }
   });
 
-  it("loads KEY=value pairs from cwd .env without overwriting", () => {
-    writeFileSync(
-      join(dir, ".env"),
-      "# comment\nKOS_TEST_ENV_A=fromfile\nKOS_TEST_ENV_B=keep\n",
-    );
+  it("loads KEY=value pairs without overwriting the shell's", () => {
+    const file = join(dir, "kos.env");
+    writeFileSync(file, "# comment\nKOS_TEST_ENV_A=fromfile\nKOS_TEST_ENV_B=keep\n");
     process.env.KOS_TEST_ENV_B = "shell";
-    loadEnv();
+    loadEnv(file);
     expect(process.env.KOS_TEST_ENV_A).toBe("fromfile");
     expect(process.env.KOS_TEST_ENV_B).toBe("shell");
   });
 
   it("strips surrounding quotes", () => {
-    writeFileSync(join(dir, ".env"), `KOS_TEST_ENV_A="quoted value"\n`);
-    loadEnv();
+    const file = join(dir, "kos.env");
+    writeFileSync(file, `KOS_TEST_ENV_A="quoted value"\n`);
+    loadEnv(file);
     expect(process.env.KOS_TEST_ENV_A).toBe("quoted value");
+  });
+
+  it("never reads a .env from the current directory", () => {
+    writeFileSync(join(dir, ".env"), "KOS_TEST_ENV_A=from-cwd\n");
+    expect(envFilePath({})).toBe(resolve(fileURLToPath(import.meta.url), "../../../..", ".env"));
+  });
+
+  it("takes KOS_ENV_FILE over the repository's", () => {
+    expect(envFilePath({ KOS_ENV_FILE: "/etc/kos/env" })).toBe("/etc/kos/env");
   });
 });

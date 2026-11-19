@@ -51,11 +51,6 @@ export function portFree(host: string, port: number): Promise<boolean> {
   });
 }
 
-/** Refuse a start before booting anything when the port is already held. */
-export async function assertPortFree(host: string, port: number, token?: string): Promise<void> {
-  if (!(await portFree(host, port))) throw new PortTakenError(await portTakenMessage(host, port, token));
-}
-
 export interface AwaitOwnHostOptions {
   child: ChildProcess;
   host: string;

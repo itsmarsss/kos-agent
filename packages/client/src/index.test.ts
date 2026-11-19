@@ -82,4 +82,18 @@ describe("KosClient", () => {
     expect(await probeDaemon(baseUrl)).toBe(false);
     expect(await probeDaemon("http://127.0.0.1:1")).toBe(false);
   });
+
+  it("gives up on a host that takes the request and never answers", async () => {
+    server.removeAllListeners("request");
+    server.on("request", () => undefined);
+    const c = new KosClient({ baseUrl, timeoutMs: 200, turnTimeoutMs: 300 });
+    await expect(c.status()).rejects.toThrow("/api/status: no answer within 200ms");
+    // A turn waits on its own, longer bound.
+    await expect(c.message("hi")).rejects.toThrow("/api/message: no answer within 300ms");
+    await expect(c.approve(1)).rejects.toThrow("/api/approve: no answer within 300ms");
+    const started = Date.now();
+    expect(await probeDaemon(baseUrl)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(3_000);
+    server.closeAllConnections();
+  });
 });

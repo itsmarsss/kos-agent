@@ -1,0 +1,17 @@
+# The image builds from sources alone: host build output, installs and state stay out.
+**/node_modules
+**/dist
+**/dist.next
+**/dist.old
+**/*.tsbuildinfo
+**/.build
+**/.swiftpm
+.git
+.claude
+.env
+.env.*
+!.env.example
+workspace
+evals-out
+bench-out
+dev

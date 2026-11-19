@@ -64,5 +64,6 @@ conversation.
 
 Another program can share the memory within a grant: its own token, the
 global tags it may read, whether it may write global. It never sees a
-project or another caller. `kos memory-mcp --token ...` serves the grant as
+project or another caller. `kos memory-mcp`, with the caller's token in
+`KOS_CALLER_TOKEN` (not `--token`, which `ps` shows), serves the grant as
 an MCP server. `@kos/client` has a `CallerClient` for the same.
