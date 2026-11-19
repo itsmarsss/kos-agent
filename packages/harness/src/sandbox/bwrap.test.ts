@@ -1,16 +1,28 @@
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { bubblewrap, bwrapCommand } from "./bwrap.js";
+import { bubblewrap, bwrapCommand, natTool, type BwrapOptions } from "./bwrap.js";
 import { runCaptured } from "./capture.js";
 import { GIT_CONTROL_WRITES, GIT_INFO_ATTRIBUTES } from "./githold.js";
-import { jailedCommand, jailedProgram, ownJail, type JailOptions } from "./jail.js";
+import { jailedCommand, jailedProgram, ownJail, type JailedCommand, type JailOptions } from "./jail.js";
+import { NEEDS_NAT, type JailPlan } from "./jailrun.js";
+import { trustedProgram } from "./trusted.js";
 
 /** The longest a jailed child in these tests may run before it is killed: none may hang the suite. */
 const CHILD_MS = 15_000;
+
+/** The plan a jailed command hands its helper. */
+function planOf(command: JailedCommand): JailPlan {
+  return JSON.parse(command.args[command.args.length - 1]!) as JailPlan;
+}
+
+/** bwrap's command line as if every bind were by path: --bind-fd n dest read as --bind source dest. */
+function lineOf(plan: JailPlan): string[] {
+  return [...plan.args.flatMap((a) => (typeof a === "number" ? [plan.sources[a]!.path] : [a.replace(/-fd$/, "")])), ...plan.command];
+}
 
 /** The index of a mount in a bwrap command line: the flag and its paths, in order. */
 function mountAt(args: string[], ...mount: string[]): number {
@@ -20,8 +32,11 @@ function mountAt(args: string[], ...mount: string[]): number {
 
 describe("the bubblewrap jail's command line", () => {
   let ws: string;
-  const build = (options: Omit<JailOptions, "workspaceRoot">, file = "/bin/sh"): ReturnType<typeof bwrapCommand> =>
-    bwrapCommand("/usr/bin/bwrap", file, ["-c", "true"], { workspaceRoot: ws, secretFiles: [], ...options });
+  const build = (options: Omit<BwrapOptions, "workspaceRoot" | "secretFiles"> & { secretFiles?: string[] }, file = "/bin/sh"): { args: string[]; plan: JailPlan; release?: () => string[] } => {
+    const command = bwrapCommand("/usr/bin/bwrap", file, ["-c", "true"], { workspaceRoot: ws, secretFiles: [], ...options });
+    const plan = planOf(command);
+    return { args: lineOf(plan), plan, ...(command.release ? { release: command.release } : {}) };
+  };
 
   beforeEach(() => {
     ws = realpathSync(mkdtempSync(join(tmpdir(), "kos-bwrap-args-")));
@@ -35,7 +50,8 @@ describe("the bubblewrap jail's command line", () => {
     for (const dir of [".kos/tmp/run", "proj"]) mkdirSync(join(ws, dir), { recursive: true });
     writeFileSync(join(ws, "kos.sqlite"), "db");
     const { args } = build({ writes: [join(ws, ".kos/tmp/run"), join(ws, "proj")], hidden: [join(ws, ".kos"), join(ws, "kos.sqlite"), join(ws, "gone")], network: false });
-    expect(args.slice(0, 3)).toEqual(["--unshare-all", "--die-with-parent", "--new-session"]);
+    expect(args.slice(0, 4)).toEqual(["--unshare-all", "--unshare-user", "--die-with-parent", "--new-session"]);
+    expect(args).toContain("--disable-userns");
     expect(args).not.toContain("--share-net");
     const base = mountAt(args, "--ro-bind", ws, ws);
     const covered = mountAt(args, "--tmpfs", join(ws, ".kos"));
@@ -51,12 +67,25 @@ describe("the bubblewrap jail's command line", () => {
     expect(args.slice(-3)).toEqual(["/bin/sh", "-c", "true"]);
   });
 
-  it("binds the whole workspace writable by default, with the network unless told otherwise", () => {
-    const { args } = build({});
+  it("binds the whole workspace writable by default, never on the host's network, with a NAT of its own when networked", () => {
+    const nat = { tool: "pasta" as const, path: "/usr/bin/pasta" };
+    const { args, plan } = build({ nat });
     expect(mountAt(args, "--bind", ws, ws)).toBeGreaterThan(-1);
-    expect(args).toContain("--share-net");
-    expect(build({ network: "local" }).args).not.toContain("--share-net");
-    expect(build({ network: false }).args).not.toContain("--share-net");
+    expect(plan).toMatchObject({ networked: true, nat });
+    for (const network of [false, "local"] as const) expect(build({ network, nat }).plan).toMatchObject({ networked: false });
+    for (const run of [build({ nat }), build({ network: "local" }), build({ nat: false })]) expect(run.args).not.toContain("--share-net");
+    expect(build({ nat: false }).plan.nat).toBeUndefined();
+  });
+
+  it("binds by descriptor, so what is mounted is what was checked", () => {
+    mkdirSync(join(ws, "proj"));
+    const { plan } = build({ writes: [join(ws, "proj")] });
+    expect(plan.args).not.toContain("--bind");
+    expect(plan.sources).toEqual([
+      { path: ws, dir: true },
+      { path: join(ws, "proj"), dir: true },
+    ]);
+    expect(plan.seccomp).toMatch(/seccomp\.bpf$/);
   });
 
   it("holds read-only paths over the writable workspace, and carves writable folders back out after", () => {
@@ -122,6 +151,20 @@ describe("the bubblewrap jail's command line", () => {
     expect(args.lastIndexOf(keys)).toBeGreaterThan(carved);
   });
 
+  it("pins every folder between a writable root and what it holds, and stands in a folder for a folder", () => {
+    const git = join(ws, ".config", "git");
+    const { args, release } = build({ readOnly: [`${git}/`] });
+    try {
+      const pin = mountAt(args, "--bind", join(ws, ".config"), join(ws, ".config"));
+      expect(pin).toBeGreaterThan(mountAt(args, "--bind", ws, ws));
+      expect(mountAt(args, "--ro-bind", git, git)).toBeGreaterThan(pin);
+      expect(lstatSync(git).isDirectory()).toBe(true);
+    } finally {
+      release?.();
+    }
+    expect(existsSync(join(ws, ".config"))).toBe(false);
+  });
+
   it("refuses a read-only path reached through a link, and binds no write through one", () => {
     mkdirSync(join(ws, "real"));
     symlinkSync(join(ws, "real"), join(ws, "linked"));
@@ -146,6 +189,9 @@ describe("the bubblewrap jail's command line", () => {
     const { args } = build({ unwritable: GIT_CONTROL_WRITES, unreadable: [GIT_INFO_ATTRIBUTES] });
     const pinned = mountAt(args, "--bind", git, git);
     expect(pinned).toBeGreaterThan(-1);
+    // The repository's folder is pinned too, before what it holds: renamed, it would leave its .git behind.
+    expect(mountAt(args, "--bind", join(ws, "repo"), join(ws, "repo"))).toBeGreaterThan(-1);
+    expect(mountAt(args, "--bind", join(ws, "repo"), join(ws, "repo"))).toBeLessThan(pinned);
     expect(mountAt(args, "--ro-bind", join(git, "config"), join(git, "config"))).toBeGreaterThan(pinned);
     const info = mountAt(args, "--ro-bind", join(git, "info"), join(git, "info"));
     expect(info).toBeGreaterThan(pinned);
@@ -168,8 +214,9 @@ describe("choosing the jail", () => {
   it("prefers bubblewrap on Linux, then the container, and names bubblewrap when it refuses", () => {
     const ws = realpathSync(tmpdir());
     const linux = jailedCommand("ls", { workspaceRoot: ws, platform: "linux", bubblewrap: "/usr/bin/bwrap", contained: true, secretFiles: [] });
-    expect(linux.file).toBe("/usr/bin/bwrap");
-    expect(linux.args.slice(-3)).toEqual(["/bin/sh", "-c", "ls"]);
+    expect(linux.file).toBe(process.execPath);
+    expect(planOf(linux).bwrap).toBe("/usr/bin/bwrap");
+    expect(planOf(linux).command).toEqual(["/bin/sh", "-c", "ls"]);
     expect(jailedProgram("ls", [], { workspaceRoot: ws, platform: "linux", bubblewrap: false, contained: true })).toEqual({ file: "ls", args: [] });
     expect(() => jailedCommand("ls", { workspaceRoot: ws, platform: "linux", bubblewrap: false, contained: false })).toThrow(/bubblewrap/);
     expect(ownJail("linux", "/usr/bin/bwrap")).toBe(true);
@@ -177,9 +224,21 @@ describe("choosing the jail", () => {
     expect(ownJail("darwin", false)).toBe(true);
   });
 
-  // The Linux job installs bubblewrap; there it must be found, or the parity tests below would only skip.
-  it.runIf(process.env.KOS_EXPECT_BWRAP === "1")("finds a working bubblewrap where one is installed", () => {
+  it("trusts only a program root holds, in folders root holds", () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "kos-trust-")));
+    try {
+      writeFileSync(join(dir, "bwrap"), "#!/bin/sh\n", { mode: 0o755 });
+      expect(trustedProgram(join(dir, "bwrap"))).toBe(false);
+      expect(trustedProgram("/bin/sh")).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The Linux job installs bubblewrap and pasta; there they must be found, or the parity tests below would only skip.
+  it.runIf(process.env.KOS_EXPECT_BWRAP === "1")("finds a working bubblewrap, and a NAT, where they are installed", () => {
     expect(bubblewrap()).toBeDefined();
+    expect(natTool()).toBeDefined();
   });
 });
 
@@ -187,9 +246,12 @@ describe.runIf(bubblewrap() !== undefined)("the bubblewrap jail on Linux", { tim
   let ws: string;
 
   async function run(command: string, options: Omit<JailOptions, "workspaceRoot"> = {}, cwd = ws): Promise<string> {
-    const jailed = jailedCommand(command, { workspaceRoot: ws, secretFiles: [], kosPorts: [], ...options });
-    const out = await runCaptured(jailed, { cwd, env: { PATH: "/usr/bin:/bin", HOME: ws }, timeoutMs: CHILD_MS, maxOutput: 20_000 });
-    return out.stdout.trim();
+    return (await captured(command, options, cwd)).stdout.trim();
+  }
+
+  function captured(command: string, options: Omit<JailOptions, "workspaceRoot"> = {}, cwd = ws): ReturnType<typeof runCaptured> {
+    const jailed = jailedCommand(command, { workspaceRoot: ws, secretFiles: [], kosPorts: [], network: false, ...options });
+    return runCaptured(jailed, { cwd, env: { PATH: "/usr/bin:/bin", HOME: ws }, timeoutMs: CHILD_MS, maxOutput: 20_000 });
   }
 
   async function node(script: string, options: Omit<JailOptions, "workspaceRoot">): Promise<Record<string, string>> {
@@ -250,8 +312,19 @@ own.close();`;
       for (const network of [false, "local"] as const) {
         expect(await node(script, { network })).toEqual({ self: "own", host: "refused", world: "refused" });
       }
-      // Shared only when allowed, and then the host's own ports are there too: see bwrap.ts.
-      expect((await node(script, {})).host).toBe("host");
+      // Networked, through each NAT there is: the outside, and still not the host's loopback.
+      for (const tool of ["pasta", "slirp4netns"] as const) {
+        const path = `/usr/bin/${tool}`;
+        if (!trustedProgram(path)) continue;
+        const out = await node(script, { nat: { tool, path } });
+        expect(out.self, tool).toBe("own");
+        expect(out.host, tool).toBe("refused");
+        expect(out.world, tool).not.toBe("refused");
+        expect(await run("getent hosts example.com >/dev/null && echo named", { nat: { tool, path } }), tool).toBe("named");
+      }
+      const none = await captured("echo ran", { network: true, nat: false });
+      expect(none.stdout).toBe("");
+      expect(none.stderr).toContain(NEEDS_NAT);
     } finally {
       await new Promise((done) => host.close(done));
     }
@@ -269,6 +342,38 @@ own.close();`;
     );
     expect(out.split("\n")).toEqual(["config", "hooks", "pinned", "objects"]);
     expect(readFileSync(join(repo, ".git", "config"), "utf8")).toBe("[core]\n");
+  });
+
+  it("lets no held path be renamed out from over its hold: not the repository, not the folder above", async () => {
+    const repo = join(ws, "repo");
+    mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+    writeFileSync(join(repo, ".git", "config"), "[core]\n");
+    const out = await run("mv repo repo2 2>/dev/null || echo repo; mv .config x 2>/dev/null || echo config; mkdir -p .config/git 2>/dev/null && echo x > .config/git/config 2>/dev/null || echo git", {
+      unwritable: GIT_CONTROL_WRITES,
+      readOnly: [join(ws, ".gitconfig"), `${join(ws, ".config", "git")}/`],
+      network: "local",
+    });
+    expect(out.split("\n")).toEqual(["repo", "config", "git"]);
+    expect(existsSync(join(repo, ".git", "config"))).toBe(true);
+    expect(existsSync(join(ws, ".config"))).toBe(false);
+  });
+
+  it("quarantines a repository a run nobody approved made, hook and all", async () => {
+    const out = await captured("git init -q made && printf '#!/bin/sh\\ntouch PLANTED\\n' > made/.git/hooks/pre-commit && echo made", { unwritable: GIT_CONTROL_WRITES, network: "local" });
+    expect(out.stdout.trim()).toBe("made");
+    expect(out.quarantined).toEqual(["made/.git"]);
+    expect(existsSync(join(ws, "made", ".git"))).toBe(false);
+    const [stamp] = readdirSync(join(ws, ".kos", "quarantine"));
+    expect(existsSync(join(ws, ".kos", "quarantine", stamp!, "made", ".git", "hooks", "pre-commit"))).toBe(true);
+    expect(readFileSync(join(ws, ".kos", "quarantine", stamp!, "NOTE.txt"), "utf8")).toContain("made/.git");
+  });
+
+  it("refuses the system calls a jailed program has no business making", async () => {
+    // keyctl and bpf by this machine's numbers: refused with EPERM, before the kernel looks at the arguments.
+    const [keyctl, bpf] = process.arch === "arm64" ? [219, 280] : [250, 321];
+    const probe = `import ctypes; l = ctypes.CDLL(None, use_errno=True)\nfor n in (${keyctl}, ${bpf}):\n    r = l.syscall(n, 0, 0, 0, 0, 0); print(r, ctypes.get_errno())`;
+    expect(await run(`python3 -c '${probe}'`)).toBe("-1 1\n-1 1");
+    expect(await run("unshare --user true 2>/dev/null && echo nested || echo refused")).toBe("refused");
   });
 
   it("gives every run a fresh /tmp, gone when it ends", async () => {
