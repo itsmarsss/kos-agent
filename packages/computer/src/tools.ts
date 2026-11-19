@@ -1,5 +1,5 @@
 import { fenced } from "@kos/browser";
-import { isAttended, isOwnerTurn, ownWordsOn, turnStop, type AuditEntry, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { isAttended, isOwnerTurn, ownWordsOn, registerSecretType, SECRET_TYPE, turnStop, type AuditEntry, type KosModule, type ModuleContext, type SecretTypeDeps, type ToolRisk } from "@kos/harness";
 import { ScreenMemory, UNCHANGED, WAIT_BUDGET_MS, WaitBudget, abortable, actionsOf, doneText, hasActions, runActions, summarizeAction, type RunAdapter } from "@kos/shared";
 
 import type { OwnerChrome } from "./chrome.js";
@@ -7,6 +7,7 @@ import type { DeviceHub, Session } from "./hub.js";
 import { CHROME_PANEL, MAC_PANEL } from "./panel.js";
 import { DeviceError } from "./link.js";
 import type { Capture, Point } from "./protocol.js";
+import { macSecrets } from "./secretmac.js";
 
 /**
  * computer.*: a paired computer, as three tools.
@@ -68,6 +69,8 @@ export interface ComputerToolsDeps {
   onFresh?(handler: (conversation: string) => void): () => void;
   /** The audit log: a session started unasked is written there as the start it stands for. */
   audit?(entry: AuditEntry): void;
+  /** The owner's vault and its record of uses: with them, secrets.type types a saved secret on the Mac. */
+  secrets?: Omit<SecretTypeDeps, "mac">;
   /** How long the screen is given to settle after an action before the picture. */
   settleMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -151,6 +154,8 @@ const KEEPALIVE_MS = 30_000;
 const TOUCH = { region: { x: 0, y: 0, width: 1, height: 1 } };
 
 const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "computer.end"];
+/** Offered with the computer tools, where the owner's vault is at hand. */
+const MAC_SECRET_TOOLS = [SECRET_TYPE];
 const CHROME_TOOLS = ["chrome.start", "chrome.end", "chrome.page"];
 /** As much of a page as chrome.page hands the model first: its outline and its start, enough for most questions about it. */
 const PAGE_OUTLINE = 4_000;
@@ -160,7 +165,7 @@ const PAGE_PART = 12_000;
 const HEADINGS_MAX = 24;
 /** The Chrome may first ask the owner to let KOS read pages, and waits up to five minutes for them. */
 const PAGE_WAIT_MS = 315_000;
-const TOOL_NAMES = [...COMPUTER_TOOLS, ...CHROME_TOOLS];
+const TOOL_NAMES = [...COMPUTER_TOOLS, ...MAC_SECRET_TOOLS, ...CHROME_TOOLS];
 const VERSION = "0.1.0";
 
 export const COMPUTER_MANIFEST: KosModule["manifest"] = {
@@ -196,7 +201,9 @@ export function refusalText(err: unknown, ending?: string, kind: "computer" | "b
     case "held":
       return "The owner kept control and did not hand it back. Stop here and tell them where you stopped.";
     case "secure_input":
-      return "A password field has focus. KOS does not type there; ask the owner to enter it themselves.";
+      return "A password field has focus. KOS does not type there with computer.act; a saved secret goes in with secrets.type, else ask the owner to enter it themselves.";
+    case "secret_field":
+      return `${err.message} KOS only moves on from a field it typed a secret into (Return, Tab, Escape, or a click elsewhere), never copies from it or types into it again.`;
     case "hidden_app":
       return "That app is hidden from KOS on this computer, so KOS cannot see or act on it.";
     case "denied":
@@ -271,6 +278,8 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const registered = { computer: false, browser: false };
   let unsubscribe: (() => void)[] = [];
+  /** Takes secrets.type back, while it is offered. */
+  let offSecretType: (() => void) | undefined;
 
   const conversation = (): string => {
     const id = deps.caller();
@@ -1057,15 +1066,18 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           const want = hub.list().some((d) => d.kind === kind);
           if (want && !registered[kind]) {
             (kind === "computer" ? registerComputer : registerChrome)(ctx);
+            if (kind === "computer" && deps.secrets) offSecretType = registerSecretType(ctx, { ...deps.secrets, mac: macSecrets(hub) });
             registered[kind] = true;
           } else if (!want && registered[kind]) {
             for (const name of kind === "computer" ? COMPUTER_TOOLS : CHROME_TOOLS) ctx.unregisterTool?.(name);
+            if (kind === "computer") offSecretType?.();
             registered[kind] = false;
           }
         }
       };
       sync();
       unsubscribe = [
+        () => offSecretType?.(),
         hub.onChange(sync),
         ...(deps.onHalt ? [deps.onHalt(() => hub.endAll("host"))] : []),
         ...(deps.onStop ? [deps.onStop((chat) => { for (const stop of [...stops]) stop(chat); })] : []),

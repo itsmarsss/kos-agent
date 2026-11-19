@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
-import { requireServices, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule, type ModuleContext } from "@kos/harness";
+import { requireServices, SecretUses, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule, type ModuleContext } from "@kos/harness";
 import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
 import type { Build, BuildKind } from "./builds.js";
@@ -111,6 +111,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let unthemed: (() => void) | undefined;
   let unmoded: (() => void) | undefined;
   let waits: ReturnType<typeof tellWaits> | undefined;
+  let secretUses: SecretUses | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
   const mac = new DevicePanel(MAC_PANEL, options.panels.mac);
@@ -188,6 +189,12 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         titleOf: options.titleOf,
         ...(options.audit ? { audit: options.audit } : {}),
         ...(options.stopTurn ? { stopTurn: options.stopTurn } : {}),
+        // The owner's vault, read at each use, and its record of uses: secrets.type on a Mac.
+        secrets: {
+          vault: () => secrets.attached(),
+          uses: (secretUses ??= new SecretUses(requireServices(ctx).db)),
+          tellOwner: (text) => void requireServices(ctx).notify?.({ text, target: { kind: "owner" } }).catch(() => undefined),
+        },
         // The KOS for Mac window's chat set to Ask: each step on the screen asks first.
         asksEachStep: (conversation) => mac.asksEachStep(conversation),
         inAuto: (conversation) => mac.inAuto(conversation),

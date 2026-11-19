@@ -127,7 +127,11 @@ export type ErrorCode =
   | "secure_input"
   | "hidden_app"
   | "bad_request"
-  | "internal";
+  | "internal"
+  | "target"
+  | "origin"
+  | "field"
+  | "secret_field";
 
 export interface Reply {
   t: "reply";
@@ -158,6 +162,8 @@ export type Method =
   | "pointer.scroll"
   | "keys.type"
   | "keys.press"
+  | "keys.focus"
+  | "keys.secret"
   | "tabs.list"
   | "tabs.open"
   | "tabs.close"
