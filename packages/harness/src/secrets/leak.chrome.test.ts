@@ -21,7 +21,7 @@ import { Vault } from "./vault.js";
  * (design section 11): a scripted turn lists the secrets, fills a login on
  * the page and a card in a payment frame of another origin, shows the
  * password with the page's own toggle, looks at the page as a picture, an
- * outline and its text, and tries a script, which is refused. The page
+ * outline and its text, and tries a script and a javascript: address, both refused. The page
  * echoes whatever is typed into its text, its title and its console,
  * copies the password into another box and a textarea, and draws it in
  * magenta. Afterwards no canary is in any table, the transcript, a
@@ -149,6 +149,9 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
             return call({ then: "read" }, "browser.look");
           case 8:
             return call({ code: "document.getElementById('pw').value" }, "browser.eval");
+          case 9:
+            // A script as an address, which would run in the page that holds the secret.
+            return call({ actions: [{ open: "javascript:document.title=document.getElementById('pw').value" }], intent: "read the field" }, "browser.act");
           default:
             return step([{ type: "text", text: "Signed in and the card is in." }], "end_turn");
         }
@@ -203,7 +206,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     expect(leaks(said)).toHaveLength(1);
     const res = await kernel.handleMessage(said, { owner: true, sessionId: chat.id });
     // The turn holds on each ask in the background, as a dashboard turn does, and carries on once it is approved.
-    await vi.waitFor(() => expect(requests.some((r) => JSON.stringify(r.messages).includes('"toolUseId":"leak-9"'))).toBe(true), { timeout: 90_000, interval: 200 });
+    await vi.waitFor(() => expect(requests.some((r) => JSON.stringify(r.messages).includes('"toolUseId":"leak-10"'))).toBe(true), { timeout: 90_000, interval: 200 });
     await vi.waitFor(() => expect(events.some((e) => e.kind === "turn-end" && e.conversationId === res.sessionId)).toBe(true), { timeout: 30_000, interval: 200 });
     clearInterval(approver);
 
@@ -213,6 +216,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     expect(sent).toContain("Filled card number from Visa");
     expect(sent).toContain('textbox \\"Password\\" = \\"(hidden)\\"');
     expect(sent).toContain("browser.eval is refused: a secret was filled into this page");
+    expect(sent).toContain("javascript: addresses are not opened");
     expect(sent).toMatch(/clicked @e\d+/);
     expect(vault.list().flatMap((s) => kernel.secretUses.list(s.handle).map((u) => `${s.label}:${u.outcome}`)).sort()).toEqual(["Shop login:filled", "Visa:filled"]);
 
