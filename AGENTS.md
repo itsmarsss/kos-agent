@@ -4,8 +4,8 @@ You are a coding agent asked to set KOS up for your user. Follow
 [docs/setup.md](docs/setup.md) step by step and run each step's check
 before moving on.
 
-If you are changing KOS's code rather than setting it up, follow the
-contributor instructions in CLAUDE.md instead of this file.
+If you are changing KOS's code rather than setting it up, this file does
+not apply: start from the guides in [docs/](docs/).
 
 ## Do
 
