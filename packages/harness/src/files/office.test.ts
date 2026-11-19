@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isReadable, readAttachments } from "../kernel/attachments.js";
 import { isOffice, officeKindOf, officeNote, officeText } from "./office.js";
-import { isZip, readZip, writeZip } from "./zip.js";
+import { isZip, readZip, writeZip, ZipTooLarge } from "./zip.js";
 
 const DOCX = {
   "[Content_Types].xml": "<Types/>",
@@ -42,6 +42,51 @@ describe("a zip", () => {
     expect(isZip(writeZip({ "a": "b" }))).toBe(true);
     expect(isZip(new Uint8Array([1, 2, 3, 4, 5]))).toBe(false);
     expect(() => readZip(new Uint8Array(40))).toThrow(/not a zip/);
+  });
+});
+
+/** The same entry named again and again in the directory, every name pointing at the one local header: tiny, and as large as it names. */
+function repeated(name: string, content: Uint8Array, times: number): Uint8Array {
+  const one = Buffer.from(writeZip({ [name]: content }, { deflate: true }));
+  const end = one.length - 22;
+  const dirAt = one.readUInt32LE(end + 16);
+  const central = one.subarray(dirAt, end);
+  const names = Array.from({ length: times }, (_, i) => {
+    const copy = Buffer.from(central);
+    // Same length, another name: sheet1.xml, sheet2.xml ...
+    copy.write(name.replace("1", String(i + 1)), 46, "utf8");
+    return copy;
+  });
+  const tail = Buffer.from(one.subarray(end));
+  tail.writeUInt16LE(times, 8);
+  tail.writeUInt16LE(times, 10);
+  tail.writeUInt32LE(central.length * times, 12);
+  return new Uint8Array(Buffer.concat([one.subarray(0, dirAt), ...names, tail]));
+}
+
+describe("an Office document that inflates past the cap", () => {
+  const MB = 1024 * 1024;
+  const workbook = (sheets: number): Record<string, string> => ({
+    "xl/workbook.xml": `<workbook><sheets>${Array.from({ length: sheets }, (_, i) => `<sheet name="S${i + 1}" r:id="r${i + 1}"/>`).join("")}</sheets></workbook>`,
+    "xl/_rels/workbook.xml.rels": `<Relationships>${Array.from({ length: sheets }, (_, i) => `<Relationship Id="r${i + 1}" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}</Relationships>`,
+  });
+
+  it("refuses a small file whose parts together inflate past the total cap", () => {
+    const sheet = new Uint8Array(60 * MB).fill(0x20);
+    const bytes = writeZip({ ...workbook(3), "xl/worksheets/sheet1.xml": sheet, "xl/worksheets/sheet2.xml": sheet, "xl/worksheets/sheet3.xml": sheet }, { deflate: true });
+    expect(bytes.length).toBeLessThan(MB);
+    expect(() => officeText(bytes, "bomb.xlsx")).toThrow(ZipTooLarge);
+  });
+
+  it("refuses a directory that names one local header twice", () => {
+    const bytes = repeated("xl/worksheets/sheet1.xml", new Uint8Array(MB).fill(0x20), 3);
+    expect(() => readZip(bytes)).toThrow(/names one entry's bytes twice/);
+  });
+
+  it("inflates only the parts it reads, so a picture in the package costs nothing", () => {
+    const picture = new Uint8Array(60 * MB).fill(0x20);
+    const bytes = writeZip({ ...XLSX, "xl/media/a.png": picture, "xl/media/b.png": picture, "xl/media/c.png": picture }, { deflate: true });
+    expect(officeText(bytes, "book.xlsx").text).toContain("Kettle");
   });
 });
 
