@@ -69,7 +69,7 @@ final class ChatController {
   init() {
     model.send = { [weak self] text, quote in self?.say(text, quote: quote) }
     model.readSelection = { [weak self] in self?.readSelection() }
-    model.decide = { [weak self] id, approved, remember in self?.tell(.decide(approval: id, approved: approved, remember: remember)) }
+    model.decide = { [weak self] id, approved, remember, code in self?.tell(.decide(approval: id, approved: approved, remember: remember, code: code)) }
     model.list = { [weak self] in self?.tell(.list) }
     model.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
     model.chooseModel = { [weak self] choice in self?.tell(.model(choice)) }

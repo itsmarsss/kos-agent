@@ -70,6 +70,9 @@ public enum Routes {
       self.alwaysTip = alwaysTip
       self.alwaysNote = alwaysNote
     }
+
+    /// An ask for a one-time code: decided only on its card, with the code typed there.
+    public var asksCode: Bool { secret?.asksCode == true }
   }
 
   /// One already decided (`/api/approvals/history`), said in words.

@@ -61,8 +61,9 @@ public struct AskSecretBlock: View {
     VStack(alignment: .leading, spacing: 4) {
       HStack(spacing: 6) {
         Image(systemName: "key.fill").font(.kos(.detail)).foregroundStyle(Theme.warn).accessibilityHidden(true)
+        // A one-time code has no handle until it is given: its label alone.
         (Text(secret.label).font(.kos(.body, .semibold)).foregroundStyle(Theme.text)
-          + Text("  \(secret.handle)").font(.kos(.detail, design: .monospaced)).foregroundStyle(Theme.faint))
+          + Text(secret.asksCode ? "" : "  \(secret.handle)").font(.kos(.detail, design: .monospaced)).foregroundStyle(Theme.faint))
           .fixedSize(horizontal: false, vertical: true)
       }
       if let fields = AskWords.secretFields(secret) {
@@ -79,6 +80,28 @@ public struct AskSecretBlock: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(RoundedRectangle(cornerRadius: 8).fill(Theme.warn.opacity(0.08)))
     .accessibilityElement(children: .combine)
+  }
+}
+
+/// The masked box an ask for a one-time code has, as the web kit's AskCard draws it: the code is typed here, sent with
+/// the yes and emptied, never saved or logged. Return in it approves, once what is typed is a code a card takes.
+public struct AskCodeField: View {
+  private let secret: ChatSecret
+  @Binding private var code: String
+  private let submit: () -> Void
+
+  public init(secret: ChatSecret, code: Binding<String>, submit: @escaping () -> Void) {
+    self.secret = secret
+    _code = code
+    self.submit = submit
+  }
+
+  public var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      KOSField("The code", placeholder: "Type or paste it", text: $code, mono: true, secure: true)
+        .onSubmit { if OneTimeCode.typed(code) != nil { submit() } }
+      Text(AskWords.codeHelp(secret)).font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+    }
   }
 }
 
@@ -459,6 +482,13 @@ public enum AskWords {
       return "Into \(app.name)\(site)\(secret.device.map { ", on \($0)" } ?? "")"
     }
     return secret.origin.map { "On \($0.replacingOccurrences(of: "https://", with: ""))" }
+  }
+
+  /// What a one-time code's box says it is for: where it goes, once, and for how long; never kept.
+  public static func codeHelp(_ secret: ChatSecret) -> String {
+    let site = secret.origin.map { " on \($0.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: ""))" }
+    let place = site ?? secret.app.map { " into \($0.name)" } ?? ""
+    return "\(secret.app == nil ? "Filled" : "Typed") once\(place) within \(OneTimeCode.minutes) minutes, and never saved. Or deny, and type it there yourself."
   }
 
   static let secretFieldWords = ["number": "card number", "cvc": "CVC", "name": "name on card", "text": "note", "token": "token"]

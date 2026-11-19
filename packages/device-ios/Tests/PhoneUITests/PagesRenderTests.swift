@@ -93,7 +93,7 @@ extension RenderTests {
     let ask = try #require(phone.board.inbox.waiting.value?.approvals.first)
     try render("inbox-ask", only: ["390"]) {
       SheetOver(height: 0.62) { Tabbed(tab: .inbox, badges: [.inbox: 2]) { InboxScreen(inbox: phone.board.inbox) } } sheet: {
-        AskBody(ask: ask.ask, more: 0, from: ask.asker) { _, _ in }.frame(maxHeight: .infinity, alignment: .top)
+        AskBody(ask: ask.ask, more: 0, from: ask.asker) { _, _, _ in }.frame(maxHeight: .infinity, alignment: .top)
       }
     }
     phone.board.toasts.say(.init("Couldn't approve email.send. KOS didn't answer in time. Try again.", tone: .warn))

@@ -308,15 +308,15 @@ public final class Phone: ObservableObject {
     pairing.current = { [weak self] in self?.paired?.address }
     chat.send = { [weak self] text, _ in self?.say(text) }
     // Decided in the chat, the glance or the Inbox, by its id each way; the others drop it too.
-    chat.decide = { [weak self] id, approved, remember in
+    chat.decide = { [weak self] id, approved, remember, code in
       self?.glance.settled(id)
       self?.board.inbox.settledElsewhere(id)
-      self?.decided(id, approved: approved, remember: remember)
+      self?.decided(id, approved: approved, remember: remember, code: code)
     }
-    glance.decide = { [weak self] id, approved, remember in
+    glance.decide = { [weak self] id, approved, remember, code in
       self?.chat.settled(id)
       self?.board.inbox.settledElsewhere(id)
-      self?.decided(id, approved: approved, remember: remember)
+      self?.decided(id, approved: approved, remember: remember, code: code)
     }
     board.inbox.settled = { [weak self] id in
       self?.chat.settled(id)
@@ -380,9 +380,9 @@ public final class Phone: ObservableObject {
     dial(pairing)
   }
 
-  private func decided(_ id: String, approved: Bool, remember: Bool) {
+  private func decided(_ id: String, approved: Bool, remember: Bool, code: String?) {
     haptics.tap()
-    tell(.decide(approval: id, approved: approved, remember: remember))
+    tell(.decide(approval: id, approved: approved, remember: remember, code: code))
   }
 
   /// The owner's words, with the files the box showed going with them sent ahead in parts. Words that named none

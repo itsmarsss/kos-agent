@@ -87,6 +87,31 @@ struct ChatTests {
     #expect(try object(ChatEvent.open.frame())["name"] as? String == "chat.open")
   }
 
+  @Test func writesAOneTimeCodeOnlyWithAYes() throws {
+    let yes = try #require(object(ChatEvent.decide(approval: "9", approved: true, remember: false, code: "123456").frame())["data"] as? [String: Any])
+    #expect(yes["code"] as? String == "123456")
+    let no = try #require(object(ChatEvent.decide(approval: "9", approved: false, remember: false, code: "123456").frame())["data"] as? [String: Any])
+    #expect(no["code"] == nil)
+    let plain = try #require(object(ChatEvent.decide(approval: "9", approved: true, remember: false).frame())["data"] as? [String: Any])
+    #expect(plain["code"] == nil)
+  }
+
+  @Test func readsAnAskForAOneTimeCode() throws {
+    let secret = try JSONDecoder().decode(ChatSecret.self, from: Data(#"{"handle":"code","label":"One-time code","fields":[],"origin":"https://bank.example","code":true}"#.utf8))
+    #expect(secret.asksCode)
+    let saved = try JSONDecoder().decode(ChatSecret.self, from: Data(#"{"handle":"github-9xq1","label":"GitHub","fields":["password"]}"#.utf8))
+    #expect(!saved.asksCode)
+  }
+
+  @Test func takesOnlyACodeACardTakes() {
+    #expect(OneTimeCode.typed("123 456") == "123456")
+    #expect(OneTimeCode.typed("AB-12cd") == "AB-12cd")
+    #expect(OneTimeCode.typed("12345") == nil)
+    #expect(OneTimeCode.typed(String(repeating: "1", count: 33)) == nil)
+    #expect(OneTimeCode.typed("12345!") == nil)
+    #expect(OneTimeCode.typed("１２３４５６") == nil)
+  }
+
   @Test func readsWhichChatATurnIsInAndWhatItWaitsOn() throws {
     let both = try call(#"{"t":"call","id":1,"method":"chat.status","params":{"chat":"mac:owner","conversation":"old","waiting":"consent","held":true}}"#).params(ChatStatus.self)
     #expect(both.turnChat == "mac:owner")

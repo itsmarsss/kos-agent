@@ -1,3 +1,4 @@
+import DeviceCore
 import SwiftUI
 import AppKit
 
@@ -139,7 +140,7 @@ public struct ChatView: View {
               Working(what: foot, since: model.workingSince ?? Date(), live: model.footLive)
             }
           }
-          ForEach(model.asks) { ask in AskCard(ask: ask, answer: model.answer) }
+          ForEach(model.asks) { ask in AskCard(ask: ask) { id, approved, remember, code in model.answer(id, approved: approved, remember: remember, code: code) } }
           if let consent = model.consent { ConsentCard(consent: consent) }
           Color.clear.frame(height: 1).id("end")
         }
@@ -511,10 +512,13 @@ private struct ConsentCard: View {
 
 /// An approval to decide in the thread, as the dashboard's card asks it (`AskSummary`): who asks and how long it
 /// has, what KOS wants to do and where, each step with its keys as keycaps, why, the arguments under Details, then
-/// Deny, the remembered yes and Approve at one height. Focused, Return approves and Escape or ⌘⌫ denies.
+/// Deny, the remembered yes and Approve at one height. Focused, Return approves and Escape or ⌘⌫ denies. An ask for a
+/// one-time code has its masked box (`AskCodeField`) above the buttons, and Approve only once a code is in it.
 struct AskCard: View {
   let ask: ChatModel.Ask
-  let answer: (String, Bool, Bool) -> Void
+  let answer: (_ id: String, _ approved: Bool, _ remember: Bool, _ code: String?) -> Void
+  /// What is typed in the code's box, for this card alone: sent with the yes, then emptied.
+  @State private var code = ""
   @FocusState private var focused: Bool
   /// The focus came by the Tab key, not a click or the window's own first focus: only then does Return approve.
   @State private var byTab = false
@@ -535,6 +539,7 @@ struct AskCard: View {
         }
       }
       AskSummary(ask)
+      if let secret = ask.secret, secret.asksCode { AskCodeField(secret: secret, code: $code) { decide(approved: true, remember: false) } }
       if let args = ask.args { AskDetails(tool: ask.tool, args: args) }
       if ask.tooLong {
         Text("Too long to show here in full. Open it in the dashboard's Inbox to approve it.").font(.kos(.detail)).foregroundStyle(Theme.muted)
@@ -565,7 +570,7 @@ struct AskCard: View {
     .onChange(of: focused) { _, now in byTab = now && AskKeys.cameByTab(NSApp.currentEvent) }
     // Down only: a held key's repeats are other phases, and are not heard.
     .onKeyPress(keys: [.return, .escape, .delete], phases: .down) { press in
-      guard let approved = AskKeys.decision(press.key, command: press.modifiers.contains(.command), focused: focused, byTab: byTab, canApprove: !ask.tooLong) else {
+      guard let approved = AskKeys.decision(press.key, command: press.modifiers.contains(.command), focused: focused, byTab: byTab, canApprove: canApprove) else {
         return .ignored
       }
       decide(approved: approved, remember: false)
@@ -573,22 +578,28 @@ struct AskCard: View {
     }
   }
 
+  /// Whether a yes may go now: not for an ask too long to show, nor for a code's ask before a code is in its box.
+  private var canApprove: Bool { !ask.tooLong && (ask.secret?.asksCode != true || OneTimeCode.typed(code) != nil) }
+
   private func decide(approved: Bool, remember: Bool) {
-    guard !decided else { return }
+    guard !decided, !approved || canApprove else { return }
     decided = true
-    answer(ask.id, approved, remember)
+    let typed = approved && ask.secret?.asksCode == true ? OneTimeCode.typed(code) : nil
+    code = ""
+    answer(ask.id, approved, remember, typed)
   }
 
   @ViewBuilder private func approve(wide: Bool) -> some View {
     if !ask.tooLong {
       Button { decide(approved: true, remember: false) } label: { Text("Approve").frame(maxWidth: wide ? .infinity : nil) }
         .buttonStyle(KOSButtonStyle(.primary))
+        .disabled(!canApprove)
         .help("Approve (Return, once Tab has moved to the card)")
     }
   }
 
   @ViewBuilder private func always(wide: Bool) -> some View {
-    if let always = ask.always, !ask.tooLong {
+    if let always = ask.always, !ask.tooLong, ask.secret?.asksCode != true {
       Button { decide(approved: true, remember: true) } label: { Text(always).frame(maxWidth: wide ? .infinity : nil) }
         .buttonStyle(KOSButtonStyle(.secondary))
         .help(ask.alwaysTip ?? "Approves this, and stops asking for the same again. Undo it in Settings, Permissions.")

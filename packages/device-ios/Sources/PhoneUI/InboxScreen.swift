@@ -46,9 +46,9 @@ struct InboxScreen: View {
       if !Task.isCancelled { await inbox.refreshDecided() }
     }
     .sheet(item: $open) { ask in
-      AskBody(ask: ask.ask, more: 0, from: ask.asker) { approved, remember in
+      AskBody(ask: ask.ask, more: 0, from: ask.asker) { approved, remember, code in
         open = nil
-        Task { await inbox.decide(ask, approved: approved, remember: remember) }
+        Task { await inbox.decide(ask, approved: approved, remember: remember, code: code) }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
       .background(Theme.panel)
@@ -73,13 +73,22 @@ struct InboxScreen: View {
         .disabled(inbox.deciding.contains(ask.id))
         .accessibilityHint("Opens it to approve or deny")
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-          Button { decide(ask, true) } label: { Label("Approve", systemImage: "checkmark") }.tint(Theme.ok)
+          // A one-time code is typed on its card: the swipe opens it rather than approving.
+          if ask.asksCode {
+            Button { open = ask } label: { Label("Type code", systemImage: "key") }.tint(Theme.ok)
+          } else {
+            Button { decide(ask, true) } label: { Label("Approve", systemImage: "checkmark") }.tint(Theme.ok)
+          }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
           Button(role: .destructive) { decide(ask, false) } label: { Label("Deny", systemImage: "xmark") }.tint(Theme.danger)
         }
         .contextMenu {
-          Button { decide(ask, true) } label: { Label("Approve", systemImage: "checkmark") }
+          if ask.asksCode {
+            Button { open = ask } label: { Label("Type code", systemImage: "key") }
+          } else {
+            Button { decide(ask, true) } label: { Label("Approve", systemImage: "checkmark") }
+          }
           if let always = ask.always {
             Button { decide(ask, true, remember: true) } label: { Label(always, systemImage: "checkmark.seal") }
           }

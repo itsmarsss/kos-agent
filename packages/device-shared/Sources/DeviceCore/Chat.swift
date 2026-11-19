@@ -249,8 +249,13 @@ public struct ChatSecret: Codable, Equatable, Sendable {
   /// The paired device it goes into, by name.
   public let device: String?
   public let warnings: [String]?
+  /// A one-time code: the card has a masked box for it, and a yes sends what the owner typed there (OneTimeCode).
+  public let code: Bool?
 
-  public init(handle: String, label: String, fields: [String], origin: String? = nil, app: App? = nil, device: String? = nil, warnings: [String]? = nil) {
+  public init(
+    handle: String, label: String, fields: [String], origin: String? = nil, app: App? = nil, device: String? = nil, warnings: [String]? = nil,
+    code: Bool? = nil
+  ) {
     self.handle = handle
     self.label = label
     self.fields = fields
@@ -258,6 +263,24 @@ public struct ChatSecret: Codable, Equatable, Sendable {
     self.app = app
     self.device = device
     self.warnings = warnings
+    self.code = code
+  }
+
+  /// Whether the card asks for a one-time code.
+  public var asksCode: Bool { code == true }
+}
+
+/// A one-time code as a card takes it (shared/src/secrets.ts `codeProblem`): 6 to 32 letters, digits or dashes once
+/// spaces are taken out. Never saved: it goes with the yes and is gone from the card.
+public enum OneTimeCode {
+  /// How long KOS may use a code once given, in minutes, as the card says.
+  public static let minutes = 5
+
+  /// The code to send for what was typed, spaces taken out; nil when it is not one a card takes.
+  public static func typed(_ raw: String) -> String? {
+    let code = raw.filter { !$0.isWhitespace }
+    guard (6...32).contains(code.count), code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else { return nil }
+    return code
   }
 }
 
@@ -367,7 +390,8 @@ public enum ChatEvent: Sendable {
   case stop
   /// What an @ may name, by the start of it.
   case mentions(String)
-  case decide(approval: String, approved: Bool, remember: Bool)
+  /// `code` is the one-time code typed on the card of an ask for one; it goes only with a yes.
+  case decide(approval: String, approved: Bool, remember: Bool, code: String? = nil)
   case list
   case switchTo(conversation: String)
   case models
@@ -393,8 +417,8 @@ public enum ChatEvent: Sendable {
     case .attach(let part): return try Outbound.chatEvent("chat.attach", data: part)
     case .stop: return try Outbound.chatEvent("chat.stop", data: Empty())
     case .mentions(let q): return try Outbound.chatEvent("chat.mentions", data: Mentions(q: q))
-    case .decide(let approval, let approved, let remember):
-      return try Outbound.chatEvent("chat.decide", data: Decide(approval: approval, approved: approved, remember: remember ? true : nil))
+    case .decide(let approval, let approved, let remember, let code):
+      return try Outbound.chatEvent("chat.decide", data: Decide(approval: approval, approved: approved, remember: remember ? true : nil, code: approved ? code : nil))
     case .list: return try Outbound.chatEvent("chat.list", data: Empty())
     case .switchTo(let conversation): return try Outbound.chatEvent("chat.switch", data: Switch(conversation: conversation))
     case .models: return try Outbound.chatEvent("chat.models", data: Empty())
@@ -431,6 +455,7 @@ public enum ChatEvent: Sendable {
     let approval: String
     let approved: Bool
     let remember: Bool?
+    let code: String?
   }
   private struct Switch: Encodable { let conversation: String }
   private struct Model: Encodable { let model: String }

@@ -872,25 +872,30 @@ public func secondsLeft(until: Date, now: Date) -> String {
   return left < 60 ? "\(left)s" : "\(left / 60)m \(String(format: "%02d", left % 60))s"
 }
 
-/// A text field on the page's own well, with its label above it when it has one.
+/// A text field on the page's own well, with its label above it when it has one. `secure` masks what is typed, as a
+/// password's field does (a one-time code's box).
 public struct KOSField: View {
   private let label: String?
   private let placeholder: String
   @Binding private var text: String
   private let mono: Bool
+  private let secure: Bool
 
-  public init(_ label: String?, placeholder: String, text: Binding<String>, mono: Bool = false) {
+  public init(_ label: String?, placeholder: String, text: Binding<String>, mono: Bool = false, secure: Bool = false) {
     self.label = label
     self.placeholder = placeholder
     _text = text
     self.mono = mono
+    self.secure = secure
   }
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 5) {
       if let label { Text(label).font(.kos(.small, .medium)).foregroundStyle(Theme.muted) }
       // The placeholder drawn under the field: a prompt takes the field's own colour, and an empty field read as filled.
-      TextField("", text: $text)
+      Group {
+        if secure { SecureField("", text: $text) } else { TextField("", text: $text) }
+      }
         .textFieldStyle(.plain)
         .font(.kos(.dense, design: mono ? .monospaced : .default))
         .foregroundStyle(Theme.text)

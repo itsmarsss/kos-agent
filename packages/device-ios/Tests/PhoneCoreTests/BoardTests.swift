@@ -111,6 +111,25 @@ struct InboxTests {
     #expect(inbox.decided.count == 26 && !inbox.more)
   }
 
+  @Test func sendsAOneTimeCodeWithTheYesAndNoYesWithoutOne() async throws {
+    let rig = try await Rig.online()
+    let kos = Routed(rig: rig)
+    let inbox = rig.phone.board.inbox
+    let ask = Routes.Pending(id: 43, tool: "secrets.fill", requestedAt: 1_761_800_000_000, secret: .init(handle: "code", label: "One-time code", fields: [], code: true))
+    // No code, no yes: nothing goes to KOS.
+    await inbox.decide(ask, approved: true)
+    #expect(kos.request("/api/approve") == nil)
+    let decide = Task { await inbox.decide(ask, approved: true, code: "654 321") }
+    await kos.await(1)
+    let sent = try #require(kos.request("/api/approve"))
+    #expect((sent["body"] as? [String: Any])?["code"] as? String == "654321")
+    try await kos.answer("/api/approve", #"{"id":43,"approved":true}"#)
+    await kos.await(3)
+    try await kos.answer("/api/approvals/history", "[]")
+    try await kos.answer("/api/approvals/history/counts", #"{"approved":1,"denied":0,"expired":0}"#)
+    await decide.value
+  }
+
   @Test func decidesAsTheDeviceFeelsItAndTheOtherCardsGo() async throws {
     let rig = try await Rig.online()
     let kos = Routed(rig: rig)

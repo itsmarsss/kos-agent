@@ -313,7 +313,8 @@ public final class ChatModel: ObservableObject {
   public var send: (_ text: String, _ quote: Quote?) -> Void = { _, _ in }
   /// The box has the owner's attention: what they selected in the app in front is read afresh.
   public var readSelection: () -> Void = {}
-  public var decide: (_ approval: String, _ approved: Bool, _ remember: Bool) -> Void = { _, _, _ in }
+  /// `code` is the one-time code typed on the card of an ask for one.
+  public var decide: (_ approval: String, _ approved: Bool, _ remember: Bool, _ code: String?) -> Void = { _, _, _, _ in }
   public var list: () -> Void = {}
   public var switchTo: (String) -> Void = { _ in }
   public var chooseModel: (String) -> Void = { _ in }
@@ -381,12 +382,15 @@ public final class ChatModel: ObservableObject {
     quote = nil
   }
 
-  /// An approval answered: its card goes at once, and a yes goes on working.
-  public func answer(_ id: String, approved: Bool, remember: Bool = false) {
-    guard asks.contains(where: { $0.id == id }) else { return }
+  /// An approval answered: its card goes at once, and a yes goes on working. A yes to an ask for a one-time code
+  /// goes only with a code the card takes; without one it is no answer, and the card stays to type it in.
+  public func answer(_ id: String, approved: Bool, remember: Bool = false, code: String? = nil) {
+    guard let ask = asks.first(where: { $0.id == id }) else { return }
+    let typed = code.flatMap(OneTimeCode.typed)
+    if approved && ask.secret?.asksCode == true && typed == nil { return }
     asks.removeAll { $0.id == id }
     if approved { working = true }
-    decide(id, approved, remember)
+    decide(id, approved, remember, approved ? typed : nil)
   }
 
   // MARK: KOS
