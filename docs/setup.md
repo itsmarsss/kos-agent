@@ -571,11 +571,14 @@ gets an answer, and the user knows to reload the tab after every restart.
 
 ## 11. Troubleshooting
 
-**Port in use.** `kos start` says the host did not become ready, or the
-log has `EADDRINUSE`. See what holds it: `lsof -nP -iTCP:4317
--sTCP:LISTEN`. If it is an older KOS, `kos stop` (or `kos restart`, which
-waits for the port). Otherwise set `KOS_PORT` to a free port; sites use
-the next port, and the Wi-Fi listener, when it is on, the one after.
+**Port in use.** `kos start` exits non-zero with "port 4317 is already in
+use by another KOS (pid N, workspace W); stop it or pick --port", or "...
+by a process that is not KOS, or a KOS this token cannot reach". The first
+names the KOS holding it: `kos stop --workspace W` (or `kos restart`, which
+waits for the port). For the second, see what holds it: `lsof -nP
+-iTCP:4317 -sTCP:LISTEN`. Otherwise pass `--port` or set `KOS_PORT` to a
+free port; sites use the next port, and the Wi-Fi listener, when it is on,
+the one after.
 
 **Chrome not found.** A browser tool fails with "no Chrome found; name its
 path under Settings > Browser". Install Google Chrome, or name the binary

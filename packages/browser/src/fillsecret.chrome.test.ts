@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ChromeHost, findChrome } from "./chrome.js";
 import { act, evaluate, fieldSpots, fillSecrets, look, stepsOf, visit, type Tab } from "./hands.js";
 import { BrowserLive, DEFAULT_CONFIG } from "./live.js";
-import { SecretRefused, type FillExpect, type Session } from "./page.js";
+import { SecretRefused, type FillExpect, type SecretPut, type Session } from "./page.js";
 import type { SecretSlot } from "./taint.js";
 
 /**
@@ -24,6 +24,24 @@ const MAGENTA = "#ff00ff";
 const TOKEN = "tok-Canary-55h2m";
 /** A password a page's address would carry only encoded. */
 const SYMBOLS = `Sym &=+%/?#"<>' x!`;
+
+/**
+ * A page's own watch for a picture's masking, started by watch(): every
+ * mutation of its tree, in its shadow roots too, and every change, polled,
+ * to its highlights, its style sheets, its elements' style attributes and
+ * the computed styles of its field and its echo. Each is kept in seen.
+ */
+const ORACLE = `window.seen = [];
+const echo = document.getElementById('echo');
+const pw = document.getElementById('pw');
+pw.addEventListener('input', (e) => { echo.textContent = e.target.value; });
+window.watch = () => {
+  const note = (what) => window.seen.push(what);
+  new MutationObserver((ms) => ms.forEach((m) => note(m.type + ':' + (m.attributeName || '')))).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  const look = () => JSON.stringify([CSS.highlights.size, document.styleSheets.length, [...document.querySelectorAll('*')].map((el) => el.getAttribute('style')).join('|'), ...[pw, echo].flatMap((el) => { const c = getComputedStyle(el); return [c.color, c.webkitTextSecurity, c.textShadow]; })]);
+  let last = look();
+  setInterval(() => { const now = look(); if (now !== last) { note('style:' + now); last = now; } }, 1);
+};`;
 
 const page = (title: string, body: string): string =>
   `<!doctype html><meta charset=utf-8><title>${title}</title><style>input{color:${MAGENTA};font-size:28px;width:360px;height:44px;display:block;margin:6px}</style>${body}`;
@@ -114,6 +132,22 @@ ${req.url.includes("keys") ? "pw.addEventListener('input', (e) => { if (!e.isTru
 document.getElementById('pw').addEventListener('input', (e) => { const v = e.target.value; inner.getElementById('deep').value = v; inner.getElementById('said').textContent = v; document.getElementById('opt').textContent = v; document.getElementById('svgtext').textContent = v; document.getElementById('before').dataset.v = v; });</script>`,
         ),
       );
+    // A page that watches itself for any sign of a picture's masking: a change to its tree, its attributes, its styles or its highlights.
+    if (req.url === "/oracle") return html(page("Oracle", `<label>Password <input id=pw type=password></label><div style="font-size:40px">guess-one <span id=echo style="color:${MAGENTA}"></span></div><script>${ORACLE}</script>`));
+    // A tall page whose password field sits a screen and more down, beside a blue block a picture of the right part shows.
+    if (req.url?.startsWith("/tall"))
+      return html(
+        page("Tall", `<div style="height:${Number(req.url.split("?")[1] ?? 0) + 300}px"></div><label>Password <input id=pw type=password></label><div style="background:#0000ff;width:400px;height:200px"></div><div style="height:2000px"></div>`),
+      );
+    // A page with something moving on it.
+    if (req.url === "/moving")
+      return html(
+        page("Moving", `<style>@keyframes turn{to{transform:rotate(360deg)}}</style><div id=spin style="width:40px;height:40px;background:#888;animation:turn 2s steps(4) infinite"></div><div id=form style="animation:turn 2s steps(4) infinite;margin:40px"><label>Password <input id=pw type=password></label></div>`),
+      );
+    // A frame drawn upside down, its magenta box in a corner that turning moves to the opposite one.
+    if (req.url === "/turned")
+      return html(page("Turned", `<label>Password <input id=pw type=password></label><iframe src="${payBase}/corner" style="width:500px;height:300px;border:0;transform:rotate(180deg)"></iframe>`));
+    if (req.url === "/corner") return html(page("Corner", `<input id=box value="magenta words" style="width:200px;margin:0">`));
     if (req.url?.startsWith("/echo")) return html(page("Echo", `<p>You sent ${decodeURIComponent(req.url.split("=")[1] ?? "")}</p>`));
     html(login());
   };
@@ -151,6 +185,18 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     })()`);
     return Number(counted);
   };
+  /** How many pixels of a JPEG are near pure blue, counted as magentaIn counts. */
+  const blueIn = async (jpeg: string): Promise<number> =>
+    Number(
+      await tab.page.evaluate(`await (async () => {
+      const img = new Image(); img.src = "data:image/jpeg;base64,${jpeg}"; await img.decode();
+      const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+      const g = c.getContext("2d"); g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, c.width, c.height).data; let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] < 70 && d[i + 1] < 70 && d[i + 2] > 190) n++;
+      return n;
+    })()`),
+    );
   /** The ref the last look gave a labelled control. */
   const refOf = (seen: string, label: string): string => {
     const m = new RegExp(`"${label}"[^\\n]*@(e\\d+)`).exec(seen);
@@ -229,6 +275,10 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: await expectFor(pw, "password") }], "none");
     await expect(evaluate(tab, "document.getElementById('pw').value")).rejects.toThrow(/browser\.eval is refused: a secret was filled/);
     await expect(act(tab, stepsOf([{ click: pw }, { press: "Meta+c" }]), "none")).rejects.toThrow(/Meta\+c is refused/);
+    // Every other way a field's text is copied, cut or pasted, and any editing command on it.
+    for (const key of ["Control+Insert", "Shift+Insert", "Shift+Delete", "Meta+v", "Meta+z"]) {
+      await expect(act(tab, stepsOf([{ click: pw }, { press: key }]), "none")).rejects.toThrow(/is refused/);
+    }
     await expect(act(tab, stepsOf([{ type: { target: pw, text: "x" } }]), "none")).rejects.toThrow(/typing into .* is refused/);
     await expect(act(tab, stepsOf([{ fill: { target: pw, text: "x" } }]), "none")).rejects.toThrow(/filling .* is refused/);
     await expect(act(tab, stepsOf([{ drag: { from: pw, to: refOf(seen, "Username") } }]), "none")).rejects.toThrow(/dragging is refused/);
@@ -257,6 +307,28 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     expect((await refused(pw, { ...right, doc: "another document" })).code).toBe("changed");
     expect(await peek("document.getElementById('pw').value")).toBe("");
     for (const message of [(await refused(pw, { ...right, origin: "https://example.com" })).message]) expect(message).not.toContain(PASSWORD);
+  });
+
+  it("hands the value to a browser that puts it in itself, after its own checks, and holds the page as its own fill does", async () => {
+    const seen = await open();
+    const pw = refOf(seen, "Password");
+    const right = await expectFor(pw, "password");
+    // As KOS for Chrome's page is made (OwnerChrome): the value goes to the extension, which puts it in.
+    const puts: (Omit<SecretPut, "value"> & { given: boolean })[] = [];
+    const own = tab.page as unknown as { putSecret?: (put: SecretPut) => Promise<void> };
+    own.putSecret = async ({ value, ...put }) => void puts.push({ ...put, given: value === PASSWORD });
+    try {
+      await expect(fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: { ...right, origin: "https://example.com" } }], "none")).rejects.toMatchObject({ code: "origin" });
+      expect(puts).toEqual([]);
+      await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: right }], "none");
+      expect(puts).toEqual([{ node: expect.any(Number), frame: expect.any(String), doc: right.doc, origin: base, frameOrigin: base, slot: "password", given: true }]);
+      // Nothing of the Page's own put it in, and the page is held to the secret all the same.
+      expect(await peek("document.getElementById('pw').value")).toBe("");
+      await expect(evaluate(tab, "1")).rejects.toThrow(/browser\.eval is refused: a secret was filled/);
+    } finally {
+      delete own.putSecret;
+      await visit(tab, [`${base}/next`], { then: "none" });
+    }
   });
 
   it("refuses a field of the wrong kind, a hidden one and one that cannot be written", async () => {
@@ -421,6 +493,48 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     expect(await peek("document.querySelectorAll('[data-kos-masked]').length")).toBe(0);
     await visit(tab, [`${base}/next`], { then: "none" });
     expect(await magentaIn(raw)).toBeGreaterThan(1000);
+    expect(await magentaIn(masked!)).toBeLessThan(20);
+  });
+
+  it("masks a picture with nothing a page can see: no mutation, style or highlight while it is taken", async () => {
+    await fillPassword("/oracle");
+    await peek("window.watch()");
+    await new Promise((r) => setTimeout(r, 50));
+    const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
+    const masked = await tab.capture(1000);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await peek("JSON.stringify(window.seen)")).toBe("[]");
+    await visit(tab, [`${base}/next`], { then: "none" });
+    expect(await magentaIn(raw)).toBeGreaterThan(200);
+    expect(await magentaIn(masked!)).toBeLessThan(20);
+  });
+
+  it("masks a scrolled page where it is drawn, and pictures the part of it on screen", async () => {
+    for (const scrolled of [200, 1500]) {
+      await fillPassword(`/tall?${scrolled}`);
+      await sessionOf(tab).send("Runtime.evaluate", { expression: `window.scrollTo(0, ${scrolled})` });
+      expect(await peek("Math.round(window.scrollY)")).toBe(scrolled);
+      const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
+      const masked = await tab.capture(1000);
+      await visit(tab, [`${base}/next`], { then: "none" });
+      expect(await magentaIn(raw)).toBeGreaterThan(200);
+      expect(await magentaIn(masked!)).toBeLessThan(20);
+      // The part of the page on screen, not its top: the blue block beside the field is there.
+      expect(await blueIn(masked!)).toBeGreaterThan(5_000);
+    }
+  });
+
+  it("pictures no page that is moving, and paints a frame drawn turned over whole", async () => {
+    await fillPassword("/moving");
+    expect(await tab.capture(1000)).toBeUndefined();
+    // Something else moving, the spinner, is no reason not to picture it.
+    await sessionOf(tab).send("Runtime.evaluate", { expression: "document.getElementById('form').getAnimations().forEach((a) => a.cancel())" });
+    expect(await tab.capture(1000)).toBeDefined();
+    await fillPassword("/turned");
+    const raw = (await sessionOf(tab).send("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["data"] as string;
+    const masked = await tab.capture(1000);
+    await visit(tab, [`${base}/next`], { then: "none" });
+    expect(await magentaIn(raw)).toBeGreaterThan(200);
     expect(await magentaIn(masked!)).toBeLessThan(20);
   });
 

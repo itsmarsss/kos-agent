@@ -7,6 +7,7 @@
     "build": "node swap.mjs --restore && rm -rf dist.next dist.old && tsc -p tsconfig.json --outDir dist.next && node build.mjs dist.next && node swap.mjs && node ../computer/dist/stamp.js chrome dist/build.json"
   },
   "devDependencies": {
+    "@kos/browser": "workspace:*",
     "@kos/computer": "workspace:*",
     "@kos/kit": "workspace:*",
     "@kos/shared": "workspace:*",
