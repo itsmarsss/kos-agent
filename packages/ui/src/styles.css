@@ -7,7 +7,7 @@
   --line-strong: #3a4150;
   --text: #e7ebf3;
   --muted: #8b93a7;
-  --faint: #5c6578;
+  --faint: #758095;
   /* KOS's design tokens (docs/design.md), the same as the extension's and KOS
      Device's; design.test.ts in @kos/shared holds the three to them. */
   --accent: #7c9cff;
@@ -95,7 +95,7 @@
   --line-strong: #bfc6d3;
   --text: #161a22;
   --muted: #58607a;
-  --faint: #8089a0;
+  --faint: #666f88;
   --accent: #3558d6;
   --accent-lit: #2a47b8;
   --accent-dim: rgba(53, 88, 214, 0.1);
@@ -573,20 +573,25 @@ select {
   border: 1px solid rgba(240, 113, 120, 0.35);
 }
 
-/* A word from KOS about what just happened: a pill at the top, centred,
-   with a mark that says how it went. It used to be a plain box in the
-   corner in the thread's own type size. */
+/* A word from KOS about what just happened (Toast.tsx): one pill at the
+   bottom, centred, with a mark that says how it went and Undo when it can be
+   undone. Approve, archive and the files each drew their own before. */
 .ops-toast {
   position: fixed;
-  top: 0.9rem;
-  left: 50%;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  /* Centred by its margins, not by half the window: shrunk to fit beside 50%, it wrapped on a phone. */
+  left: 1rem;
+  right: 1rem;
+  width: fit-content;
+  margin-inline: auto;
   z-index: 90;
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  max-width: min(28rem, calc(100vw - 2rem));
+  /* The window less its gutters on a phone; a comfortable line on a desk. */
+  max-width: 36rem;
   padding: 0.45rem 0.95rem 0.45rem 0.55rem;
-  border-radius: 999px;
+  border-radius: 1.1rem;
   border: 1px solid var(--line-strong);
   background: color-mix(in srgb, var(--panel-2) 90%, transparent);
   backdrop-filter: blur(12px);
@@ -604,10 +609,60 @@ select {
   height: 1.25rem;
   border-radius: 50%;
 }
-.ops-toast-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ops-toast-text { min-width: 0; overflow-wrap: anywhere; }
 .ops-toast--ok .ops-toast-icon { background: var(--ok-dim); color: var(--ok); }
 .ops-toast--err { border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
+.ops-toast--warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line-strong)); }
+.ops-toast--warn .ops-toast-icon { background: var(--warn-dim); color: var(--warn); }
 .ops-toast--err .ops-toast-icon { background: var(--danger-dim); color: var(--danger); }
+
+/* KOS not there for this tab: a pill held at the top of the page, over it
+   rather than in its flow (a chat is exactly the window's height), in the
+   warn tone while it retries and the danger tone when only a reload mends it. */
+.host-banner {
+  position: fixed;
+  top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  left: 1rem;
+  right: 1rem;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: fit-content;
+  max-width: 32rem;
+  margin-inline: auto;
+  min-height: var(--control-h-sm);
+  padding: 0.3rem 0.85rem 0.3rem 0.4rem;
+  border-radius: 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line-strong));
+  background: color-mix(in srgb, var(--panel-2) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--float);
+  color: var(--text);
+  font-size: var(--text-md);
+}
+.host-banner-mark { display: grid; place-items: center; flex: none; width: 1.25rem; height: 1.25rem; border-radius: 50%; background: var(--warn-dim); color: var(--warn); }
+.host-banner-text { min-width: 0; }
+.host-banner--stale { padding-right: 0.3rem; border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
+.host-banner--stale .host-banner-mark { background: var(--danger-dim); color: var(--danger); }
+/* On a phone it takes the brand's slot in the bar, between the menu and
+   search, so it covers neither them nor the page's own head under the bar. */
+@media (max-width: 640px) {
+  .host-banner {
+    top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+    left: 3.5rem;
+    right: 3.5rem;
+    width: auto;
+    max-width: none;
+    min-height: 2.25rem;
+    margin: 0;
+    padding-block: 0.15rem;
+    font-size: var(--text-sm);
+    line-height: 1.25;
+  }
+  :root:has(.host-banner) .phonebar .brand { visibility: hidden; }
+}
 
 /* agent pages (keep usable) */
 .kos-page {
@@ -1732,8 +1787,6 @@ select {
   color: var(--text);
   text-decoration: none;
 }
-.brand span { color: var(--accent); }
-.brand .brand-k { color: inherit; }
 /* Collapsed to a rail, the brand is the face alone: a lone K said nothing. */
 :root[data-sidebar="rail"] .side-brand .blob { margin-right: 0; }
 
@@ -1783,7 +1836,8 @@ select {
 }
 .btn:hover:not(:disabled) { background: color-mix(in srgb, var(--line) 70%, transparent); border-color: var(--line-strong); }
 .btn:active:not(:disabled) { transform: scale(0.97); }
-.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* One ring for every button, the chat head's too (it drew the browser's own 1 px one). */
+.btn:focus-visible, .head-act:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .btn:disabled { opacity: 0.45; cursor: default; }
 .btn--primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
 .btn--primary:hover:not(:disabled) { background: var(--accent-lit); border-color: transparent; }
@@ -2079,6 +2133,25 @@ select {
 }
 /* The owner's words in a tinted bubble with its corner toward them; KOS's
    as prose on the page, as the side panel draws them (docs/design.md, Chat). */
+/* The owner's message that never reached KOS: under its bubble, in the
+   danger tone, with Retry. */
+.chat-unsent {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin: 0.3rem 0 0;
+  color: var(--danger);
+  font-size: var(--text-md);
+}
+.chat-unsent-mark { display: grid; place-items: center; flex: none; width: 1.1rem; height: 1.1rem; border-radius: 50%; background: var(--danger-dim); }
+/* Narrow, the words take the line and Edit and Retry go under them, at the right. */
+.chat-unsent { flex-wrap: wrap; }
+.chat-unsent-text { min-width: 0; flex: 0 1 auto; }
+@media (max-width: 640px) {
+  .chat-unsent-text { flex: 1 1 calc(100% - 1.6rem); }
+}
+
 .bubble--you {
   align-self: flex-end;
   background: color-mix(in srgb, var(--accent) 18%, var(--panel-2));
@@ -2158,15 +2231,18 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 .chat-divider::before,
 .chat-divider::after { content: ""; flex: 1; border-top: 1px dashed var(--line-strong); }
 
+/* A note from KOS's side (what was decided, a lapse): small words across
+   the column, left like KOS's own, a long address breaking where it must.
+   Centred monospace, it was a narrow column of broken URLs on a phone. */
 .bubble--system {
-  align-self: center;
+  align-self: flex-start;
   max-width: 100%;
   background: none;
   border: 0;
   padding: 0.15rem 0;
-  color: var(--faint);
-  font-size: var(--text-base);
-  font-family: var(--mono);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 .sheet-composer-bar {
   display: flex;
@@ -2784,9 +2860,13 @@ li:hover .chats-item-when { opacity: 0; }
 .file-dialog-label { display: flex; flex-direction: column; gap: 0.3rem; font-size: var(--text-sm); color: var(--muted); }
 .file-dialog-folders { display: flex; flex-wrap: wrap; gap: 0.35rem; max-height: 10rem; overflow: auto; }
 .file-dialog-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  min-width: 0;
   font: inherit;
   font-size: var(--text-sm);
-  font-family: var(--mono);
   padding: 0.15rem 0.5rem;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -2794,9 +2874,14 @@ li:hover .chats-item-when { opacity: 0; }
   color: var(--muted);
   cursor: pointer;
 }
-.file-dialog-folder:hover { color: var(--text); border-color: var(--line-strong); }
+.file-dialog-folder:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+.file-dialog-folder[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
+.file-dialog-folder:disabled { cursor: default; opacity: 0.7; }
+.file-dialog-folder .project-mark { width: 14px; height: 14px; font-size: 8.5px; border-radius: 4px; flex: none; }
+.file-dialog-folder-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-dialog-folder-here { flex: none; color: var(--muted); font-size: var(--text-xs); }
 
-.file-dialog-actions { display: flex; gap: 0.5rem; align-items: center; }
+.file-dialog-actions { display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end; }
 
 .chats-item-top .status-dot { margin-right: -0.1rem; }
 /* A button that opens the chat KOS is already in for something. */
@@ -2883,6 +2968,30 @@ li:hover .chats-item-when { opacity: 0; }
 .composer-box .hl textarea.hl-area { padding: 0.3rem 0.1rem; border-color: transparent; }
 .composer-box .hl textarea.hl-area:focus { border-color: transparent; }
 .composer-box .sheet-composer-bar { margin-top: 0; gap: 0.3rem; }
+/* One height for every control on the composer's row, from one token: the
+   model, the mode, memory, attach, voice and send were 36, 24, 24, 26 and
+   30 px. The chips are one capsule, the model's too (components.md's
+   `.composer-engine`), and the buttons are circles of the same height. */
+.sheet-composer-bar { --composer-row-h: var(--control-h-sm); }
+.sheet-composer-bar :is(.icon-btn, .send) { width: var(--composer-row-h); height: var(--composer-row-h); }
+.sheet-composer-bar :is(.composer-model .sel-button, .mode-chip, .recall-chip) {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: var(--composer-row-h);
+  min-height: 0;
+  padding-block: 0;
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+/* The mode chip keeps its own colours (lit in Auto); the model and memory take the same quiet fill. */
+.sheet-composer-bar :is(.composer-model .sel-button, .recall-chip) { border: 0; background: var(--panel-2); color: var(--muted); }
+.sheet-composer-bar .composer-engine { box-sizing: border-box; height: var(--composer-row-h); line-height: var(--composer-row-h); padding-block: 0; }
+.sheet-composer-bar .mode-chip button { padding-block: 0; }
+.sheet-composer-bar :is(.composer-model .sel-button:hover:not(:disabled), .recall-chip:hover, .recall-chip.is-open) { color: var(--text); background: var(--line); }
+.sheet-composer-bar .recall-chip { gap: 0.3rem; padding-inline: 0.6rem; }
+.sheet-composer-bar .recall--none { display: inline-flex; align-items: center; gap: 0.3rem; height: var(--composer-row-h); }
 
 .composer.is-over .composer-box { border-color: var(--accent); border-style: dashed; }
 
@@ -2948,13 +3057,16 @@ li:hover .chats-item-when { opacity: 0; }
 .turn-said { position: relative; display: flex; min-width: 0; }
 .turn--you > .turn-said { max-width: 88%; }
 .turn--you > .turn-said > .bubble { max-width: 100%; }
-.turn--system > .turn-said { align-self: center; max-width: 100%; }
+.turn--system > .turn-said { align-self: stretch; max-width: 100%; }
 .turn--system > .turn-said > .bubble { max-width: none; }
 .turn-said > .msg-time { position: absolute; }
 .turn--you > .turn-said > .msg-time { right: 100%; bottom: 0.6rem; margin-right: 0.5rem; }
 .turn--system > .turn-said > .msg-time { left: 100%; bottom: 0.2rem; margin-left: 0.5rem; }
 /* A long note would push its time off the edge: it leaves room for it, and only when it has one. */
 .turn--system > .turn-said:has(> .msg-time) { max-width: calc(100% - 10rem); }
+@media (max-width: 640px) {
+  .turn--system > .turn-said:has(> .msg-time) { max-width: calc(100% - 4.5rem); }
+}
 
 .edit { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; }
 .edit-area {
@@ -4218,9 +4330,11 @@ li:hover .chats-item-when { opacity: 0; }
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 0.75rem;
-  align-items: start;
+  /* Cards in one row share its height, so the row reads as a row. */
+  align-items: stretch;
 }
 .home-cell { min-width: 0; }
+.home-cell > .panel { height: 100%; box-sizing: border-box; }
 .home-cell--quarter { grid-column: span 3; }
 .home-cell--third { grid-column: span 4; }
 .home-cell--half { grid-column: span 6; }
@@ -4262,19 +4376,6 @@ li:hover .chats-item-when { opacity: 0; }
 .home-add-name { font-size: var(--text-md); }
 .home-add-blurb { color: var(--faint); font-size: var(--text-sm); }
 .panel-stat--lead { color: var(--accent); }
-.panel-stat--link {
-  display: block;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-family: var(--mono);
-  font-size: var(--text-xl);
-  cursor: pointer;
-  text-align: left;
-}
-.panel-stat--link:hover { text-decoration: underline; }
 
 /* A head's actions: small, quiet, each with a glyph, the same height as the
    icon buttons beside them. Bare words at the end of a header bar read as
@@ -5044,6 +5145,35 @@ a.health {
 /* One line, so a run's row is a tool's height where the column is narrow (a
    phone): wrapped, the time and its duration made the row half again taller. */
 .hist-when { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-name { display: inline-flex; align-items: center; gap: 0.4rem; min-width: 0; }
+
+/* On a phone a row is two lines, what it was over its kind, state and
+   time, in place of a table wider than the screen whose last columns sat
+   off its edge with nothing to say so. */
+@media (max-width: 40rem) {
+  .list-table.list-table--stack { overflow-x: visible; }
+  .list-table.list-table--stack :is(table, tbody) { display: block; min-width: 0; }
+  .list-table--stack thead { display: none; }
+  .list-table--stack .list-group { display: block; }
+  .list-table--stack .list-group > th { display: block; }
+  .list-table--stack tr.ops-row-click {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "what what what fix" "kind status when fix";
+    align-items: center;
+    column-gap: 0.5rem;
+    row-gap: 0.2rem;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .list-table--stack tr.ops-row-click > td { display: block; padding: 0; border: 0; min-width: 0; }
+  .list-table--stack td[data-col="what"] { grid-area: what; }
+  .list-table--stack td[data-col="kind"] { grid-area: kind; }
+  .list-table--stack td[data-col="status"] { grid-area: status; }
+  .list-table--stack td[data-col="when"] { grid-area: when; }
+  .list-table--stack td[data-col="fix"] { grid-area: fix; }
+  .list-table--stack td[data-col="fix"]:empty { display: none; }
+}
 
 .ops-table--fixed {
   table-layout: fixed;
@@ -5243,6 +5373,10 @@ a.health {
   text-decoration: underline;
 }
 
+/* Memory's mark before the recall chip's counts, at the chip's text size. */
+.recall-glyph { display: inline-flex; flex: none; margin-right: 0.3rem; vertical-align: -0.12em; }
+.recall-glyph svg { width: 12px; height: 12px; }
+
 /* Present for a screen reader, absent for everyone else. */
 .sr-only {
   position: absolute;
@@ -5273,7 +5407,8 @@ a.health {
 .note-close:hover { color: var(--text); }
 
 .rename-form { display: flex; flex-direction: column; gap: 0.75rem; }
-.rename-actions { display: flex; gap: 0.5rem; }
+.rename-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
+.foot-start { margin-right: auto; }
 
 .agent-start { display: flex; flex-direction: column; gap: 0.9rem; }
 .agent-start-actions { display: flex; gap: 0.5rem; }
@@ -5320,8 +5455,12 @@ a.health {
   padding: 1.1rem;
 }
 
+/* A form's actions, in a drawer or a dialog: Cancel then the primary, at
+   the right; a destructive one (Delete, Forget) alone at the far left. */
 .drawer-foot {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.5rem;
   align-items: center;
   padding: 0.8rem 1.1rem;
@@ -5819,7 +5958,7 @@ a.health {
   .phonebar-menu-lines { position: relative; margin: 0 auto; }
   .phonebar-menu-lines::before { position: absolute; top: -6px; }
   .phonebar-menu-lines::after { position: absolute; top: 6px; }
-  .phonebar-search { font-family: var(--mono); }
+  .phonebar-search { width: 2.25rem; height: 2.25rem; border-radius: var(--radius); color: var(--text); }
   .side {
     position: fixed;
     inset: 0 22% 0 0;
@@ -6415,17 +6554,6 @@ a.health {
 /* The same circle idle and busy, its dots in its own ink either way. */
 .quickask-send { margin-bottom: 0.05rem; }
 .quickask-send .live-dots i { background: currentColor; }
-.chats-undo {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin: 0.25rem 0 0.5rem;
-  padding: 0.5rem 0.85rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  font-size: var(--text-sm);
-}
 
 /* Inbox: a suggestion KOS raised, calmer than an approval. */
 .inbox-suggestion { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; }
@@ -6751,6 +6879,10 @@ a.health {
 .preview-body { flex: 1; min-height: 12rem; overflow: auto; display: flex; align-items: flex-start; justify-content: center; }
 .preview-body--image { align-items: center; background: var(--bg); }
 .preview-body .files-image { max-width: 100%; max-height: calc(100vh - 8rem); object-fit: contain; border-radius: 0; }
+.preview-unshown { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; }
+.preview-unshown .hint { margin: 0; }
+/* An SVG may say no size of its own; it is drawn at a size that reads. */
+.preview-body .files-image--svg { width: min(100%, 32rem); height: auto; }
 .preview-hint { margin: 2rem; }
 .preview-attached { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; margin: 3rem auto; color: var(--faint); }
 .preview-attached .hint { margin: 0; }
@@ -6916,7 +7048,7 @@ button.project-stat:focus-visible { outline: 2px solid var(--accent); outline-of
 .agent-kv b { font-size: var(--text-md); color: var(--text); font-weight: 600; }
 .agent-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.2rem; }
 .agent-foot { display: flex; justify-content: space-between; gap: 0.4rem; padding-top: 0.1rem; }
-.unread-dot { display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--ok, #3dd68c); vertical-align: middle; }
+.unread-dot { display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--accent); vertical-align: middle; }
 /* A face beside the three things that may be set about it. */
 .brand .blob { margin-right: 0.4rem; vertical-align: -0.2em; }
 /* The landing's badge was a star in an accent box; a face needs no box. */
@@ -7037,6 +7169,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 
 /* A project's mark at a row's size: on a card, a project's head, the drawer's head. */
 .hero-mark--sm { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+/* A project's mark is its first letter, as the rail and Files draw it, at the tile's size. */
+.hero-mark--letter { font-weight: 700; font-size: var(--text-md); line-height: 1; }
 
 /* The project drawer's head: the mark on its colour, the words, Edit beside Close. */
 .insp-head--hero { align-items: flex-start; background: linear-gradient(180deg, hsl(var(--blob-h, 214) 72% 62% / 0.12), transparent); }
@@ -7719,14 +7853,18 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder-nav { display: flex; align-items: center; gap: 0.1rem; min-width: 0; flex: 1 1 10rem; }
 .finder-title { margin: 0 0 0 0.4rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-lg); font-weight: 600; }
 .finder-tools { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 0.3rem; }
-.finder-sortby .sel-button { height: 1.9rem; min-width: 8rem; padding: 0 0.6rem; font-size: var(--text-base); }
-.finder-title .finder-places .sel-button { height: 1.9rem; padding: 0 0.6rem; font-size: var(--text-lg); font-weight: 600; border-color: transparent; background: none; }
+.finder-sortby .sel-button { min-width: 8rem; padding: 0 0.6rem; font-size: var(--text-base); }
+/* Every control in the bar one small height and the icon buttons square,
+   where the views, the icons, the sort and the search sat at 23 to 30px. */
+:is(.finder-nav, .finder-tools) :is(.chips button, .sel-button, .finder-search) { height: var(--control-h-sm); box-sizing: border-box; }
+:is(.finder-nav, .finder-tools) .chips button { display: inline-flex; align-items: center; }
+:is(.finder-nav, .finder-tools) > .icon-btn { width: var(--control-h-sm); height: var(--control-h-sm); }
+.finder-title .finder-places .sel-button { padding: 0 0.6rem; font-size: var(--text-lg); font-weight: 600; border-color: transparent; background: none; }
 .finder-search {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   width: 12rem;
-  height: 1.9rem;
   padding: 0 0.55rem;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
@@ -7777,6 +7915,8 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 
 .finder-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; outline: none; }
 .finder-main.is-drop { box-shadow: inset 0 0 0 2px var(--accent); }
+.finder-reading { display: flex; flex-direction: column; gap: 0.85rem; padding: 0.9rem 1rem; }
+.finder-tile-skeleton { display: block; aspect-ratio: 1; }
 .finder-empty { margin: 3rem auto; padding: 0 1rem; color: var(--faint); font-size: var(--text-base); text-align: center; }
 
 /* The list. */
@@ -7903,6 +8043,9 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .finder-row.is-selected, .finder-crow.is-selected { background: var(--finder-chosen-idle); }
 .finder-main:focus-within .finder-row.is-selected, .finder-main:focus-within .finder-crow.is-selected { background: var(--finder-chosen); }
 .finder-crow.is-chosen:not(.is-selected) { background: var(--finder-chosen-idle); }
+/* KOS's own files: listed, greyed, never changed. */
+:is(.finder-row, .finder-crow, .finder-tile)[data-reserved] { color: var(--muted); }
+:is(.finder-row, .finder-crow, .finder-tile)[data-reserved] :is(.finder-icon, svg, img) { opacity: 0.55; }
 :is(.finder-row, .finder-crow, .finder-tile).is-drop { background: var(--accent-dim); box-shadow: inset 0 0 0 1.5px var(--accent); }
 
 /* Icons. */
@@ -7987,8 +8130,6 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .finder-menu button:disabled { color: var(--faint); cursor: default; background: none; }
 .finder-menu button:focus-visible { background: var(--panel-2); outline: none; }
 .finder-menu-keys { font: inherit; font-size: var(--text-xs); color: var(--faint); letter-spacing: 0.04em; }
-.finder-toast { top: auto; bottom: 1.25rem; transform: translateX(-50%); padding-right: 0.3rem; }
-.finder-toast .ops-toast-text { white-space: normal; }
 
 /* The trash. */
 .finder-trash { display: flex; flex-direction: column; min-height: 0; }
@@ -8001,7 +8142,7 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
   .finder { --finder-row: 2.6rem; }
   .finder-toolbar { padding: 0.45rem 0.5rem; }
   .finder-tools { flex: 1 1 100%; justify-content: flex-start; }
-  .finder-search { order: 10; flex: 1 1 100%; width: auto; height: 2.1rem; }
+  .finder-search { order: 10; flex: 1 1 100%; width: auto; }
   .finder-list-head { display: none; }
   .finder-row { grid-template-columns: minmax(0, 1fr) auto; margin: 0 0.25rem; border-radius: 0; }
   .finder-row:nth-child(even) { background: none; }
@@ -8087,7 +8228,6 @@ img.ov-shape { object-fit: fill; }
 .secret-row-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .secret-row-detail .kos-mono { flex: none; }
 .secret-row-used { flex: none; color: var(--muted); font-size: var(--text-sm); }
-.secret-empty-act { display: block; margin-top: 0.7rem; }
 .secret-gate-form { display: flex; flex-direction: column; gap: 0.7rem; }
 .secret-gate-form > .hint { margin: 0; max-width: 46rem; line-height: 1.5; }
 .secret-gate-row { display: flex; align-items: flex-end; gap: 0.5rem; flex-wrap: wrap; }
@@ -8127,7 +8267,6 @@ img.ov-shape { object-fit: fill; }
 .secret-revealed-value { display: block; padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); font-family: var(--mono); font-size: var(--text-base); white-space: pre-wrap; word-break: break-all; user-select: all; }
 .secret-revealed-acts { display: flex; align-items: center; gap: 0.5rem; }
 .secret-revealed-acts .secret-line-meta { margin-right: auto; }
-.secret-foot-end { margin-left: auto; }
 
 /* Over the composer: a secret in the draft, and the offer to keep it as one. */
 .secret-offer { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.3rem 0.3rem 0.6rem; border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: var(--r-sm); background: var(--warn-dim); color: var(--warn); font-size: var(--text-sm); }

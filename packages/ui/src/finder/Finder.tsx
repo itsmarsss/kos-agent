@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactElement } from "react";
 
-import { CloseIcon, IconButton, NavIcon } from "@kos/kit";
+import { NavIcon } from "@kos/kit";
 
+import { Toast } from "../Toast.js";
 import { api, type Attachment, type DirEntry, type FileSearch, type Project } from "../api.js";
 import { Drawer } from "../Drawer.js";
 import { ProjectMark } from "../ProjectMark.js";
@@ -294,7 +295,10 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       setEditing(made);
     }
   };
-  const trashChosen = (paths = sel.paths): void => {
+  /** What is chosen, less KOS's own files, which nothing here may change. */
+  const changeable = (paths: string[]): string[] => paths.filter((p) => !byPath.get(p)?.reserved);
+  const trashChosen = (given = sel.paths): void => {
+    const paths = changeable(given);
     if (!paths.length) return;
     setLooking(false);
     void ops.trash(paths).then(() => setSel(EMPTY_SELECTION));
@@ -314,14 +318,18 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
     if (one?.kind === "dir") items.push({ label: "Open", act: () => openEntry(one), keys: "⌘↓" });
     if (one?.kind === "file") items.push({ label: "Quick Look", act: () => openEntry(one), keys: "Space" });
     items.push({ label: "Get Info", act: () => setInfoPath(one ? one.path : paths[0] ?? null), keys: "⌘I", disabled: !one });
-    items.push({ label: "Rename", act: () => one && setEditing(one.path), divided: true, disabled: !one, keys: "↩" });
-    items.push({ label: "Duplicate", act: () => void ops.duplicate(paths), keys: "⌘D" });
-    items.push({ label: "Move to…", act: () => setMoving(paths) });
+    // KOS's own files are looked at, never changed: no rename, duplicate, move or trash.
+    const kept = entries.some((e) => e.reserved);
+    if (!kept) {
+      items.push({ label: "Rename", act: () => one && setEditing(one.path), divided: true, disabled: !one, keys: "↩" });
+      items.push({ label: "Duplicate", act: () => void ops.duplicate(paths), keys: "⌘D" });
+      items.push({ label: "Move to…", act: () => setMoving(paths) });
+    }
     if (filesChosen.length) items.push({ label: filesChosen.length > 1 ? `Download ${filesChosen.length} files` : "Download", act: () => ops.download(filesChosen.map((e) => e.path)) });
     items.push({ label: paths.length > 1 ? "Copy paths" : "Copy path", act: () => ops.copyPath(paths) });
     if (onAsk) items.push({ label: "Ask KOS about this", act: () => onAsk(paths), divided: true });
     if (onOpenInFiles && one) items.push({ label: "Show in Files", act: () => onOpenInFiles(one.path), ...(onAsk ? {} : { divided: true }) });
-    items.push({ label: "Move to Trash", act: () => trashChosen(paths), danger: true, divided: true, keys: "⌘⌫" });
+    if (!kept) items.push({ label: "Move to Trash", act: () => trashChosen(paths), danger: true, divided: true, keys: "⌘⌫" });
     return items;
   };
   const folderItems = (): MenuItem[] => [
@@ -336,7 +344,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
 
   const dropInto = (dir: string): ReturnType<RowHandlers["drop"]> => ({
     onDragOver: (e) => {
-      if (!carriesPaths(e) && !carriesFiles(e)) return;
+      if (byPath.get(dir)?.reserved || (!carriesPaths(e) && !carriesFiles(e))) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = carriesPaths(e) ? "move" : "copy";
@@ -388,9 +396,13 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       void ops.rename(entry.path, name).then((to) => to && setSel(only(to)));
     },
     drag: (entry) => ({
-      draggable: true,
+      draggable: !entry.reserved,
       onDragStart: (e) => {
-        const paths = sel.paths.includes(entry.path) ? sel.paths : [entry.path];
+        const paths = changeable(sel.paths.includes(entry.path) ? sel.paths : [entry.path]);
+        if (!paths.length) {
+          e.preventDefault();
+          return;
+        }
         dragging = crypto.randomUUID();
         e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ token: dragging, paths }));
         e.dataTransfer.setData("text/plain", paths.join("\n"));
@@ -450,7 +462,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       handled();
       return;
     }
-    if (e.key === "Enter" && !meta && leadEntry && !looking) {
+    if (e.key === "Enter" && !meta && leadEntry && !looking && !leadEntry.reserved) {
       handled();
       setEditing(leadEntry.path);
       return;
@@ -482,7 +494,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
     }
     if (meta && e.key.toLowerCase() === "d") {
       handled();
-      void ops.duplicate(sel.paths);
+      const paths = changeable(sel.paths);
+      if (paths.length) void ops.duplicate(paths);
       return;
     }
     if (meta && e.shiftKey && e.key.toLowerCase() === "n") {
@@ -549,10 +562,14 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
   /* Drawing. */
 
   const top = (folders.get(".").entries ?? []).filter((e) => e.kind === "dir").map((e) => e.name);
+  /** The top folders the owner's things may go in: not KOS's own (locks, .kos). */
+  const topFolders = (folders.get(".").entries ?? []).filter((e) => e.kind === "dir" && !e.reserved).map((e) => e.name);
   const loading = place.kind === "folder" && !found && !folders.get(folder).entries && !folders.get(folder).error;
   const folderError = place.kind === "folder" ? folders.get(folder).error : undefined;
   const title = found ? `Searching “${query.trim()}”` : place.kind === "recents" ? "Recents" : place.kind === "trash" ? "Trash" : folder === root ? rootName : nameOf(folder);
-  const empty = found ? (found.entries.length ? "" : `Nothing ${contents ? "holds" : "is named"} “${query.trim()}” here.`) : place.kind === "recents" ? (recents === null ? "Reading…" : "Nothing has changed lately.") : loading ? "Reading…" : folderError ?? "This folder is empty.";
+  const empty = found ? (found.entries.length ? "" : `Nothing ${contents ? "holds" : "is named"} “${query.trim()}” here.`) : place.kind === "recents" ? "Nothing has changed lately." : folderError ?? "This folder is empty.";
+  /** Still reading what to list: rows in its shape stand in for it. */
+  const reading = !found && ((place.kind === "recents" && recents === null) || loading);
   const count = place.kind === "folder" && !found ? (entriesOf(folder)?.length ?? 0) : ordered.length;
   const status = `${sel.paths.length ? `${sel.paths.length} of ` : ""}${count} item${count === 1 ? "" : "s"}${found?.truncated ? ", search stopped early" : ""}`;
   const making = place.kind === "folder";
@@ -561,7 +578,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
 
   const body = (): ReactElement => {
     if (place.kind === "trash") return <TrashView key={trashTick} rootName={rootName} onChanged={() => folders.reload()} onError={setErrorNote} onCount={setTrashCount} />;
-    if (view === "gallery" && !found && place.kind === "folder") return <GalleryView entries={ordered} h={h} empty={empty} />;
+    if (view === "gallery" && !found && place.kind === "folder") return <GalleryView entries={ordered} h={h} empty={empty} reading={reading} />;
     if (view === "columns" && !found && place.kind === "folder") {
       return (
         <ColumnsView
@@ -594,6 +611,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
         onSort={setSort}
         h={h}
         empty={empty}
+        reading={reading}
         {...(place.kind === "folder" && !found
           ? {
               onToggle: (entry: DirEntry) =>
@@ -715,7 +733,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       {menu && <FinderMenu at={menu.at} items={menu.items} label={menu.label} onClose={() => setMenu(null)} />}
       <MoveDialog
         paths={moving}
-        folders={[".", ...top, ...projects.map((p) => `projects/${p.slug}`), ...trail(folder, root, rootName).map((s) => s.path), ...(entriesOf(here) ?? []).filter((e) => e.kind === "dir").map((e) => e.path)].filter((f) => within(f, root))}
+        projects={projects}
+        folders={[".", ...topFolders, ...projects.map((p) => `projects/${p.slug}`), ...trail(folder, root, rootName).map((s) => s.path), ...(entriesOf(here) ?? []).filter((e) => e.kind === "dir").map((e) => e.path)].filter((f) => within(f, root))}
         onClose={() => setMoving(null)}
         onMove={(dir) => {
           const paths = moving ?? [];
@@ -777,22 +796,19 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
           ) : undefined
         }
       />
-      {notice && (
-        <div className={`ops-toast ops-toast--${notice.tone} finder-toast`} role={notice.tone === "err" ? "alert" : "status"}>
-          <span className="ops-toast-text">{notice.text}</span>
-          {"undo" in notice && notice.undo && (
-            <button type="button" className="btn btn--sm btn--ghost" onClick={notice.undo}>
-              Undo
-            </button>
-          )}
-          <IconButton tone="bare" label="Dismiss" onClick={() => {
-            ops.dismiss();
-            setErrorNote(null);
-          }}>
-            <CloseIcon size={12} title="" />
-          </IconButton>
-        </div>
-      )}
+      <Toast
+        note={
+          notice && {
+            kind: notice.tone,
+            text: notice.text,
+            ...("undo" in notice && notice.undo ? { undo: notice.undo } : {}),
+            onDismiss: () => {
+              ops.dismiss();
+              setErrorNote(null);
+            },
+          }
+        }
+      />
     </div>
   );
 }

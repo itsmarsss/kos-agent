@@ -223,7 +223,7 @@ export function QuickAsk({
     <div
       className={`quickask ${closing ? "is-closing" : ""}`}
       role="dialog"
-      aria-label="Quick question"
+      aria-label="Quick ask"
       style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
     >
       <header
@@ -234,7 +234,7 @@ export function QuickAsk({
         onPointerCancel={onDragEnd}
       >
         <div className="quickask-title-wrap">
-          <span className="quickask-title">Quick question</span>
+          <span className="quickask-title">Quick ask</span>
           <span className="quickask-context">
             {attachedTo ? (
               <>

@@ -49,9 +49,24 @@ export function agoWords(ts: number, now = Date.now()): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-/** A file size as people read one. */
-export function sizeWords(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+/**
+ * KOS's own jobs by the names the owner sees: the memory jobs as Memory >
+ * Jobs calls them (Read, Tidy, Condense), the rest in a word. The ids
+ * (kos.memory, kos.dream) are the table's, never the page's.
+ */
+export const SYSTEM_JOBS: Readonly<Record<string, string>> = {
+  "kos.memory": "Read",
+  "kos.dream": "Tidy",
+  "kos.observe": "Condense",
+  "kos.backup": "Backup",
+  "kos.face": "Faces",
+  "kos.improve": "Improve",
+};
+
+/** A job's name as a list writes it: a memory job as "Memory: Read", a blob's as the blob, the owner's as they named it. */
+export function jobTitle(name: string): string {
+  const own = SYSTEM_JOBS[name];
+  if (own) return name === "kos.memory" || name === "kos.dream" || name === "kos.observe" ? `Memory: ${own}` : own;
+  if (name.startsWith("blob.")) return name.slice(5).replace(/[-_]+/g, " ");
+  return name;
 }

@@ -21,6 +21,8 @@ export interface DirEntry {
   kind: "dir" | "file";
   size: number;
   modifiedAt: number;
+  /** One of the workspace's own (RESERVED): listed, but never renamed, moved or trashed. */
+  reserved?: true;
 }
 
 export interface FileContent {
@@ -125,6 +127,7 @@ export function listDirectory(ws: Workspace, requestPath: unknown): DirEntry[] {
         kind: e.isDirectory() ? "dir" : "file",
         size,
         modifiedAt,
+        ...(base === "" && isReservedName(e.name) ? { reserved: true as const } : {}),
       };
     });
 
@@ -286,7 +289,7 @@ export function managedPath(ws: Workspace, requestPath: unknown): { rel: string;
   const abs = ws.resolve(relative(requestPath));
   const rel = pathRelative(ws.root, abs).split(sep).join("/");
   if (rel === "") throw new Error("the workspace itself cannot be moved or removed");
-  if (isReserved(ws.root, rel)) throw new Error(`${rel.split("/")[0]} is the workspace's own; leave it be`);
+  if (isReserved(ws.root, rel)) throw new Error(`KOS keeps its own records in ${rel.split("/")[0]}; it can't be moved or deleted`);
   return { rel, abs };
 }
 

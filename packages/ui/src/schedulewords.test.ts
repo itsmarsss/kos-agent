@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agoWords, inWords, runDays, sizeWords } from "./schedulewords.js";
+import { agoWords, inWords, runDays } from "./schedulewords.js";
 
 describe("schedule words", () => {
   it("reads which weekdays a cron line runs on", () => {
@@ -27,12 +27,5 @@ describe("schedule words", () => {
     expect(agoWords(now - 30_000, now)).toBe("just now");
     expect(agoWords(now - 6 * 3_600_000, now)).toBe("6h ago");
     expect(agoWords(now - 2 * 86_400_000, now)).toBe("2d ago");
-  });
-
-  it("writes a size as people read one", () => {
-    expect(sizeWords(61)).toBe("61 B");
-    expect(sizeWords(2300)).toBe("2.2 KB");
-    expect(sizeWords(140_000)).toBe("137 KB");
-    expect(sizeWords(3 * 1024 * 1024)).toBe("3.0 MB");
   });
 });

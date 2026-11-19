@@ -107,7 +107,7 @@ describe("the approval card", () => {
 
   it("offers no remembered yes where the ask cannot be remembered", () => {
     render(<AskCard view={{ title: "Run: ls" }} tool="shell.run" onDecide={vi.fn()} />);
-    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Approve", "Deny"]);
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Deny", "Approve"]);
   });
 
   it("approves on Enter only when the focus came by the keyboard, and once", () => {
@@ -275,7 +275,7 @@ describe("the approval card's sheet", () => {
 
   it("stands the buttons one to a row, full width, on a narrow card", () => {
     const narrow = /@container \(max-width: 420px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
-    expect(narrow).toMatch(/\.kos-ask-actions \{ flex-direction: column; \}/);
+    expect(narrow).toMatch(/\.kos-ask-actions \{ flex-direction: column-reverse; \}/);
     expect(narrow).toMatch(/\.kos-ask-actions \.btn \{ width: 100%;/);
     expect(/\.kos-ask \{[^}]*container-type: inline-size/.test(css)).toBe(true);
   });
@@ -323,5 +323,22 @@ describe("an ask that places a secret", () => {
     settle();
     fireEvent.click(screen.getByRole("button", { name: "Approve, and always on github.com" }));
     expect(onDecide).toHaveBeenCalledWith(true, true);
+  });
+});
+
+describe("the focus after a decision", () => {
+  it("goes on to the next ask's Approve, or to what the surface marked, never to the page", async () => {
+    const box = document.createElement("textarea");
+    box.setAttribute("data-after-ask", "");
+    document.body.append(box);
+    const { unmount } = render(<AskCard view={{ title: "Run: ls" }} tool="shell.run" onDecide={vi.fn()} />);
+    settle();
+    const deny = screen.getByRole("button", { name: "Deny" });
+    deny.focus();
+    fireEvent.click(deny);
+    unmount();
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    expect(document.activeElement).toBe(box);
+    box.remove();
   });
 });

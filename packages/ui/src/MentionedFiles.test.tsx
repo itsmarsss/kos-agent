@@ -41,7 +41,7 @@ describe("files mentioned in a message", () => {
     });
     render(<MentionedFiles text="Wrote @file:projects/a/plan.md, see @file:projects/a/notes and @file:projects/a/gone.txt" />);
     expect(await screen.findByText("plan.md")).toBeTruthy();
-    expect(screen.getByText("2.0 KB · markdown")).toBeTruthy();
+    expect(screen.getByText("2 KB · markdown")).toBeTruthy();
     expect(screen.getByText("folder · 1 item")).toBeTruthy();
     expect(screen.getByText("not found")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download plan.md" })).toBeTruthy();

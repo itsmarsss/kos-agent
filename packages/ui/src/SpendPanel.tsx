@@ -448,18 +448,18 @@ export function SpendPanel(): ReactElement {
           <>
             <button
               type="button"
+              className="btn"
+              onClick={() => setEditing(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
               className="btn btn--primary"
               disabled={saving}
               onClick={save}
             >
               {saving ? "Saving…" : "Save rates"}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => setEditing(false)}
-            >
-              Cancel
             </button>
           </>
         }

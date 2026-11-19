@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clockWords, dayNumber, dayWords, GAP_MS, markWords, timeMarks } from "./chattime.js";
+import { clockWords, dayNumber, dayWords, GAP_MS, markWords, momentWords, readerTime, timeMarks } from "./chattime.js";
 
 const at = (iso: string): number => Date.parse(iso);
 const NY = "America/New_York";
@@ -77,5 +77,25 @@ describe("what the lines say", () => {
     expect(clockWords(t, "en-GB", NY)).toBe("21:41");
     expect(markWords({ kind: "gap", at: t }, now, "en-GB", NY)).toBe("21:41");
     expect(markWords({ kind: "day", at: t }, now, "en-GB", NY)).toBe("Today");
+  });
+
+  it("writes a moment as a list does: the time today, the day near it, the date past that", () => {
+    const at9 = (iso: string): number => at(`${iso}T09:05:00-05:00`);
+    expect(momentWords(at9("2026-11-18"), now, "en-US", NY)).toMatch(/^9:05\sAM$/);
+    expect(momentWords(at9("2026-11-19"), now, "en-US", NY)).toMatch(/^Tomorrow 9:05\sAM$/);
+    expect(momentWords(at9("2026-11-17"), now, "en-US", NY)).toMatch(/^Yesterday 9:05\sAM$/);
+    expect(momentWords(at9("2026-11-21"), now, "en-US", NY)).toMatch(/^Sat 9:05\sAM$/);
+    expect(momentWords(at9("2026-12-24"), now, "en-US", NY)).toMatch(/^Dec 24, 9:05\sAM$/);
+    expect(momentWords(at9("2027-03-12"), now, "en-US", NY)).toMatch(/^Mar 12, 2027, 9:05\sAM$/);
+    expect(momentWords(at9("2026-11-19"), now, "en-GB", NY)).toBe("Tomorrow 09:05");
+  });
+
+  it("draws a time token for a reader: the clock alone, the moment, the date in their words", () => {
+    const t = at("2026-11-18T21:41:00-05:00") / 1000;
+    expect(readerTime(t, "t", now, "en-GB", NY)).toBe("21:41");
+    expect(readerTime(t, "f", now, "en-GB", NY)).toBe("21:41");
+    expect(readerTime(t + 2 * 86_400, "f", now, "en-US", NY)).toMatch(/^Fri 9:41\sPM$/);
+    expect(readerTime(t, "D", now, "en-US", NY)).toBe("November 18, 2026");
+    expect(readerTime(t, "R", now, "en-US", NY)).toBe("in 7 hours");
   });
 });

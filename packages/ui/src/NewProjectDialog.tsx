@@ -65,11 +65,11 @@ export function NewProjectDialog({ open, onClose, onCreate }: NewProjectDialogPr
         </Field>
         {error && <p className="ops-alert ops-alert--err">{error}</p>}
         <div className="rename-actions">
-          <button type="submit" className="btn btn--primary" disabled={creating || !draft.name.trim()}>
-            {creating ? "Creating…" : "Create"}
-          </button>
           <button type="button" className="btn" onClick={onClose}>
             Cancel
+          </button>
+          <button type="submit" className="btn btn--primary" disabled={creating || !draft.name.trim()}>
+            {creating ? "Creating…" : "Create"}
           </button>
         </div>
       </form>

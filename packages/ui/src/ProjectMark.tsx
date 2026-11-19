@@ -19,16 +19,20 @@ export function markStyle(slug: string, colour: string | null | undefined): CSSP
   return { "--blob-h": lookOf(slug).hue } as CSSProperties;
 }
 
+/** The letter a project's tile carries: its name's first, as the rail, Files and its cards draw it. */
+export function markLetter(name: string): string {
+  return [...name.trim()][0]?.toUpperCase() ?? "?";
+}
+
 /**
  * A project as a small tile with its first letter, for a row in a list:
  * the colour tells projects apart at a glance where a word in a pill
  * beside each name only made the list busier.
  */
 export function ProjectMark({ slug, name, colour }: { slug: string; name: string; colour?: string | null }): ReactElement {
-  const letter = [...name.trim()][0]?.toUpperCase() ?? "?";
   return (
     <span className="project-mark" aria-hidden="true" style={markStyle(slug, colour)}>
-      {letter}
+      {markLetter(name)}
     </span>
   );
 }

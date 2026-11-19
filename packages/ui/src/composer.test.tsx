@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@t
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useAttachments } from "./Attachments.js";
-import { backInComposer, detectSecret, luhn, withoutSecret } from "./composer.js";
+import { backInComposer, detectSecret, luhn, unsentHome, withoutSecret } from "./composer.js";
 import { SecretOffer } from "./SecretOffer.js";
 
 describe("a send that failed", () => {
@@ -108,5 +108,15 @@ describe("a secret in a draft", () => {
     render(<SecretOffer draft="ghp_abcdefghijklmnopqrstuvwxyz0123" onDraft={() => undefined} />);
     fireEvent.click(await screen.findByLabelText("Send it as it is"));
     expect(screen.queryByText(/This looks like/)).toBeNull();
+  });
+});
+
+describe("a message that did not reach KOS", () => {
+  it("is kept in one place only, so Send and Retry cannot both send it", () => {
+    expect(unsentHome({ reached: false, command: false, midTurn: false })).toBe("bubble");
+    expect(unsentHome({ reached: false, command: true, midTurn: false })).toBe("composer");
+    expect(unsentHome({ reached: false, command: false, midTurn: true })).toBe("composer");
+    // Queued by the server all the same: it shows as its row, and is nowhere else.
+    expect(unsentHome({ reached: true, command: false, midTurn: false })).toBe("none");
   });
 });

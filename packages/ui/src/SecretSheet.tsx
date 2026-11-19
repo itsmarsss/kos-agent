@@ -78,14 +78,8 @@ export function SecretSheet({
       footer={
         readOnly ? undefined : (
           <>
-            <button type="submit" form={FORM_ID} className="btn btn--primary">
-              {editing ? "Save" : "Add secret"}
-            </button>
-            <button type="button" className="btn" onClick={onClose}>
-              Cancel
-            </button>
             {editing && onDeleted && (
-              <span className="secret-foot-end">
+              <span className="foot-start">
                 <ConfirmButton
                   label="Delete"
                   className="btn btn--danger"
@@ -99,6 +93,12 @@ export function SecretSheet({
                 />
               </span>
             )}
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" form={FORM_ID} className="btn btn--primary">
+              {editing ? "Save" : "Add secret"}
+            </button>
             {deleteError && (
               <span className="field-error" role="alert">
                 {deleteError}
@@ -502,7 +502,7 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
             >
               {copy === "copied" ? "Copied" : "Copy"}
             </button>
-            <button type="button" className="btn btn--sm btn--ghost" onClick={clear}>
+            <button type="button" className="btn btn--sm" onClick={clear}>
               Hide
             </button>
           </div>

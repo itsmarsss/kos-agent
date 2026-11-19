@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
 import { Workspace } from "../store/workspace.js";
-import { historySize, SessionStore } from "./session.js";
+import { historySize, PICTURE_CHARS, picturesIn, SessionStore } from "./session.js";
 
 /** One full exchange: owner turn, a tool round-trip, then the final reply. */
 function toolExchange(userText: string, toolName: string): ModelMessage[] {
@@ -232,6 +232,18 @@ describe("when each message was written", () => {
     const plain = [said("hi"), said("hello", "assistant")];
     expect(historySize(plain.map((m, i) => ({ ...m, at: 1_795_000_000_000 + i })))).toBe(historySize(plain));
     expect(historySize(plain)).toBe(JSON.stringify(plain).length);
+  });
+
+  it("counts a picture at its allowance, not its bytes, wherever it came from", () => {
+    const photo = "A".repeat(216_000);
+    const withPhoto: ModelMessage[] = [
+      { role: "user", content: [{ type: "text", text: "what is this" }, { type: "image", mediaType: "image/jpeg", data: photo }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "t", content: "shot", images: [{ mediaType: "image/png", data: photo }] }] },
+    ];
+    expect(picturesIn(withPhoto)).toBe(2);
+    const size = historySize(withPhoto);
+    expect(size).toBeLessThan(2 * PICTURE_CHARS + 1_000);
+    expect(size).toBeGreaterThan(2 * PICTURE_CHARS);
   });
 
   it("stamps a summary put in a compacted chat's place", () => {

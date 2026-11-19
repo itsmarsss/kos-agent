@@ -1,11 +1,12 @@
 import type { ReactElement } from "react";
 
-import { ChevronRight } from "@kos/kit";
+import { ChevronRight, Skeleton } from "@kos/kit";
+import { bytesWords } from "@kos/shared";
 
 import type { DirEntry } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { LIST_COLUMNS, LIST_WIDTHS_KEY, useColumns } from "./columns.js";
-import { dateWords, kindOf, parentOf, sizeWords, type Sort, type SortKey } from "./model.js";
+import { dateWords, kindOf, parentOf, type Sort, type SortKey } from "./model.js";
 import { EntryName, rowProps, type RowHandlers } from "./rows.js";
 
 /**
@@ -32,7 +33,10 @@ const COLUMNS: { key: SortKey; label: string }[] = [
   { key: "kind", label: "Kind" },
 ];
 
-export function ListView({ rows, sort, onSort, onToggle, h, empty, widthsKey = LIST_WIDTHS_KEY }: { rows: ListRow[]; sort: Sort; onSort: (sort: Sort) => void; onToggle?: (entry: DirEntry) => void; h: RowHandlers; empty: string; /** Where the columns' widths are kept: one place a Finder is drawn's apart from another's. */ widthsKey?: string }): ReactElement {
+/** The rows drawn while a folder is read: a few names of a few lengths, as a folder has. */
+const READING_WIDTHS = ["42%", "30%", "55%", "36%", "48%", "26%"];
+
+export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = false, widthsKey = LIST_WIDTHS_KEY }: { rows: ListRow[]; sort: Sort; onSort: (sort: Sort) => void; onToggle?: (entry: DirEntry) => void; h: RowHandlers; empty: string; /** The folder is still being read: rows in its shape, not words. */ reading?: boolean; /** Where the columns' widths are kept: one place a Finder is drawn's apart from another's. */ widthsKey?: string }): ReactElement {
   const cols = useColumns(widthsKey, LIST_COLUMNS);
   return (
     <div className="finder-list" role="grid" aria-multiselectable="true" aria-label="Files" aria-rowcount={rows.length} style={cols.style}>
@@ -47,7 +51,16 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, widthsKey = L
           </div>
         ))}
       </div>
-      {rows.length === 0 && <p className="finder-empty">{empty}</p>}
+      {rows.length === 0 &&
+        (reading ? (
+          <div className="finder-reading" aria-busy="true" aria-label="Reading the folder">
+            {READING_WIDTHS.map((w, i) => (
+              <Skeleton key={i} width={w} height={12} />
+            ))}
+          </div>
+        ) : (
+          <p className="finder-empty">{empty}</p>
+        ))}
       {rows.map(({ entry, depth, open, where, match }) => (
         <div
           key={entry.path}
@@ -84,7 +97,7 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, widthsKey = L
             {dateWords(entry.modifiedAt)}
           </span>
           <span role="gridcell" className="finder-col finder-col--size" data-col="size">
-            {entry.kind === "file" ? sizeWords(entry.size) : "--"}
+            {entry.kind === "file" ? bytesWords(entry.size) : "--"}
           </span>
           <span role="gridcell" className="finder-col finder-col--kind" data-col="kind">
             {kindOf(entry)}

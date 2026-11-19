@@ -1,3 +1,5 @@
+import { clockWords } from "@kos/shared";
+
 /**
  * A schedule as a shape rather than five fields.
  *
@@ -133,6 +135,13 @@ export function recast(from: ScheduleShape, kind: ScheduleKind): ScheduleShape {
   }
 }
 
+/** A picker's "08:00" on the reader's own clock: "8:00 AM", or "08:00" where the day has 24 hours. */
+function spoken(time: string, locale?: string): string {
+  const m = TIME.exec(time);
+  if (!m) return time;
+  return clockWords(Date.UTC(2000, 0, 1, Number(m[1]), Number(m[2])), locale, "UTC");
+}
+
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -143,15 +152,16 @@ const SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * weekday. Anything else is left to the expression itself rather than
  * guessed at, because a confident wrong reading is worse than none.
  */
-export function describeCron(expr: string): string | null {
+export function describeCron(expr: string, locale?: string): string | null {
   const shape = shapeOf(expr);
+  const at = "time" in shape ? spoken(shape.time, locale) : "";
   switch (shape.kind) {
     case "daily":
-      return `Every day at ${shape.time}`;
+      return `Every day at ${at}`;
     case "weekdays":
-      return `Weekdays at ${shape.time}`;
+      return `Weekdays at ${at}`;
     case "weekly":
-      return shape.days.length === 1 ? `Every ${DAYS[shape.days[0]!]} at ${shape.time}` : `${shape.days.map((d) => SHORT[d]).join(", ")} at ${shape.time}`;
+      return shape.days.length === 1 ? `Every ${DAYS[shape.days[0]!]} at ${at}` : `${shape.days.map((d) => SHORT[d]).join(", ")} at ${at}`;
     case "hourly": {
       const each = shape.every === 1 ? "Every hour" : `Every ${shape.every} hours`;
       return shape.minute === 0 ? `${each}, on the hour` : `${each}, at ${String(shape.minute).padStart(2, "0")} past the hour`;
@@ -159,7 +169,7 @@ export function describeCron(expr: string): string | null {
     case "minutes":
       return shape.every === 1 ? "Every minute" : `Every ${shape.every} minutes`;
     case "monthly":
-      return `On day ${shape.day} of each month at ${shape.time}`;
+      return `On day ${shape.day} of each month at ${at}`;
     case "custom": {
       // The one shape the picker does not write but people do: every minute.
       const parts = expr.trim().split(/\s+/);

@@ -65,3 +65,32 @@ describe("a tool call's card", () => {
     }
   });
 });
+
+describe("what a finished call says of itself", () => {
+  const fetch = { kind: "tool" as const, name: "http.fetch", summary: "Fetch https://example.com", args: { url: "https://example.com" } };
+  const stateOf = (event: Parameters<typeof ToolCall>[0]["event"]): string | null | undefined => {
+    const { container } = render(<ToolCall event={event} />);
+    const text = container.querySelector(".toolcall-state")?.textContent;
+    cleanup();
+    return text;
+  };
+
+  it("reads a call the owner denied in the turn as denied, never ok", () => {
+    expect(stateOf({ ...fetch, result: "The owner denied this: Fetch https://example.com. It was not done." })).toBe("denied");
+    expect(stateOf({ ...fetch, result: "No answer in time; it was not done: Fetch https://example.com." })).toBe("lapsed");
+  });
+
+  it("reads a queued call by the decision on it, and as held while there is none", () => {
+    const queued = { ...fetch, result: "queued for approval (pending #2); not executed.", pendingId: "2" };
+    expect(stateOf({ ...queued, outcome: "denied" })).toBe("denied");
+    expect(stateOf({ ...queued, outcome: "lapsed" })).toBe("lapsed");
+    expect(stateOf({ ...queued, outcome: "approved" })).toBe("approved");
+    expect(stateOf(queued)).toBe("held");
+  });
+
+  it("reads a call that ran unasked as ok, and one that broke as failed", () => {
+    expect(stateOf({ ...fetch, result: "200" })).toBe("ok");
+    expect(stateOf({ ...fetch, result: "boom", isError: true })).toBe("failed");
+    expect(stateOf({ ...fetch, result: "The owner approved this; it ran and failed:\nboom", isError: true })).toBe("failed");
+  });
+});

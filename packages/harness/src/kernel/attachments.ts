@@ -145,7 +145,7 @@ async function asPicture(file: Attachment, bytes: Buffer): Promise<Attachment> {
   }
 }
 
-/** A document as the text it reads as, or, past what is read in whole, a note of where it was kept. */
+/** A document as the text it reads as; past what is read in whole, a note of where it was kept; one that does not read, a note saying so. */
 async function asDocument(file: Attachment, bytes: Buffer): Promise<Attachment> {
   const pdf = isPdfFile(file.mediaType, file.name);
   if (bytes.byteLength > DOCUMENT_MAX_BYTES) {
@@ -156,14 +156,20 @@ async function asDocument(file: Attachment, bytes: Buffer): Promise<Attachment> 
   }
   let note: string;
   let text: string;
-  if (pdf) {
-    const read = await pdfText(new Uint8Array(bytes));
-    note = `${read.pages} page${read.pages === 1 ? "" : "s"}${read.next !== undefined ? `, cut short at page ${read.to}${file.path ? `; read on in ${file.path} with files.read from page ${read.next}` : ""}` : ""}`;
-    text = read.text;
-  } else {
-    const read = officeText(new Uint8Array(bytes), file.name, file.mediaType);
-    note = officeNote(read);
-    text = read.text;
+  try {
+    if (pdf) {
+      const read = await pdfText(new Uint8Array(bytes));
+      note = `${read.pages} page${read.pages === 1 ? "" : "s"}${read.next !== undefined ? `, cut short at page ${read.to}${file.path ? `; read on in ${file.path} with files.read from page ${read.next}` : ""}` : ""}`;
+      text = read.text;
+    } else {
+      const read = officeText(new Uint8Array(bytes), file.name, file.mediaType);
+      note = officeNote(read);
+      text = read.text;
+    }
+  } catch (err) {
+    // One file that does not read (a .pdf that is not one) is named, not the end of the words and the rest.
+    const why = err instanceof Error ? err.message : String(err);
+    return asText(file, `[${file.name}: ${file.path ? `kept at ${file.path}, but ` : ""}could not be read: ${why}. Tell the owner this file did not come through.]`);
   }
   return asText(file, `[${file.name}: ${note}]\n${text}`);
 }

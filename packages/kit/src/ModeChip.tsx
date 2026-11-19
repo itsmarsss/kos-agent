@@ -111,12 +111,15 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
               </span>
               <Switch label={AUTO_SESSIONS.label} on={live.sessions === true} disabled={live.mode !== "auto"} onChange={(on) => set(withSessions(live, on))} />
             </label>
-            <div className="mode-menu-head label">Auto never covers</div>
-            <ul className="mode-menu-never">
-              {AUTO_NEVER.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
+            {/* Folded: a dozen lines open made the menu nearly the window's height, over the thread. */}
+            <details className="mode-menu-fold">
+              <summary className="mode-menu-head mode-menu-fold-head">What Auto never does</summary>
+              <ul className="mode-menu-never">
+                {AUTO_NEVER.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </details>
           </div>,
           document.body,
         )}

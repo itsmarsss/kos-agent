@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { Card, Face, lookOf, moodOf, Pill, Tag, type Tone } from "@kos/kit";
+import { momentWords } from "@kos/shared";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo } from "./api.js";
@@ -35,9 +36,6 @@ export interface AgentPanelProps {
 
 const POLL_MS = 5000;
 
-function when(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 
 /** How each state reads as a pill. */
 const HERO_TONE = { working: "accent", "needs-you": "warn", error: "danger", asleep: "muted", idle: "ok" } as const satisfies Record<string, Tone>;
@@ -161,12 +159,12 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
               <li>
                 <span>Next run</span>
                 <b>{agent.job.nextRunAt ? inWords(agent.job.nextRunAt) : paused ? "when resumed" : "on its schedule"}</b>
-                {agent.job.nextRunAt && <span>{when(agent.job.nextRunAt)}</span>}
+                {agent.job.nextRunAt && <span>{momentWords(agent.job.nextRunAt)}</span>}
               </li>
               <li>
                 <span>Last run</span>
                 <b>{agent.job.lastRunAt ? agoWords(agent.job.lastRunAt) : "not yet"}</b>
-                {agent.job.lastRunAt && <span>{when(agent.job.lastRunAt)}</span>}
+                {agent.job.lastRunAt && <span>{momentWords(agent.job.lastRunAt)}</span>}
               </li>
             </ul>
             <div className="agent-acts">

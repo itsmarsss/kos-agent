@@ -94,11 +94,11 @@ export function HandoffForm({
       </Field>
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
       <div className="rename-actions">
-        <button type="submit" className="btn btn--primary" disabled={busy || drafting || !to || !brief.trim()}>
-          {busy ? "Handing off…" : "Hand off"}
-        </button>
         <button type="button" className="btn btn--ghost" onClick={onClose}>
           Cancel
+        </button>
+        <button type="submit" className="btn btn--primary" disabled={busy || drafting || !to || !brief.trim()}>
+          {busy ? "Handing off…" : "Hand off"}
         </button>
       </div>
     </form>

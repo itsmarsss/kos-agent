@@ -230,7 +230,7 @@ export function BuildsPage({
   return (
     <div className="builds">
       <PageHead
-        title="Builds"
+        title="Runs"
         tabs={<RunsTabs current="builds" />}
         subtitle="Coding work running inside the workspace. Each is confined to its own folder, and every shell command comes back to you."
         actions={

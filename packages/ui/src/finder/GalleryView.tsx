@@ -1,16 +1,28 @@
 import type { ReactElement } from "react";
 
+import { Skeleton } from "@kos/kit";
+import { bytesWords } from "@kos/shared";
+
 import type { DirEntry } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { Thumb } from "../FileThumb.js";
-import { kindOf, sizeWords } from "./model.js";
+import { kindOf } from "./model.js";
 import { EntryName, rowProps, type RowHandlers } from "./rows.js";
 
 /**
  * Icons: each thing as its picture where it has one (a photo, a PDF's first
  * page, a deck's first slide), else its kind's mark, its name under it.
  */
-export function GalleryView({ entries, h, empty }: { entries: DirEntry[]; h: RowHandlers; empty: string }): ReactElement {
+export function GalleryView({ entries, h, empty, reading = false }: { entries: DirEntry[]; h: RowHandlers; empty: string; /** Still being read: tiles in its shape. */ reading?: boolean }): ReactElement {
+  if (entries.length === 0 && reading) {
+    return (
+      <div className="finder-gallery" aria-busy="true" aria-label="Reading the folder">
+        {Array.from({ length: 8 }, (_, i) => (
+          <Skeleton key={i} className="finder-tile-skeleton" radius="var(--r-md)" />
+        ))}
+      </div>
+    );
+  }
   if (entries.length === 0) return <p className="finder-empty">{empty}</p>;
   return (
     <div className="finder-gallery" role="grid" aria-multiselectable="true" aria-label="Files">
@@ -19,7 +31,7 @@ export function GalleryView({ entries, h, empty }: { entries: DirEntry[]; h: Row
           key={entry.path}
           role="gridcell"
           className={`finder-tile${h.selected.has(entry.path) ? " is-selected" : ""}${h.lead === entry.path ? " is-lead" : ""}${h.over === entry.path ? " is-drop" : ""}`}
-          title={`${entry.name}\n${kindOf(entry)}${entry.kind === "file" ? `, ${sizeWords(entry.size)}` : ""}`}
+          title={`${entry.name}\n${kindOf(entry)}${entry.kind === "file" ? `, ${bytesWords(entry.size)}` : ""}`}
           {...rowProps(entry, h)}
           {...h.drag(entry)}
           {...(entry.kind === "dir" ? h.drop(entry.path) : {})}

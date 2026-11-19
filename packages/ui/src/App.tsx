@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, AlertIcon, CheckIcon, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, overlayScroll, spring, StatusDot } from "@kos/kit";
+import { AgentFaces, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, overlayScroll, StatusDot } from "@kos/kit";
+import { clockWords, momentWords, timeCard } from "@kos/shared";
 
 import {
   type FailingJob,
@@ -52,23 +53,20 @@ import { WidgetPage } from "./WidgetPage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { Refreshes } from "./refreshes.js";
-import { agoWords } from "./schedulewords.js";
+import { HostBanner } from "./HostBanner.js";
+import { Toast } from "./Toast.js";
+import { useReach } from "./reach.js";
+import { agoWords, jobTitle } from "./schedulewords.js";
 
-type Toast = { kind: "ok" | "err"; text: string } | null;
+type Toast = { kind: "ok" | "warn" | "err"; text: string } | null;
 
-/** "in 25m", "in 3h", "tomorrow 9:00am": when a job fires next, at a glance. */
+/** "in 25m", "in 3h, 9:00 AM", "Tomorrow 9:00 AM": when a job fires next, at a glance, on the reader's clock. */
 function whenNext(at: number): string {
   const diff = at - Date.now();
-  const d = new Date(at);
-  const hm = `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}${d.getHours() < 12 ? "am" : "pm"}`;
   if (diff < 60_000) return "any moment";
   if (diff < 3_600_000) return `in ${Math.round(diff / 60_000)}m`;
-  if (diff < 12 * 3_600_000) return `in ${Math.round(diff / 3_600_000)}h, ${hm}`;
-  if (d.toDateString() === new Date().toDateString()) return `today ${hm}`;
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (d.toDateString() === tomorrow.toDateString()) return `tomorrow ${hm}`;
-  return `${d.toLocaleDateString(undefined, { weekday: "short" })} ${hm}`;
+  if (diff < 12 * 3_600_000) return `in ${Math.round(diff / 3_600_000)}h, ${clockWords(at)}`;
+  return momentWords(at);
 }
 
 export function App(): React.ReactElement {
@@ -76,6 +74,8 @@ export function App(): React.ReactElement {
     parseRoute(window.location.hash),
   );
   const [status, setStatus] = useState<Status | null>(null);
+  // Whether KOS is answering this tab, and whether the page is from an earlier boot.
+  const reach = useReach();
   /** Where the owner's theme choices here stood when the status shown was asked for. */
   const statusStamp = useRef(0);
   // The page's own scrolling, the main column's on most pages, under the overlay thumb the chats and settings panes have.
@@ -221,7 +221,7 @@ export function App(): React.ReactElement {
     link.href = faceDataUrl(kosLook, mood);
   }, [kosLook, status?.pendingApprovals, status?.halted]);
 
-  const flash = (kind: "ok" | "err", text: string): void => {
+  const flash = (kind: "ok" | "warn" | "err", text: string): void => {
     setToast({ kind, text });
     window.setTimeout(() => setToast(null), 3200);
   };
@@ -396,6 +396,12 @@ export function App(): React.ReactElement {
       // held for another decision still waiting.
       // Asked to remember one that keeps nothing: said, and never called remembered.
       const kept = remember && !("remembered" in res && res.remembered === false);
+      // The decision stood, and the chat that asked could not carry on from it: said in the warn tone, apart.
+      if (res.resumed === false) {
+        flash("warn", `${approved ? "Approved" : "Denied"} #${id}. The chat could not carry on: ${res.resumeError ?? "it stopped"}`);
+        await refresh();
+        return;
+      }
       flash("ok", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
       await refresh();
     } catch (err) {
@@ -682,6 +688,7 @@ export function App(): React.ReactElement {
       <Sidebar
         route={route}
         status={status}
+        down={reach.down}
         inboxCount={inbox ? inbox.approvals.length + inbox.decisions.length + inbox.failures.length + inbox.suggestions.length : approvals.length}
         busy={busy}
         onSearch={() => setPaletteOpen(true)}
@@ -703,28 +710,8 @@ export function App(): React.ReactElement {
         onToggleKill={() => void toggleKill()}
       />
       <main className="ops">
-        <AnimatePresence>
-          {toast && (
-            <m.div
-              key={toast.text}
-              className={`ops-toast ops-toast--${toast.kind}`}
-              role="status"
-              initial={{ opacity: 0, y: -10, x: "-50%", scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
-              exit={{ opacity: 0, y: -6, x: "-50%", scale: 0.98 }}
-              transition={spring}
-            >
-              <span className="ops-toast-icon" aria-hidden="true">
-                {toast.kind === "ok" ? (
-                  <CheckIcon size={12} title="" />
-                ) : (
-                  <AlertIcon size={12} />
-                )}
-              </span>
-              <span className="ops-toast-text">{toast.text}</span>
-            </m.div>
-          )}
-        </AnimatePresence>
+        <HostBanner reach={reach} />
+        <Toast note={toast} />
         {/* Wrapped so it unmounts: the panel returned null when closed, which
             skips the exit animation entirely and makes a drawer vanish rather
             than close. */}
@@ -1141,6 +1128,8 @@ export function App(): React.ReactElement {
         tools={activity}
         runs={runs}
         crons={crons}
+        conversations={conversations}
+        projects={projects}
         onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
         onOpenRun={(r) => setInspect({ kind: "run", data: r })}
         onFix={(row) => void startFix(row)}
@@ -1174,7 +1163,7 @@ export function App(): React.ReactElement {
       .sort((a, b) => rank(a).localeCompare(rank(b)));
     return shell(
       <ListPage
-        title="Schedule"
+        title="Runs"
         tabs={<RunsTabs current="crons" />}
         subtitle="Jobs KOS runs on its own. Click a row to edit it."
         rows={rows}
@@ -1208,10 +1197,11 @@ export function App(): React.ReactElement {
           {
             key: "name",
             header: "Job",
-            searchText: (c) => `${c.name} ${c.schedule} ${c.type}`,
+            searchText: (c) => `${jobTitle(c.name)} ${c.name} ${c.schedule} ${c.type}`,
             render: (c) => (
               <span className="sched-name">
-                <span className="sched-title">{c.name}</span>
+                {/* KOS's own jobs by the names the owner knows them by; the id is in the title. */}
+                <span className="sched-title" title={c.name}>{jobTitle(c.name)}</span>
                 <span className="sched-sub">
                   <span>{describeCron(c.schedule) ?? "custom"}</span>
                   <code title="cron expression">{c.schedule}</code>
@@ -1242,7 +1232,7 @@ export function App(): React.ReactElement {
             searchText: () => "",
             render: (c) =>
               c.enabled && c.nextRunAt ? (
-                <span className={`sched-when${c.nextRunAt - Date.now() < 3_600_000 ? " sched-when--soon" : ""}`} title={new Date(c.nextRunAt).toLocaleString()}>
+                <span className={`sched-when${c.nextRunAt - Date.now() < 3_600_000 ? " sched-when--soon" : ""}`} title={timeCard(c.nextRunAt / 1000).join(" ")}>
                   {whenNext(c.nextRunAt)}
                 </span>
               ) : (

@@ -3,10 +3,11 @@ import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
 import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, IconButton, Markdown, spring } from "@kos/kit";
+import { bytesWords } from "@kos/shared";
 
 import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
-import { ImageView } from "./FileThumb.js";
+import { ImageView, isSvgPath, svgDataUrl } from "./FileThumb.js";
 import { highlights, tokenize } from "./highlight.js";
 import { isOfficePath, OfficeBody } from "./OfficeView.js";
 import { hrefFor } from "./routes.js";
@@ -24,12 +25,6 @@ import { agoWords } from "./schedulewords.js";
 
 /** How often the open file is re-read, so an agent's rewrite shows. */
 const POLL_MS = 5000;
-
-export function bytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 /** A PDF, by name: shown as itself in the browser's own viewer. */
 export function isPdfPath(path: string): boolean {
@@ -76,8 +71,34 @@ function Player({ kind, path }: { kind: "audio" | "video"; path: string }): Reac
   );
 }
 
-/** The file's contents, shown for what they are. */
-export function FileBody({ file }: { file: FileContent }): ReactElement {
+/** JSON laid out to read, or the text as it is when it is not one JSON value (JSON Lines, a broken file). */
+function prettyJson(text: string): string {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
+
+/** A text file drawn as something other than its text under File (an SVG, laid-out JSON), so Raw shows the text itself. */
+export function drawnFromText(file: Pick<FileContent, "path" | "text">): boolean {
+  return file.text !== undefined && (isSvgPath(file.path) || /\.json$/i.test(file.path));
+}
+
+/** A file the window cannot draw, with the way to get at it. */
+function Unshown({ path, why }: { path: string; why: string }): ReactElement {
+  return (
+    <div className="preview-hint preview-unshown">
+      <p className="hint">{why}</p>
+      <button type="button" className="btn btn--sm" onClick={() => void api.downloadFile(path).catch(() => {})}>
+        Download
+      </button>
+    </div>
+  );
+}
+
+/** The file's contents, shown for what they are; `raw` is the text as it is on disk, for a file drawn from its text. */
+export function FileBody({ file, raw = false }: { file: FileContent; raw?: boolean }): ReactElement {
   // A document, a workbook or a deck is drawn as itself; its words are a Raw away.
   if (isOfficePath(file.path)) return <OfficeBody path={file.path} version={`${file.modifiedAt}:${file.size}`} />;
   if (AUDIO.test(file.path)) return <Player kind="audio" path={file.path} />;
@@ -85,10 +106,12 @@ export function FileBody({ file }: { file: FileContent }): ReactElement {
   if (file.omitted === "binary") {
     if (previewable(file.path)) return <ImageView path={file.path} />;
     if (isPdfPath(file.path)) return <Signed url={pdfViewUrl(file.path)} renew={false}>{(src) => <iframe className="preview-frame" src={src} title={file.path.split("/").pop() ?? file.path} />}</Signed>;
-    return <p className="hint preview-hint">Binary file. Download it, or open the workspace folder.</p>;
+    return <Unshown path={file.path} why="This kind of file can't be shown here." />;
   }
-  if (file.omitted === "too-large") return <p className="hint preview-hint">Too large to show here. Download it instead.</p>;
+  if (file.omitted === "too-large") return <Unshown path={file.path} why="Too large to show here." />;
   if (file.text === undefined) return <p className="hint preview-hint">Nothing to show.</p>;
+  if (!raw && isSvgPath(file.path)) return <img className="files-image files-image--svg" src={svgDataUrl(file.text)} alt={file.path.split("/").pop() ?? file.path} />;
+  const text = !raw && /\.json$/i.test(file.path) ? prettyJson(file.text) : file.text;
   if (file.language === "markdown") {
     return (
       <div className="preview-md">
@@ -99,7 +122,7 @@ export function FileBody({ file }: { file: FileContent }): ReactElement {
   return (
     <pre className="preview-pre">
       {highlights(file.language)
-        ? tokenize(file.text, file.language).map((t, i) =>
+        ? tokenize(text, file.language).map((t, i) =>
             t.kind === "plain" ? (
               t.text
             ) : (
@@ -108,7 +131,7 @@ export function FileBody({ file }: { file: FileContent }): ReactElement {
               </span>
             ),
           )
-        : file.text}
+        : text}
     </pre>
   );
 }
@@ -325,7 +348,8 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
   const attachedOnly = !!local && !local.src && local.text === undefined;
   const attachedHint = useAttachedHint(attachedOnly);
   const office = !!path && !local && isOfficePath(path);
-  const rawable = !!shown && !local && hasRawText(shown);
+  const drawn = !!shown && !local && drawnFromText(shown);
+  const rawable = !!shown && !local && (hasRawText(shown) || drawn);
 
   return createPortal(
     <AnimatePresence>
@@ -350,7 +374,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                 </span>
                 {shown && (
                   <span className="preview-meta">
-                    {bytes(shown.size)}
+                    {bytesWords(shown.size)}
                     {shown.language && shown.language !== "text" && shown.omitted !== "binary" ? ` · ${shown.language}` : ""}
                     {shown.modifiedAt ? ` · ${agoWords(shown.modifiedAt)}` : ""}
                   </span>
@@ -390,7 +414,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                     {attachedHint && <p className="hint">Kept in the workspace once sent.</p>}
                   </div>
                 )}
-                {shown && (!local || (!local.src && local.text !== undefined)) && (raw && rawable && path ? <RawBody path={path} /> : <FileBody file={shown} />)}
+                {shown && (!local || (!local.src && local.text !== undefined)) && (raw && rawable && path ? drawn ? <FileBody file={shown} raw /> : <RawBody path={path} /> : <FileBody file={shown} />)}
               </div>
             </m.div>
           </div>

@@ -47,7 +47,7 @@ light is `LIGHT_COLOURS`, after the tints.
 | `line-strong` | #3a4150 | a border under the pointer, a switch that is off |
 | `text` | #e7ebf3 | words |
 | `muted` | #8b93a7 | secondary words, a quiet control |
-| `faint` | #5c6578 | labels, placeholders, times |
+| `faint` | #758095 | labels, placeholders, times; 4.5:1 on `bg` and `panel` in both palettes, held by `design.test.ts` |
 | `accent` | #7c9cff | the thing to act on, the chosen thing, links |
 | `accent-lit` | #9bb4ff | the accent under the pointer |
 | `on-accent` | #0b0e14 | words on the accent |

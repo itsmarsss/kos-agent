@@ -14,7 +14,6 @@ import {
   COMMAND_NAMES,
   displayMathAt,
   fenceAt,
-  formatTime,
   instantOf,
   listAt,
   MATH,
@@ -22,6 +21,7 @@ import {
   type MdList,
   MENTION_SOURCE,
   parseBlock,
+  readerTime,
   startsList,
   styleOf,
   TIME_TOKEN,
@@ -263,7 +263,7 @@ function Stamp({ value, letter, raw }: { value: string; letter: string | undefin
   return (
     <Tooltip tip={<TimeCard seconds={seconds} />}>
       <time className="md-time" dateTime={new Date(seconds * 1000).toISOString()}>
-        {formatTime(seconds, style, undefined, now)}
+        {readerTime(seconds, style, now)}
       </time>
     </Tooltip>
   );

@@ -29,7 +29,7 @@ const school: Recall = {
 
 const open = (recalled: Recall): HTMLElement => {
   render(<TurnRecall recalled={recalled} />);
-  fireEvent.click(screen.getByRole("button", { name: /^memory:/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^Memory:/ }));
   return screen.getByRole("dialog");
 };
 
@@ -56,12 +56,13 @@ describe("a claim's title", () => {
 describe("what the last turn was given from memory", () => {
   it("counts in the chip and opens on a press", () => {
     render(<TurnRecall recalled={school} />);
-    const chip = screen.getByRole("button", { name: /^memory:/ });
-    expect(chip.textContent).toBe("memory: 4 claims · 1 moment");
+    const chip = screen.getByRole("button", { name: /^Memory:/ });
+    expect(chip.textContent).toBe("4 claims · 1 log entry");
+    expect(chip.getAttribute("aria-label")).toBe("Memory: 4 claims · 1 log entry");
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(chip);
     const dialog = screen.getByRole("dialog", { name: "What KOS remembered for this turn" });
-    expect(within(dialog).getByText("4 claims · 1 moment")).toBeTruthy();
+    expect(within(dialog).getByText("4 claims · 1 log entry")).toBeTruthy();
     expect(within(dialog).getByRole("link", { name: /school/ }).getAttribute("href")).toBe("#/project/school");
     expect(within(dialog).getByRole("link", { name: "Open in Memory" }).getAttribute("href")).toBe("#/memory?tab=claims&ids=1,2,3,4");
   });
@@ -71,13 +72,13 @@ describe("what the last turn was given from memory", () => {
       ["Pinned", 1],
       ["This project", 2],
       ["Everywhere", 1],
-      ["Moments", 1],
+      ["Log", 1],
     ]);
     const dialog = open(school);
     const heads = within(dialog)
       .getAllByRole("heading", { level: 3 })
       .map((h) => h.textContent);
-    expect(heads).toEqual(["Pinned 1in every turn", "This project 2", "Everywhere 1", "Moments 1from the log, close to what was said"]);
+    expect(heads).toEqual(["Pinned 1in every turn", "This project 2", "Everywhere 1", "Log 1what was said, close to the last message"]);
   });
 
   it("names a pinned claim's scope and every claim's source as tags", () => {
@@ -87,12 +88,12 @@ describe("what the last turn was given from memory", () => {
     expect(within(pinned).getByTitle("Pinned: in every turn")).toBeTruthy();
     const project = within(dialog).getByRole("region", { name: "This project" });
     expect(within(project).queryByText("project school")).toBeNull();
-    expect(within(project).getByText("KOS").getAttribute("title")).toBe("KOS worked this out");
+    expect(within(project).getByText("from KOS").getAttribute("title")).toBe("KOS worked this out");
   });
 
   it("gives another scope a group of its own", () => {
     const groups = groupRecall({ ...school, facts: [...school.facts, fact(5, "deploy", "fly", { scope: "caller:ci" })] });
-    expect(groups.map((g) => g.label)).toEqual(["Pinned", "This project", "Everywhere", "Caller ci", "Moments"]);
+    expect(groups.map((g) => g.label)).toEqual(["Pinned", "This project", "Everywhere", "Caller ci", "Log"]);
   });
 
   it("clamps a claim's words until it is opened, then shows them whole with its key", () => {
@@ -148,7 +149,7 @@ describe("what the last turn was given from memory", () => {
     expect(document.activeElement).toBe(find);
     fireEvent.keyDown(find, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^memory:/ }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Memory:/ }));
   });
 
   it("sends only moments to the Memory page's log", () => {
@@ -169,7 +170,7 @@ describe("what the last turn was given from memory", () => {
           <TurnRecall recalled={school} />
         </div>,
       );
-      fireEvent.click(screen.getByRole("button", { name: /^memory:/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Memory:/ }));
       const { style } = screen.getByRole("dialog");
       expect(style.getPropertyValue("--recall-y")).toBe(`${window.innerHeight - 300 + 8}px`);
       expect(style.getPropertyValue("--recall-h")).toBe("284px");
@@ -186,10 +187,10 @@ describe("what the last turn was given from memory", () => {
         <button type="button">elsewhere</button>
       </>,
     );
-    fireEvent.click(screen.getByRole("button", { name: /^memory:/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Memory:/ }));
     const dialog = screen.getByRole("dialog");
     expect(dialog.getAttribute("aria-modal")).toBeNull();
-    fireEvent.blur(within(dialog).getAllByRole("button", { name: /Owner|Name/ })[0]!, { relatedTarget: screen.getByRole("button", { name: /^memory:/ }) });
+    fireEvent.blur(within(dialog).getAllByRole("button", { name: /Owner|Name/ })[0]!, { relatedTarget: screen.getByRole("button", { name: /^Memory:/ }) });
     expect(screen.queryByRole("dialog")).not.toBeNull();
     fireEvent.blur(dialog, { relatedTarget: screen.getByRole("button", { name: "elsewhere" }) });
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -212,20 +213,20 @@ describe("what the last turn was given from memory", () => {
 
   it("shuts when the next turn's memory comes, and says nothing of a lost time", () => {
     const { rerender } = render(<TurnRecall recalled={school} />);
-    fireEvent.click(screen.getByRole("button", { name: /^memory:/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Memory:/ }));
     expect(screen.getByRole("dialog")).toBeTruthy();
     rerender(<TurnRecall recalled={{ at: 2, projectSlug: null, facts: [], events: [] }} />);
     expect(screen.queryByRole("dialog")).toBeNull();
     rerender(<TurnRecall recalled={{ at: 3, projectSlug: null, facts: [], events: [{ id: 1, role: "owner", text: "hi", ts: Number.NaN }] }} />);
     expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /^memory:/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Memory:/ }));
     expect(screen.getByRole("dialog").querySelector("time")).toBeNull();
     expect(screen.getByText("You said")).toBeTruthy();
   });
 
   it("says so when nothing matched", () => {
     render(<TurnRecall recalled={{ at: 1, projectSlug: null, facts: [], events: [] }} />);
-    expect(screen.getByText("memory: nothing matched")).toBeTruthy();
+    expect(screen.getByText("nothing matched")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
 });
