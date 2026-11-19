@@ -68,9 +68,10 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install bubblewrap
+      # bubblewrap, and both NATs a networked run can be given its own network through.
+      - name: Install bubblewrap, pasta and slirp4netns
         run: |
-          for i in 1 2 3; do sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap && break; sleep 10; done
+          for i in 1 2 3; do sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap passt slirp4netns && break; sleep 10; done
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           bwrap --version
           bwrap --unshare-all --die-with-parent --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 /bin/true
