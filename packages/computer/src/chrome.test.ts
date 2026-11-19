@@ -434,6 +434,37 @@ describe("a saved secret in the owner's Chrome", () => {
     expect((chrome as unknown as { carried: Map<string, unknown> }).carried.size).toBe(0);
   });
 
+  it("keeps another conversation's tabs from a chat once that one filled a secret in them", async () => {
+    const { chrome, fake, hub } = await started();
+    fake.answers.set("secret.fill", () => ({ ok: true, result: { filled: true } }));
+    await putIn(chrome, put);
+    hub.end("c1");
+    // The next chat's session lists the tab filled before, and a popup it opened: neither is its to take.
+    fake.answers.set("tabs.list", () => ({ ok: true, result: { tabs: [{ id: "88", url: "https://github.com/login", title: "Sign in" }, { id: "77", url: "https://shop.example/cart", title: "Cart", handed: true }] } }));
+    await hub.begin({ conversation: "c2", device: hub.find(fake.id)!, task: "t", requester: "r", minutes: 5 });
+    await expect(chrome.useTab("c2", "88")).rejects.toThrow(/a secret was filled in its tabs/);
+    // A tab no chat worked in is free to take.
+    await chrome.useTab("c2", "77");
+    // Its tabs closed, the chat that filled holds nothing back.
+    fake.event("tab.closed", { session: hub.sessionOf("c2")!.id, tab: "88" });
+    fake.answers.set("tabs.list", () => ({ ok: true, result: { tabs: [{ id: "88", url: "https://github.com/", title: "GitHub" }] } }));
+    await chrome.useTab("c2", "88");
+  });
+
+  it("keeps another conversation's tab from a chat while the owner has the Chrome", async () => {
+    const { chrome, fake, hub } = await started();
+    hub.end("c1");
+    fake.answers.set("tabs.list", () => ({ ok: true, result: { tabs: [{ id: "88", url: "https://shop.example/", title: "Shop" }] } }));
+    await hub.begin({ conversation: "c2", device: hub.find(fake.id)!, task: "t", requester: "r", minutes: 5 });
+    const session = hub.sessionOf("c2")!.id;
+    fake.event("session.paused", { session, reason: "owner" });
+    await flush();
+    await expect(chrome.useTab("c2", "88")).rejects.toThrow(/the owner has the Chrome/);
+    fake.event("session.resumed", { session });
+    await flush();
+    await chrome.useTab("c2", "88");
+  });
+
   it("pictures a page of no credential site as it always has", async () => {
     const { chrome, fake } = await started();
     fake.answers.set("cdp.send", (p) =>
