@@ -280,6 +280,8 @@ export interface OutboundMessage {
   from?: Sender;
   /** Posted without a notification: the owner's own words shown back to them, which nobody needs to be buzzed for. */
   silent?: boolean;
+  /** The chat it was said in, for a surface whose buttons act back on it. */
+  conversationId?: string;
 }
 
 /**
@@ -409,6 +411,14 @@ export interface ApprovalRequest {
   secret?: AskSecret;
 }
 
+/** Who settled an ask and when, as a settled prompt says it. */
+export interface ApprovalDecided {
+  /** A name for whoever decided: "you", "auto mode". */
+  by?: string;
+  /** When, epoch ms. */
+  at?: number;
+}
+
 export interface Asker {
   name: string;
   conversationId: string;
@@ -428,8 +438,16 @@ export interface ApprovalDecision {
  * the final reply. Discord uses reactions + an editable status message; plain
  * adapters may no-op and let the runtime send() the reply.
  */
+/** What a story carries beside its words. */
+export interface StoryExtra {
+  /** The chat is in Auto: the story says so, as its answer does, where no mode chip shows. */
+  auto?: boolean;
+  /** The newest picture a step took, base64 JPEG, for a surface that shows it beside the story. */
+  picture?: { id: number; image: string };
+}
+
 export interface TurnPresence {
-  update(status: string): Promise<void>;
+  update(status: string, extra?: StoryExtra): Promise<void>;
   /**
    * The finished answer. A message rather than a string, so a turn can answer
    * with a card and buttons instead of having to send them alongside.
@@ -517,7 +535,7 @@ export interface ChannelAdapter {
    * choice that had already been made, and pressing it reported that the
    * action did not exist.
    */
-  settleApproval?(id: string, outcome: ApprovalOutcome): Promise<void>;
+  settleApproval?(id: string, outcome: ApprovalOutcome, decided?: ApprovalDecided): Promise<void>;
   /**
    * Optional: acknowledge an inbound message and return a presence handle so
    * the runtime can show progress and edit the final reply in place.

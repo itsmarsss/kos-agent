@@ -22,20 +22,24 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { alwaysWords, askView, blocksToText, CHANNEL_TOKEN, detailLines, stepText, summarizeAction, withUnixTimes } from "@kos/shared";
+import { randomBytes } from "node:crypto";
 
-import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
+import { blocksToText, CHANNEL_TOKEN, sendRequestOf, withUnixTimes, type KosBlock } from "@kos/shared";
+
+import { FILE_MAX_BYTES, isAudio, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, roomConversationId, roomPlaceOf, type Guest } from "./types.js";
-import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
-import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
+import { approvalCompletions, commandCard, commandText, completions, jobCompletions, jobNamed, slashCommands, surfaceCommand, type SlashContext } from "./commands.js";
+import { linkMentions, linkPaths, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
 import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import { DownLog } from "./downlog.js";
-import { HOST_KEYS } from "./hostkeys.js";
-import { offersAlways } from "./offers.js";
+import { LiveStory, type StoryPayload, type StoryPost } from "./discordstory.js";
+import { BLOCK_COPY_PREFIX, BLOCK_SEND_PREFIX, EMBED_TOTAL_MAX, EMBEDS_MAX, ROWS_MAX, blockButtons, blockEmbed, copyReply, embedLength, linkFits, sendTool, splitBlocks } from "./discordblocks.js";
+import { approvalButtons, approvalCard, askSummary, parseApprovalCustomId, settledText, type ApprovalCard, type Decided } from "./askcard.js";
+import { noPreviews } from "./discordtext.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
@@ -51,15 +55,15 @@ import type {
   OutboundMessage,
   PressResponder,
   SenderAuthorizer,
+  StoryExtra,
   TurnPresence,
   ApprovalOutcome,
   Sender,
 } from "./types.js";
 
-export const APPROVE_PREFIX = "kos:approve:";
-export const DENY_PREFIX = "kos:deny:";
-/** Approve, and remember this shape so it stops asking. */
-export const ALWAYS_PREFIX = "kos:always:";
+export { ALWAYS_PREFIX, APPROVE_PREFIX, DENY_PREFIX, approvalCard, approvalCustomIds, approvalText, parseApprovalCustomId, settledText, type ApprovalCard } from "./askcard.js";
+export { noPreviews, splitSummary } from "./discordtext.js";
+
 /** A button the agent put there, as opposed to one the risk gate did. */
 export const PRESS_PREFIX = "kos:press:";
 /** A button that runs a scheduled job now: `kos:cron:<id>`. */
@@ -88,7 +92,18 @@ const MODAL_WAIT_MS = 5 * 60 * 1000;
 const THINKING = "-# thinking…";
 /** Discord's limits on uploads: files per message, bytes per file. */
 const DISCORD_FILES = 10;
+/** A workspace file named in words: `@file:path` or `@file:[a path with spaces]`. */
+const FILE_REF = /@file:(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/g;
+/** What Discord shows a preview of: pictures and PDFs. */
+const UPLOADS = /\.(png|jpe?g|gif|webp|pdf)$/i;
+/** How many typed blocks' buttons are kept answerable. */
+const BLOCKS_KEPT = 500;
+/** How many asks /inbox shows as cards; the rest are counted. */
+const INBOX_MAX = 8;
 const DISCORD_FILE_BYTES = 10 * 1024 * 1024;
+/** What a message's uploads may add up to: past it, Discord refuses the whole request. */
+const DISCORD_UPLOAD_BYTES = 25 * 1024 * 1024;
+const mb = (bytes: number): string => `${Math.round(bytes / 1024 / 1024)} MB`;
 /** How much of the message a reply answers is quoted to the turn. */
 const REPLY_QUOTE_MAX = 300;
 /** How many messages already taken are remembered, so a replay does not run one twice. */
@@ -144,23 +159,6 @@ const SEND_TRIES_MAX = 5;
 const UNSENT_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT"]);
 /** Failures once the request may have reached Discord: sent again, it could post twice. */
 const MAYBE_SENT_CODES = new Set(["ECONNRESET", "ETIMEDOUT", "EPIPE", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
-/** Subtext lines may not be longer than this and still read as a glance. */
-const DETAIL_MAX = 160;
-
-/**
- * The text of an approval prompt: what, then the small print.
- *
- * Two lines and the buttons. The embed this replaced had a title, a
- * description, three labelled fields, a footer and a plain-text copy of
- * the same above it; the owner read it as a form. The first line is the
- * action as summarizeAction says it; the subtext carries the tool, the id,
- * the arguments that matter and the reason, and renders small and grey.
- */
-/** The longest a code block's line may run before it is cut. */
-const CODE_MAX = 600;
-/** How much of what the agent said before asking the card quotes. */
-const WHY_MAX = 300;
-
 /**
  * A time written as `<t:2026-10-19T07:30:R>` becomes Discord's own token,
  * with the seconds filled in on the owner's clock, so Discord renders it on
@@ -171,7 +169,7 @@ function withTimes(text: string, timezone?: string): string {
 }
 
 /** A turn's story as Discord shows it: its last steps small under a count of the rest, the agent's words plain, the files a step names linked. */
-export function storyText(status: string, dashboardUrl?: string, timezone?: string, labelOf?: LabelOf): string {
+export function storyText(status: string, dashboardUrl?: string, timezone?: string, labelOf?: LabelOf, max = 1900): string {
   // References in the story link where they link in the answer, or the
   // same name reads as a token in one place and a link in the other.
   // A step line is the model's account of a step, read as it is: its
@@ -184,165 +182,7 @@ export function storyText(status: string, dashboardUrl?: string, timezone?: stri
     .split("\n")
     .map((line) => (line.startsWith(STEP_MARK) ? `-# ${linkPaths(line, dashboardUrl)}` : line))
     .join("\n")
-    .slice(0, 1900);
-}
-
-/** A bare url, not already in angle brackets and not the target of a masked link; a bracket made literal is neither. */
-const BARE_URL = /(?:(?<![<(])|(?<=\\[<(]))https?:\/\/[^\s<>()\]\\]+/g;
-/** A masked link whose target is not yet in angle brackets. */
-const MASKED_LINK = /\]\((https?:\/\/[^\s<>()]+)\)/g;
-
-/**
- * Every link in angle brackets, so Discord draws no preview card for it.
- *
- * A preview is Discord fetching the page and showing a title, a picture and
- * a snippet of it under KOS's words: a denied fetch of a wiki page came back
- * decorated with the wiki's own card. KOS links to pages it was told about
- * and to pages an agent read, neither of which should get to put a card in
- * the owner's DM, and Discord's crawler should not be visiting them on
- * KOS's behalf either. Code is left alone: nothing in it is a link.
- */
-export function noPreviews(text: string): string {
-  return outsideCode(text, (part) => part.replace(MASKED_LINK, "](<$1>)").replace(BARE_URL, "<$&>"));
-}
-
-/**
- * "Run: rm -rf build (in /w)" is a verb and a thing. The verb reads as a
- * sentence; the thing is a command, a path or a query, and goes in a code
- * block, where Discord leaves it alone. A summary with no such split is all
- * sentence.
- */
-export function splitSummary(summary: string): { head: string; body?: string } {
-  const i = summary.indexOf(": ");
-  if (i > 0 && i <= 24) return { head: summary.slice(0, i), body: summary.slice(i + 2) };
-  return { head: summary };
-}
-
-/** A line cut to fit by its middle, so its end always shows: the end of a command is where it hides what it does. */
-function cut(line: string, max: number): string {
-  if (line.length <= max) return line;
-  const tail = Math.floor((max - 1) * 0.4);
-  return `${line.slice(0, max - 1 - tail)}…${line.slice(line.length - tail)}`;
-}
-
-const CODE_FENCE = "```";
-
-/** The longest an approval card's text may run, leaving room for the line saying where it came from. */
-const CARD_MAX = 1900;
-/** The file every step rides in when a card cannot hold them all. */
-const STEPS_FILE = "steps.txt";
-/** Where the whole call goes when the card cannot show all of it. */
-const ARGS_FILE = "call.json";
-
-/** An approval card: its text, and every step as a file when the text cannot hold them. */
-export interface ApprovalCard {
-  content: string;
-  files?: { attachment: Buffer; name: string }[];
-}
-
-export function approvalText(req: ApprovalRequest): string {
-  return approvalCard(req).content;
-}
-
-export function approvalCard(req: ApprovalRequest): ApprovalCard {
-  // The sentence the ask belongs to, first: what KOS was saying when it
-  // reached for the tool. A card that opens with the command alone is a
-  // prompt to click yes blind.
-  // The model's words, all of it, so made literal: a masked link or a
-  // mention in them reads as written and does nothing.
-  const quote = (words: string): string => `> ${literal(cut(words.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX))}`;
-  const said = req.why?.trim() ? [quote(req.why)] : [];
-  // Who is asking, in the headline: "Recap needs your OK", not a bare command.
-  const asks = req.asker ? `**${literal(req.asker.name)} needs your OK**` : "**Needs your OK**";
-  if (req.tool === undefined) {
-    return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
-  }
-  const args = req.args ?? {};
-  const view = askView({ tool: req.tool, args, ...(req.names ? { names: req.names } : {}), ...(req.where ? { where: req.where } : {}), platform: HOST_KEYS });
-  const summary = summarizeAction(req.tool, args, req.names, req.where, HOST_KEYS);
-  // A run of actions is headed by where it acts, and its actions are the
-  // code, each on its own line, every one of them: the yes is for those.
-  // What the model said the step is for is its words, quoted with the rest
-  // of what it said, never the headline.
-  const actions = view.steps?.map(stepText);
-  if (view.said) said.push(quote(`KOS says: ${view.said}`));
-  const { head, body } = actions ? { head: view.place ?? view.title } : splitSummary(summary);
-  // The command itself, or failing that the arguments, in a code block: a
-  // `--include=*.ts` that turned italic was a command you could not read
-  // back, and an approval you cannot read is not one you can give.
-  const details = body ? [body] : detailLines(req.tool, args, req.names, req.where).slice(1);
-  const code = actions ?? (body ? [cut(body, CODE_MAX)] : details.filter((l) => !l.startsWith("…")).slice(0, 3).map((l) => cut(l, DETAIL_MAX)));
-  // Anything the card leaves out goes with it whole, in a file: no part of a call is approved unseen.
-  const partial = !actions && (code.length !== details.length || [summary, ...code].some((l, i) => l.includes("…") || (i > 0 && l !== details[i - 1])));
-  const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
-  const text = (shown: string[], more?: string): string =>
-    noPreviews(
-      [
-        ...said,
-        `${asks} · ${literal(head)}`,
-        ...(shown.length ? [CODE_FENCE, ...shown.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
-        ...(more ? [`-# ${more}`] : []),
-        `-# ${small}`,
-      ].join("\n"),
-    );
-  const whole = text(code);
-  if (!actions) {
-    if (!partial && whole.length <= CARD_MAX) return { content: whole };
-    const json = typeof args === "string" ? args : JSON.stringify(args, null, 2);
-    return {
-      content: text(code, `The whole call is in ${ARGS_FILE}`).slice(0, CARD_MAX + 100),
-      files: [{ attachment: Buffer.from(`${json}\n`, "utf8"), name: ARGS_FILE }],
-    };
-  }
-  if (whole.length <= CARD_MAX) return { content: whole };
-  // More steps than a message holds: as many as fit, and every one of them
-  // in a file on the card, so none is approved unseen.
-  let shown = actions.length;
-  const more = (n: number): string => `${actions.length - n} more step${actions.length - n === 1 ? "" : "s"}; every one is in ${STEPS_FILE}`;
-  while (shown > 0 && text(actions.slice(0, shown), more(shown)).length > CARD_MAX) shown -= 1;
-  return {
-    content: text(actions.slice(0, shown), more(shown)),
-    files: [{ attachment: Buffer.from(`${actions.join("\n")}\n`, "utf8"), name: STEPS_FILE }],
-  };
-}
-
-/** What a settled prompt becomes: one small line saying how it went. */
-export function settledText(outcome: ApprovalOutcome | "gone", summary: string | undefined, id: string, already = false, here = false): string {
-  const how = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : outcome === "gone" ? "No longer waiting" : "❌ Denied";
-  // Pressed after it was settled: how it went, and where, said as that. A lapse was nobody's decision.
-  const mark = !already || outcome === "gone" ? how : here || outcome === "expired" ? `Already decided: ${how}` : `Already decided on the dashboard: ${how}`;
-  if (!summary) return `-# ${mark} · #${id}`;
-  const { head, body } = splitSummary(summary);
-  return noPreviews(`-# ${mark} · ${literal(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`);
-}
-
-/** Encode the approve/deny button ids for a pending action. */
-export function approvalCustomIds(pendingId: string): {
-  approve: string;
-  deny: string;
-  always: string;
-} {
-  return {
-    approve: `${APPROVE_PREFIX}${pendingId}`,
-    deny: `${DENY_PREFIX}${pendingId}`,
-    always: `${ALWAYS_PREFIX}${pendingId}`,
-  };
-}
-
-/** Decode a button customId back into an approval decision, or null. */
-export function parseApprovalCustomId(
-  customId: string,
-): { id: string; approved: boolean; remember?: boolean } | null {
-  if (customId.startsWith(ALWAYS_PREFIX)) {
-    return { id: customId.slice(ALWAYS_PREFIX.length), approved: true, remember: true };
-  }
-  if (customId.startsWith(APPROVE_PREFIX)) {
-    return { id: customId.slice(APPROVE_PREFIX.length), approved: true };
-  }
-  if (customId.startsWith(DENY_PREFIX)) {
-    return { id: customId.slice(DENY_PREFIX.length), approved: false };
-  }
-  return null;
+    .slice(0, max);
 }
 
 const FENCE = /^\s*```(\w*)\s*$/;
@@ -442,6 +282,12 @@ export interface DiscordAdapterOptions {
    * between carried along. Absent means always.
    */
   listenOf?: (key: string) => Listen;
+  /** The tools this KOS has, so a typed block offers Send only where one can send it. */
+  toolNames?: () => readonly string[];
+  /** KOS's speech path, when one is configured: a recording's words. None, and a voice note is kept as audio and said to be. */
+  transcribe?: (audio: Attachment) => Promise<string | undefined>;
+  /** A workspace file a reply names, for Discord to upload: a picture or a PDF, read through the workspace's own jail. */
+  fileOf?: (path: string) => { name: string; data: string } | undefined;
   /**
    * Which thread stands for which chat, all of them, so an ask from a chat
    * can be put where the chat is read rather than in the approvals channel.
@@ -843,9 +689,11 @@ const tooLarge = (name: string, bytes: number): string => `${name} (${megabytes(
  */
 export async function collectAttachments(
   message: Message,
-): Promise<{ attachments: Attachment[]; skipped: string[] }> {
+): Promise<{ attachments: Attachment[]; skipped: string[]; recordings: Attachment[] }> {
   const attachments: Attachment[] = [];
   const skipped: string[] = [];
+  /** Voice notes and other recordings: kept as they came, and heard where a speech path can. */
+  const recordings: Attachment[] = [];
 
   // A message with nothing attached is the common case, and a message shape
   // without the collection at all must not take the whole inbound path down
@@ -858,7 +706,8 @@ export async function collectAttachments(
       skipped.push(tooLarge(name, file.size));
       continue;
     }
-    if (!isReadable(mediaType, name)) {
+    const recording = isAudio(mediaType, name);
+    if (!recording && !isReadable(mediaType, name)) {
       skipped.push(`${name} (${mediaType || "unknown type"})`);
       continue;
     }
@@ -872,17 +721,15 @@ export async function collectAttachments(
         skipped.push(tooLarge(name, bytes));
         continue;
       }
-      attachments.push({
-        name,
-        mediaType: mediaType || "application/octet-stream",
-        data: bytes.toString("base64"),
-      });
+      const kept = { name, mediaType: mediaType || (recording ? "audio/ogg" : "application/octet-stream"), data: bytes.toString("base64") };
+      attachments.push(kept);
+      if (recording) recordings.push(kept);
     } catch {
       skipped.push(`${name} (could not fetch)`);
     }
   }
 
-  return { attachments, skipped };
+  return { attachments, skipped, recordings };
 }
 
 const STYLES: Record<string, ButtonStyle> = {
@@ -957,13 +804,15 @@ export function buildCard(card: MessageCard, { from, named = true, dashboardUrl,
  *
  * A button with a url is a link and never comes back; one with an id is a
  * press, and its custom id is the token the runtime handed out. Anything past
- * what Discord will show is dropped rather than making the whole message fail.
+ * what Discord will show, or a link it would not take, is dropped rather than
+ * making the whole message fail.
  */
 export function buildButtons(
   buttons: MessageButton[],
 ): ActionRowBuilder<ButtonBuilder>[] {
   const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-  const usable = buttons.slice(0, BUTTONS_MAX);
+  // A link Discord would refuse is left off rather than the whole message refused for it.
+  const usable = buttons.filter((b) => !b.url || linkFits(b.url)).slice(0, BUTTONS_MAX);
   for (let i = 0; i < usable.length; i += BUTTONS_PER_ROW) {
     const row = new ActionRowBuilder<ButtonBuilder>();
     for (const button of usable.slice(i, i + BUTTONS_PER_ROW)) {
@@ -1053,6 +902,11 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly guestsAllowed?: (key: string) => boolean;
   private readonly onRunCron?: (id: number) => Promise<RunNowOutcome | undefined>;
   private readonly listenOf?: (key: string) => Listen;
+  private readonly toolNames?: () => readonly string[];
+  private readonly transcribe?: (audio: Attachment) => Promise<string | undefined>;
+  private readonly fileOf?: (path: string) => { name: string; data: string } | undefined;
+  /** The typed blocks on messages KOS sent, by the key their buttons carry, newest last. */
+  private readonly blocks = new Map<string, { block: KosBlock; chat?: string }>();
   /** The last message each mention-gated channel's chat heard, so the next one carries only what came after. */
   private readonly lastHeard = new Map<string, string>();
   /** The server's approvals channel, once sync has found or made it. */
@@ -1108,6 +962,9 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.guestsAllowed) this.guestsAllowed = options.guestsAllowed;
     if (options.onRunCron) this.onRunCron = options.onRunCron;
     if (options.listenOf) this.listenOf = options.listenOf;
+    if (options.toolNames) this.toolNames = options.toolNames;
+    if (options.transcribe) this.transcribe = options.transcribe;
+    if (options.fileOf) this.fileOf = options.fileOf;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -1292,6 +1149,9 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   onUp(how: { catchUp?: boolean } = {}): Promise<void> {
     this.gatewayUp = true;
+    // Marked at once, before any live message can move a room's place past
+    // what was said while KOS was away: the place moves again once read.
+    if (how.catchUp !== false) for (const room of this.cursors?.rooms() ?? []) if (!this.reading.has(room)) this.reading.set(room, undefined);
     this.downLog.up();
     this.upChain = this.upChain.then(() => this.afterUp(how.catchUp !== false)).catch((err: unknown) => {
       console.warn(`[discord] after reconnecting: ${err instanceof Error ? err.message : String(err)}`);
@@ -1339,16 +1199,41 @@ export class DiscordAdapter implements ChannelAdapter {
 
   private async catchUpIn(roomId: string): Promise<void> {
     const since = this.cursors?.get(roomId);
-    if (!since || this.catchingUp.has(roomId)) return;
+    if (this.catchingUp.has(roomId)) return;
     this.catchingUp.add(roomId);
     try {
-      await this.readMissed(roomId, since);
+      if (since) await this.readMissed(roomId, since);
     } finally {
       this.catchingUp.delete(roomId);
     }
+    // Read: the place moves past what was heard live meanwhile, too. Not
+    // read, it stays where the reading stopped, and the room stays to be
+    // read, so the next catch-up reads what this one could not.
+    const live = this.reading.get(roomId);
+    this.reading.delete(roomId);
+    if (live) this.cursors?.advance(roomId, live);
   }
 
   private readonly catchingUp = new Set<string>();
+  /** Rooms still to be read after a new session, each with the newest message heard live there meanwhile. */
+  private readonly reading = new Map<string, string | undefined>();
+
+  /**
+   * A message the harness has taken: where catch-up reads from moves past
+   * it. Not before, so one lost on the way in is read again; and not while
+   * the room is still to be read, or a live message would carry the place
+   * past what was said while KOS was away.
+   */
+  private handled(message: Message): void {
+    const room = message.channel?.id;
+    if (!message.id || !room) return;
+    if (!this.reading.has(room)) {
+      this.cursors?.advance(room, message.id);
+      return;
+    }
+    const newest = this.reading.get(room);
+    if (!newest || BigInt(message.id) > BigInt(newest)) this.reading.set(room, message.id);
+  }
 
   private async readMissed(roomId: string, since: string): Promise<void> {
     const room = (await this.client.channels.fetch(roomId).catch(() => null)) as (ReadableChannel & { send?: (p: unknown) => Promise<unknown>; guildId?: string | null }) | null;
@@ -1390,7 +1275,7 @@ export class DiscordAdapter implements ChannelAdapter {
     await this.notRun(missed.filter((m) => m.createdTimestamp < lateBy));
     if (told.length) this.cursors?.advance(roomId, told.at(-1)!.id);
     for (const message of after.filter((m) => m.createdTimestamp >= lateBy)) {
-      if (missed.includes(message)) await this.receiveMessage(message, { late: true });
+      if (missed.includes(message)) await this.receiveMessage(message, { late: true, caughtUp: true });
       this.cursors?.advance(roomId, message.id);
     }
   }
@@ -1409,26 +1294,37 @@ export class DiscordAdapter implements ChannelAdapter {
       const admitted = this.admitted(message);
       if (admitted) heard.push({ message, ...admitted });
     }
-    const last = heard.at(-1);
-    if (!last) return;
+    // One note per sender: a guest's words never ride under the owner's, nor
+    // the owner's under a guest's, and each line names who said it, so what
+    // is offered to run again is never a stranger's words passing as yours.
+    const bySender = new Map<string, typeof heard>();
+    for (const h of heard) {
+      const key = `${h.guest ? "guest" : "owner"}:${h.message.author.id}`;
+      bySender.set(key, [...(bySender.get(key) ?? []), h]);
+    }
     const words = (m: Message): string => this.channelsNamed(this.withoutOwnMention(m.content)).trim() || "(no words)";
-    await this.messageHandler?.({
-      channel: this.name,
-      late: true,
-      sentAt: last.message.createdTimestamp,
-      missed: heard.map((h) => (h.guest ? `${h.guest.name}: ${words(h.message)}` : words(h.message))),
-      senderId: last.message.author.id,
-      text: words(last.message),
-      room: this.roomOf(last.message),
-      ...(last.binding ? { conversationId: last.binding.conversationId } : {}),
-      ...(last.binding?.newIn ? { newIn: last.binding.newIn } : {}),
-      ...(last.guest ? { guest: last.guest } : {}),
-      native: last.message,
-    });
+    const name = (m: Message): string => m.author.globalName ?? m.author.username ?? m.author.id;
+    const groups = [...bySender.values()].sort((a, b) => a.at(-1)!.message.createdTimestamp - b.at(-1)!.message.createdTimestamp);
+    for (const group of groups) {
+      const last = group.at(-1)!;
+      await this.messageHandler?.({
+        channel: this.name,
+        late: true,
+        sentAt: last.message.createdTimestamp,
+        missed: group.map((h) => `${name(h.message)}: ${words(h.message)}`),
+        senderId: last.message.author.id,
+        text: words(last.message),
+        room: this.roomOf(last.message),
+        ...(last.binding ? { conversationId: last.binding.conversationId } : {}),
+        ...(last.binding?.newIn ? { newIn: last.binding.newIn } : {}),
+        ...(last.guest ? { guest: last.guest } : {}),
+        native: last.message,
+      });
+    }
   }
 
   /** Gateway MessageCreate handler. Internal; separated for tests. */
-  async receiveMessage(message: Message, how: { late?: boolean } = {}): Promise<void> {
+  async receiveMessage(message: Message, how: { late?: boolean; caughtUp?: boolean } = {}): Promise<void> {
     if (message.author.bot) return;
     // Once each: a resumed gateway replays what it missed, and catch-up
     // reads the same messages from the history.
@@ -1441,12 +1337,11 @@ export class DiscordAdapter implements ChannelAdapter {
     const { binding, guest } = admitted;
     /** What was said in a mention-gated room since its chat last heard, when this message is one it hears. */
     const unheard = admitted.gated ? await this.unheardIn(message) : "";
-    const { attachments, skipped } = guest ? { attachments: guestAttachments(message), skipped: [] } : await collectAttachments(message);
+    const { attachments, skipped, recordings } = guest ? { attachments: guestAttachments(message), skipped: [], recordings: [] } : await collectAttachments(message);
     // A file KOS cannot read is said out loud rather than dropped, so the
     // owner is not left asking about a picture it was never shown.
-    const note = skipped.length
-      ? `\n\n(not read: ${skipped.join(", ")})`
-      : "";
+    const heard = await this.heardIn(recordings);
+    const note = `${skipped.length ? `\n\n(not read: ${skipped.join(", ")})` : ""}${heard}`;
 
     // Where it was said, for the dashboard to say so under the words.
     const room = this.roomOf(message);
@@ -1455,13 +1350,11 @@ export class DiscordAdapter implements ChannelAdapter {
     const members = this.membersNamed(message);
     const speaker = message.author.globalName ?? message.author.username;
     if (speaker) this.membersSeen.set(speaker.toLowerCase(), message.author.id);
-    // Where catch-up starts reading this room from, after a drop or a restart.
-    if (message.id && message.channel?.id) this.cursors?.advance(message.channel.id, message.id);
     const replyingTo = await this.repliedTo(message, guest !== undefined);
     // Late whichever way it came: a resumed gateway replays live what it
     // missed, and a message from long ago is told, not run, as in catch-up.
     const late = how.late || (typeof message.createdTimestamp === "number" && Date.now() - message.createdTimestamp > LATE_RUN_MS);
-    await this.messageHandler?.({
+    const handling = this.messageHandler?.({
       channel: this.name,
       ...(late ? { late: true, sentAt: message.createdTimestamp } : {}),
       // What a reply answers rides beside the words, told to this turn and quoted, never as the sender's own.
@@ -1479,6 +1372,26 @@ export class DiscordAdapter implements ChannelAdapter {
       ...(guest ? { guest } : {}),
       native: message,
     });
+    // Taken: where catch-up starts reading this room from moves past it.
+    // Catch-up moves its own place, in order.
+    if (how.caughtUp) {
+      if (message.id && message.channel?.id) this.cursors?.advance(message.channel.id, message.id);
+    } else this.handled(message);
+    await handling;
+  }
+
+  /**
+   * What the owner's recordings said, through KOS's speech path, as their
+   * words; with none configured, said so, the recordings kept as files.
+   */
+  private async heardIn(recordings: Attachment[]): Promise<string> {
+    if (recordings.length === 0) return "";
+    const said: string[] = [];
+    for (const file of recordings) {
+      const words = this.transcribe ? await this.transcribe(file).catch(() => undefined) : undefined;
+      said.push(words?.trim() ? `\n\n[${file.name}, transcribed] ${words.trim()}` : `\n\n(${file.name} is kept as audio: ${this.transcribe ? "it could not be transcribed" : "no speech-to-text is configured, so it was not transcribed"})`);
+    }
+    return said.join("");
   }
 
   private markSeen(id: string): void {
@@ -2013,38 +1926,42 @@ export class DiscordAdapter implements ChannelAdapter {
       | null;
     if (!channel?.send || (channel.isSendable && !channel.isSendable())) return undefined;
     const via = from ? await this.webhookFor(channel, from).catch(() => undefined) : undefined;
-    if (via && from) {
-      const thread = via.threadId ? { threadId: via.threadId } : {};
-      const said = await via.hook.send({ content: THINKING, flags: MessageFlags.SuppressNotifications, username: from.name, ...thread }).catch(() => undefined);
-      if (said) {
-        const close = this.keepStory({ channelId: via.threadId && channel.parent ? channel.parent.id : channel.id, messageId: said.id, webhookId: via.hook.id, ...thread });
-        return {
-          close,
-          edit: async (text: string) => {
-            const content = storyText(text, this.dashboardUrl, this.timezone, this.labelOf);
-            if (!content.trim()) return;
-            await via.hook.editMessage(said.id, { content, ...thread }).catch(() => undefined);
-          },
-          remove: async () => {
-            close();
-            await via.hook.deleteMessage(said.id, via.threadId).catch(() => undefined);
-          },
-        };
+    const post = async (content: string): Promise<(StoryPost & { ref?: PromptRef }) | undefined> => {
+      if (via && from) {
+        const thread = via.threadId ? { threadId: via.threadId } : {};
+        const said = await via.hook.send({ content, flags: MessageFlags.SuppressNotifications, username: from.name, ...thread }).catch(() => undefined);
+        if (said) {
+          return {
+            edit: (payload) => via.hook.editMessage(said.id, { ...payload, ...thread }),
+            remove: () => via.hook.deleteMessage(said.id, via.threadId),
+            ref: { channelId: via.threadId && channel.parent ? channel.parent.id : channel.id, messageId: said.id, webhookId: via.hook.id, ...thread },
+          };
+        }
       }
-    }
-    const posted = await channel.send({ content: THINKING, flags: MessageFlags.SuppressNotifications }).catch(() => undefined);
-    if (!posted) return undefined;
-    const close = this.keepStory(typeof (posted as { id?: unknown }).id === "string" ? { channelId: channel.id, messageId: (posted as { id: string }).id } : undefined);
+      const posted = await channel.send!({ content, flags: MessageFlags.SuppressNotifications }).catch(() => undefined);
+      if (!posted) return undefined;
+      return { edit: (payload) => posted.edit(payload), remove: () => posted.delete(), ...(typeof posted.id === "string" ? { ref: { channelId: channel.id, messageId: posted.id } } : {}) };
+    };
+    const first = await post(THINKING);
+    if (!first) return undefined;
+    const closes = [this.keepStory(first.ref)];
+    const close = (): void => closes.forEach((c) => c());
+    const story = new LiveStory(first, {
+      render: (raw) => storyText(raw, this.dashboardUrl, this.timezone, this.labelOf, Infinity),
+      next: async (content) => {
+        const more = await post(content);
+        if (more) closes.push(this.keepStory(more.ref));
+        return more;
+      },
+    });
     return {
       close,
       edit: async (text: string) => {
-        const content = storyText(text, this.dashboardUrl, this.timezone, this.labelOf);
-        if (!content.trim()) return;
-        await posted.edit({ content }).catch(() => undefined);
+        if (text.trim()) await story.update(text).catch(() => undefined);
       },
       remove: async () => {
         close();
-        await posted.delete().catch(() => undefined);
+        await story.remove();
       },
     };
   }
@@ -2087,7 +2004,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!channel?.isSendable?.()) throw new Error(`channel ${channelId} is not somewhere this bot can post`);
     if (msg.from && (await this.sendAs(channel as unknown as Parameters<DiscordAdapter["sendAs"]>[0], msg, progress))) return;
     try {
-      await this.deliver((payload) => (channel as unknown as { send: (p: unknown) => Promise<unknown> }).send(payload), msg, { progress });
+      await this.deliver((payload) => (channel as unknown as { send: (p: unknown) => Promise<unknown> }).send(payload), msg, { progress, shares: this.ownerOnly(channel) });
     } catch (err) {
       if (isUnknownChannel(err)) this.forgetPlace(channelId);
       throw err;
@@ -2161,7 +2078,7 @@ export class DiscordAdapter implements ChannelAdapter {
     // a blob's is on its own webhook.
     const look = msg.from.avatarUrl ? { avatarURL: msg.from.avatarUrl } : {};
     try {
-      await this.deliver((payload) => hook.send({ ...payload, username, ...look, ...(threadId ? { threadId } : {}) }), msg, { tagged: false, progress });
+      await this.deliver((payload) => hook.send({ ...payload, username, ...look, ...(threadId ? { threadId } : {}) }), msg, { tagged: false, progress, shares: this.ownerOnly(channel) });
       return true;
     } catch (err) {
       // The network's failure is the send's, held or dropped; posting it the other way could post it twice.
@@ -2402,11 +2319,10 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!target) return undefined;
     const channel = (await this.place(target)) as { isSendable?: () => boolean } | null;
     if (!channel?.isSendable?.()) return undefined;
-    // A place guests read is no place for the owner's chat to ask in: the
-    // card spells out the tool and all it would do. A room's own asks are
-    // what its guests' words asked for, and show there.
-    const key = this.roomKeyOf(channel);
-    if (!roomPlaceOf(conversationId) && key !== undefined && this.guestsAllowed?.(key)) return undefined;
+    // A place anyone else can read is no place to ask in, a room's own asks
+    // included: the card spells out the tool and all it would do. Those ask
+    // in #needs-you, or the DM.
+    if (!this.ownerOnly(channel)) return undefined;
     return channel as unknown as { id: string; isThread?: () => boolean; parent?: { id: string } | null; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> };
   }
 
@@ -2421,11 +2337,50 @@ export class DiscordAdapter implements ChannelAdapter {
     return `${topic} · ${base}/#/chats/${encodeURIComponent(key)}`;
   }
 
-  /** The approvals channel, when the server has one; prompts go there rather than to a DM. */
+  /**
+   * Whether only the owner and KOS can read a place, as Discord's own
+   * permissions say it: everyone denied the view, and nobody else allowed
+   * it, by role or by name. A thread is read by whoever reads its channel.
+   * A DM is the owner's.
+   */
+  private ownerOnly(place: unknown): boolean {
+    type Overwrites = { cache?: Map<string, { deny: { has: (bit: bigint) => boolean }; allow?: { has: (bit: bigint) => boolean } }> };
+    const at = place as { isThread?: () => boolean; parent?: { permissionOverwrites?: Overwrites } | null; guildId?: string | null; guild?: { id: string } | null; permissionOverwrites?: Overwrites } | null;
+    if (!at) return false;
+    const guildId = at.guildId ?? at.guild?.id;
+    if (!guildId) return true;
+    const cache = (at.isThread?.() ? at.parent : at)?.permissionOverwrites?.cache;
+    if (!cache?.get(guildId)?.deny.has(PermissionFlagsBits.ViewChannel)) return false;
+    const ours = new Set([this.ownerId, this.client.user?.id].filter((id): id is string => id !== undefined));
+    for (const [id, overwrite] of cache) {
+      if (id !== guildId && !ours.has(id) && overwrite.allow?.has(PermissionFlagsBits.ViewChannel)) return false;
+    }
+    return !this.adminsRead(at.guild, guildId, ours);
+  }
+
+  /**
+   * Whether anyone else reads every channel whatever its overwrites say: the
+   * server's owner, when that is not the owner of KOS, or a member with
+   * Administrator. A role with it counts unless every member known to be in
+   * it is the owner or the bot, since members are known only as they appear.
+   */
+  private adminsRead(guild: unknown, guildId: string, ours: Set<string>): boolean {
+    const g = guild as { ownerId?: string; roles?: { cache?: Map<string, { id: string; permissions: { has: (bit: bigint) => boolean }; members?: Map<string, unknown> }> } } | null | undefined;
+    if (!g) return false;
+    if (g.ownerId && !ours.has(g.ownerId)) return true;
+    for (const role of g.roles?.cache?.values() ?? []) {
+      if (!role.permissions.has(PermissionFlagsBits.Administrator)) continue;
+      const members = [...(role.members?.keys() ?? [])];
+      if (role.id === guildId || members.length === 0 || members.some((id) => !ours.has(id))) return true;
+    }
+    return false;
+  }
+
+  /** The approvals channel, when the server has one and only the owner reads it; prompts go there rather than to a DM. */
   private async approvalsChannel(): Promise<{ id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> } | undefined> {
     if (!this.approvalsChannelId) return undefined;
     const channel = (await this.place(this.approvalsChannelId)) as { isSendable?: () => boolean } | null;
-    return channel?.isSendable?.() ? (channel as unknown as { id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
+    return channel?.isSendable?.() && this.ownerOnly(channel) ? (channel as unknown as { id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
   }
 
   /**
@@ -2476,34 +2431,44 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   private async registerCommands(): Promise<void> {
     if (!this.commands) return;
-    try {
-      await this.client.application?.commands.set(
-        COMMANDS.map((c) => ({
-          name: c.name,
-          description: c.description,
-          ...(c.argument
-            ? {
-                options: [
-                  {
-                    type: 3,
-                    name: c.argument.name,
-                    description: c.argument.description,
-                    required: false,
-                    autocomplete: c.argument.autocomplete,
-                  },
-                ],
-              }
-            : {}),
-        })),
-      );
-    } catch (err) {
-      // A bot without the applications.commands scope cannot register them.
-      // Everything else still works, so this is reported rather than fatal.
-      console.warn(
-        `[discord] could not register slash commands: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+    const app = this.client.application?.commands;
+    if (!app) return;
+    // In the owner's server, registered for it, where they show at once;
+    // and globally for the DM alone, so the server lists each only once.
+    // Each on its own, so one refused leaves the other in place.
+    const guild = this.guildId;
+    const sets: [string, () => Promise<unknown>][] = guild
+      ? [
+          ["in the server", () => app.set(slashCommands("guild"), guild)],
+          ["for DMs", () => app.set(slashCommands("dm"))],
+        ]
+      : [["everywhere", () => app.set(slashCommands("everywhere"))]];
+    for (const [where, set] of sets) {
+      try {
+        await set();
+      } catch (err) {
+        // A bot without the applications.commands scope cannot register them.
+        // Everything else still works, so this is reported rather than fatal.
+        console.warn(`[discord] could not register slash commands ${where} (invite the bot with the applications.commands scope): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  /**
+   * /inbox: what waits on the owner, each ask as its own card with its own
+   * buttons and the files its card carries, to whoever asked alone, so a
+   * press settles that one. A secret's ask has no Approve, as everywhere on
+   * Discord.
+   */
+  private async inbox(interaction: { reply(o: unknown): Promise<unknown>; followUp(o: unknown): Promise<unknown> }, pending: ApprovalRequest[]): Promise<void> {
+    const shown = pending.slice(0, INBOX_MAX);
+    const more = pending.length - shown.length;
+    const head = pending.length === 0 ? "Nothing is waiting on you." : `${pending.length} waiting on you${more ? `; the first ${shown.length} here, every one in the dashboard's Inbox` : ""}.`;
+    await interaction.reply({ content: head, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    for (const req of shown) {
+      await interaction
+        .followUp({ ...this.askCard(req), components: [approvalButtons(req, this.dashboardUrl)], flags: MessageFlags.Ephemeral })
+        .catch(() => undefined);
     }
   }
 
@@ -2537,8 +2502,11 @@ export class DiscordAdapter implements ChannelAdapter {
     if (interaction.isAutocomplete?.()) {
       if (!this.commands || !this.isAuthorized(interaction.user.id)) return;
       const typed = String(interaction.options.getFocused() ?? "");
+      const pick = surfaceCommand(interaction.commandName)?.option?.pick;
       try {
-        await interaction.respond(interaction.commandName === "run" ? jobCompletions(this.commands, typed) : completions(this.commands, typed));
+        await interaction.respond(
+          pick === "job" ? jobCompletions(this.commands, typed) : pick === "approval" ? approvalCompletions(this.commands, typed, (req) => this.scrub(askSummary(req))) : completions(this.commands, typed),
+        );
       } catch {
         // The window for answering an autocomplete is short; a late answer
         // is dropped rather than being an error.
@@ -2556,22 +2524,25 @@ export class DiscordAdapter implements ChannelAdapter {
         return;
       }
       const argument = interaction.options.data[0]?.value;
-      // /run fires a scheduled job, which is async and goes to onRunCron
-      // rather than runCommand (bookkeeping the process answers at once).
-      if (interaction.commandName === "run") {
-        await this.runNow(interaction, jobNamed(this.commands, argument === undefined ? undefined : String(argument)));
+      const said = argument === undefined ? undefined : String(argument);
+      // /run fires a scheduled job and says how it went, which can take as
+      // long as the job does: answered once it has run.
+      if (interaction.commandName === "run" && this.onRunCron) {
+        await this.runNow(interaction, jobNamed(this.commands, said));
+        return;
+      }
+      if (interaction.commandName === "inbox" && this.commands.pending) {
+        await this.inbox(interaction, this.commands.pending());
         return;
       }
       // Typed in a bound channel or thread: that room's chat is the one meant.
       const here = interaction.guildId ? this.bindingIn(interaction.channel)?.conversationId : undefined;
-      const said = runCommand(this.commands, interaction.commandName, argument === undefined ? undefined : String(argument), here);
-      // Only to whoever asked: where someone sends their messages is not
-      // news for a channel.
-      await interaction.reply({
-        ...(said.text ? { content: said.text } : {}),
-        ...(said.card ? { embeds: [buildCard(said.card, { dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] } : {}),
-        flags: MessageFlags.Ephemeral,
-      });
+      const conversationId = here ?? this.commands.current() ?? this.commands.home();
+      // Only to whoever asked: what a command answers is no news for a channel.
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      const answer = await this.commands.run(commandText(interaction.commandName, said), conversationId).catch((err: unknown) => ({ reply: `/${interaction.commandName} did not run: ${err instanceof Error ? err.message : String(err)}` }));
+      const card = commandCard(interaction.commandName, answer, { room: here !== undefined, ...(this.commands.link ? { tools: this.commands.link(conversationId) ?? "" } : {}) });
+      await interaction.editReply({ embeds: [buildCard(card, { dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] }).catch(() => undefined);
       return;
     }
 
@@ -2618,6 +2589,13 @@ export class DiscordAdapter implements ChannelAdapter {
       return;
     }
 
+    // A typed block's own buttons.
+    if (interaction.customId.startsWith(BLOCK_COPY_PREFIX) || interaction.customId.startsWith(BLOCK_SEND_PREFIX)) {
+      const send = interaction.customId.startsWith(BLOCK_SEND_PREFIX);
+      await this.pressBlock(interaction, send, interaction.customId.slice((send ? BLOCK_SEND_PREFIX : BLOCK_COPY_PREFIX).length));
+      return;
+    }
+
     const decision = parseApprovalCustomId(interaction.customId);
     if (!decision) return;
 
@@ -2650,7 +2628,10 @@ export class DiscordAdapter implements ChannelAdapter {
     });
     // Nothing back is nothing decided: the ask was gone, never the button pressed.
     const outcome = how?.outcome ?? "gone";
-    const settled = { content: settledText(outcome, prompt?.summary, decision.id, how?.already === true, how?.here === true), embeds: [] as never[], components: [] as never[] };
+    // Who pressed, and when, unless it was settled before the press.
+    const presser = (interaction.user as { globalName?: string | null; username?: string }).globalName ?? (interaction.user as { username?: string }).username;
+    const decided: Decided = how?.already ? {} : { ...(presser ? { by: presser } : {}), at: Date.now() };
+    const settled = { content: settledText(outcome, prompt?.summary, decision.id, how?.already === true, how?.here === true, decided), embeds: [] as never[], components: [] as never[] };
     // The prompt settles into one small line, on this card and its twin, as
     // soon as the decision is recorded; the action and the resumed turn's
     // answer come after, as their own message.
@@ -2824,7 +2805,7 @@ export class DiscordAdapter implements ChannelAdapter {
     const user = await this.client.users.fetch(recipientId).catch((err: unknown) => {
       throw sendFailure(err) === "refused" ? err : unsent(err);
     });
-    await this.deliver((payload) => user.send(payload), msg, { progress });
+    await this.deliver((payload) => user.send(payload), msg, { progress, shares: true });
   }
 
   /**
@@ -3001,25 +2982,67 @@ export class DiscordAdapter implements ChannelAdapter {
       flags?: MessageFlags.SuppressNotifications;
     }) => Promise<unknown>,
     msg: OutboundMessage,
-    { tagged = true, progress }: { tagged?: boolean; progress?: SendProgress } = {},
+    { tagged = true, progress, shares = false }: { tagged?: boolean; progress?: SendProgress; shares?: boolean } = {},
   ): Promise<string | undefined> {
     // References become links first, so the split sees the longer text. A
     // message already posted under the speaker's own name carries no tag.
-    const text = tagged ? taggedText(msg) : msg.text;
+    const said = tagged ? taggedText(msg) : msg.text;
+    const link = (t: string): string => linkMentions(withTimes(t, this.timezone), this.dashboardUrl, this.labelOf);
+    const tools = this.toolNames?.() ?? [];
+    // The agent's own buttons are the turn's offers: theirs first, and a
+    // block's buttons take the rows left.
+    const offers = msg.buttons ?? [];
+    const offered = buildButtons(offers);
+    const droppedOffers = offers.length - offered.reduce((n, r) => n + r.components.length, 0);
+    const cardOf = (named: boolean): EmbedBuilder => buildCard(msg.card!, { from: msg.from, named, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf });
+    // KOS's own typed blocks are drawn as what they are, while the message
+    // can hold them: Discord refuses a message whose embeds add up past its
+    // total, or one with too many. The rest stay as their plain words.
+    let room = EMBED_TOTAL_MAX - (msg.card ? embedLength(cardOf(true)) : 0);
+    let slots = Math.min(EMBEDS_MAX - (msg.card ? 1 : 0), ROWS_MAX - offered.length);
+    const drawn: { embed: EmbedBuilder; row: ActionRowBuilder<ButtonBuilder> }[] = [];
+    const fits = (block: KosBlock): boolean => {
+      const embed = blockEmbed(block, link);
+      const size = embedLength(embed);
+      if (slots <= 0 || size > room) return false;
+      slots -= 1;
+      room -= size;
+      // Send only where the owner alone reads: a draft sent from a shared room is sent by whoever pressed.
+      drawn.push({ embed, row: blockButtons(this.keepBlock(block, msg.conversationId), block, tools, shares) });
+      return true;
+    };
+    // The owner's words are shown as they wrote them.
+    const text = said && !this.isOwner(msg.from) ? splitBlocks(said, fits).words : said;
     const chunks = text ? chunkText(this.words(text)) : [];
-    const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: tagged && chunks.length === 0, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] : [];
-    const components = buildButtons(msg.buttons ?? []);
+    const embeds = [...drawn.map((d) => d.embed), ...(msg.card ? [cardOf(tagged && chunks.length === 0 && drawn.length === 0)] : [])];
+    const components = [...drawn.map((d) => d.row), ...offered];
+    const notes: string[] = [];
+    if (droppedOffers > 0) {
+      console.warn(`[discord] ${droppedOffers} of ${offers.length} buttons could not be shown (past ${BUTTONS_MAX}, or a link Discord does not take)`);
+      notes.push(`-# ${droppedOffers} button${droppedOffers === 1 ? "" : "s"} not shown here`);
+    }
     // The files ride on the last chunk with the card, under the whole
-    // message. Discord takes ten per message and so many bytes each; what
-    // does not fit is named instead, with where it is kept, rather than the
-    // whole message being refused for one file too many.
-    const all = (msg.files ?? []).map((f) => ({ attachment: Buffer.from(f.data, "base64"), name: f.name, path: f.path }));
-    const files = all.filter((f) => f.attachment.byteLength <= DISCORD_FILE_BYTES).slice(0, DISCORD_FILES);
+    // message. Discord takes ten per message, so many bytes each and so
+    // many in all; what does not fit is named instead, with where it is
+    // kept, rather than the whole message being refused for one file too many.
+    // The pictures and PDFs KOS's words name, uploaded where the owner alone reads, so they show here and not only as links.
+    const named = shares && said && !this.isOwner(msg.from) ? this.filesNamed(said, msg.files ?? []) : [];
+    const all = [...(msg.files ?? []), ...named].map((f) => ({ attachment: Buffer.from(f.data, "base64"), name: f.name, path: f.path }));
+    let bytes = 0;
+    const files = all.filter((f) => {
+      const size = f.attachment.byteLength;
+      if (size > DISCORD_FILE_BYTES || bytes + size > DISCORD_UPLOAD_BYTES) return false;
+      bytes += size;
+      return true;
+    }).slice(0, DISCORD_FILES);
     const left = all.filter((f) => !files.includes(f));
     if (left.length) {
       const base = this.dashboardUrl?.replace(/\/+$/, "");
-      const named = left.map((f) => (f.path && base ? `[${f.name}](<${base}/#/files/${encodeURIComponent(f.path)}>)` : f.name)).join(", ");
-      const note = `-# ${left.length} file${left.length === 1 ? "" : "s"} not sent here (Discord takes ${DISCORD_FILES} per message, ${Math.round(DISCORD_FILE_BYTES / 1024 / 1024)} MB each): ${named}`;
+      const listed = left.map((f) => (f.path && base ? `[${f.name}](<${base}/#/files/${encodeURIComponent(f.path)}>)` : f.name)).join(", ");
+      notes.push(`-# ${left.length} file${left.length === 1 ? "" : "s"} not sent here (Discord takes ${DISCORD_FILES} per message, ${mb(DISCORD_FILE_BYTES)} each, ${mb(DISCORD_UPLOAD_BYTES)} in all): ${listed}`);
+    }
+    if (notes.length) {
+      const note = notes.join("\n");
       if (chunks.length) chunks[chunks.length - 1] = `${chunks[chunks.length - 1]}\n${note}`.slice(0, 2000);
       else chunks.push(note.slice(0, 2000));
     }
@@ -3042,6 +3065,78 @@ export class DiscordAdapter implements ChannelAdapter {
     }
     const id = (posted as { id?: unknown } | undefined)?.id;
     return typeof id === "string" ? id : undefined;
+  }
+
+  /** The workspace pictures and PDFs words name by `@file:`, read through the workspace, none already attached. */
+  private filesNamed(text: string, attached: { path?: string }[]): { name: string; data: string; path: string }[] {
+    if (!this.fileOf) return [];
+    const have = new Set(attached.flatMap((f) => (f.path ? [f.path] : [])));
+    const paths = new Set<string>();
+    outsideCode(text, (part) => {
+      for (const m of part.matchAll(FILE_REF)) {
+        const path = (m[1] ?? m[2] ?? "").trim();
+        if (UPLOADS.test(path) && !have.has(path)) paths.add(path);
+      }
+      return part;
+    });
+    return [...paths].slice(0, DISCORD_FILES).flatMap((path) => {
+      const file = this.fileOf?.(path);
+      return file ? [{ ...file, path }] : [];
+    });
+  }
+
+  /** Whether a speaker is the owner, whose words are never drawn as KOS's blocks. */
+  private isOwner(from: Sender | undefined): boolean {
+    return from !== undefined && this.owner !== undefined && (from === this.owner || (from.name === this.owner.name && from.avatarUrl === this.owner.avatarUrl));
+  }
+
+  /** A block kept for its buttons, by a short key, with the chat it was said in; the oldest let go past a few hundred. */
+  private keepBlock(block: KosBlock, chat: string | undefined): string {
+    const key = randomBytes(6).toString("base64url");
+    this.blocks.set(key, { block, ...(chat ? { chat } : {}) });
+    if (this.blocks.size > BLOCKS_KEPT) this.blocks.delete(this.blocks.keys().next().value!);
+    return key;
+  }
+
+  /**
+   * A typed block's Copy or Send. Copy answers the presser alone with the
+   * text. Send is the owner's words asking KOS to send the draft, in the chat
+   * the block is in, so the tool call asks as any other would.
+   */
+  private async pressBlock(interaction: ButtonInteraction, send: boolean, key: string): Promise<void> {
+    if (!this.isAuthorized(interaction.user.id)) {
+      await interaction.reply({ content: OWNER_ONLY, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      return;
+    }
+    const kept = this.blocks.get(key);
+    if (!kept) {
+      await interaction.reply({ content: "-# That draft is from before KOS last started. Ask for it again.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      return;
+    }
+    const { block, chat } = kept;
+    if (!send) {
+      await interaction.reply({ ...copyReply(block), flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      return;
+    }
+    const tool = sendTool(block, this.toolNames?.() ?? []);
+    if (!tool) {
+      await interaction.reply({ content: "-# Nothing here can send that.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      return;
+    }
+    await interaction.reply({ content: `-# Asked KOS to send it with ${tool}; it asks you before it does.`, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    const message = interaction.message as unknown as Message;
+    // The chat the block was said in, wherever the DM has moved since; else the room's own.
+    const binding = interaction.guildId ? this.bindingIn(interaction.channel) : undefined;
+    const conversationId = chat ?? binding?.conversationId;
+    await this.messageHandler?.({
+      channel: this.name,
+      senderId: interaction.user.id,
+      text: sendRequestOf(block, tool),
+      room: this.roomOf(message),
+      ...(conversationId ? { conversationId } : {}),
+      ...(binding?.newIn ? { newIn: binding.newIn } : {}),
+      native: message,
+    });
   }
 
   /**
@@ -3092,9 +3187,7 @@ export class DiscordAdapter implements ChannelAdapter {
      */
     const bound = msg.conversationId ?? msg.conversationKey;
     const from = message.guild && bound ? this.senderOf?.(bound) : undefined;
-    interface Story {
-      edit(content: string): Promise<unknown>;
-      remove(): Promise<unknown>;
+    interface Story extends StoryPost {
       ref: PromptRef;
     }
     const tell = async (content: string): Promise<Story | undefined> => {
@@ -3105,31 +3198,44 @@ export class DiscordAdapter implements ChannelAdapter {
         const thread = via.threadId ? { threadId: via.threadId } : {};
         const posted = await via.hook.send({ ...silent, username: from.name, ...thread });
         return {
-          edit: (next) => via.hook.editMessage(posted.id, { content: next, ...thread }),
+          edit: (next) => via.hook.editMessage(posted.id, { ...next, ...thread }),
           remove: () => via.hook.deleteMessage(posted.id, via.threadId),
           ref: { channelId: via.threadId && where.parent ? where.parent.id : where.id, messageId: posted.id, webhookId: via.hook.id, ...thread },
         };
       }
       if (!channel?.send) return undefined;
-      const posted = (await channel.send(silent)) as { id: string; edit: (payload: { content: string }) => Promise<unknown>; delete: () => Promise<unknown> };
-      return { edit: (next) => posted.edit({ content: next }), remove: () => posted.delete(), ref: { channelId: where.id, messageId: posted.id } };
+      const posted = (await channel.send(silent)) as { id: string; edit: (payload: StoryPayload) => Promise<unknown>; delete: () => Promise<unknown> };
+      return { edit: (next) => posted.edit(next), remove: () => posted.delete(), ref: { channelId: where.id, messageId: posted.id } };
     };
     // Up before the turn starts, so it is always the first thing after the
     // question; a line that could not be posted is no reason to hold the turn.
-    const story = await tell(THINKING).catch(() => undefined);
+    const first = await tell(THINKING).catch(() => undefined);
     // Kept while the turn runs, so a restart that cuts it short can say so on it.
-    const close = this.keepStory(story?.ref);
+    const closes = [this.keepStory(first?.ref)];
+    const close = (): void => closes.forEach((c) => c());
+    const story = first
+      ? new LiveStory(first, {
+          render: (raw) => storyText(raw, this.dashboardUrl, this.timezone, this.labelOf, Infinity),
+          // Rolled onto a new message: kept too, for a restart to mark.
+          next: async (content) => {
+            const post = await tell(content).catch(() => undefined);
+            if (post) closes.push(this.keepStory(post.ref));
+            return post;
+          },
+          // A step's picture only where the owner alone reads.
+          pictures: this.ownerOnly(message.channel),
+        })
+      : undefined;
     let told = false;
     const settle = async (): Promise<void> => {
       if (story && !told) await story.remove().catch(() => undefined);
     };
 
     return {
-      update: async (status: string) => {
-        const content = storyText(status, this.dashboardUrl, this.timezone, this.labelOf);
-        if (!content.trim() || !story) return;
+      update: async (status: string, extra?: StoryExtra) => {
+        if (!status.trim() || !story) return;
         told = true;
-        await story.edit(content);
+        await story.update(status, extra);
       },
       close,
       complete: async (answer: OutboundMessage, how?: { waiting?: boolean }) => {
@@ -3142,7 +3248,7 @@ export class DiscordAdapter implements ChannelAdapter {
         // webhook, under its own name, with no tag line needed.
         if (reply.from && message.guild && (await this.sendAs(message.channel as Parameters<DiscordAdapter["sendAs"]>[0], reply))) return;
         try {
-          await this.deliver(post, reply);
+          await this.deliver(post, reply, { shares: this.ownerOnly(message.channel) });
         } catch (err) {
           console.warn(`[discord] the answer could not be posted in the DM, sending it directly:`, err instanceof Error ? err.message : String(err));
           await this.send(msg.senderId, reply);
@@ -3199,37 +3305,25 @@ export class DiscordAdapter implements ChannelAdapter {
     return this.promptOf(id) !== undefined;
   }
 
-  private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
-    const ids = approvalCustomIds(req.id);
-    // Always only by the one rule every surface keeps, its words saying what it keeps.
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(ids.approve)
-        .setLabel("Approve")
-        .setStyle(ButtonStyle.Success),
-      ...(offersAlways(req) ? [new ButtonBuilder().setCustomId(ids.always).setLabel(cut(alwaysWords(req.rule!.scope, req.names), 80)).setStyle(ButtonStyle.Primary)] : []),
-      new ButtonBuilder()
-        .setCustomId(ids.deny)
-        .setLabel("Deny")
-        .setStyle(ButtonStyle.Danger),
-    );
-
-    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names, req.where) : req.text;
-    // No secret leaves in a card, its words or the call it carries.
+  /**
+   * An ask's card as it is posted, wherever: its words and the call's files
+   * scrubbed, since no secret leaves in a card, and the page a browser
+   * action is aimed at, the thing being approved rather than a description.
+   */
+  private askCard(req: ApprovalRequest): { content: string; files?: { attachment: Buffer; name: string }[] } {
     const scrub = this.scrub;
-    const unscrubbed = approvalCard(req);
-    const card: ApprovalCard = {
-      content: scrub(unscrubbed.content),
-      ...(unscrubbed.files ? { files: unscrubbed.files.map((f) => ({ ...f, attachment: Buffer.from(scrub(f.attachment.toString("utf8")), "utf8") })) } : {}),
-    };
-    // The page a browser action is aimed at, when there is one: the thing
-    // being approved, rather than a description of it.
-    const files = [...(req.picture ? [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] : []), ...(card.files ?? [])];
-    const payload: AskPayload = {
-      content: card.content,
-      components: [row],
-      ...(files.length ? { files } : {}),
-    };
+    const card: ApprovalCard = approvalCard(req, this.dashboardUrl ? { dashboardUrl: this.dashboardUrl } : {});
+    const files = [
+      ...(req.picture ? [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] : []),
+      ...(card.files ?? []).map((f) => ({ ...f, attachment: Buffer.from(scrub(f.attachment.toString("utf8")), "utf8") })),
+    ];
+    return { content: scrub(card.content), ...(files.length ? { files } : {}) };
+  }
+
+  private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
+    // Scrubbed too: it is the line the card settles into.
+    const summary = this.scrub(askSummary(req));
+    const payload: AskPayload = { ...this.askCard(req), components: [approvalButtons(req, this.dashboardUrl)] };
     // In a server every ask is in #needs-you, the one place to see all that
     // waits, and also where its chat is read when it has a channel or a
     // thread, so the question sits in the conversation it belongs to. The
@@ -3315,11 +3409,11 @@ export class DiscordAdapter implements ChannelAdapter {
    * The same edit the buttons make when pressed here, so a decision looks the
    * same wherever it was made.
    */
-  async settleApproval(id: string, outcome: ApprovalOutcome): Promise<void> {
+  async settleApproval(id: string, outcome: ApprovalOutcome, decided: Decided = {}): Promise<void> {
     const prompt = this.promptOf(id);
     if (!prompt) return;
     this.forget(id);
-    const settled = { content: settledText(outcome, prompt.summary, id), embeds: [] as never[], components: [] as never[] };
+    const settled = { content: settledText(outcome, prompt.summary, id, false, false, decided), embeds: [] as never[], components: [] as never[] };
     // Deleted, or too old to edit: a card that cannot be settled is not worth
     // failing a decision over, and its twin still is.
     await Promise.all(prompt.copies.map((c) => c.edit(settled).catch(() => undefined)));

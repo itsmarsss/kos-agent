@@ -158,7 +158,7 @@ import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
 import { modelUnavailable, SDK_PROVIDER, SdkOneShot, sdkModelFor, sdkTurnModel, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
-import { Decisions, type DecisionResult, type DecisionSurface } from "./decisions.js";
+import { CONTROL_SURFACES, controlElsewhere, Decisions, type DecisionResult, type DecisionSurface } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
 import { GuardedTools, finishedAfterStop } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
@@ -168,7 +168,7 @@ import { originOf } from "./origin.js";
 import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { ASK, UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
+import { ASK, MODE_WORDS, UNCHANGED, liveMode, modeLabel, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -3134,6 +3134,11 @@ export class Kernel {
      * continuous stream now, the way the dashboard does, and /switch still
      * points it elsewhere when the owner says so.
      */
+    return this.surfaceStream(channel, userId);
+  }
+
+  /** A surface's own stream, made the first time, and the surface pointed at it. */
+  private surfaceStream(channel: string, userId: string): Conversation {
     const id = surfaceSessionId(channel, userId);
     const chosen =
       this.conversations.get(id) ??
@@ -3237,6 +3242,66 @@ export class Kernel {
 
       case "stop":
         return { reply: this.stop(conversationId) ? "Stopping this turn." : "Nothing is running here." };
+
+      case "here": {
+        const home = this.surfaceStream(channel, userId);
+        return { reply: `Back on “${home.title}”, this surface's own chat.`, switchedTo: home.id };
+      }
+
+      case "mode": {
+        const now = Date.now();
+        const said = (mode: ChatMode): string => `${modeLabel(mode, now)}: ${MODE_WORDS[liveMode(mode, now).mode].does}`;
+        if (!command.mode) return { reply: said(this.chatMode(conversationId)) };
+        // As the dashboard's chip: the owner's alone, and Auto never from a text message.
+        if (!owner) return { reply: "Only the owner sets a chat's mode." };
+        if (command.mode === "auto" && !CONTROL_SURFACES.has(channel)) return { reply: controlElsewhere("Setting a chat to Auto") };
+        if (command.mode === "auto" && this.killSwitch.halted) return { reply: "KOS is halted; every chat stays in Ask until it resumes." };
+        this.setChatMode(conversationId, command.mode === "auto" ? { mode: "auto" } : ASK);
+        return { reply: said(this.chatMode(conversationId)) };
+      }
+
+      case "inbox": {
+        const pending = this.approvals.pending();
+        if (pending.length === 0) return { reply: "Nothing is waiting on you." };
+        const where = (id: string | null): string => (id && id !== conversationId ? ` (in ${this.conversations.get(id)?.title ?? id})` : "");
+        return {
+          reply: [
+            `${pending.length} waiting on you:`,
+            ...pending.map((a) => `- @approval:${a.id} ${summarizeAction(a.tool, a.args, (kind, id) => this.labelFor(kind, id), this.actionHome(a.conversationId))}${where(a.conversationId)}`),
+            "",
+            "`/approve <#>` or `/deny <#>`.",
+          ].join("\n"),
+        };
+      }
+
+      case "run": {
+        if (!owner) return { reply: "Only the owner runs a job." };
+        if (!CONTROL_SURFACES.has(channel)) return { reply: controlElsewhere("Running a job now") };
+        const raw = command.job.trim().replace(/^cron:/, "");
+        const jobs = this.crons.list();
+        const lower = raw.toLowerCase();
+        const job = /^\d+$/.test(raw)
+          ? jobs.find((j) => j.id === Number(raw))
+          : (jobs.find((j) => j.name.toLowerCase() === lower) ?? (jobs.filter((j) => j.name.toLowerCase().includes(lower)).length === 1 ? jobs.find((j) => j.name.toLowerCase().includes(lower)) : undefined));
+        if (!job) return { reply: `No job matches “${command.job}”.` };
+        if (this.killSwitch.halted) return { reply: "KOS is halted; nothing runs until it resumes." };
+        // Not awaited: a run takes as long as the job does, and shows in its own thread.
+        void this.fireCron(job.id).catch((err: unknown) => console.error(`run ${job.name}: ${err instanceof Error ? err.message : String(err)}`));
+        return { reply: `Running “${job.name}” now; it shows in its thread.` };
+      }
+
+      case "halt":
+        if (!owner) return { reply: "Only the owner throws the kill switch." };
+        // Halting is the safe direction: from every owner surface, a text included, so a phone alone can stop KOS.
+        this.killSwitch.halt();
+        return { reply: "Halted: nothing runs, and every chat is back in Ask, until `/resume`." };
+
+      case "resume":
+        if (!owner) return { reply: "Only the owner lifts the kill switch." };
+        if (!CONTROL_SURFACES.has(channel)) return { reply: controlElsewhere("Lifting the kill switch") };
+        if (!this.killSwitch.halted) return { reply: "KOS is not halted." };
+        this.killSwitch.resume();
+        return { reply: "Resumed: KOS runs again. Chats stay in Ask until you set them." };
 
       case "agents": {
         const slug = current?.projectSlug ?? null;
