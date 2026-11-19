@@ -101,22 +101,25 @@ shell, Python and TeX tools ("this needs a jail: install bubblewrap
   Expect `bubblewrap 0.8.0` or later, then `jailed`. "setting up uid map:
   Permission denied" or "No permissions to create new namespace" means
   unprivileged user namespaces are held back. Ubuntu 23.10 and later do it
-  with AppArmor. The narrow fix lets bwrap, and unshare (which makes a
-  networked command's own namespaces), alone make them, each with a
-  profile of its own:
+  with AppArmor, per program:
 
-  ```bash
-  for p in bwrap unshare; do
-    printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile kos-%s /usr/bin/%s flags=(unconfined) {\n  userns,\n}\n' "$p" "$p" \
-      | sudo tee /etc/apparmor.d/kos-$p
-    sudo apparmor_parser -r /etc/apparmor.d/kos-$p
-  done
-  ```
+  - Ubuntu 24.04 and later ship a profile for bwrap
+    (`/etc/apparmor.d/bwrap-userns-restrict`), enough for commands without
+    the network. Where none ships, a profile of KOS's own for bwrap alone:
 
-  (pasta's own profile ships with the passt package.) Only if that is not
-  possible, the system-wide switch lets every program make them:
-  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, and the
-  same line in `/etc/sysctl.d/` to keep it. Or use Docker.
+    ```bash
+    printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile kos-bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n}\n' \
+      | sudo tee /etc/apparmor.d/kos-bwrap
+    sudo apparmor_parser -r /etc/apparmor.d/kos-bwrap
+    ```
+
+  - A command with the network nests bwrap in namespaces unshare makes,
+    and Ubuntu's `unshare-userns-restrict` keeps unshare's children from
+    making more, so there only the system-wide switch lets it run:
+    `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, and
+    the same line in `/etc/sysctl.d/` to keep it. Without it, such a
+    command fails, saying so; or use Docker.
+
 - KOS runs bwrap, pasta, slirp4netns and prlimit only from `/usr/bin`,
   `/usr/local/bin` and `/bin`, and only when root owns the program and
   every folder above it, writable by no one else. It tries bwrap once, and
