@@ -391,10 +391,13 @@ listed), unregisters those on the site and clears that origin's service
 workers and Cache Storage, cookies and logins kept, each scope on its
 own. A fill waits for a clearing under way, and fails closed: a site
 whose clearing failed, or has not run, takes no fill (`refused:worker`)
-until one works. A page still runs through a worker after it is
-unregistered, so a document loaded before a clearing that found a worker
-on its site, or one a worker controls that loaded before its site's last
-clearing, takes no fill either; opened afresh, it does. A site running a
+unless the one more clearing the fill tries first works. A page still
+runs through a worker after it is unregistered, and clearing hides that
+it did, so a document that began before the clearing of a worker found
+on its site ended, or one a worker controls that began before its site's
+last clearing, takes no fill either; opened afresh, it does. Documents
+and clearings are ordered by a counter, not the wall clock. KOS's own
+tab for this is known by its id, never listed. A site running a
 worker of its own is not refused a fill.
 
 Every saved value is cleaned out of what KOS reads back from every tab,
