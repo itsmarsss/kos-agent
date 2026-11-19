@@ -1039,7 +1039,7 @@ export interface FactRow {
 }
 
 /** The server's own sentence when it sent one, else something serviceable. */
-async function readError(res: Response, path: string): Promise<string> {
+export async function readError(res: Response, path: string): Promise<string> {
   const text = await res.text();
   try {
     const body = JSON.parse(text) as { error?: unknown };

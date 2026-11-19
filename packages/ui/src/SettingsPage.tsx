@@ -1654,6 +1654,11 @@ export function SettingsPage({
         )}
         {active === "permissions" && (
           <Section title="Permissions" blurb="Each rule is a decision you made at a prompt with Always. The same shape stops asking; a new shape still does. Revoke one and it asks again.">
+            <Field group className="set-field" label="Secrets" hint="Logins, cards and keys KOS may fill in without seeing them, where each may be used, and when it asks.">
+              <a className="btn btn--sm" href={hrefFor({ name: "secrets" })}>
+                Open Secrets
+              </a>
+            </Field>
             {rules.length === 0 && (
               <Empty inline>Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</Empty>
             )}

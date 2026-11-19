@@ -8072,3 +8072,72 @@ img.ov-shape { object-fit: fill; }
 .preview-audio { display: block; width: min(100% - 2rem, 32rem); margin: 3rem auto; }
 .preview-video { display: block; max-width: 100%; max-height: min(78vh, 60rem); margin: 0 auto; background: #000; }
 .drawer .finder-facts-art { max-height: 15rem; }
+
+/* —— Secrets: the vault, its list, a secret's sheet —— */
+.secrets { --stack: 1rem; display: flex; flex-direction: column; gap: var(--stack); min-width: 0; }
+.secret-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
+.secret-list li + li { border-top: 1px solid var(--line); }
+.secret-row { display: flex; align-items: center; gap: 0.75rem; width: 100%; min-height: 3.75rem; padding: 0.6rem 0.9rem; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; transition: background 140ms ease; }
+.secret-row:hover { background: var(--panel-2); }
+.secret-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.secret-row-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 2rem; height: 2rem; border-radius: var(--r-sm); background: var(--accent-dim); color: var(--accent); }
+.secret-row-main { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
+.secret-row-title { display: flex; align-items: center; gap: 0.45rem; min-width: 0; }
+.secret-row-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.secret-row-detail { display: flex; gap: 0.6rem; min-width: 0; color: var(--muted); font-size: var(--text-base); }
+.secret-row-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.secret-row-detail .kos-mono { flex: none; }
+.secret-row-used { flex: none; color: var(--muted); font-size: var(--text-sm); }
+.secret-empty-act { display: block; margin-top: 0.7rem; }
+.secret-gate-form { display: flex; flex-direction: column; gap: 0.7rem; }
+.secret-gate-form > .hint { margin: 0; max-width: 46rem; line-height: 1.5; }
+.secret-gate-row { display: flex; align-items: flex-end; gap: 0.5rem; flex-wrap: wrap; }
+.secret-gate-row > .kos-field { flex: 1 1 12rem; max-width: 22rem; min-width: 0; }
+.secret-gate-row > .kos-input { flex: 0 1 14rem; min-width: 0; }
+.secret-gate-row .btn, .secret-vault-acts .btn, .secret-reveal-row .btn { height: var(--control-h); padding-block: 0; }
+.secret-facts { display: flex; flex-wrap: wrap; gap: 0.5rem 2.5rem; margin: 0 0 0.9rem; }
+.secret-facts dt { color: var(--muted); font-size: var(--text-sm); font-weight: 600; }
+.secret-facts dd { margin: 0.15rem 0 0; }
+.secret-vault-acts { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.secret-wipe { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--line); }
+.secret-wipe .hint { margin: 0; }
+
+.secret-sheet { display: flex; flex-direction: column; gap: 1.4rem; }
+.secret-form { display: flex; flex-direction: column; gap: 1.2rem; }
+.secret-fields { display: flex; flex-direction: column; gap: 0.8rem; min-width: 0; }
+.secret-fields > .secret-warn { margin-top: -0.3rem; }
+.secret-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.secret-billing { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.secret-billing > :nth-child(-n + 2) { grid-column: 1 / -1; }
+.secret-switch { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.secret-switch-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; font-size: var(--text-base); }
+.secret-switch-text .hint { font-size: var(--text-sm); }
+.secret-section-hint { margin: 0; }
+.secret-billing + .secret-section-hint { margin-top: 0.5rem; }
+.secret-warn { margin: 0; padding: 0.55rem 0.75rem; border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: var(--r-sm); background: var(--warn-dim); color: var(--warn); font-size: var(--text-base); line-height: 1.45; }
+.secret-lines { list-style: none; margin: 0; padding: 0; }
+.secret-line { display: flex; align-items: center; gap: 0.6rem; min-height: 2.5rem; padding: 0.35rem 0; border-top: 1px solid var(--line); }
+.secret-line:first-child { border-top: 0; }
+.secret-line-main { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.secret-line-main > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.secret-line-meta { flex: none; color: var(--muted); font-size: var(--text-sm); }
+.secret-line-main .secret-line-meta { flex: initial; }
+.secret-reveal-row { display: flex; align-items: flex-end; gap: 0.5rem; }
+.secret-reveal-row > .kos-field { flex: 1; min-width: 0; }
+.secret-revealed { display: flex; flex-direction: column; gap: 0.5rem; }
+.secret-revealed-value { display: block; padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); font-family: var(--mono); font-size: var(--text-base); white-space: pre-wrap; word-break: break-all; user-select: all; }
+.secret-revealed-acts { display: flex; align-items: center; gap: 0.5rem; }
+.secret-revealed-acts .secret-line-meta { margin-right: auto; }
+.secret-foot-end { margin-left: auto; }
+
+/* Over the composer: a secret in the draft, and the offer to keep it as one. */
+.secret-offer { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.3rem 0.3rem 0.6rem; border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: var(--r-sm); background: var(--warn-dim); color: var(--warn); font-size: var(--text-sm); }
+.secret-offer-text { flex: 1; min-width: 0; }
+.chats-welcome-form > .secret-offer { margin-bottom: 0.5rem; }
+
+@media (max-width: 640px) {
+  .secret-row { flex-wrap: wrap; row-gap: 0.25rem; }
+  .secret-row-used { order: 3; flex-basis: 100%; padding-left: 2.75rem; }
+  .secret-billing { grid-template-columns: 1fr; }
+  .secret-billing > :nth-child(-n + 2) { grid-column: auto; }
+}

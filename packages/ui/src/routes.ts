@@ -16,6 +16,8 @@ export type Route =
   | { name: "chats"; id?: string }
   | { name: "files"; path?: string }
   | { name: "settings"; section?: string }
+  /** The vault: what KOS may fill in without seeing it. */
+  | { name: "secrets" }
   /** The blobs; `blob` is the one whose page is open, "new" for a blank editor. */
   | { name: "blobs"; blob?: string }
   /** Coding sub-agents, the builds; `id` opens one's log. */
@@ -67,6 +69,7 @@ export function parseRoute(hash: string): Route {
   if (path === "/chats") return { name: "chats" };
   if (path === "/files") return { name: "files" };
   if (path === "/settings") return { name: "settings" };
+  if (path === "/secrets") return { name: "secrets" };
   const settings = path.match(/^\/settings\/([a-z]+)$/);
   if (settings?.[1]) return { name: "settings", section: settings[1] };
   if (path === "/builds") return { name: "builds" };
@@ -163,6 +166,7 @@ export const NAV: Array<{ route: Route; label: string }> = [
   { route: { name: "blobs" }, label: "Blobs" },
   { route: { name: "files" }, label: "Files" },
   { route: { name: "memory" }, label: "Memory" },
+  { route: { name: "secrets" }, label: "Secrets" },
   { route: { name: "history" }, label: "Runs" },
 ];
 

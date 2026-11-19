@@ -46,6 +46,7 @@ export interface SettingEntry {
 
 /** The settings the page writes out by hand, by section. */
 export const SETTINGS: SettingEntry[] = [
+  { section: "permissions", label: "Secrets", words: "passwords logins cards keys vault" },
   { section: "you", label: "Name", words: "what KOS calls you" },
   { section: "you", label: "Timezone", words: "schedules today time zone" },
   { section: "you", label: "Owner id", words: "identifies you across channels" },

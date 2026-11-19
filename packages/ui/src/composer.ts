@@ -144,3 +144,70 @@ export function useAutoGrow(
     el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
   }, [ref, value, maxRows]);
 }
+
+/** Something in a draft that looks like a secret, where it is, and what it would be kept as. */
+export interface FoundSecret {
+  kind: "login" | "card" | "apikey";
+  field: "password" | "number" | "token";
+  /** What it is, for the offer: "a card number". */
+  what: string;
+  value: string;
+  /** The span of the draft it takes, to take it out. */
+  start: number;
+  end: number;
+}
+
+/** Whether a run of digits passes the Luhn check every card number does. */
+export function luhn(digits: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < digits.length; i++) {
+    let d = Number(digits[digits.length - 1 - i]);
+    if (i % 2 === 1) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+
+const KEY_PATTERNS: readonly { re: RegExp; what: string }[] = [
+  { re: /\bsk-[A-Za-z0-9_-]{16,}/g, what: "an API key" },
+  { re: /\bghp_[A-Za-z0-9]{20,}/g, what: "a GitHub token" },
+  { re: /\bxox[a-z]-[A-Za-z0-9-]{10,}/g, what: "a Slack token" },
+  { re: /\bAKIA[0-9A-Z]{16}\b/g, what: "an AWS key" },
+];
+
+/**
+ * The first thing in a draft that looks like a secret: a card number (13
+ * to 19 digits, spaced or dashed, Luhn-valid), a key by its prefix, or a
+ * "password: ..." line. The composer offers to keep it as a secret instead
+ * of sending it; the host masks values it stores either way.
+ */
+export function detectSecret(text: string): FoundSecret | null {
+  const found: FoundSecret[] = [];
+  for (const m of text.matchAll(/(?<![\d-])\d(?:[ -]?\d){12,18}(?![\d-])/g)) {
+    const digits = m[0].replace(/[ -]/g, "");
+    if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) {
+      found.push({ kind: "card", field: "number", what: "a card number", value: digits, start: m.index, end: m.index + m[0].length });
+      break;
+    }
+  }
+  for (const { re, what } of KEY_PATTERNS) {
+    const m = re.exec(text);
+    re.lastIndex = 0;
+    if (m) found.push({ kind: "apikey", field: "token", what, value: m[0], start: m.index, end: m.index + m[0].length });
+  }
+  // A sentence's own punctuation after it ("password: hunter2.") is not the password's.
+  const pw = /\bpass(?:word|wd)\s*[:=]\s*(\S+?)[.,;:!?)\]"']*(?=\s|$)/i.exec(text);
+  if (pw) found.push({ kind: "login", field: "password", what: "a password", value: pw[1]!, start: pw.index, end: pw.index + pw[0].lastIndexOf(pw[1]!) + pw[1]!.length });
+  found.sort((a, b) => a.start - b.start);
+  return found[0] ?? null;
+}
+
+/** The draft with what was found taken out, the gap it leaves closed. */
+export function withoutSecret(text: string, found: FoundSecret): string {
+  const before = text.slice(0, found.start).replace(/[ \t]+$/, "");
+  const after = text.slice(found.end).replace(/^[ \t]+/, "");
+  return before && after && !/\n$/.test(before) && !/^\n/.test(after) ? `${before} ${after}` : `${before}${after}`;
+}

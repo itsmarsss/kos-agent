@@ -16,6 +16,7 @@ import { ArchiveIcon, type BlockActions, MessageTime, Timed, TimeLine, card, Che
 
 import { PictureGallery } from "./Lightbox.js";
 import { PendingAsk } from "./PendingAsk.js";
+import { SecretOffer } from "./SecretOffer.js";
 import { VoiceInput } from "./VoiceInput.js";
 
 import { ContextMeter } from "./ContextMeter.js";
@@ -2075,6 +2076,7 @@ export function ChatsPage({
                     void startFromLanding();
                   }}
                 >
+                  <SecretOffer draft={opening} onDraft={setOpening} />
                   <div className="chats-welcome-field">
                     <textarea
                       className="hl-area chats-welcome-input"
@@ -2621,6 +2623,7 @@ export function ChatsPage({
                   }))}
                   onRemove={attachments.remove}
                 />
+                <SecretOffer draft={draft} onDraft={setDraft} />
                 <div className="composer-input">
                   <AutocompleteMenu
                     suggestions={suggestions}
