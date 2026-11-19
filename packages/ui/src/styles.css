@@ -2226,15 +2226,18 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 .chat-divider::before,
 .chat-divider::after { content: ""; flex: 1; border-top: 1px dashed var(--line-strong); }
 
+/* A note from KOS's side (what was decided, a lapse): small words across
+   the column, left like KOS's own, a long address breaking where it must.
+   Centred monospace, it was a narrow column of broken URLs on a phone. */
 .bubble--system {
-  align-self: center;
+  align-self: flex-start;
   max-width: 100%;
   background: none;
   border: 0;
   padding: 0.15rem 0;
-  color: var(--faint);
-  font-size: var(--text-base);
-  font-family: var(--mono);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 .sheet-composer-bar {
   display: flex;
@@ -3049,13 +3052,16 @@ li:hover .chats-item-when { opacity: 0; }
 .turn-said { position: relative; display: flex; min-width: 0; }
 .turn--you > .turn-said { max-width: 88%; }
 .turn--you > .turn-said > .bubble { max-width: 100%; }
-.turn--system > .turn-said { align-self: center; max-width: 100%; }
+.turn--system > .turn-said { align-self: stretch; max-width: 100%; }
 .turn--system > .turn-said > .bubble { max-width: none; }
 .turn-said > .msg-time { position: absolute; }
 .turn--you > .turn-said > .msg-time { right: 100%; bottom: 0.6rem; margin-right: 0.5rem; }
 .turn--system > .turn-said > .msg-time { left: 100%; bottom: 0.2rem; margin-left: 0.5rem; }
 /* A long note would push its time off the edge: it leaves room for it, and only when it has one. */
 .turn--system > .turn-said:has(> .msg-time) { max-width: calc(100% - 10rem); }
+@media (max-width: 640px) {
+  .turn--system > .turn-said:has(> .msg-time) { max-width: calc(100% - 4.5rem); }
+}
 
 .edit { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; }
 .edit-area {
