@@ -5,7 +5,7 @@ import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/rea
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 
-import { asked, DONE, EMPTY, FAILED, givenBack, isCommand, isShown, PANEL_COMMANDS, sent, shown, statused, STEP, storyStep, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
+import { asked, DONE, EMPTY, FAILED, givenBack, givenBackAsk, isCommand, isShown, PANEL_COMMANDS, sent, shown, statused, STEP, storyStep, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
 import { pictureSrc, showable, type Pictured } from "./frames.js";
 import { linkWords } from "./linkwords.js";
 import { lapsed } from "./waiting.js";
@@ -110,6 +110,8 @@ function useChat(windowId: number | undefined, online: boolean): {
   const port = useRef<chrome.runtime.Port | null>(null);
   /** What the owner did while the worker was away (a Stop, an approval, words), with when, sent in order once it is back. */
   const outbox = useRef<{ message: Record<string, unknown>; at: number }[]>([]);
+  /** Asks answered with a one-time code, by id, until KOS has them or the worker says they could not go. */
+  const sentAsks = useRef(new Map<string, Approval>());
   const chosen = useRef<string | null>(null);
   const taking = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** Heard from KOS since the words went: no need to wait on it any longer. */
@@ -203,11 +205,21 @@ function useChat(windowId: number | undefined, online: boolean): {
         case "chat.ask":
           return setChat((c) => asked(c, message));
         case "chat.settled":
+          sentAsks.current.delete(String(message["approval"]));
           return setChat((c) => ({ ...c, asks: c.asks.filter((a) => a.id !== message["approval"]) }));
         case "consent":
           return setChat((c) => ({ ...c, consent: message["request"] as ConsentRequest }));
         case "consent.done":
           return setChat((c) => (c.consent?.id === message["id"] ? { ...c, consent: undefined } : c));
+        case "decide.unsent": {
+          // A yes with a one-time code that could not go: the card comes back, its box empty, and says so.
+          const id = String(message["approval"] ?? "");
+          const back = sentAsks.current.get(id);
+          sentAsks.current.delete(id);
+          answered.current.delete(id);
+          setChat((c) => givenBackAsk(c, back));
+          return setError(String(message["why"] ?? "Not sent."));
+        }
         case "error":
           return giveBack(String(message["message"] ?? ""));
         default:
@@ -267,7 +279,13 @@ function useChat(windowId: number | undefined, online: boolean): {
       const id = String(message["approval"] ?? message["id"]);
       if (answered.current.has(id)) return;
       answered.current.add(id);
-      setChat((c) => (message["type"] === "decide" ? { ...c, asks: c.asks.filter((a) => a.id !== id), working: message["approved"] === true } : { ...c, consent: undefined }));
+      setChat((c) => {
+        if (message["type"] !== "decide") return { ...c, consent: undefined };
+        // Kept while a yes with a code is on its way, to give back should the worker find KOS's line down.
+        const ask = c.asks.find((a) => a.id === id);
+        if (ask && typeof message["code"] === "string") sentAsks.current.set(id, ask);
+        return { ...c, asks: c.asks.filter((a) => a.id !== id), working: message["approved"] === true };
+      });
       say(message);
     },
     [say],
@@ -678,7 +696,7 @@ function Thread({
       )}
       <AnimatePresence>
         {chat.asks.map((a) => (
-          <Ask key={`ask${a.id}`} approval={a} decide={(approved, remember) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}) })} />
+          <Ask key={`ask${a.id}`} approval={a} decide={(approved, remember, code) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}), ...(code !== undefined ? { code } : {}) })} />
         ))}
         {chat.consent && <ConsentCard key={`consent${chat.consent.id}`} request={chat.consent} answer={(allowed, minutes, site) => answer({ type: "consent.answer", id: chat.consent!.id, allowed, minutes, ...(site ? { site: true } : {}) })} />}
         {reads.map((r) => (
@@ -871,7 +889,7 @@ function Extra({ extra }: { extra: Extra }): ReactElement {
 }
 
 /** An approval, as the dashboard draws it: the kit's AskCard, laid out by the host. */
-function Ask({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean) => void }): ReactElement {
+function Ask({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean, code?: string) => void }): ReactElement {
   const { title, summary, tool, place, steps, always, alwaysTip, alwaysNote, tooLong, secret } = approval;
   // An older host sends the rule's words alone.
   const risk = approval.risk ?? askRisk(approval.reason);
@@ -888,9 +906,9 @@ function Ask({ approval, decide }: { approval: Approval; decide: (approved: bool
   };
   // Decided once: the card waits for KOS to settle it, so a held key or a second press sends nothing more.
   const [busy, setBusy] = useState(false);
-  const once = (approved: boolean, remember?: boolean): void => {
+  const once = (approved: boolean, remember?: boolean, code?: string): void => {
     setBusy(true);
-    decide(approved, remember);
+    decide(approved, remember, code);
   };
   return (
     <m.div layout {...enter}>

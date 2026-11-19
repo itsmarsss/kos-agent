@@ -170,7 +170,7 @@ export interface ChatsPageProps {
   /** A line of feedback shown briefly over the page: what a command just did. */
   onNotice: (text: string) => void;
   onChanged: () => void;
-  onDecide: (pendingId: string, approved: boolean, remember?: boolean) => void;
+  onDecide: (pendingId: string, approved: boolean, remember?: boolean, code?: string) => void;
   /**
    * A message handed to the server rather than typed here, shown until the
    * transcript has it. Without it a fix attempt opened on an agent thinking
@@ -2530,7 +2530,7 @@ export function ChatsPage({
                     exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
                     transition={spring}
                   >
-                    <PendingAsk ask={a} deciding={deciding} onDecide={(id, ok, remember) => (remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} />
+                    <PendingAsk ask={a} deciding={deciding} onDecide={(id, ok, remember, code) => (code !== undefined ? onDecide(String(id), ok, false, code) : remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} />
                   </m.div>
                 ))}
                 </AnimatePresence>

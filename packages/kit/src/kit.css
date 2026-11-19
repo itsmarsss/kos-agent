@@ -561,6 +561,9 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 .kos-ask-secret-origin strong { font-weight: 700; }
 .kos-ask-secret-faint { color: var(--faint); }
 .kos-ask-secret-frames { margin: 0; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.kos-ask-code { margin: 0; min-width: 0; }
+.kos-ask-code .kos-input { font-family: var(--mono); letter-spacing: 0.08em; }
+.kos-ask-code-error { color: var(--danger); }
 .tag--warn { max-width: 100%; border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-dim); color: var(--warn); white-space: normal; }
 .kos-ask-meta { margin: 0; color: var(--faint); font-size: var(--text-sm); }
 .kos-ask-meta button { font-size: inherit; }

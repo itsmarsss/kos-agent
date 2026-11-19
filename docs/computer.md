@@ -204,7 +204,9 @@ count of every approval waiting on the owner, in any chat, `asks` the first
 ten of them to lapse, soonest first, each as `chat.ask` carries its
 `approval`, with the chat it is for (`chat`, absent for an approval no chat
 asked for). The phone decides one with `chat.decide` by its id, as any
-other. `failing` is the jobs failing now,
+other; a yes to an ask for a one-time code (its secret block's `code:
+true`) carries the code the owner typed on the card as `code`, and is no
+yes without one. `failing` is the jobs failing now,
 the longest broken first (ten at most), and `next` the five soonest runs of
 enabled schedules. Times are epoch milliseconds. KOS sends it only when
 asked; a device that does not know the call ignores it.
@@ -289,7 +291,8 @@ The reads, each with the query keys it takes and no other:
   keeps and its uses, never a value.
 
 And the actions, `POST`, each with exactly its body: `/api/approve` (`{
-"id": 41, "remember"?: true }`), `/api/deny` (`{ "id": 41 }`),
+"id": 41, "remember"?: true, "code"?: "123456" }`, `code` the one-time
+code typed on the card of an ask for one, never written to the audit), `/api/deny` (`{ "id": 41 }`),
 `/api/crons/run` (`{ "id": 3 }`), `/api/crons/enable` (`{ "id": 3,
 "enabled": false }`, pause and resume) and `/api/artifacts/<id>/restore`
 (`{}`, out of the trash). An approval is not decided through the handler:

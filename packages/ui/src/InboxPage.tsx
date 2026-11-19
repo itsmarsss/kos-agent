@@ -38,7 +38,7 @@ export function InboxPage({
   /** An approval to show first, by number: the one a link in a chat pointed at, waiting or decided. */
   highlight?: number;
   deciding: ReadonlySet<number>;
-  onDecide: (id: number, approved: boolean, remember?: boolean) => void;
+  onDecide: (id: number, approved: boolean, remember?: boolean, code?: string) => void;
   onOpenChat: (id: string) => void;
   /** Show the browser window, where a handoff is done by hand. */
   onOpenBrowser?: () => void;

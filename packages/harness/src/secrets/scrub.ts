@@ -29,9 +29,13 @@ export function scrubbedLabel(name: string, last4?: string): string {
 
 /**
  * How a value is looked for: `exact` as it is and encoded; `digits` (a card
- * number) by its digits alone, whatever spaces, dashes or dots run between.
+ * number) by its digits alone, whatever spaces, dashes or dots run between;
+ * `code` (a one-time code) in its encodings as exact, and as it is only where
+ * no letter or digit stands beside it (so a six-digit code is not found
+ * inside a timestamp or an id), in either case, with a space or a dash
+ * between any two of its characters, its digits percent-encoded or not.
  */
-export type ScanMode = "exact" | "digits";
+export type ScanMode = "exact" | "digits" | "code";
 
 /** A watched value: its name in a label, the value, and how it is looked for (exact when left out). */
 export type Watched = [name: string, value: string] | [name: string, value: string, mode: ScanMode];
@@ -108,6 +112,21 @@ interface Match {
   start: number;
   end: number;
   name: string;
+}
+
+/** What may stand beside a code as it is: no letter or digit, a percent escape (`code%3D481926`) or nothing at all. */
+const CODE_BEFORE = "(?<=^|[^\\p{L}\\p{N}]|%[0-9A-Fa-f]{2})";
+const CODE_AFTER = "(?=$|[^\\p{L}\\p{N}]|%[0-9A-Fa-f]{2})";
+
+/**
+ * A one-time code as it is, in either case, with a space or a dash (its own
+ * dashes among them) or neither between any two of its letters and digits,
+ * its digits percent-encoded or not.
+ */
+function codePattern(code: string): RegExp {
+  const part = (ch: string): string => (/\d/.test(ch) ? `(?:${ch}|%3${ch})` : `[${ch.toLowerCase()}${ch.toUpperCase()}]`);
+  const between = "(?:[ \\u00a0-]|%20|%2[dD])?";
+  return new RegExp(`${CODE_BEFORE}${[...code.replaceAll("-", "")].map(part).join(between)}${CODE_AFTER}`, "gu");
 }
 
 /**
@@ -206,6 +225,8 @@ export class Scrubber {
   readonly holdBack: number;
   /** Card numbers, each found by its digits however they are spaced. */
   private readonly numbers: { name: string; pattern: RegExp; last4: string }[] = [];
+  /** One-time codes as they are, each found by its own pattern. */
+  private readonly codes: { name: string; pattern: RegExp }[] = [];
 
   constructor(
     values: Iterable<Watched>,
@@ -219,6 +240,28 @@ export class Scrubber {
         if (digits.length < DIGITS_MIN) continue;
         this.numbers.push({ name, pattern: digitsPattern(digits), last4: digits.slice(-4) });
         reach = Math.max(reach, digits.length * 19);
+        // Its digits as the encodings write them too, as an exact value's are: a page may echo a number in base64 or hex,
+        // as it is or written in fours with spaces or dashes.
+        for (const written of [digits, ...[" ", "-"].map((sep) => digits.match(/.{1,4}/g)!.join(sep))]) {
+          for (const text of needlesOf(written)) {
+            if (text === written) continue;
+            needles.push({ text, name });
+            reach = Math.max(reach, Math.min(text.length, STREAM_REACH));
+          }
+        }
+        continue;
+      }
+      if (mode === "code") {
+        this.codes.push({ name, pattern: codePattern(value) });
+        // Spaced, cased and percent-encoded: a code written out in full is several times its length.
+        reach = Math.max(reach, value.length * 6);
+        for (const written of new Set([value, value.toUpperCase(), value.toLowerCase()])) {
+          for (const text of needlesOf(written)) {
+            if (/^[A-Za-z0-9-]+$/.test(text) && text.toLowerCase() === written.toLowerCase()) continue;
+            needles.push({ text, name });
+            reach = Math.max(reach, Math.min(text.length, STREAM_REACH));
+          }
+        }
         continue;
       }
       const plain = [value, JSON.stringify(value).slice(1, -1)];
@@ -241,6 +284,12 @@ export class Scrubber {
     const hits = new Map<string, number>();
     if (text.length < MIN_SCANNED) return { text, hits };
     let out = text;
+    for (const { name, pattern } of this.codes) {
+      out = out.replace(pattern, () => {
+        hits.set(name, (hits.get(name) ?? 0) + 1);
+        return scrubbedLabel(name);
+      });
+    }
     for (const { name, pattern, last4 } of this.numbers) {
       out = out.replace(pattern, () => {
         hits.set(name, (hits.get(name) ?? 0) + 1);

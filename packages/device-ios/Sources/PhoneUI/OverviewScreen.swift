@@ -53,8 +53,8 @@ struct OverviewScreen: View {
       if glance.report == nil { glance.ask() }
     }
     .sheet(item: $deciding) { waiting in
-      AskBody(ask: waiting.ask, more: 0, from: waiting.chat) { approved, remember in
-        glance.answer(waiting.id, approved: approved, remember: remember)
+      AskBody(ask: waiting.ask, more: 0, from: waiting.chat) { approved, remember, code in
+        glance.answer(waiting.id, approved: approved, remember: remember, code: code)
         deciding = nil
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

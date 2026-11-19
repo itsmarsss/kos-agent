@@ -299,12 +299,15 @@ export interface FillExpect extends Omit<FieldSpot, "field"> {
  * look, the page changed, its origin or the field's frame is not the one
  * approved, the field is not one the secret may go into, it is in a
  * frame KOS cannot reach, a script of KOS's ran in the page, or a service
- * worker from before its site's were cleared may run it.
+ * worker from before its site's were cleared may run it. `placed` is true
+ * for one raised once the value was on its way into the field (set, typed or
+ * handed to KOS for Chrome): some or all of it may be there.
  */
 export class SecretRefused extends Error {
   constructor(
     readonly code: "ref" | "changed" | "origin" | "field" | "unreachable" | "focus" | "scripted" | "worker",
     message: string,
+    readonly placed = false,
   ) {
     super(message);
     this.name = "SecretRefused";
@@ -873,9 +876,22 @@ export class Page {
       this.secrets.urls.add(urlKey(this.url));
       for (const values of [this.secrets.filled, this.kin()?.values]) if (values) keepFilled(values, { text: value, digits, origins: [...new Set([origin, frameOrigin])] });
     }
+    // From here the value is on its way in: whatever goes wrong, some or all of it may be in the field.
+    const placing = async (work: () => Promise<void>): Promise<void> => {
+      try {
+        await work();
+      } catch (err) {
+        throw err instanceof SecretRefused ? new SecretRefused(err.code, err.message, true) : err;
+      }
+    };
     // A browser that puts it in itself checks all this again on its side, and the field's holding it.
     const put = this.putSecret;
-    if (put) return this.acting(() => put({ node, frame, doc: this.life.loader, origin, frameOrigin, slot: expect.slot, value }), TYPED_MS);
+    if (put) return placing(() => this.acting(() => put({ node, frame, doc: this.life.loader, origin, frameOrigin, slot: expect.slot, value }), TYPED_MS));
+    await placing(() => this.typeSecret(ref, frame, node, value, args));
+  }
+
+  /** The value into the field: set on the node, or typed while it has the keyboard; refused, never read back, when it does not hold it. */
+  private async typeSecret(ref: string, frame: string, node: number, value: string, args: CallArg[]): Promise<void> {
     let held = false;
     await this.acting(async () => {
       held = await this.callIn<boolean>(frame, node, inpage.putValue, args);

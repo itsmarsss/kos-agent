@@ -5,7 +5,7 @@ import { ENDED_KEY, HELD_KEY, afterRestart, endedFor, endedWords, helloSession, 
 import { forgetKeys, keepKeys, keysFor, newKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
-import { WAITING_KEY, due, lapsed, queued, readWaiting, stopWith, type WaitingEvent } from "./waiting.js";
+import { WAITING_KEY, due, lapsed, queued, readWaiting, stopWith, withCode, type WaitingEvent } from "./waiting.js";
 import { note, recent, saveLog } from "./log.js";
 import { iconPixels } from "./icon.js";
 import { CURSOR } from "./cursorlook.js";
@@ -1775,9 +1775,23 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       link.event("chat.send", { text, ...(where ? { beside: where } : {}), ...(quoted ? { quote: { text: quoted, from: url } } : {}) });
       return;
     }
-    case "decide":
-      if (panel.kos) fromOwner(panel.kos, "chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true, ...(message["remember"] === true ? { remember: true } : {}) });
+    case "decide": {
+      if (!panel.kos) return;
+      const approved = message["approved"] === true;
+      const code = approved && typeof message["code"] === "string" ? message["code"] : undefined;
+      const decision = { approval: str(message["approval"]), approved, ...(message["remember"] === true ? { remember: true } : {}) };
+      // A one-time code goes to KOS now or not at all: never kept in storage to wait for the line.
+      if (code !== undefined) {
+        const link = links.get(panel.kos);
+        const went = withCode(link?.online === true, decision, code);
+        if ("send" in went) return void link!.event("chat.decide", went.send);
+        note("chat.decide with a one-time code from the side panel was not sent: KOS's line is down");
+        panel.port.postMessage(went.unsent);
+        return;
+      }
+      fromOwner(panel.kos, "chat.decide", decision);
       return;
+    }
     case "mode":
     case "mentions":
     case "list":

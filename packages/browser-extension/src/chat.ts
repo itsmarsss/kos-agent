@@ -305,3 +305,9 @@ function answeredWith(lines: Line[], n: number): number {
   return answered && seen === n ? steps : -1;
 }
 
+
+/** An ask given back to the panel (a yes with a code that could not go): shown again once, nothing running for it. */
+export function givenBackAsk(chat: Chat, ask: Approval | undefined): Chat {
+  if (!ask || chat.asks.some((a) => a.id === ask.id)) return chat;
+  return { ...chat, asks: [...chat.asks, ask], working: false };
+}

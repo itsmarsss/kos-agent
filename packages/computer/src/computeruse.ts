@@ -227,6 +227,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           uses: (secretUses ??= new SecretUses(requireServices(ctx).db)),
           tellOwner: (text) => void requireServices(ctx).notify?.({ text, target: { kind: "owner" } }).catch(() => undefined),
           ...(options.ownHosts ? { ownHosts: options.ownHosts } : {}),
+          codes: () => requireServices(ctx).secrets.codes,
         },
         // The KOS for Mac window's chat set to Ask: each step on the screen asks first.
         asksEachStep: (conversation) => mac.asksEachStep(conversation),

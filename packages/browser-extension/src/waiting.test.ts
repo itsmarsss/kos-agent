@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { STOP_LAPSES_MS, due, lapsed, queued, readWaiting, stopWith, type WaitingEvent } from "./waiting.js";
+import { CODE_UNSENT, STOP_LAPSES_MS, due, lapsed, queued, readWaiting, stopWith, withCode, type WaitingEvent } from "./waiting.js";
 
 const stop = (kos: string, at: number, chat?: string): WaitingEvent => ({ kos, name: "chat.stop", data: chat ? { chat } : {}, at });
 
@@ -31,5 +31,17 @@ describe("what waits for a line", () => {
   it("reads back only what it kept", () => {
     expect(readWaiting([stop("a", 1, "c1"), { kos: "a", name: "chat.send", data: {}, at: 1 }, null, "x"])).toEqual([stop("a", 1, "c1")]);
     expect(readWaiting(undefined)).toEqual([]);
+  });
+});
+
+describe("a yes with a one-time code", () => {
+  const decision = { approval: "9", approved: true };
+  it("goes at once while KOS's line is up", () => {
+    expect(withCode(true, decision, "481926")).toEqual({ send: { approval: "9", approved: true, code: "481926" } });
+  });
+  it("is given back to the panel, never kept, while the line is down", () => {
+    const went = withCode(false, decision, "481926");
+    expect(went).toEqual({ unsent: { type: "decide.unsent", approval: "9", why: CODE_UNSENT } });
+    expect(JSON.stringify(went)).not.toContain("481926");
   });
 });

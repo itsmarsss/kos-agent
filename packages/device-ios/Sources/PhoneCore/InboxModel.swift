@@ -120,14 +120,17 @@ public final class InboxModel: ObservableObject {
   }
 
   /// The owner's decision on one waiting: felt, sent, and the row gone once KOS has it; said when it did not go.
-  public func decide(_ ask: Routes.Pending, approved: Bool, remember: Bool = false) async {
-    guard !deciding.contains(ask.id) else { return }
+  /// A yes to an ask for a one-time code goes only with a code the card takes, in the body and nowhere else.
+  public func decide(_ ask: Routes.Pending, approved: Bool, remember: Bool = false, code: String? = nil) async {
+    let typed = code.flatMap(OneTimeCode.typed)
+    guard !deciding.contains(ask.id), !(approved && ask.asksCode && typed == nil) else { return }
     deciding.insert(ask.id)
     defer { deciding.remove(ask.id) }
     if approved { haptics.done() } else { haptics.tap() }
     do {
       var body: [String: JSONValue] = ["id": .number(Double(ask.id))]
       if approved && remember { body["remember"] = .bool(true) }
+      if approved, let typed { body["code"] = .string(typed) }
       try await dashboard.post(approved ? "/api/approve" : "/api/deny", body: .object(body))
       waiting.edit { $0 = $0.without(ask.id) }
       settled(String(ask.id))

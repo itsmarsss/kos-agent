@@ -17,7 +17,7 @@ import { ARTIFACT_DOCUMENT_BYTES } from "./artifacts.js";
 export type PanelDashboard = (req: ApiRequest) => Promise<ApiResponse>;
 
 /** What a named action's body holds: each key's type, `?` when it may be left out. */
-type BodyKey = "integer" | "boolean" | "boolean?";
+type BodyKey = "integer" | "boolean" | "boolean?" | "string?";
 
 /** An approval is decided as the phone's own chat.decide is, never through the handler; the rest go through it. */
 type RouteKind = "read" | "action" | "approve" | "deny";
@@ -65,7 +65,8 @@ const ROUTES: readonly Route[] = [
   // What the owner keeps, never a value: a reveal or a change is the dashboard's, behind its step-up.
   read("/api/secrets"),
   read("/api/secrets/<secret>/uses", ["limit"]),
-  action("/api/approve", { id: "integer", remember: "boolean?" }, "approve"),
+  // A one-time code typed on the card rides with the yes; it is never written down with the rest.
+  action("/api/approve", { id: "integer", remember: "boolean?", code: "string?" }, "approve"),
   action("/api/deny", { id: "integer" }, "deny"),
   // A run can take minutes, longer than a phone waits: it is answered once it fires, or why it did not.
   { ...action("/api/crons/run", { id: "integer" }), adds: { wait: false } },
@@ -77,6 +78,8 @@ const ROUTES: readonly Route[] = [
 const SEGMENT_MAX = 160;
 const PATH_MAX = 512;
 const QUERY_VALUE_MAX = 1024;
+/** The longest string a named action's body takes: a one-time code. */
+const BODY_STRING_MAX = 64;
 /** How many asks one phone may have on the way at once. */
 export const DASHBOARD_IN_FLIGHT = 4;
 /** How long an ask holds its place: as long as a phone waits on one (KOS for iPhone, 25 s), so both free it together. */
@@ -175,9 +178,15 @@ function bodyOf(body: unknown, keys: Readonly<Record<string, BodyKey>>): Record<
   for (const [key, type] of Object.entries(keys)) {
     const value = body[key];
     if (value === undefined && type.endsWith("?")) continue;
-    if (type === "integer" ? !Number.isSafeInteger(value) : typeof value !== "boolean") return undefined;
+    const fits = type === "integer" ? Number.isSafeInteger(value) : type === "string?" ? typeof value === "string" && value.length <= BODY_STRING_MAX : typeof value === "boolean";
+    if (!fits) return undefined;
   }
   return body;
+}
+
+/** A body as the audit writes it down: a one-time code is named, never kept. */
+function unwritten(body: Record<string, unknown>): Record<string, unknown> {
+  return "code" in body ? { ...body, code: "(typed on the card)" } : body;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -233,7 +242,7 @@ export class DashboardRelay {
     const { kind, request } = ask;
     // Every action is written down as the phone's; a read is not.
     const audit = (result: string, isError: boolean): void => {
-      if (kind !== "read") this.deps.audit?.({ tool: "device.dashboard", args: { device, method: request.method, path: request.path, body: ask.body ?? {} }, result, isError });
+      if (kind !== "read") this.deps.audit?.({ tool: "device.dashboard", args: { device, method: request.method, path: request.path, body: unwritten(ask.body ?? {}) }, result, isError });
     };
     try {
       if (kind === "approve" || kind === "deny") return await this.decide(device, ask.body!, kind === "approve", audit);
@@ -253,7 +262,8 @@ export class DashboardRelay {
   private async decide(device: string, body: Record<string, unknown>, approved: boolean, audit: (result: string, isError: boolean) => void): Promise<Record<string, unknown>> {
     const id = body["id"] as number;
     const remember = approved && body["remember"] === true;
-    const deciding = this.deps.decide({ id: String(id), approved, deciderId: device, ...(remember ? { remember } : {}) });
+    const code = approved && typeof body["code"] === "string" ? { code: body["code"] } : {};
+    const deciding = this.deps.decide({ id: String(id), approved, deciderId: device, ...(remember ? { remember } : {}), ...code });
     if (!deciding) {
       audit(REFUSED.undecided, true);
       return { error: REFUSED.undecided };

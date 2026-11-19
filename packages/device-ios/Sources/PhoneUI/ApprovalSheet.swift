@@ -1,3 +1,4 @@
+import DeviceCore
 import DeviceKit
 import SwiftUI
 
@@ -12,8 +13,8 @@ struct ApprovalSheet: View {
   var body: some View {
     Group {
       if let ask = chat.asks.first {
-        AskBody(ask: ask, more: chat.asks.count - 1) { approved, remember in
-          chat.answer(ask.id, approved: approved, remember: remember)
+        AskBody(ask: ask, more: chat.asks.count - 1) { approved, remember, code in
+          chat.answer(ask.id, approved: approved, remember: remember, code: code)
           if chat.asks.isEmpty { close() }
         }
         .id(ask.id)
@@ -31,14 +32,21 @@ struct ApprovalSheet: View {
 }
 
 /// One ask, as the sheet lays it out: the dashboard's card (`AskSummary`, `AskDetails`) under who asks, then how
-/// long it has and the buttons for the thumb, full width, Approve first.
+/// long it has and the buttons for the thumb, full width, Approve first. An ask for a one-time code has its masked
+/// box above the buttons (`AskCodeField`), and Approve only once a code is in it.
 struct AskBody: View {
   let ask: ChatModel.Ask
   /// How many more wait after this one.
   let more: Int
   /// The chat it is for, when it is not the one shown: an ask opened from the glance.
   var from: String? = nil
-  let answer: (_ approved: Bool, _ remember: Bool) -> Void
+  /// `code` is the one-time code typed on the card, for an ask for one.
+  let answer: (_ approved: Bool, _ remember: Bool, _ code: String?) -> Void
+  /// What is typed in the code's box, for this sheet alone: sent with the yes, then emptied.
+  @State private var code = ""
+
+  private var asksCode: Bool { ask.secret?.asksCode == true }
+  private var typed: String? { OneTimeCode.typed(code) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -62,6 +70,7 @@ struct AskBody: View {
       }
       .scrollIndicators(.hidden)
 
+      if let secret = ask.secret, secret.asksCode { AskCodeField(secret: secret, code: $code) { approve() } }
       if let expires = ask.expires { Lapse(until: expires) }
       if ask.tooLong {
         Text("Too long to show here in full. Open it in the dashboard's Inbox to approve it.").font(.kos(.detail)).foregroundStyle(Theme.muted)
@@ -71,16 +80,20 @@ struct AskBody: View {
       }
       VStack(spacing: 8) {
         if !ask.tooLong {
-          Button("Approve") { answer(true, false) }
+          Button("Approve") { approve() }
             .buttonStyle(KOSButtonStyle(.primary, large: true))
+            .disabled(asksCode && typed == nil)
             .accessibilityHint("KOS runs \(ask.tool) once")
         }
-        if let always = ask.always, !ask.tooLong {
-          Button(always) { answer(true, true) }
+        if let always = ask.always, !ask.tooLong, !asksCode {
+          Button(always) { answer(true, true, nil) }
             .buttonStyle(KOSButtonStyle(.secondary, large: true))
             .accessibilityHint(ask.alwaysTip ?? "Approves, and stops asking for this")
         }
-        Button("Deny") { answer(false, false) }
+        Button("Deny") {
+          code = ""
+          answer(false, false, nil)
+        }
           .buttonStyle(KOSButtonStyle(.secondary, large: true))
           .accessibilityHint("KOS will not run \(ask.tool)")
       }
@@ -88,6 +101,14 @@ struct AskBody: View {
     .padding(.horizontal, 20)
     .padding(.top, 24)
     .padding(.bottom, 12)
+  }
+
+  /// A yes, with the code for an ask for one; the box emptied as it goes.
+  private func approve() {
+    let sent = asksCode ? typed : nil
+    guard !asksCode || sent != nil else { return }
+    code = ""
+    answer(true, false, sent)
   }
 }
 

@@ -19,7 +19,8 @@ import { Vault } from "./vault.js";
 /**
  * A secret filled into KOS's own Chrome leaves no trace of its value
  * (design section 11): a scripted turn lists the secrets, fills a login on
- * the page and a card in a payment frame of another origin, shows the
+ * the page and a card in a payment frame of another origin, fills a
+ * one-time code the owner typed on its card, shows the
  * password with the page's own toggle, looks at the page as a picture, an
  * outline and its text, and tries a script and a javascript: address, both refused. The page
  * echoes whatever is typed into its text, its title and its console,
@@ -67,6 +68,8 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
   let payBase = "";
   let password = "";
   let card = "";
+  /** The one-time code the owner types on its card: never saved, used once. */
+  let code = "";
   let canaries: string[] = [];
   const requests: GenerateRequest[] = [];
   const events: ProgressEvent[] = [];
@@ -83,6 +86,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
 <label>Confirm <input id=honey type=password style="position:absolute;left:-9999px"></label>
 <button id=show onclick="const p = document.getElementById('pw'); p.type = p.type === 'password' ? 'text' : 'password'">Show password</button>
 <label>Preview <input id=mirror style="color:${MAGENTA}"></label><textarea id=area style="color:${MAGENTA};font-size:26px"></textarea>
+<label>One-time code <input id=otp autocomplete=one-time-code style="color:${MAGENTA}"></label>
 <script>document.getElementById('pw').addEventListener('input', (e) => { document.getElementById('mirror').value = e.target.value; document.getElementById('area').value = e.target.value; });</script>
 <div id=echo style="color:${MAGENTA};font-size:30px"></div>
 <iframe src="${payBase}/card" style="width:440px;height:140px;border:0"></iframe>${ECHO}`,
@@ -118,7 +122,8 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     card = luhnCard();
     const login = vault.add({ label: "Shop login", kind: "login", values: { username: "owner", password }, use: { web: { origins: [base] } } });
     const visa = vault.add({ label: "Visa", kind: "card", values: { number: card, expiry: "04/29" }, use: { web: { origins: [base], frames: [payBase] } } });
-    canaries = [password, card];
+    code = rand(8).toUpperCase();
+    canaries = [password, card, code];
     const secrets = new SecretsRegistry();
     secrets.attachVault(vault);
 
@@ -139,17 +144,19 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
           case 3:
             return call({ secret: visa, fields: [{ field: "number", target: refOf("Card number") }], intent: "pay" }, "secrets.fill");
           case 4:
+            return call({ secret: "code", fields: [{ field: "code", target: refOf("One-time code") }], intent: "finish signing in" }, "secrets.fill");
+          case 5:
             // The page's own show-password toggle, which turns the field into plain text.
             return call({ actions: [{ click: refOf("Show password") }], intent: "show the password" }, "browser.act");
-          case 5:
-            return call({}, "browser.look");
           case 6:
-            return call({ then: "snapshot" }, "browser.look");
+            return call({}, "browser.look");
           case 7:
-            return call({ then: "read" }, "browser.look");
+            return call({ then: "snapshot" }, "browser.look");
           case 8:
-            return call({ code: "document.getElementById('pw').value" }, "browser.eval");
+            return call({ then: "read" }, "browser.look");
           case 9:
+            return call({ code: "document.getElementById('pw').value" }, "browser.eval");
+          case 10:
             // A script as an address, which would run in the page that holds the secret.
             return call({ actions: [{ open: "javascript:document.title=document.getElementById('pw').value" }], intent: "read the field" }, "browser.act");
           default:
@@ -199,14 +206,14 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
       for (const ask of kernel.approvals.pending()) {
         if (decided.has(ask.id)) continue;
         decided.add(ask.id);
-        void kernel.approve(ask.id, kernel.profile.ownerId, { surface: "dashboard" });
+        void kernel.approve(ask.id, kernel.profile.ownerId, { surface: "dashboard", ...(ask.secret?.code ? { code } : {}) });
       }
     }, 50);
     const said = `Sign me in at ${base} and put my card ${card.match(/.{4}/g)!.join(" ")} in.`;
     expect(leaks(said)).toHaveLength(1);
     const res = await kernel.handleMessage(said, { owner: true, sessionId: chat.id });
     // The turn holds on each ask in the background, as a dashboard turn does, and carries on once it is approved.
-    await vi.waitFor(() => expect(requests.some((r) => JSON.stringify(r.messages).includes('"toolUseId":"leak-10"'))).toBe(true), { timeout: 90_000, interval: 200 });
+    await vi.waitFor(() => expect(requests.some((r) => JSON.stringify(r.messages).includes('"toolUseId":"leak-11"'))).toBe(true), { timeout: 90_000, interval: 200 });
     await vi.waitFor(() => expect(events.some((e) => e.kind === "turn-end" && e.conversationId === res.sessionId)).toBe(true), { timeout: 30_000, interval: 200 });
     clearInterval(approver);
 
@@ -214,6 +221,7 @@ describe.skipIf(!findChrome(undefined))("a secret filled into KOS's browser neve
     const sent = JSON.stringify(requests);
     expect(sent).toContain("Filled username and password from Shop login");
     expect(sent).toContain("Filled card number from Visa");
+    expect(sent).toMatch(/Filled the one-time code \(otp_[0-9a-f]{8}\) on http:\/\/localhost:\d+, in KOS's own browser/);
     expect(sent).toContain('textbox \\"Password\\" = \\"(hidden)\\"');
     expect(sent).toContain("browser.eval is refused: a secret was filled into this page");
     expect(sent).toContain("javascript: addresses are not opened");

@@ -470,6 +470,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       },
       onDecided: (listener) => approvals.onDecided(listener),
       tellOwner: (text) => void services.notify?.({ text, target: { kind: "owner" } }).catch(() => undefined),
+      codes: secrets.codes,
     }),
     createBuildsModule({
       approvals,

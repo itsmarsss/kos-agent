@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
-import { registrableDomain, secretFieldWords, type AskSecret, type AskView, type StepLine } from "@kos/shared";
+import { CODE_TTL_MS, codeProblem, registrableDomain, secretFieldWords, type AskSecret, type AskView, type StepLine } from "@kos/shared";
 
 import { CheckIcon, ChevronDown, ChevronRight, CopyIcon, GlobeIcon, HiddenIcon, MailIcon, PageIcon, ServerIcon, WindowIcon } from "./icons.js";
 import { Collapse, Countdown, Tag } from "./kit.js";
+import { readSecretValues, SecretField, clearSecretValues } from "./Secrets.js";
 import { useOverlayScroll } from "./OverlayScroll.js";
 import { Tooltip } from "./Tooltip.js";
 import { useSteadyPress } from "./useSteadyPress.js";
@@ -14,7 +15,10 @@ import { useSteadyPress } from "./useSteadyPress.js";
  * arguments folded under Details, and Deny, the remembered yes and Approve,
  * one height, under it all. Focused, Enter approves and Escape or
  * ⌘⌫ denies. The dashboard's Inbox, Home, chat and builds and KOS for
- * Chrome's side panel all draw this one (docs/components.md).
+ * Chrome's side panel all draw this one (docs/components.md). An ask for a
+ * one-time code has a masked box for it above the buttons: Approve sends
+ * what is typed there with the yes, read from the field as it goes and
+ * never kept in state.
  */
 export interface AskCardProps {
   /** The ask laid out (askView, or as the host sent it). */
@@ -30,7 +34,8 @@ export interface AskCardProps {
   expiresAt?: number | undefined;
   /** A decision is on its way: the pressed button says so and none takes another press. */
   busy?: boolean;
-  onDecide: (approved: boolean, remember?: boolean) => void;
+  /** `code` is the one-time code typed on the card, for an ask for one. */
+  onDecide: (approved: boolean, remember?: boolean, code?: string) => void;
   /** What yes and no are called when Approve and Deny are not the words: Done and Can't for a handoff. */
   labels?: { yes: string; no: string };
   /** No remembered yes, whatever the view offers: an ask that is its own each time. */
@@ -90,6 +95,11 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
     const later = setTimeout(() => setHeld(false), HELD_CUE_MS);
     return () => clearTimeout(later);
   }, [held]);
+  // An ask for a one-time code: its box, and whether what is typed there is one (never what it is).
+  const asksCode = view.secret?.code === true;
+  const codeForm = useRef<HTMLFormElement>(null);
+  const [codeReady, setCodeReady] = useState(false);
+  const [codeError, setCodeError] = useState<string>();
   const decide = (which: "yes" | "always" | "no"): void => {
     // One decision per card: a second press, or a key held down, sends nothing more.
     if (busy || pressed) return;
@@ -97,11 +107,26 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       setHeld(true);
       return;
     }
+    const code = asksCode && which === "yes" && codeForm.current ? (readSecretValues(codeForm.current)["code"] ?? "") : undefined;
+    const problem = code !== undefined ? codeProblem(code) : undefined;
+    if (problem) {
+      setCodeError(problem);
+      return;
+    }
+    // Sent once, then gone from the page: what the box held lives only in the request.
+    if (codeForm.current) clearSecretValues(codeForm.current);
+    setCodeReady(false);
     setPressed(which);
     handOn.current = box.current?.contains(document.activeElement) === true;
     if (which === "no") onDecide(false);
     else if (which === "always") onDecide(true, true);
+    else if (code !== undefined) onDecide(true, false, code);
     else onDecide(true);
+  };
+  const onCodeInput = (e: FormEvent<HTMLFormElement>): void => {
+    const typed = (e.target as HTMLInputElement).value ?? "";
+    setCodeReady(codeProblem(typed) === undefined);
+    setCodeError(undefined);
   };
   /**
    * The card's keys, heard only on the card itself, never on a button or
@@ -173,6 +198,26 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
         </span>
       )}
       {children}
+      {asksCode && (
+        <form
+          ref={codeForm}
+          className="kos-ask-code"
+          autoComplete="off"
+          onInput={onCodeInput}
+          onSubmit={(e) => {
+            e.preventDefault();
+            decide("yes");
+          }}
+        >
+          <SecretField
+            label="The code"
+            name="code"
+            disabled={busy}
+            placeholder="Type or paste it"
+            help={codeError ? <span className="kos-ask-code-error">{codeError}</span> : codeHelp(view.secret!)}
+          />
+        </form>
+      )}
       {args !== undefined && args !== "" && <AskDetails tool={tool} args={args} />}
       {meta && <p className="kos-ask-meta">{meta}</p>}
       {tooLong && <p className="kos-ask-meta">Too long to show here in full. Open it in the dashboard's Inbox to approve it.</p>}
@@ -201,13 +246,19 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           </button>
         )}
         {!tooLong && (
-          <button type="button" className={`btn btn--primary${size}`} disabled={busy} title="Approve (Enter)" onClick={() => decide("yes")}>
+          <button type="button" className={`btn btn--primary${size}`} disabled={busy || (asksCode && !codeReady)} title="Approve (Enter)" onClick={() => decide("yes")}>
             {working("yes", labels?.yes ?? "Approve")}
           </button>
         )}
       </div>
     </section>
   );
+}
+
+/** What a one-time code's box says it is for: where it goes, once, and for how long; never kept. */
+function codeHelp(secret: AskSecret): string {
+  const where = secret.origin ? ` on ${secret.origin.replace(/^https?:\/\//, "")}` : secret.app ? ` into ${secret.app.name}` : "";
+  return `${secret.surface === "mac" ? "Typed" : "Filled"} once${where} within ${CODE_TTL_MS / 60_000} minutes, and never saved. Or deny, and type it there yourself.`;
 }
 
 /** A host split for reading: what comes before its registrable domain, and that domain, which is what says whose site it is. */
@@ -235,7 +286,8 @@ export function AskSecretBlock({ secret }: { secret: AskSecret }): ReactElement 
       <p className="kos-ask-secret-what">
         <HiddenIcon size={14} title="" />
         <span>
-          <strong>{secret.label}</strong> <code>{secret.handle}</code>
+          <strong>{secret.label}</strong>
+          {!secret.code && <> <code>{secret.handle}</code></>}
           {secret.fields.length > 0 && <span className="kos-ask-secret-fields"> · {secret.fields.map(secretFieldWords).join(", ")}</span>}
         </span>
       </p>

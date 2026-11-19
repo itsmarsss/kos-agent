@@ -144,7 +144,7 @@ export function AgentTerminal({
 }: {
   id: number;
   onClose: () => void;
-  onDecide: (pendingId: number, approved: boolean, remember?: boolean) => void;
+  onDecide: (pendingId: number, approved: boolean, remember?: boolean, code?: string) => void;
   deciding: ReadonlySet<number>;
 }): ReactElement {
   const [build, setBuild] = useState<BuildRecord | null>(null);

@@ -131,7 +131,7 @@ struct RenderTests {
 
   @Test func theAskCards() throws {
     for (name, ask) in AskCases.all {
-      let card = AskCard(ask: ask) { _, _, _ in }.padding(12).frame(width: ChatView.size.width).background(Theme.bg)
+      let card = AskCard(ask: ask) { _, _, _, _ in }.padding(12).frame(width: ChatView.size.width).background(Theme.bg)
       let size = try render("ask-\(name)", card, width: ChatView.size.width)
       #expect(size.width <= ChatView.size.width + 0.5)
     }

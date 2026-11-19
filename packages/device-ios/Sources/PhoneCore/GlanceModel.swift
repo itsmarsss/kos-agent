@@ -27,7 +27,7 @@ public final class GlanceModel: ObservableObject {
   /// Asks KOS; the app sends the event.
   public var askKOS: () -> Void = {}
   /// An ask decided here; the app sends the decision.
-  public var decide: (_ id: String, _ approved: Bool, _ remember: Bool) -> Void = { _, _, _ in }
+  public var decide: (_ id: String, _ approved: Bool, _ remember: Bool, _ code: String?) -> Void = { _, _, _, _ in }
 
   /// Decided since KOS last said, so the count goes down with the rows.
   private var gone: Set<String> = []
@@ -51,10 +51,13 @@ public final class GlanceModel: ObservableObject {
   }
 
   /// The owner's decision: the row goes at once, and KOS is told.
-  public func answer(_ id: String, approved: Bool, remember: Bool = false) {
-    guard asks.contains(where: { $0.id == id }) else { return }
+  /// A yes to an ask for a one-time code goes only with a code the card takes; without one it is no answer.
+  public func answer(_ id: String, approved: Bool, remember: Bool = false, code: String? = nil) {
+    guard let waiting = asks.first(where: { $0.id == id }) else { return }
+    let typed = code.flatMap(OneTimeCode.typed)
+    if approved && waiting.ask.secret?.asksCode == true && typed == nil { return }
     settled(id)
-    decide(id, approved, remember)
+    decide(id, approved, remember, approved ? typed : nil)
   }
 
   /// Decided, here or elsewhere: no longer waiting.

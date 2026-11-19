@@ -213,7 +213,7 @@ struct RenderTests {
     for (name, ask) in AskCases.all {
       try render("approval-\(name)", only: ["390"]) {
         SheetOver(height: 0.8) { Tabbed { ChatScreen(phone: phone) } } sheet: {
-          AskBody(ask: ask, more: 0) { _, _ in }.frame(maxHeight: .infinity, alignment: .top)
+          AskBody(ask: ask, more: 0) { _, _, _ in }.frame(maxHeight: .infinity, alignment: .top)
         }
       }
     }

@@ -128,7 +128,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     menu.onPause = { [unowned self] in controller.pause() }
     menu.onResume = { [unowned self] in controller.resume() }
     menu.onStop = { [unowned self] in stopFromMenu() }
-    menu.onDecide = { [unowned self] id, approved in chat.model.answer(id, approved: approved) }
+    // A yes to an ask for a one-time code needs the code, typed on the card: the window opens to it.
+    menu.onDecide = { [unowned self] id, approved in
+      if approved, chat.model.asks.first(where: { $0.id == id })?.secret?.asksCode == true { chat.open() } else { chat.model.answer(id, approved: approved) }
+    }
     // Every status KOS tells the window moves the menu bar, the window and whether the Mac stays awake for it.
     chat.onDrawn = { [unowned self] in turnChanged() }
 

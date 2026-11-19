@@ -387,7 +387,7 @@ struct ChatModelTests {
   @Test func decidesOnceAndForgetsAnotherChatsAsks() {
     let model = ChatModel()
     var decided: [(String, Bool, Bool)] = []
-    model.decide = { decided.append(($0, $1, $2)) }
+    model.decide = { id, approved, remember, _ in decided.append((id, approved, remember)) }
     model.show(conversation: "mac:owner", title: "Mac", lines: [])
     model.ask(.init(id: "7", tool: "computer.act", always: "Always in Keynote"))
     model.ask(.init(id: "7", tool: "computer.act"))
@@ -399,6 +399,19 @@ struct ChatModelTests {
     model.ask(.init(id: "8", tool: "files.rm"))
     model.show(conversation: "cm1:owner", title: "Trip", lines: [])
     #expect(model.asks.isEmpty)
+  }
+
+  @Test func approvesAnAskForACodeOnlyWithACode() {
+    let model = ChatModel()
+    var decided: [(String, Bool, String?)] = []
+    model.decide = { id, approved, _, code in decided.append((id, approved, code)) }
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    model.ask(.init(id: "9", tool: "secrets.fill", secret: .init(handle: "code", label: "One-time code", fields: [], code: true)))
+    model.answer("9", approved: true)
+    model.answer("9", approved: true, code: "12")
+    #expect(decided.isEmpty && model.asks.count == 1)
+    model.answer("9", approved: true, code: "123 456")
+    #expect(decided.count == 1 && decided.first?.2 == "123456" && model.asks.isEmpty)
   }
 
   /// Words said while a turn runs get their own story: neither overwrites the other, and each sits under its own words.

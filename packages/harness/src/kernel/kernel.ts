@@ -831,6 +831,7 @@ export class Kernel {
       handleMessage: (text, opts) => this.handleMessage(text, opts),
       handsOn: (device, conversationId) => this.handsOn?.(device, conversationId),
       halted: () => this.killSwitch.halted,
+      codes: args.secrets.codes,
     });
     this.caretaker = new Caretaker({
       ownerId: args.profile.ownerId,

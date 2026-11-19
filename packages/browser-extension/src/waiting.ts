@@ -57,3 +57,15 @@ export function readWaiting(v: unknown): WaitingEvent[] {
     return name && data && typeof r["kos"] === "string" && typeof r["at"] === "number" ? [{ kos: r["kos"], name, data, at: r["at"] }] : [];
   });
 }
+
+/** What the side panel is told when a yes with a one-time code could not go: its card comes back, and why. */
+export const CODE_UNSENT = "Not sent: KOS's line is down. Type the code again once it is back.";
+
+/**
+ * A yes with a one-time code from the side panel: sent at once while KOS's
+ * line is up, else handed back to the panel to be given again. Never kept
+ * to wait for the line, so the code is never in storage.
+ */
+export function withCode(online: boolean, decision: Record<string, unknown>, code: string): { send: Record<string, unknown> } | { unsent: Record<string, unknown> } {
+  return online ? { send: { ...decision, code } } : { unsent: { type: "decide.unsent", approval: decision["approval"], why: CODE_UNSENT } };
+}

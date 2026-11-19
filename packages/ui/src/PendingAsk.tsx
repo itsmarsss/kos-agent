@@ -58,7 +58,7 @@ export function PendingAsk({
 }: {
   ask: PendingAction;
   deciding: ReadonlySet<number>;
-  onDecide: (id: number, approved: boolean, remember?: boolean) => void;
+  onDecide: (id: number, approved: boolean, remember?: boolean, code?: string) => void;
   compact?: boolean;
   bare?: boolean;
   meta?: ReactNode;
@@ -98,7 +98,7 @@ export function PendingAsk({
         asker={ask.asker}
         expiresAt={ask.expiresAt}
         busy={deciding.has(ask.id)}
-        onDecide={(approved, remember) => (request && approved ? setAdding(true) : remember ? onDecide(ask.id, approved, true) : onDecide(ask.id, approved))}
+        onDecide={(approved, remember, code) => (request && approved ? setAdding(true) : code !== undefined ? onDecide(ask.id, approved, false, code) : remember ? onDecide(ask.id, approved, true) : onDecide(ask.id, approved))}
         {...(handoff ? { labels: { yes: "Done", no: "Can't" }, noRemember: true } : {})}
         {...(request ? { labels: { yes: "Add it", no: "Not now" }, noRemember: true } : {})}
         {...(compact ? { compact } : {})}

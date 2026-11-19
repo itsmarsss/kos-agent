@@ -337,7 +337,11 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     const own = tab.page as unknown as { putSecret?: (put: SecretPut) => Promise<void> };
     own.putSecret = async ({ value, ...put }) => void puts.push({ ...put, given: value === PASSWORD });
     try {
-      await expect(fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: { ...right, origin: "https://example.com" } }], "none")).rejects.toMatchObject({ code: "origin" });
+      await expect(fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: { ...right, origin: "https://example.com" } }], "none")).rejects.toMatchObject({ code: "origin", placed: false });
+      // Whatever the extension says once it was handed the value, it may be in the field.
+      own.putSecret = async () => Promise.reject(new SecretRefused("field", "the field did not take it as given"));
+      await expect(fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: right }], "none")).rejects.toMatchObject({ code: "field", placed: true });
+      own.putSecret = async ({ value, ...put }) => void puts.push({ ...put, given: value === PASSWORD });
       expect(puts).toEqual([]);
       await fillSecrets(tab, [{ ref: pw, value: PASSWORD, expect: right }], "none");
       expect(puts).toEqual([{ node: expect.any(Number), frame: expect.any(String), doc: right.doc, origin: base, frameOrigin: base, slot: "password", given: true }]);
@@ -365,7 +369,7 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
       const ref = refOf(seen, label);
       const err = await fillSecrets(tab, [{ ref, value: PASSWORD, expect: await expectFor(ref, slot) }], "none").catch((e: unknown) => e as SecretRefused);
       expect(err).toBeInstanceOf(SecretRefused);
-      expect({ label, code: (err as SecretRefused).code }).toEqual({ label, code: "field" });
+      expect({ label, code: (err as SecretRefused).code, placed: (err as SecretRefused).placed }).toEqual({ label, code: "field", placed: false });
       expect((err as SecretRefused).message).toMatch(why);
       expect((err as SecretRefused).message).not.toContain(PASSWORD);
     }
@@ -426,7 +430,8 @@ document.getElementById('pw').addEventListener('input', (e) => { const v = e.tar
     await fillPassword("/keys");
     expect(await peek("document.getElementById('pw').value")).toBe(PASSWORD);
     const err = await fillPassword("/decoy?keys").catch((e: unknown) => e as SecretRefused);
-    expect(err).toMatchObject({ code: "focus" });
+    // Refused once the value was set on the field: said as placed, so a one-time code is spent.
+    expect(err).toMatchObject({ code: "focus", placed: true });
     expect(await peek("document.getElementById('decoy').value")).toBe("");
   });
 
