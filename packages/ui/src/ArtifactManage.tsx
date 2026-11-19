@@ -211,7 +211,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
           ...(record.blobRemoved ? [] : [{ label: "Duplicate", act: () => void run(() => did("duplicate", api.duplicateArtifact(record.id))) }]),
           { label: "Move to…", act: () => setDialog({ kind: "move", record }) },
           ...exports(record, page),
-          { label: "Move to trash", act: () => void run(() => did("trash", api.trashArtifact(record.id))), danger: true, divided: true },
+          { label: "Move to Trash", act: () => void run(() => did("trash", api.trashArtifact(record.id))), danger: true, divided: true },
         ];
 
   const places: Place[] = [

@@ -163,7 +163,7 @@ describe("managing an artifact from its viewer", () => {
     const back = vi.fn();
     openViewer(BRIEF, back);
     vi.spyOn(api, "trashArtifact").mockResolvedValue({ ...BRIEF, trashedAt: Date.now() });
-    fireEvent.click(await menuItem("Move to trash"));
+    fireEvent.click(await menuItem("Move to Trash"));
     const notice = await screen.findByText(/This artifact is in the trash/);
     expect(screen.queryByRole("button", { name: "History" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit with KOS" })).toBeNull();
@@ -275,7 +275,7 @@ describe("the gallery's trash", () => {
     expect(trashButton.textContent).toBe("Trash1");
 
     vi.spyOn(api, "trashArtifact").mockResolvedValue({ ...PITCH, trashedAt: Date.now() });
-    fireEvent.click(await menuItem("Move to trash", "Actions for Garden pitch"));
+    fireEvent.click(await menuItem("Move to Trash", "Actions for Garden pitch"));
     await waitFor(() => expect(cards()).toEqual(["Q4 brief"]));
     expect(screen.getByText("“Garden pitch” is in the trash.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Trash/ }).textContent).toBe("Trash2");
