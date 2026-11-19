@@ -566,7 +566,9 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
   const loading = place.kind === "folder" && !found && !folders.get(folder).entries && !folders.get(folder).error;
   const folderError = place.kind === "folder" ? folders.get(folder).error : undefined;
   const title = found ? `Searching “${query.trim()}”` : place.kind === "recents" ? "Recents" : place.kind === "trash" ? "Trash" : folder === root ? rootName : nameOf(folder);
-  const empty = found ? (found.entries.length ? "" : `Nothing ${contents ? "holds" : "is named"} “${query.trim()}” here.`) : place.kind === "recents" ? (recents === null ? "Reading…" : "Nothing has changed lately.") : loading ? "Reading…" : folderError ?? "This folder is empty.";
+  const empty = found ? (found.entries.length ? "" : `Nothing ${contents ? "holds" : "is named"} “${query.trim()}” here.`) : place.kind === "recents" ? "Nothing has changed lately." : folderError ?? "This folder is empty.";
+  /** Still reading what to list: rows in its shape stand in for it. */
+  const reading = !found && ((place.kind === "recents" && recents === null) || loading);
   const count = place.kind === "folder" && !found ? (entriesOf(folder)?.length ?? 0) : ordered.length;
   const status = `${sel.paths.length ? `${sel.paths.length} of ` : ""}${count} item${count === 1 ? "" : "s"}${found?.truncated ? ", search stopped early" : ""}`;
   const making = place.kind === "folder";
@@ -575,7 +577,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
 
   const body = (): ReactElement => {
     if (place.kind === "trash") return <TrashView key={trashTick} rootName={rootName} onChanged={() => folders.reload()} onError={setErrorNote} onCount={setTrashCount} />;
-    if (view === "gallery" && !found && place.kind === "folder") return <GalleryView entries={ordered} h={h} empty={empty} />;
+    if (view === "gallery" && !found && place.kind === "folder") return <GalleryView entries={ordered} h={h} empty={empty} reading={reading} />;
     if (view === "columns" && !found && place.kind === "folder") {
       return (
         <ColumnsView
@@ -608,6 +610,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
         onSort={setSort}
         h={h}
         empty={empty}
+        reading={reading}
         {...(place.kind === "folder" && !found
           ? {
               onToggle: (entry: DirEntry) =>

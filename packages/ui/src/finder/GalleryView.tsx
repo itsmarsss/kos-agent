@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 
+import { Skeleton } from "@kos/kit";
 import { bytesWords } from "@kos/shared";
 
 import type { DirEntry } from "../api.js";
@@ -12,7 +13,16 @@ import { EntryName, rowProps, type RowHandlers } from "./rows.js";
  * Icons: each thing as its picture where it has one (a photo, a PDF's first
  * page, a deck's first slide), else its kind's mark, its name under it.
  */
-export function GalleryView({ entries, h, empty }: { entries: DirEntry[]; h: RowHandlers; empty: string }): ReactElement {
+export function GalleryView({ entries, h, empty, reading = false }: { entries: DirEntry[]; h: RowHandlers; empty: string; /** Still being read: tiles in its shape. */ reading?: boolean }): ReactElement {
+  if (entries.length === 0 && reading) {
+    return (
+      <div className="finder-gallery" aria-busy="true" aria-label="Reading the folder">
+        {Array.from({ length: 8 }, (_, i) => (
+          <Skeleton key={i} className="finder-tile-skeleton" radius="var(--r-md)" />
+        ))}
+      </div>
+    );
+  }
   if (entries.length === 0) return <p className="finder-empty">{empty}</p>;
   return (
     <div className="finder-gallery" role="grid" aria-multiselectable="true" aria-label="Files">
