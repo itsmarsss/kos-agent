@@ -42,15 +42,17 @@ describe("a schedule as a shape", () => {
 describe("describeCron", () => {
   it("says a line in words, or nothing for a line it cannot read", async () => {
     const { describeCron } = await import("./schedule.js");
-    expect(describeCron("0 9 * * *")).toBe("Every day at 09:00");
-    expect(describeCron("30 7 * * 1-5")).toBe("Weekdays at 07:30");
-    expect(describeCron("0 18 * * 0")).toBe("Every Sunday at 18:00");
-    expect(describeCron("0 9 * * 1,3,5")).toBe("Mon, Wed, Fri at 09:00");
+    expect(describeCron("0 9 * * *", "en-GB")).toBe("Every day at 09:00");
+    expect(describeCron("30 7 * * 1-5", "en-GB")).toBe("Weekdays at 07:30");
+    // On the reader's own clock: no leading zero where the day has two halves.
+    expect(describeCron("30 7 * * 1-5", "en-US")).toMatch(/^Weekdays at 7:30\sAM$/);
+    expect(describeCron("0 18 * * 0", "en-GB")).toBe("Every Sunday at 18:00");
+    expect(describeCron("0 9 * * 1,3,5", "en-GB")).toBe("Mon, Wed, Fri at 09:00");
     expect(describeCron("0 */6 * * *")).toBe("Every 6 hours, on the hour");
     expect(describeCron("15 */2 * * *")).toBe("Every 2 hours, at 15 past the hour");
     expect(describeCron("*/15 * * * *")).toBe("Every 15 minutes");
     expect(describeCron("* * * * *")).toBe("Every minute");
-    expect(describeCron("0 9 1 * *")).toBe("On day 1 of each month at 09:00");
+    expect(describeCron("0 9 1 * *", "en-GB")).toBe("On day 1 of each month at 09:00");
     expect(describeCron("0 9 * 6 *")).toBeNull();
     expect(describeCron("nonsense")).toBeNull();
   });
