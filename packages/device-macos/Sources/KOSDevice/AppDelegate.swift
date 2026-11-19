@@ -113,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     chat.model.stop = { [unowned self] in stopChat() }
     controller.letThrough = { [unowned self] on in chat.letThrough(on) }
     controller.yieldKeys = { [unowned self] in await chat.yieldKeys() }
+    controller.ownMenuOpen = { [unowned self] in menu.isOpen }
     controller.onOwnerStop = { [unowned self] origin, conversation in
       if chat.isMine(origin: origin, conversation: conversation) { chat.tellStop() }
     }
