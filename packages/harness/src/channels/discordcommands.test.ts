@@ -155,4 +155,14 @@ describe("registering the commands", () => {
     expect(sets[0]!.count).toBe(sets[1]!.count);
     expect(sets[0]!.count).toBeGreaterThan(20);
   });
+
+  it("registers the DM's commands even when the server refuses its own", async () => {
+    const { adapter } = adapterWith();
+    const sets: (string | undefined)[] = [];
+    (adapter as unknown as { client: unknown }).client = {
+      application: { commands: { set: async (_: unknown, guild?: string) => (guild ? Promise.reject(new Error("Missing Access")) : void sets.push(guild)) } },
+    };
+    await (adapter as unknown as { registerCommands(): Promise<void> }).registerCommands();
+    expect(sets).toEqual([undefined]);
+  });
 });

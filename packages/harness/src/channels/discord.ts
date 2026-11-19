@@ -2413,17 +2413,24 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!this.commands) return;
     const app = this.client.application?.commands;
     if (!app) return;
-    try {
-      // In the owner's server, registered for it, where they show at once;
-      // and globally for the DM alone, so the server lists each only once.
-      if (this.guildId) {
-        await app.set(slashCommands("guild"), this.guildId);
-        await app.set(slashCommands("dm"));
-      } else await app.set(slashCommands("everywhere"));
-    } catch (err) {
-      // A bot without the applications.commands scope cannot register them.
-      // Everything else still works, so this is reported rather than fatal.
-      console.warn(`[discord] could not register slash commands (invite the bot with the applications.commands scope): ${err instanceof Error ? err.message : String(err)}`);
+    // In the owner's server, registered for it, where they show at once;
+    // and globally for the DM alone, so the server lists each only once.
+    // Each on its own, so one refused leaves the other in place.
+    const guild = this.guildId;
+    const sets: [string, () => Promise<unknown>][] = guild
+      ? [
+          ["in the server", () => app.set(slashCommands("guild"), guild)],
+          ["for DMs", () => app.set(slashCommands("dm"))],
+        ]
+      : [["everywhere", () => app.set(slashCommands("everywhere"))]];
+    for (const [where, set] of sets) {
+      try {
+        await set();
+      } catch (err) {
+        // A bot without the applications.commands scope cannot register them.
+        // Everything else still works, so this is reported rather than fatal.
+        console.warn(`[discord] could not register slash commands ${where} (invite the bot with the applications.commands scope): ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
