@@ -113,7 +113,7 @@ describe("GET /api/search", () => {
     kernel.runs.finish(run, "error", "pump offline");
     const call = kernel.audit.record({ tool: "files.write", args: { path: "projects/garden/marigold-log.md" }, result: "ok", isError: false });
     expect((await search("marigold watering", "run")).hits.map((h) => h.target)).toEqual([{ kind: "run", id: run }]);
-    expect((await search("pump offline", "run")).hits[0]).toMatchObject({ title: "Marigold watering", hint: "failed", snippet: { text: "pump offline" } });
+    expect((await search("pump offline", "run")).hits[0]).toMatchObject({ title: "Marigold watering", hint: "job · failed", snippet: { text: "pump offline" } });
     expect((await search("marigold-log", "run")).hits.map((h) => h.target)).toEqual([{ kind: "call", id: call }]);
   });
 

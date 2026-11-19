@@ -195,14 +195,14 @@ export function contentSource(ws: Workspace): SearchSource {
       const hits = found.entries
         .filter((e) => !isMemoryPage(e.path))
         .map((e): SearchHit => {
-          const named = matchText(e.path, query);
+          // Its path is the name the Files group already matched; here it is what the file holds that counts.
           return {
             kind: "text",
             id: e.path,
             title: e.path,
             hint: `line ${e.line}`,
             snippet: { text: e.text, marks: e.marks },
-            score: scoreOf(named?.quality ?? matchText(e.text, query)?.quality ?? "words", named ? "title" : "body", e.modifiedAt),
+            score: scoreOf(matchText(e.text, query)?.quality ?? "words", "body", e.modifiedAt),
             at: e.modifiedAt,
             target: { kind: "file", path: e.path, line: e.line },
           };
@@ -284,6 +284,15 @@ export interface RunSourceDeps {
   summary: (call: AuditRecord) => string;
 }
 
+/** A run's kind as Runs names it: a chat's turn, a scheduled job, a check, KOS's own work on memory. */
+export function runWords(kind: string): string {
+  if (kind === "chat") return "turn";
+  if (kind === "cron") return "job";
+  if (kind === "heartbeat") return "check";
+  if (kind.startsWith("memory.")) return "memory";
+  return kind;
+}
+
 /** How far back the runs are read: a few weeks of turns and jobs. */
 const RUNS_READ = 500;
 
@@ -304,7 +313,7 @@ export function runSource(deps: RunSourceDeps): SearchSource {
           kind: "run",
           id: `run:${run.id}`,
           title: label,
-          hint: run.status === "error" ? "failed" : run.kind,
+          hint: run.status === "error" ? `${runWords(run.kind)} · failed` : runWords(run.kind),
           snippet: failed ? snippetOf(error, failed.marks) : snippetOf(label, matchText(label, query)?.marks ?? []),
           score: scoreOf((named ?? failed)!.quality, named ? "title" : "body", run.startedAt),
           at: run.startedAt,
@@ -321,7 +330,7 @@ export function runSource(deps: RunSourceDeps): SearchSource {
           kind: "run",
           id: `call:${call.id}`,
           title: call.tool,
-          hint: call.isError ? "failed" : "tool",
+          ...(call.isError ? { hint: "failed" } : {}),
           snippet: inArgs ? snippetOf(args, inArgs.marks) : snippetOf(summary, matchText(summary, query)?.marks ?? []),
           score: scoreOf((said ?? inArgs)!.quality, "body", call.createdAt),
           at: call.createdAt,
