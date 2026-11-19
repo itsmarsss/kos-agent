@@ -92,8 +92,11 @@ export const REFUSED_REASON: Record<RefusedCheck, string> = {
 
 const HELLO_TIMEOUT_MS = 10_000;
 
-/** The device methods that carry a secret's value by design (docs/secrets.md, Protocol): sent as built. */
-const SECRET_METHODS: ReadonlySet<string> = new Set(["secret.fill", "keys.secret"]);
+/**
+ * The device methods that carry a secret's value by design (docs/secrets.md,
+ * Protocol), or the patterns a picture is masked by: sent as built.
+ */
+const SECRET_METHODS: ReadonlySet<string> = new Set(["secret.fill", "secret.picture", "keys.secret"]);
 
 interface Pending {
   resolve(result: Record<string, unknown>): void;

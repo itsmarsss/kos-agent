@@ -1,10 +1,12 @@
 import { isDataUrl, urlFor } from "./address.js";
 import type { CdpEvent } from "./cdp.js";
 import * as inpage from "./inpage.js";
-import { parseKeys, type KeyPress } from "./keys.js";
+import { copyKey, parseKeys, type KeyPress } from "./keys.js";
 import { controlsOf, HIDDEN_VALUE, holdsValue, indexOf, INDEX_MAX, Refs, secretField, treeOf, type AxNode, type Control, type PageIndex } from "./snapshot.js";
 import { WAIT_FOR_MS, type Step } from "./steps.js";
-import { echoPatterns, isDigitSlot, isSecretSlot, unechoed, type FilledValue, type Kin, type SecretSlot, type Taint } from "./taint.js";
+import { boxesOf, pixelBoxes, steadyShot, type SecretBoxes } from "./boxes.js";
+import { paintedJpeg } from "./paint.js";
+import { echoPatterns, isDigitSlot, isSecretSlot, keepFilled, unechoed, type FilledValue, type Kin, type SecretSlot, type Taint } from "./taint.js";
 
 /**
  * One tab's hands.
@@ -62,6 +64,13 @@ export interface PageLimits {
 
 const LIMITS: PageLimits = { domMs: 20_000, loadMs: 30_000 };
 
+/** A picture of the tab as `Page.masked` has it taken: base64, and the CSS size of the page it shows from the viewport's corner (0 when not known). */
+export interface PageShot {
+  data: string;
+  width: number;
+  height: number;
+}
+
 export interface PageOptions {
   now?: () => number;
   limits?: Partial<PageLimits>;
@@ -93,6 +102,37 @@ export interface PageOptions {
   workerBar?: (origin: string, loadedAt: number, controlled: boolean) => Promise<string | undefined>;
   /** A clock that only goes forward, which documents' starts are told by against the purges of their sites' workers. */
   tick?: () => number;
+  /**
+   * Puts a secret into a field itself, where the browser is one that does
+   * (KOS for Chrome's secret.fill): the value goes there and nowhere else,
+   * and it throws unless the field holds it. Without it the Page sets the
+   * value through its own world.
+   */
+  putSecret?: (put: SecretPut) => Promise<void>;
+  /**
+   * What the browser says this tab is held to by a secret filled before
+   * this Page (KOS for Chrome keeps it across sessions): the document, and
+   * the addresses of documents, a secret was in. Either is held as a whole
+   * page, since which fields hold it is not known here.
+   */
+  heldElsewhere?: () => HeldElsewhere | undefined;
+}
+
+/** A tab's hold as the browser that fills reports it (heldElsewhere). */
+export interface HeldElsewhere {
+  loader: string;
+  urls: string[];
+}
+
+/** A secret for one field, as a browser that puts it in itself is given it: where it goes, what must hold there, and the value. */
+export interface SecretPut {
+  node: number;
+  frame: string;
+  doc: string;
+  origin: string;
+  frameOrigin: string;
+  slot: SecretSlot;
+  value: string;
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
@@ -347,6 +387,8 @@ export class Page {
   private readonly settled: () => Promise<void>;
   private readonly workerBar: (origin: string, loadedAt: number, controlled: boolean) => Promise<string | undefined>;
   private readonly tick: () => number;
+  private readonly putSecret: ((put: SecretPut) => Promise<void>) | undefined;
+  private readonly heldElsewhere: () => HeldElsewhere | undefined;
 
   constructor(
     private readonly session: Session,
@@ -364,6 +406,8 @@ export class Page {
     this.settled = options.settled ?? (async () => undefined);
     this.workerBar = options.workerBar ?? (async () => undefined);
     this.tick = options.tick ?? (() => performance.now());
+    this.putSecret = options.putSecret;
+    this.heldElsewhere = options.heldElsewhere ?? (() => undefined);
   }
 
   /**
@@ -786,8 +830,11 @@ export class Page {
       if (this.taint?.loader !== this.life.loader) this.taint = { loader: this.life.loader, nodes: new Map() };
       this.taint.nodes.set(node, frame);
       this.taintedUrls.add(urlKey(this.url));
-      for (const values of [this.filled, this.kin()?.values]) if (values && !values.some((v) => v.text === value)) values.push({ text: value, digits });
+      for (const values of [this.filled, this.kin()?.values]) if (values) keepFilled(values, { text: value, digits, origins: [...new Set([origin, frameOrigin])] });
     }
+    // A browser that puts it in itself checks all this again on its side, and the field's holding it.
+    const put = this.putSecret;
+    if (put) return this.acting(() => put({ node, frame, doc: this.life.loader, origin, frameOrigin, slot: expect.slot, value }), TYPED_MS);
     let held = false;
     await this.acting(async () => {
       held = await this.callIn<boolean>(frame, node, inpage.putValue, args);
@@ -805,73 +852,49 @@ export class Page {
 
   /**
    * A picture of a page that may show a secret (one filled in this tab or
-   * its kin, or a saved one for its site), taken by `shoot` with every text
-   * box made unseeable and every place the page echoes such a value painted
-   * over, then put back as it was. A page with none is pictured as it is.
-   * Throws when it cannot mask, so no picture is taken rather than one that
-   * shows a secret.
+   * its kin on a frame's origin, or a saved one for its site), or of a page
+   * holding one: `shoot` takes it, as a PNG when it is to be painted over,
+   * and every text box and every place the page echoes such a value is
+   * painted out of it here, the page itself never changed (boxes.ts). A page
+   * with none is pictured as it is. Answers a JPEG at `quality`; throws when it cannot
+   * mask, so no picture is taken rather than one that shows a secret.
    */
-  masked<T>(shoot: () => Promise<T>): Promise<T> {
-    // One at a time: two pictures at once would each put back what the other masked, mid-shot.
-    const next = this.pictures.then(() => this.maskedNow(shoot));
+  masked(shoot: (format: "png" | "jpeg") => Promise<PageShot | undefined>, quality: number): Promise<string | undefined> {
+    // One at a time: the page is measured on both sides of its picture.
+    const next = this.pictures.then(() => this.maskedNow(shoot, quality));
     this.pictures = next.catch(() => undefined);
     return next;
   }
 
-  private async maskedNow<T>(shoot: () => Promise<T>): Promise<T> {
-    const frames = await this.frameTree();
-    const top = frames.get(this.mainFrame)?.origin ?? "";
-    const masked = new Set<number>();
-    try {
-      // Every root of every frame KOS can reach, closed shadow roots among them: a value may be copied into any text box or echoed into any text.
-      for (const [frame, roots] of await this.roots()) {
-        // Only what this frame may be shown, by its own origin (an about:blank one by the page's): no frame learns from its masking that a word of its is a saved secret.
-        const origin = frames.get(frame)?.origin ?? "";
-        const values = this.pageValues([/^https?:/i.test(origin) ? origin : top]);
-        if (values.length === 0) continue;
-        const patterns = echoPatterns(values, 1);
-        const context = await this.world(frame);
-        // A frame KOS cannot enter held no field it filled; the page itself must be masked, or there is no picture.
-        if (context === undefined) {
-          if (frame === this.mainFrame) throw new Error("no world of KOS's own to mask the page from");
-          continue;
-        }
-        masked.add(context);
-        for (const root of roots) {
-          const resolved = await this.send("DOM.resolveNode", { backendNodeId: root, executionContextId: context, objectGroup: GROUP });
-          const objectId = (resolved["object"] as { objectId?: string } | undefined)?.objectId;
-          const answer = objectId
-            ? await this.send("Runtime.callFunctionOn", { objectId, functionDeclaration: inpage.maskRoot.toString(), arguments: [{ value: patterns }], returnByValue: true })
-            : { exceptionDetails: true };
-          if (answer["exceptionDetails"]) throw new Error("the page could not be masked");
-        }
-      }
-      return await shoot();
-    } finally {
-      for (const context of masked) await this.send("Runtime.callFunctionOn", { functionDeclaration: inpage.unmaskAll.toString(), executionContextId: context }).catch(() => undefined);
-    }
-  }
-
-  /** The roots of the page's documents and shadow trees, open and closed, by the frame each is in, from the browser's own tree of the page. */
-  private async roots(): Promise<Map<string, number[]>> {
-    type DomNode = { backendNodeId?: number; nodeType?: number; frameId?: string; children?: DomNode[]; shadowRoots?: DomNode[]; contentDocument?: DomNode };
-    const out = new Map<string, number[]>();
-    const walk = (n: DomNode | undefined, frame: string): void => {
-      if (!n) return;
-      if ((n.nodeType === 9 || n.nodeType === 11) && n.backendNodeId !== undefined) out.set(frame, [...(out.get(frame) ?? []), n.backendNodeId]);
-      for (const child of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) walk(child, frame);
-      if (n.contentDocument && n.frameId) walk(n.contentDocument, n.frameId);
-    };
-    walk((await this.send("DOM.getDocument", { depth: -1, pierce: true }, AX_MS))["root"] as DomNode | undefined, this.mainFrame);
-    return out;
+  private async maskedNow(shoot: (format: "png" | "jpeg") => Promise<PageShot | undefined>, quality: number): Promise<string | undefined> {
+    const held = this.holdsSecret();
+    // Only what a frame may be shown, by its own origin: no frame is sent another's values to find.
+    const measure = (): Promise<SecretBoxes | undefined> =>
+      boxesOf((method, params) => this.send(method, params, AX_MS), (frame) => this.world(frame), held, (origin) => echoPatterns(this.pageValues([origin]), 1));
+    const first = await measure();
+    if (!first) return (await shoot("jpeg"))?.data;
+    const { shot, boxes } = await steadyShot(measure, () => shoot("png"), first);
+    if (!shot) return undefined;
+    if (!boxes) return paintedJpeg(shot.data, () => [], quality);
+    // The picture is clipped to the size it says from the viewport's corner: a page zoomed in, or of no size known, is not placed on it.
+    if (boxes.view.scale !== 1 || !shot.width || !shot.height) throw new Error("the page could not be masked, so it is not pictured");
+    return paintedJpeg(shot.data, (image) => pixelBoxes(boxes, image, shot), quality);
   }
 
   /** The secrets filled into this document, if any: a new document has none. */
   private tainted(): Taint | undefined {
     if (this.taint && this.taint.loader !== this.life.loader) this.taint = undefined;
     if (this.taint) return this.taint;
-    // A document a secret was in, come back to: which fields hold it again is not known, so the whole page is held to.
-    return this.taintedUrls.has(urlKey(this.url)) ? { loader: this.life.loader, nodes: new Map() } : undefined;
+    // A document a secret was in, come back to, or one the browser says was filled before this Page: which fields hold it is not known, so the whole page is held to.
+    const elsewhere = this.heldElsewhere();
+    const before = elsewhere !== undefined && ((elsewhere.loader !== "" && elsewhere.loader === this.life.loader) || elsewhere.urls.includes(urlKey(this.url)));
+    return before || this.taintedUrls.has(urlKey(this.url)) ? { loader: this.life.loader, nodes: new Map() } : undefined;
+  }
+
+  /** Whether a field may hold a secret KOS filled: one it filled, or any on a page a secret was in come back to, where which is not known. */
+  private heldField(node: number): boolean {
+    const taint = this.tainted();
+    return taint !== undefined && (taint.nodes.size === 0 || taint.nodes.has(node));
   }
 
   /** Whether this tab holds a secret KOS filled in its page now. */
@@ -889,9 +912,10 @@ export class Page {
     return merged(this.filled, this.kin()?.values ?? [], this.saved());
   }
 
-  /** The values a page on these origins may be sent to mask: those filled in this tab or its kin, and the saved ones for its site. */
+  /** The values a page on these origins may be sent to mask: those filled in this tab or its kin on one of them, and the saved ones for its site. */
   private pageValues(origins: readonly string[]): FilledValue[] {
-    return merged(this.filled, this.kin()?.values ?? [], this.savedFor(origins));
+    const here = (v: FilledValue): boolean => v.origins === undefined || v.origins.some((o) => origins.includes(o));
+    return merged(this.filled.filter(here), (this.kin()?.values ?? []).filter(here), this.savedFor(origins));
   }
 
   /** The main frame's document as one answer of the browser has it: its frame, its loader, and every frame with its origin. */
@@ -935,10 +959,17 @@ export class Page {
     if (this.tainted()) throw new Error(`${what} is refused: ${TAINTED}`);
   }
 
-  /** Whether a key would copy, cut or select all from a field holding a secret: the one with the keyboard in a frame KOS filled. */
+  /**
+   * Whether a key would carry a secret out of its field: a copy, a cut, a
+   * select-all or a paste key (keys.copyKey), or any editing command, aimed
+   * at a field holding one (the one with the keyboard in a frame KOS
+   * filled). On a page a secret was in come back to, no field is known, so
+   * any of them anywhere.
+   */
   private async copiesSecret(press: KeyPress): Promise<boolean> {
     const taint = this.tainted();
-    if (!taint || !/^[acx]$/i.test(press.key) || !press.held.some((h) => h.key === "Meta" || h.key === "Control")) return false;
+    if (!taint || !(copyKey(press.key, press.code, press.keyCode, press.modifiers, press.commands) || press.commands?.length)) return false;
+    if (taint.nodes.size === 0) return true;
     for (const frame of new Set(taint.nodes.values())) {
       const context = await this.world(frame);
       // A frame KOS cannot look into is taken to have the field focused.
@@ -1592,7 +1623,7 @@ export class Page {
       }
       const node = nodes[i]?.backendNodeId;
       if (node === undefined || item.closed) continue;
-      const value = item.value !== undefined && this.tainted()?.nodes.has(node) ? HIDDEN_VALUE : item.value;
+      const value = item.value !== undefined && this.heldField(node) ? HIDDEN_VALUE : item.value;
       controls.push({ node, role: item.role, name: item.name, states: item.states, ...(value !== undefined ? { value } : {}), ...(item.dialog !== undefined ? { dialog: item.dialog } : {}), ...(item.more ? { more: item.more } : {}) });
     }
     return { controls, total, unread, closed };
@@ -1648,12 +1679,11 @@ export class Page {
   private async hideSecrets(nodes: AxNode[]): Promise<void> {
     const valued = nodes.filter((n) => n.backendDOMNodeId !== undefined && holdsValue(n));
     if (valued.length === 0) return;
-    const filled = this.tainted()?.nodes;
     const described = await this.many(valued.map((n) => ({ method: "DOM.describeNode", params: { backendNodeId: n.backendDOMNodeId } })), true);
     for (const [i, d] of described.entries()) {
       const flat = d instanceof Error ? undefined : (d["node"] as { attributes?: string[] } | undefined)?.attributes;
       const attributes = Object.fromEntries((flat ?? []).flatMap((v, j, all) => (j % 2 === 0 ? [[v.toLowerCase(), all[j + 1] ?? ""]] : [])));
-      if (!flat || secretField(attributes) || filled?.has(valued[i]!.backendDOMNodeId!)) valued[i]!.value = { value: HIDDEN_VALUE };
+      if (!flat || secretField(attributes) || this.heldField(valued[i]!.backendDOMNodeId!)) valued[i]!.value = { value: HIDDEN_VALUE };
     }
   }
 

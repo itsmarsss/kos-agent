@@ -69,6 +69,7 @@ const CHECKOUT_LOOK = `(() => {
 })()`;
 import { BROWSER_KEY, BROWSER_PORT, browserConfig } from "../ops/browsersettings.js";
 import type { BrowserElsewhere, PageSpot, TabInfo } from "../tools/browser.js";
+import type { SecretPlace } from "../tools/secrets.js";
 import { PageWatchStore, type WatchLook } from "../ops/watches.js";
 import type { BuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
@@ -4437,14 +4438,23 @@ export class Kernel {
 
   /**
    * Why a secret cannot be filled where the caller browses, if it cannot:
-   * it has no tab yet, or works in the owner's Chrome, where a fill goes
-   * through KOS for Chrome (not yet).
+   * it has no tab yet. In the owner's Chrome a fill goes through KOS for
+   * Chrome, on the tab its session is on.
    */
   secretFillUnready(): string | undefined {
     const conversationId = this.callerConversationId ?? "root";
-    if (this.away(conversationId)) return "secrets.fill works in KOS's own browser for now, not the owner's Chrome. Hand the tab to the owner with browser.handoff to sign in there.";
-    if (!this.browser.tabOf(conversationId)) return "Your tab has no page yet. Open the page with browser.visit and look for the fields' refs first.";
-    return undefined;
+    const away = this.away(conversationId);
+    const open = away ? away.active(conversationId) && away.spot(conversationId) !== undefined : this.browser.tabOf(conversationId) !== undefined;
+    return open ? undefined : "Your tab has no page yet. Open the page with browser.visit and look for the fields' refs first.";
+  }
+
+  /** Which browser the caller's tab is in, as a secret's use records it: KOS's own, or the owner's Chrome and the device it is on. */
+  secretPlace(): SecretPlace {
+    const conversationId = this.callerConversationId ?? "root";
+    const away = this.away(conversationId);
+    if (!away) return { surface: "kos-browser" };
+    const device = away.device?.(conversationId);
+    return { surface: "chrome", ...(device ? { device } : {}) };
   }
 
   /** The address of the caller's tab, in whichever browser it works. */
@@ -4452,12 +4462,12 @@ export class Kernel {
     return this.spotOf(this.callerConversationId ?? "root")?.url;
   }
 
-  /** Where the fields refs name are on the caller's page (KOS's own browser). */
+  /** Where the fields refs name are on the caller's page, in whichever browser it works. */
   async secretSpots(refs: string[]): Promise<FieldSpot[]> {
     return fieldSpots(await this.browserTab(), refs);
   }
 
-  /** Secrets into the caller's page (KOS's own browser), then the page as `then` says. */
+  /** Secrets into the caller's page, in whichever browser it works, then the page as `then` says. */
   async fillSecretsHere(fills: SecretFill[], then: Then): Promise<Seen> {
     return fillSecrets(await this.browserTab(), fills, then);
   }

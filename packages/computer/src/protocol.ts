@@ -163,6 +163,8 @@ export type Method =
   | "tabs.close"
   | "cdp.send"
   | "cdp.batch"
+  | "secret.fill"
+  | "secret.picture"
   | PanelMethod;
 
 /**

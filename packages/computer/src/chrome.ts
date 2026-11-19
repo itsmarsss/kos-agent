@@ -1,4 +1,20 @@
-import { PICTURE, Page, sendEach, type Call, type Session as TabSession, type Tab } from "@kos/browser";
+import {
+  PICTURE,
+  Page,
+  SecretRefused,
+  echoPatterns,
+  isDigitSlot,
+  isSecretSlot,
+  keepFilled,
+  sendEach,
+  type Call,
+  type FilledValue,
+  type HeldElsewhere,
+  type Kin,
+  type SecretPut,
+  type Session as TabSession,
+  type Tab,
+} from "@kos/browser";
 import { turnStop, type BrowserElsewhere, type PageSpot, type TabInfo } from "@kos/harness";
 
 import { kindOf, type DeviceHub, type Session } from "./hub.js";
@@ -25,6 +41,27 @@ interface Kept {
   handed: boolean;
   /** The tab beside the side panel the owner is talking from. */
   focus?: boolean;
+  /** What the extension says the tab is held to by a secret filled into it, in this session or one before. */
+  held?: HeldElsewhere;
+}
+
+/** A tab's hold as tabs.list says it, read and checked. */
+function heldOf(v: unknown): HeldElsewhere | undefined {
+  const h = v as { loader?: unknown; urls?: unknown } | undefined;
+  if (typeof h?.loader !== "string" || !Array.isArray(h.urls)) return undefined;
+  return { loader: h.loader, urls: h.urls.filter((u): u is string => typeof u === "string") };
+}
+
+/**
+ * What the host knows of the owner's secrets, as the pages of the owner's
+ * Chrome need it (SecretsRegistry): every saved value, cleaned out of what
+ * KOS reads back; those a page's site may be shown, to mask its pictures;
+ * and why no script of KOS's runs on an origin, if none may.
+ */
+export interface PageSecrets {
+  saved(): readonly FilledValue[];
+  savedFor(origins: readonly string[]): readonly FilledValue[];
+  evalBlocked(origin: string): string | undefined;
 }
 
 /** One conversation's borrowed Chrome: its tabs, the one it is on, and a page for each it has driven. */
@@ -33,6 +70,8 @@ interface Borrowed {
   tabs: Map<string, Kept>;
   current?: string;
   pages: Map<string, Page>;
+  /** Every value filled in any of its tabs, for the session's life: each tab's pictures and words are cleaned of all of them (see Kin). */
+  filled: FilledValue[];
   /** The extension sends pictures the size of the tab: one from before it made them small itself. */
   fullPictures?: boolean;
   /** How often the page has moved under the agent: navigated, taken over, handed back. */
@@ -45,6 +84,10 @@ interface Borrowed {
 const RELAY_SLACK_MS = 5_000;
 /** Commands in one cdp.batch, at most (BATCH_MAX in the extension's worker). */
 const BATCH_MAX = 100;
+/** How long the extension may take to check a field and put a secret into it. */
+const SECRET_FILL_MS = 20_000;
+/** The extension's refusals of a fill that are KOS's own (SecretRefused): recorded as refused:<code>, the words the extension's. */
+const FILL_REFUSALS: ReadonlySet<string> = new Set(["changed", "origin", "field", "unreachable", "focus", "worker"]);
 
 /** A call to the extension on the conversation's line: a method, its params, and how long its answer may take. */
 export type Relay = (method: "cdp.send" | "cdp.batch", params: Record<string, unknown>, timeoutMs: number) => Promise<Record<string, unknown>>;
@@ -121,8 +164,17 @@ function hostOf(url: string): string | undefined {
 
 export class OwnerChrome implements BrowserElsewhere {
   private readonly held = new Map<string, Borrowed>();
+  /**
+   * The values filled into each tab of each Chrome, by device and tab, kept
+   * past the session that filled them while the extension says the tab is
+   * held: a new session on it cleans and masks them as the old one did.
+   */
+  private readonly carried = new Map<string, FilledValue[]>();
 
-  constructor(private readonly hub: DeviceHub) {
+  constructor(
+    private readonly hub: DeviceHub,
+    private readonly secrets?: PageSecrets,
+  ) {
     hub.onDeviceEvent((device, event, session) => this.heard(device, event, session));
     hub.onChange(() => {
       // A session gone takes its tabs with it.
@@ -225,14 +277,14 @@ export class OwnerChrome implements BrowserElsewhere {
     if (!session) throw new Error(refusalText(new DeviceError("no_session", "no session"), this.hub.takeEnding(conversation), "browser"));
     let b = this.held.get(conversation);
     if (!b || b.session !== session.id) {
-      b = { session: session.id, tabs: new Map(), pages: new Map(), moved: 0 };
+      b = { session: session.id, tabs: new Map(), pages: new Map(), filled: [], moved: 0 };
       this.held.set(conversation, b);
     }
     return b;
   }
 
   /** A call in the conversation's session; one refused for want of a session says why the last one ended. */
-  private async act(conversation: string, method: "tabs.list" | "tabs.open" | "cdp.send" | "cdp.batch", params: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
+  private async act(conversation: string, method: "tabs.list" | "tabs.open" | "cdp.send" | "cdp.batch" | "secret.fill", params: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
     try {
       return await this.hub.act(conversation, method, params, timeoutMs, turnStop.getStore());
     } catch (err) {
@@ -244,9 +296,14 @@ export class OwnerChrome implements BrowserElsewhere {
   private async refresh(conversation: string, b: Borrowed): Promise<void> {
     const listed = await this.act(conversation, "tabs.list", {});
     const tabs = Array.isArray(listed["tabs"]) ? (listed["tabs"] as Record<string, unknown>[]) : [];
+    const device = this.hub.sessionOf(conversation)?.device ?? "";
     for (const t of tabs) {
       if (typeof t["id"] !== "string") continue;
-      b.tabs.set(t["id"], { url: String(t["url"] ?? ""), title: String(t["title"] ?? ""), handed: t["handed"] === true, ...(t["focus"] === true ? { focus: true } : {}) });
+      const held = heldOf(t["held"]);
+      b.tabs.set(t["id"], { url: String(t["url"] ?? ""), title: String(t["title"] ?? ""), handed: t["handed"] === true, ...(t["focus"] === true ? { focus: true } : {}), ...(held ? { held } : {}) });
+      const key = `${device}:${t["id"]}`;
+      if (!held) this.carried.delete(key);
+      for (const value of held ? (this.carried.get(key) ?? []) : []) keepFilled(b.filled, value);
     }
   }
 
@@ -261,13 +318,45 @@ export class OwnerChrome implements BrowserElsewhere {
   private pageOf(conversation: string, b: Borrowed, tab: string): Page {
     let page = b.pages.get(tab);
     if (!page) {
-      page = new Page(
-        relayLine((method, params, timeoutMs) => this.act(conversation, method, params, timeoutMs), tab),
-        { gate: (signal) => this.whileOwnerHas(conversation, signal) },
-      );
+      const secrets = this.secrets;
+      page = new Page(relayLine((method, params, timeoutMs) => this.act(conversation, method, params, timeoutMs), tab), {
+        gate: (signal) => this.whileOwnerHas(conversation, signal),
+        kin: () => this.kinOf(conversation),
+        ...(secrets ? { saved: () => secrets.saved(), savedFor: (origins: readonly string[]) => secrets.savedFor(origins), evalBlocked: (origin: string) => secrets.evalBlocked(origin) } : {}),
+        putSecret: (put) => this.putSecret(conversation, tab, put),
+        heldElsewhere: () => this.held.get(conversation)?.tabs.get(tab)?.held,
+      });
       b.pages.set(tab, page);
     }
     return page;
+  }
+
+  /** What a conversation's tabs share of the secrets filled in them: every value, and whether any of them holds one now. */
+  private kinOf(conversation: string): Kin | undefined {
+    const b = this.held.get(conversation);
+    return b ? { values: b.filled, holding: () => [...b.pages.values()].some((p) => p.holdsSecret()) } : undefined;
+  }
+
+  /**
+   * A secret into a field of the tab, by KOS for Chrome itself (secret.fill):
+   * the only call that carries a value to it. The extension checks the page,
+   * the frame and the field again on its side, puts it in, sees that it
+   * holds it without reading it back, and answers that it did, nothing more.
+   */
+  private async putSecret(conversation: string, tab: string, put: SecretPut): Promise<void> {
+    try {
+      await this.act(conversation, "secret.fill", { tab, ...put }, SECRET_FILL_MS);
+      if (isSecretSlot(put.slot)) {
+        const key = `${this.hub.sessionOf(conversation)?.device ?? ""}:${tab}`;
+        const values = this.carried.get(key) ?? [];
+        keepFilled(values, { text: put.value, digits: isDigitSlot(put.slot), origins: [...new Set([put.origin, put.frameOrigin])] });
+        this.carried.set(key, values);
+      }
+    } catch (err) {
+      if (unknownMethod(err)) throw new SecretRefused("unreachable", "this KOS for Chrome is from before it could fill a saved secret; it takes the new build when the owner reloads it");
+      if (err instanceof DeviceError && FILL_REFUSALS.has(err.code)) throw new SecretRefused(err.code as SecretRefused["code"], err.message);
+      throw err;
+    }
   }
 
   /** Until the owner hands the Chrome back: at once when they have not taken it. True when it waited. */
@@ -295,6 +384,13 @@ export class OwnerChrome implements BrowserElsewhere {
     const send = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> =>
       this.hub.act(conversation, "cdp.send", { tab, method, params }, 20_000, turnStop.getStore()).catch(() => ({}) as Record<string, unknown>);
     const dataOf = (shot: Record<string, unknown>): string | undefined => (typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined);
+    const masks = await this.masksFor(conversation, send);
+    // A page that may show a secret is masked by the extension, or not pictured at all: one from before secret.picture is not pictured.
+    if (masks === null) return undefined;
+    if (masks) {
+      const shot = await this.hub.act(conversation, "secret.picture", { tab, format: "jpeg", quality: PICTURE.quality, maxEdge, masks }, 20_000, turnStop.getStore()).catch(() => ({}) as Record<string, unknown>);
+      return dataOf(shot);
+    }
     const b = this.held.get(conversation);
     if (!b?.fullPictures) {
       const data = dataOf(await send("Page.captureScreenshot", { format: "jpeg", quality: PICTURE.quality, maxEdge }));
@@ -306,6 +402,38 @@ export class OwnerChrome implements BrowserElsewhere {
     const [width, height] = [view.clientWidth ?? 0, view.clientHeight ?? 0];
     const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
     return dataOf(await send("Page.captureScreenshot", { format: "jpeg", quality: PICTURE.quality, ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }));
+  }
+
+  /**
+   * The patterns a picture of the tab is masked by, for each origin among
+   * its frames: the values filled in the conversation's tabs on that origin
+   * and the saved ones for its site, never another's (Page.masked does the
+   * same in KOS's own browser). Undefined when there is nothing to mask;
+   * null when the frames could not be read, so nothing is pictured.
+   */
+  private async masksFor(conversation: string, send: (method: string) => Promise<Record<string, unknown>>): Promise<Record<string, string[]> | null | undefined> {
+    const filled = this.held.get(conversation)?.filled ?? [];
+    const secrets = this.secrets;
+    if (!secrets && filled.length === 0) return undefined;
+    type FrameTree = { frame?: { securityOrigin?: string }; childFrames?: FrameTree[] };
+    const origins = new Set<string>();
+    const walk = (t: FrameTree | undefined): void => {
+      const origin = t?.frame?.securityOrigin;
+      if (origin && /^https?:\/\//.test(origin)) origins.add(origin);
+      for (const child of t?.childFrames ?? []) walk(child);
+    };
+    const tree = (await send("Page.getFrameTree"))["frameTree"] as FrameTree | undefined;
+    if (!tree) return filled.length ? null : undefined;
+    walk(tree);
+    const masks: Record<string, string[]> = {};
+    for (const origin of origins) {
+      // A value filled is found only on the origins it was filled on: no other frame is sent a pattern it could learn it by.
+      const here = filled.filter((v) => !v.origins || v.origins.includes(origin));
+      const values = [...here, ...(secrets?.savedFor([origin]) ?? []).filter((v) => !here.some((f) => f.text === v.text))];
+      const patterns = echoPatterns(values, 1);
+      if (patterns.length) masks[origin] = patterns;
+    }
+    return Object.keys(masks).length ? masks : undefined;
   }
 
   /** What the extension tells: a page's events for its hands, tabs closing, tabs handed. */
@@ -323,6 +451,8 @@ export class OwnerChrome implements BrowserElsewhere {
       }
       return;
     }
+    // A tab gone takes what was filled into it with it, whichever session it was in.
+    if (event.name === "tab.closed" && tab) this.carried.delete(`${device}:${tab}`);
     if (!entry || !tab) return;
     const [, b] = entry;
     if (event.name === "tab.closed") {
