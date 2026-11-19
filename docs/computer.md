@@ -281,9 +281,12 @@ The reads, each with the query keys it takes and no other:
 - `/api/agents`, `/api/conversations/<id>/messages` (which marks the chat
   read, as opening it on the dashboard does);
 - `/api/files`, `/api/file`, `/api/file/text`, `/api/file/raw` (a picture's
-  bytes), `/api/file/view` (a PDF's bytes), each `path`;
+  bytes), `/api/file/view` (a PDF's bytes), `/api/file/office` (an Office
+  file as the viewers draw it), each `path`;
 - `/api/memory` (`limit`), `/api/memory/trace` (`key`);
-- `/api/runs` (`limit`, `failed`), `/api/crons`.
+- `/api/runs` (`limit`, `failed`), `/api/crons`;
+- `/api/secrets`, `/api/secrets/<secret>/uses` (`limit`): what the owner
+  keeps and its uses, never a value.
 
 And the actions, `POST`, each with exactly its body: `/api/approve` (`{
 "id": 41, "remember"?: true }`), `/api/deny` (`{ "id": 41 }`),
