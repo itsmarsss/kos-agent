@@ -108,7 +108,15 @@ export interface JailedCommand {
    * placeholder.ts), and says what it moved out of the workspace after a
    * run nobody approved (see gitwatch.ts).
    */
-  release?: () => string[];
+  release?: () => Released;
+}
+
+/** What a jailed run's release did after it: see gitwatch.ts. */
+export interface Released {
+  /** Git control the run planted, moved to .kos/quarantine (or removed), from the workspace. */
+  quarantined: string[];
+  /** Planted control that could be neither moved nor removed: unapproved runs there are refused while it stands. */
+  quarantineFailed: string[];
 }
 
 /** Quote for a sandbox profile string: backslashes and double quotes. */
