@@ -35,6 +35,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
   private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
   private let menu = NSMenu()
+  /// Open now: keys go to the menu while it is, so a secret is never typed then.
+  private(set) var isOpen = false
 
   init(snapshot: @escaping () -> Snapshot) {
     self.snapshot = snapshot
@@ -92,6 +94,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
   static func left(until: Date, now: Date = Date()) -> String {
     let minutes = max(1, Int((until.timeIntervalSince(now) / 60).rounded(.up)))
     return minutes < 60 ? "\(minutes)m" : String(format: "%dh %02dm", minutes / 60, minutes % 60)
+  }
+
+  func menuWillOpen(_ menu: NSMenu) {
+    isOpen = true
+  }
+
+  func menuDidClose(_ menu: NSMenu) {
+    isOpen = false
   }
 
   func menuNeedsUpdate(_ menu: NSMenu) {

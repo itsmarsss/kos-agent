@@ -204,6 +204,7 @@ extension Routes.Pending {
   var ask: ChatModel.Ask {
     .init(
       id: String(id), tool: tool, summary: summary, title: title, args: args, mechanics: mechanics, steps: steps, said: said, place: place,
-      risk: risk, why: why, reason: reason, always: always, alwaysTip: alwaysTip, alwaysNote: alwaysNote, asker: asker, expires: expiresAt?.at, chat: conversationId)
+      risk: risk, why: why, reason: reason, always: always, alwaysTip: alwaysTip, alwaysNote: alwaysNote, asker: asker, expires: expiresAt?.at, chat: conversationId,
+      secret: secret)
   }
 }

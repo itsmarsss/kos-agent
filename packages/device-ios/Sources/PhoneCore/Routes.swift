@@ -40,14 +40,17 @@ public enum Routes {
     public let always: String?
     public let alwaysTip: String?
     public let alwaysNote: String?
+    /// The secret a secrets tool's ask places, and where.
+    public let secret: ChatSecret?
 
     public init(
       id: Int, tool: String, args: String? = nil, reason: String? = nil, summary: String? = nil, mechanics: String? = nil, title: String? = nil,
       steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, risk: String? = nil, why: String? = nil,
       conversationId: String? = nil, asker: String? = nil, requestedAt: Double, expiresAt: Double? = nil, always: String? = nil,
-      alwaysTip: String? = nil, alwaysNote: String? = nil
+      alwaysTip: String? = nil, alwaysNote: String? = nil, secret: ChatSecret? = nil
     ) {
       self.id = id
+      self.secret = secret
       self.tool = tool
       self.args = args
       self.reason = reason

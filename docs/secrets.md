@@ -258,7 +258,8 @@ blocks. Each hit counts toward `scrubbed` in the vault's status.
 
 ## The tools
 
-The agent works with secrets through four tools (`tools/secrets.ts`) and
+The agent works with secrets through four tools (`tools/secrets.ts`), and a
+fifth on the owner's Mac (`secrets.type`, below under On the Mac), and
 never sees a value. A value is read from the vault in the handler, the
 moment before it goes into the page, and goes nowhere else: not the
 call's arguments, its result, the audit, a progress event or a log.
@@ -484,6 +485,87 @@ Each use or refusal of a secret is a row in `secret_uses` in the workspace
 database (`id, secret_id, at, conversation_id, tool, surface, device_id,
 origin, frame_origin, app, fields, outcome, approval_id, decided_by`), never
 a value. It is a kernel trust table: no agent SQL reaches it.
+
+## On the Mac
+
+`secrets.type {secret, field, intent}` (`tools/secrettype.ts`) types one
+field of a saved secret into the field that has focus on the owner's Mac, in
+the calling chat's computer session (KOS for Mac, docs/computer.md). The
+computer module offers it with the computer tools, while a computer is
+paired. The agent clicks into the field with `computer.act` first. Risky,
+asks always, and held to the same policy as a fill:
+
+- `always`, `turn` (one yes covers the same secret in the same app, and on
+  the same page for a browser, for the rest of the turn) or `site`, where
+  the "site" is the app: the card offers "Approve, and always in Safari"
+  ("in Safari on github.com" for a page), kept in the vault as the grant
+  `app:<bundle id>` (`app:<bundle id>@<origin>` for a page). A browser's
+  grant is only ever on a page's origin: `app:<browser>` alone is never
+  kept. A grant covers a secret field only into a password field; a card's
+  number into a text field asks every time.
+- Never a permission rule, a session yes or Auto; decided only on the
+  dashboard or a paired device, never Discord, SMS or iMessage, and never by
+  a typed /approve on any surface, a device's own chat included. Nor where
+  KOS's own hand may be. Only a computer (KOS for Mac) has one: its pointer
+  and keys are the system's. A yes from a Mac is refused while it holds that
+  chat's live session, while it is acting for KOS, and for 5 seconds after
+  (a click, a key, a scroll; a picture is not an action). A yes from
+  anywhere else (the dashboard, a Chrome's panel, a phone) is refused while
+  any Mac is acting or did in the last 5 seconds. A Chrome's own calls are
+  page work, not a hand, so a fill is approved from its panel. The ask
+  stays, and says why.
+- A guest's turn never; an unattended one only with `unattended` and a grant
+  in the app.
+
+Before anyone is asked it is refused, and recorded as `refused:<code>`, when
+the vault is not open, the turn may not use the secret, the field is not one
+the secret has (billing goes by `secrets.fill` alone), the secret names no
+apps, the chat holds no session on a Mac, the app in front is not in
+`use.apps`, no text field has focus there, a password would go into a field
+that shows what is typed, the field is on a page whose origin the Mac could
+not vouch for (`page` with no `origin`: an address it could not read, or not
+`http` or `https`), the app is a browser and the Mac names no page, the page
+or a frame is KOS's own dashboard (each name it answers to on its port, the
+LAN host, KOS_PUBLIC_URL's host, KOS_HOST_NAMES on any port, or a loopback
+name on one of its ports), the page's origin is not in `use.web.origins`, or a
+frame between the page and the field is not in `use.web.frames`. The
+harness stamps the call with what the Mac says (`keys.focus`): the app, the
+field (its role, whether it is a password field, its window's title, its
+label), the page's origin and frames, the session and the device. Any of those the model passed is dropped. When it
+runs, the app, field, page and session must still be the ones stamped
+(`refused:changed` otherwise). Then the value is read from the vault and
+sent in the one `keys.secret` call, the only frame the hub sends that holds
+it (the link scrubs every other), given 15 s plus 150 ms a character, at
+most ten minutes; one that does not finish in time is said as one that may
+have typed part of the way, and the owner is told. The Mac checks it all again before every character it types,
+each posted to the approved app alone. The result says it was typed, never
+the value, and warns when the field's length did not grow by as much (keys
+lost). Stopped part of the way (`partial`), it is recorded `partial`, the
+owner is told to clear that field, and the agent is told not to submit.
+The Mac's own refusals (`target`, `origin`, `field`, `secret_field`) are
+said in its words, which never hold one either.
+
+The card's secret block carries `surface: mac`, the `app` (`{name,
+bundle}`), the `device` by name, the field as its one target (`{field,
+label, type: "password field" | "text field"}`), the page's origin when
+there is one, and its frames as `frameOrigins`. Narration reads "Type password from GitHub (github-login-9xq1)
+into Safari", placed "On your Mac, Studio MacBook". KOS for Mac and KOS for
+iPhone draw the block on their cards (`AskSecretBlock`, DeviceKit). Each
+use is a `secret_uses` row with `surface: mac`, `app` and `device_id`.
+
+After a secret is typed, the field is kept for the rest of the session:
+every picture blacks it out (the whole page, while the page hides it at the
+same address), typing into it again is refused, only Return, Enter, Tab,
+shift-Tab and Escape go through there, a click in it is one plain left
+click, no drag starts in it, and only a short list of menu items (Close,
+New Tab, New Window, Reload, Open Location, Back, Forward) is clicked while
+it has focus (docs/computer.md, Calls). That is what KOS's own keys and
+pointer can do; a page's own controls, a "copy" button beside the field,
+are the page's. KOS for Mac also never acts on its own menu, Home window,
+panels or alerts, nor on a paired KOS's dashboard or a browser extension's
+page, so it cannot approve its own ask there. macOS keeps the Mac's secure
+input on while a password field has focus; whether a posted event reaches
+such a field under it is checked on the owner's Mac.
 
 ## CLI
 

@@ -40,10 +40,45 @@ public struct AskSummary: View {
       if let why = ask.why {
         Text("\u{201C}\(why)\u{201D}").font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
       }
+      if let secret = ask.secret { AskSecretBlock(secret) }
       AskStepList(steps)
       if let risk = ask.risk ?? ask.reason.flatMap(AskWords.risk) { RiskTag(risk) }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+/// The secret an ask places, as the web kit's AskSecretBlock shows it: its label and handle, its fields, and where it
+/// goes (the app on a Mac, or the page's site), with what the owner should weigh. Never a value.
+public struct AskSecretBlock: View {
+  private let secret: ChatSecret
+
+  public init(_ secret: ChatSecret) {
+    self.secret = secret
+  }
+
+  public var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 6) {
+        Image(systemName: "key.fill").font(.kos(.detail)).foregroundStyle(Theme.warn).accessibilityHidden(true)
+        (Text(secret.label).font(.kos(.body, .semibold)).foregroundStyle(Theme.text)
+          + Text("  \(secret.handle)").font(.kos(.detail, design: .monospaced)).foregroundStyle(Theme.faint))
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      if let fields = AskWords.secretFields(secret) {
+        Text(fields).font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+      }
+      if let place = AskWords.secretPlace(secret) {
+        Text(place).font(.kos(.body, .semibold)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+      }
+      ForEach(secret.warnings ?? [], id: \.self) { warning in
+        Text(warning).font(.kos(.detail)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .padding(10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.warn.opacity(0.08)))
+    .accessibilityElement(children: .combine)
   }
 }
 
@@ -410,6 +445,24 @@ public enum AskWords {
   }
 
   /// The symbol for where an ask acts.
+  /// A secret's fields in words, as the dashboard says them: "password", "card number and CVC".
+  public static func secretFields(_ secret: ChatSecret) -> String? {
+    let words = secret.fields.map { secretFieldWords[$0] ?? $0 }
+    guard let last = words.last else { return nil }
+    return words.count == 1 ? last : "\(words.dropLast().joined(separator: ", ")) and \(last)"
+  }
+
+  /// Where a secret goes, in words: "Into Safari on Studio MacBook", or the page's site.
+  public static func secretPlace(_ secret: ChatSecret) -> String? {
+    if let app = secret.app {
+      let site = secret.origin.map { " on \($0.replacingOccurrences(of: "https://", with: ""))" } ?? ""
+      return "Into \(app.name)\(site)\(secret.device.map { ", on \($0)" } ?? "")"
+    }
+    return secret.origin.map { "On \($0.replacingOccurrences(of: "https://", with: ""))" }
+  }
+
+  static let secretFieldWords = ["number": "card number", "cvc": "CVC", "name": "name on card", "text": "note", "token": "token"]
+
   public static func placeSymbol(_ tool: String) -> String {
     if tool.hasPrefix("computer.") { return "desktopcomputer" }
     if tool.hasPrefix("files.") || tool == "shell.run" || tool == "python.run" { return "folder" }
