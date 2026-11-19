@@ -1098,6 +1098,16 @@ export async function kosFetch(path: string, init: RequestInit = {}): Promise<Re
   return res;
 }
 
+/**
+ * An address for the browser to fetch by itself (an image's src, a player,
+ * a framed PDF), which sends no headers: as it is with no token held, else
+ * signed by KOS for a few minutes, so the token never goes into a URL.
+ */
+export async function signedUrl(url: string): Promise<string> {
+  if (!dashboardToken()) return url;
+  return (await get<{ url: string }>(`/api/sign?url=${encodeURIComponent(url)}`)).url;
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await kosFetch(path, signal ? { signal } : {});
   if (!res.ok) throw new Error(await readError(res, path));

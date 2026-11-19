@@ -1155,6 +1155,26 @@ describe("handleApiRequest", () => {
     expect(kernel.killSwitch.halted).toBe(true);
   });
 
+  it("lets a browser fetch by an address signed for the token holder, and only that address", async () => {
+    const opts = { token: "secret" };
+    const holder = { authorization: "Bearer secret" };
+    const get = (url: string, headers: Record<string, string> = {}) =>
+      handleApiRequest(kernel, { method: "GET", path: url.split("?")[0]!, url, headers }, opts);
+    expect((await get("/api/sign?url=%2Fapi%2Fstatus")).status).toBe(401);
+    const signed = await get("/api/sign?url=%2Fapi%2Fstatus", holder);
+    const url = (signed.body as { url: string }).url;
+    expect(url).toMatch(/^\/api\/status\?kos_sig=/);
+    expect(url).not.toContain("secret");
+    expect((await get(url)).status).toBe(200);
+    expect((await get(url.replace("/api/status", "/api/tools"))).status).toBe(401);
+    // A signed address does not sign another, and only reads go by one.
+    const signer = (await get(`/api/sign?url=${encodeURIComponent("/api/sign?url=/api/tools")}`, holder));
+    expect(signer.status).toBe(400);
+    const post = await handleApiRequest(kernel, { method: "POST", path: "/api/kill", url: url.replace("/api/status", "/api/kill"), body: { halted: true } }, opts);
+    expect(post.status).toBe(401);
+    expect((await get("/api/sign?url=https%3A%2F%2Fevil.example%2F", holder)).status).toBe(400);
+  });
+
   it("reports per-widget query errors instead of empty data", async () => {
     const project = kernel.manifest.createProject({ name: "Broken", type: "x" });
     kernel.pages.write(project.slug, {

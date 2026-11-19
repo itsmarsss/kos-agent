@@ -23,6 +23,7 @@ import { ArtifactTrashed, EditConflict, type PageStore } from "../systems/pages.
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
+import { signUrl, signedUrlValid } from "./signedurl.js";
 import { MAINTENANCE } from "./caretaker.js";
 import { HOST_KEYS } from "../channels/hostkeys.js";
 import {
@@ -710,7 +711,7 @@ export async function handleApiRequest(
 
   // A configured token guards every route. Reads leak workspace state just as
   // surely as writes change it. With no token the server is loopback-only.
-  if (options.token && !authorized(req, options.token)) {
+  if (options.token && !authorized(req, options.token) && !signedRead(req, options.token)) {
     return { status: 401, body: { error: "unauthorized" } };
   }
 
@@ -720,6 +721,13 @@ export async function handleApiRequest(
   if (refusedChange) return { status: 403, body: { error: refusedChange } };
 
   if (extension) return (await extension.handle(req)) ?? notFound;
+
+  // An address for a browser to fetch by itself (an image, a player, a framed PDF), signed for a holder of the token.
+  if (method === "GET" && path === SIGN_ROUTE) {
+    const url = queryParams(req.url).get("url") ?? "";
+    if (!url.startsWith("/api/") || url.startsWith(SIGN_ROUTE)) return { status: 400, body: { error: "url must be a KOS address under /api/" } };
+    return ok({ url: options.token ? signUrl(url, options.token) : url });
+  }
 
   if (method === "GET" && path === "/api/health") {
     return ok({
@@ -3340,6 +3348,14 @@ export function sameSecret(given: string | undefined, secret: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** The route that signs an address; a signed address cannot itself be used to sign another. */
+const SIGN_ROUTE = "/api/sign";
+
+/** A read by an address KOS signed for a holder of the token (signedurl.ts). */
+function signedRead(req: ApiRequest, token: string): boolean {
+  return (req.method === "GET" || req.method === "HEAD") && req.path !== SIGN_ROUTE && req.url !== undefined && signedUrlValid(req.url, token);
+}
+
 /** Whether a request carries the dashboard's token, as a bearer or as x-kos-token. */
 export function authorized(req: ApiRequest, token: string): boolean {
   const headers = req.headers ?? {};
@@ -3536,7 +3552,7 @@ export function mayReadBody(kernel: Kernel, req: ApiRequest, options: DashboardS
   if (crossSiteWrite(req, options.allowedOrigins)) return false;
   // A change without its proof is answered from its headers, its body never read.
   if (changeRefusal(req, options)) return false;
-  return !options.token || authorized(req, options.token);
+  return !options.token || authorized(req, options.token) || signedRead(req, options.token);
 }
 
 /** A request's bytes, refused (BodyTooLarge) past `max`, by what it says it carries and then by what it sends. */

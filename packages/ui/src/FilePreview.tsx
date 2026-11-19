@@ -10,6 +10,7 @@ import { ImageView } from "./FileThumb.js";
 import { highlights, tokenize } from "./highlight.js";
 import { isOfficePath, OfficeBody } from "./OfficeView.js";
 import { hrefFor } from "./routes.js";
+import { Signed } from "./signed.js";
 
 /**
  * A file, looked at in a window over the page.
@@ -58,11 +59,11 @@ const VIDEO = /\.(mp4|m4v|webm|mov)$/i;
 export function FileBody({ file }: { file: FileContent }): ReactElement {
   // A document, a workbook or a deck is drawn as itself; its words are a Raw away.
   if (isOfficePath(file.path)) return <OfficeBody path={file.path} version={`${file.modifiedAt}:${file.size}`} />;
-  if (AUDIO.test(file.path)) return <audio className="preview-audio" controls preload="metadata" src={api.mediaUrl(file.path)} />;
-  if (VIDEO.test(file.path)) return <video className="preview-video" controls preload="metadata" playsInline src={api.mediaUrl(file.path)} />;
+  if (AUDIO.test(file.path)) return <Signed url={api.mediaUrl(file.path)}>{(src) => <audio className="preview-audio" controls preload="metadata" src={src} />}</Signed>;
+  if (VIDEO.test(file.path)) return <Signed url={api.mediaUrl(file.path)}>{(src) => <video className="preview-video" controls preload="metadata" playsInline src={src} />}</Signed>;
   if (file.omitted === "binary") {
     if (previewable(file.path)) return <ImageView path={file.path} />;
-    if (isPdfPath(file.path)) return <iframe className="preview-frame" src={pdfViewUrl(file.path)} title={file.path.split("/").pop() ?? file.path} />;
+    if (isPdfPath(file.path)) return <Signed url={pdfViewUrl(file.path)}>{(src) => <iframe className="preview-frame" src={src} title={file.path.split("/").pop() ?? file.path} />}</Signed>;
     return <p className="hint preview-hint">Binary file. Download it, or open the workspace folder.</p>;
   }
   if (file.omitted === "too-large") return <p className="hint preview-hint">Too large to show here. Download it instead.</p>;
