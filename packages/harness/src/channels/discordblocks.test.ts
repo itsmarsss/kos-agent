@@ -3,7 +3,7 @@ import { MessageFlags } from "discord.js";
 import { describe, expect, it } from "vitest";
 
 import { DiscordAdapter } from "./discord.js";
-import { splitBlocks } from "./discordblocks.js";
+import { embedLength, splitBlocks } from "./discordblocks.js";
 import { OWNER_ONLY, type InboundMessage } from "./types.js";
 
 const EMAIL = ["Here is the draft:", "", "```kos:email", "to: sam@example.com", "subject: Saturday at 4", "---", "Hi Sam,", "", "Still on?", "```", "", "Want me to send it?"].join("\n");
@@ -11,6 +11,7 @@ const EMAIL = ["Here is the draft:", "", "```kos:email", "to: sam@example.com", 
 interface Sent {
   content?: string;
   embeds?: EmbedBuilder[];
+  files?: { attachment: Buffer; name: string }[];
   components?: { toJSON(): { components: { label?: string; custom_id?: string; url?: string }[] } }[];
 }
 
@@ -107,5 +108,75 @@ describe("a typed block on Discord", () => {
     for (const b of buttonsOf(sent[0]!)) await adapter.receiveInteraction(press(b.custom_id!, "ana", replies));
     expect(replies.map((r) => r.content)).toEqual([OWNER_ONLY, OWNER_ONLY]);
     expect(heard).toEqual([]);
+  });
+  it("keeps a message's embeds under Discord's total, the blocks past it in words", async () => {
+    const { adapter, sent } = adapterWith([]);
+    const long = (n: number): string => `\`\`\`kos:quote\n---\nnote ${n} ${"x".repeat(2500)}\n\`\`\``;
+    await adapter.send("owner", { text: [1, 2, 3, 4].map(long).join("\n\n"), card: { title: "Card", body: "y".repeat(400) } });
+    const last = sent.at(-1)!;
+    const total = last.embeds!.reduce((n, e) => n + embedLength(e), 0);
+    expect(total).toBeLessThanOrEqual(6000);
+    expect(last.embeds).toHaveLength(3);
+    const words = sent.map((m) => m.content ?? "").join("\n");
+    expect(words).toContain("note 3");
+    expect(words).toContain("note 4");
+    expect(words).not.toContain("note 1");
+  });
+
+  it("gives the agent's buttons their rows first, a block without one left in words", async () => {
+    const { adapter, sent } = adapterWith([]);
+    const buttons = Array.from({ length: 25 }, (_, i) => ({ label: `b${i}`, token: `t${i}` }));
+    await adapter.send("owner", { text: EMAIL, buttons });
+    expect(sent[0]!.components).toHaveLength(5);
+    expect(buttonsOf(sent[0]!).map((b) => b.label)).not.toContain("Copy");
+    expect(sent[0]!.embeds ?? []).toEqual([]);
+    expect(sent[0]!.content).toContain("sam@example.com");
+  });
+
+  it("says which of the agent's buttons it could not show, and shows the rest", async () => {
+    const { adapter, sent } = adapterWith([]);
+    await adapter.send("owner", { text: "Links", buttons: [{ label: "ok", url: "https://example.com" }, { label: "long", url: `https://example.com/${"a".repeat(600)}` }, { label: "odd", url: "javascript:alert(1)" }] });
+    expect(buttonsOf(sent[0]!).map((b) => b.label)).toEqual(["ok"]);
+    expect(sent[0]!.content).toBe("Links\n-# 2 buttons not shown here");
+  });
+
+  it("sends no more files than Discord takes in all, naming the rest", async () => {
+    const { adapter, sent } = adapterWith([]);
+    const big = Buffer.alloc(9 * 1024 * 1024).toString("base64");
+    await adapter.send("owner", { text: "Files", files: [1, 2, 3].map((n) => ({ name: `f${n}.bin`, data: big, mediaType: "application/octet-stream" })) });
+    expect(sent[0]!.files!.map((f) => f.name)).toEqual(["f1.bin", "f2.bin"]);
+    expect(sent[0]!.content).toContain("1 file not sent here");
+    expect(sent[0]!.content).toContain("f3.bin");
+  });
+
+  it("offers no Send where others read, Copy alone", async () => {
+    const adapter = new DiscordAdapter({ token: "t", toolNames: () => ["gmail.send"] });
+    const sent: Sent[] = [];
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => ({ id: "c1", isSendable: () => true, send: async (p: Sent) => (sent.push(p), { id: "m1" }) }) } };
+    await adapter.sendTo({ kind: "channel", id: "c1" }, { text: EMAIL });
+    expect(buttonsOf(sent[0]!).map((b) => b.label)).toEqual(["Copy"]);
+  });
+
+  it("sends from a DM in the chat the block was said in", async () => {
+    const { adapter, sent } = adapterWith(["gmail.send"]);
+    adapter.setAuthorizer((id) => id === "owner");
+    const heard: InboundMessage[] = [];
+    adapter.onMessage((m) => void heard.push(m));
+    await adapter.send("owner", { text: EMAIL, conversationId: "chat-a" });
+    const send = buttonsOf(sent[0]!).find((b) => b.label === "Send")!.custom_id!;
+    await adapter.receiveInteraction(press(send, "owner", []));
+    expect(heard[0]?.conversationId).toBe("chat-a");
+  });
+
+  it("copies a draft too long for a message as a file, whole", async () => {
+    const { adapter, sent } = adapterWith([]);
+    adapter.setAuthorizer((id) => id === "owner");
+    const body = "z".repeat(3000);
+    await adapter.send("owner", { text: `\`\`\`kos:quote\n---\n${body}\n\`\`\`` });
+    const copy = buttonsOf(sent[0]!).find((b) => b.label === "Copy")!.custom_id!;
+    const replies: Sent[] = [];
+    await adapter.receiveInteraction(press(copy, "owner", replies));
+    expect(replies[0]!.files![0]!.name).toBe("draft.txt");
+    expect(replies[0]!.files![0]!.attachment.toString("utf8")).toBe(body);
   });
 });

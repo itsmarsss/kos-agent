@@ -37,7 +37,7 @@ import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import { DownLog } from "./downlog.js";
 import { LiveStory, type StoryPayload, type StoryPost } from "./discordstory.js";
-import { BLOCK_COPY_PREFIX, BLOCK_SEND_PREFIX, blockButtons, blockEmbed, copyReply, sendTool, splitBlocks } from "./discordblocks.js";
+import { BLOCK_COPY_PREFIX, BLOCK_SEND_PREFIX, EMBED_TOTAL_MAX, EMBEDS_MAX, ROWS_MAX, blockButtons, blockEmbed, copyReply, embedLength, linkFits, sendTool, splitBlocks } from "./discordblocks.js";
 import { approvalButtons, approvalCard, askSummary, parseApprovalCustomId, settledText, type ApprovalCard, type Decided } from "./askcard.js";
 import { noPreviews } from "./discordtext.js";
 import type {
@@ -101,6 +101,9 @@ const BLOCKS_KEPT = 500;
 /** How many asks /inbox shows as cards; the rest are counted. */
 const INBOX_MAX = 8;
 const DISCORD_FILE_BYTES = 10 * 1024 * 1024;
+/** What a message's uploads may add up to: past it, Discord refuses the whole request. */
+const DISCORD_UPLOAD_BYTES = 25 * 1024 * 1024;
+const mb = (bytes: number): string => `${Math.round(bytes / 1024 / 1024)} MB`;
 /** How much of the message a reply answers is quoted to the turn. */
 const REPLY_QUOTE_MAX = 300;
 /** How many messages already taken are remembered, so a replay does not run one twice. */
@@ -801,13 +804,15 @@ export function buildCard(card: MessageCard, { from, named = true, dashboardUrl,
  *
  * A button with a url is a link and never comes back; one with an id is a
  * press, and its custom id is the token the runtime handed out. Anything past
- * what Discord will show is dropped rather than making the whole message fail.
+ * what Discord will show, or a link it would not take, is dropped rather than
+ * making the whole message fail.
  */
 export function buildButtons(
   buttons: MessageButton[],
 ): ActionRowBuilder<ButtonBuilder>[] {
   const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-  const usable = buttons.slice(0, BUTTONS_MAX);
+  // A link Discord would refuse is left off rather than the whole message refused for it.
+  const usable = buttons.filter((b) => !b.url || linkFits(b.url)).slice(0, BUTTONS_MAX);
   for (let i = 0; i < usable.length; i += BUTTONS_PER_ROW) {
     const row = new ActionRowBuilder<ButtonBuilder>();
     for (const button of usable.slice(i, i + BUTTONS_PER_ROW)) {
@@ -901,7 +906,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly transcribe?: (audio: Attachment) => Promise<string | undefined>;
   private readonly fileOf?: (path: string) => { name: string; data: string } | undefined;
   /** The typed blocks on messages KOS sent, by the key their buttons carry, newest last. */
-  private readonly blocks = new Map<string, KosBlock>();
+  private readonly blocks = new Map<string, { block: KosBlock; chat?: string }>();
   /** The last message each mention-gated channel's chat heard, so the next one carries only what came after. */
   private readonly lastHeard = new Map<string, string>();
   /** The server's approvals channel, once sync has found or made it. */
@@ -2955,27 +2960,62 @@ export class DiscordAdapter implements ChannelAdapter {
     // References become links first, so the split sees the longer text. A
     // message already posted under the speaker's own name carries no tag.
     const said = tagged ? taggedText(msg) : msg.text;
-    // KOS's own typed blocks are drawn as what they are; the owner's words are shown as they wrote them.
-    const { words: text, blocks } = said && !this.isOwner(msg.from) ? splitBlocks(said) : { words: said, blocks: [] };
-    const chunks = text ? chunkText(this.words(text)) : [];
     const link = (t: string): string => linkMentions(withTimes(t, this.timezone), this.dashboardUrl, this.labelOf);
     const tools = this.toolNames?.() ?? [];
-    const drawn = blocks.map((block) => ({ embed: blockEmbed(block, link), row: blockButtons(this.keepBlock(block), block, tools, true) }));
-    const embeds = [...drawn.map((d) => d.embed), ...(msg.card ? [buildCard(msg.card, { from: msg.from, named: tagged && chunks.length === 0 && drawn.length === 0, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] : [])];
-    const components = [...drawn.map((d) => d.row), ...buildButtons(msg.buttons ?? [])].slice(0, 5);
+    // The agent's own buttons are the turn's offers: theirs first, and a
+    // block's buttons take the rows left.
+    const offers = msg.buttons ?? [];
+    const offered = buildButtons(offers);
+    const droppedOffers = offers.length - offered.reduce((n, r) => n + r.components.length, 0);
+    const cardOf = (named: boolean): EmbedBuilder => buildCard(msg.card!, { from: msg.from, named, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf });
+    // KOS's own typed blocks are drawn as what they are, while the message
+    // can hold them: Discord refuses a message whose embeds add up past its
+    // total, or one with too many. The rest stay as their plain words.
+    let room = EMBED_TOTAL_MAX - (msg.card ? embedLength(cardOf(true)) : 0);
+    let slots = Math.min(EMBEDS_MAX - (msg.card ? 1 : 0), ROWS_MAX - offered.length);
+    const drawn: { embed: EmbedBuilder; row: ActionRowBuilder<ButtonBuilder> }[] = [];
+    const fits = (block: KosBlock): boolean => {
+      const embed = blockEmbed(block, link);
+      const size = embedLength(embed);
+      if (slots <= 0 || size > room) return false;
+      slots -= 1;
+      room -= size;
+      // Send only where the owner alone reads: a draft sent from a shared room is sent by whoever pressed.
+      drawn.push({ embed, row: blockButtons(this.keepBlock(block, msg.conversationId), block, tools, shares) });
+      return true;
+    };
+    // The owner's words are shown as they wrote them.
+    const text = said && !this.isOwner(msg.from) ? splitBlocks(said, fits).words : said;
+    const chunks = text ? chunkText(this.words(text)) : [];
+    const embeds = [...drawn.map((d) => d.embed), ...(msg.card ? [cardOf(tagged && chunks.length === 0 && drawn.length === 0)] : [])];
+    const components = [...drawn.map((d) => d.row), ...offered];
+    const notes: string[] = [];
+    if (droppedOffers > 0) {
+      console.warn(`[discord] ${droppedOffers} of ${offers.length} buttons could not be shown (past ${BUTTONS_MAX}, or a link Discord does not take)`);
+      notes.push(`-# ${droppedOffers} button${droppedOffers === 1 ? "" : "s"} not shown here`);
+    }
     // The files ride on the last chunk with the card, under the whole
-    // message. Discord takes ten per message and so many bytes each; what
-    // does not fit is named instead, with where it is kept, rather than the
-    // whole message being refused for one file too many.
+    // message. Discord takes ten per message, so many bytes each and so
+    // many in all; what does not fit is named instead, with where it is
+    // kept, rather than the whole message being refused for one file too many.
     // The pictures and PDFs KOS's words name, uploaded where the owner alone reads, so they show here and not only as links.
     const named = shares && said && !this.isOwner(msg.from) ? this.filesNamed(said, msg.files ?? []) : [];
     const all = [...(msg.files ?? []), ...named].map((f) => ({ attachment: Buffer.from(f.data, "base64"), name: f.name, path: f.path }));
-    const files = all.filter((f) => f.attachment.byteLength <= DISCORD_FILE_BYTES).slice(0, DISCORD_FILES);
+    let bytes = 0;
+    const files = all.filter((f) => {
+      const size = f.attachment.byteLength;
+      if (size > DISCORD_FILE_BYTES || bytes + size > DISCORD_UPLOAD_BYTES) return false;
+      bytes += size;
+      return true;
+    }).slice(0, DISCORD_FILES);
     const left = all.filter((f) => !files.includes(f));
     if (left.length) {
       const base = this.dashboardUrl?.replace(/\/+$/, "");
-      const named = left.map((f) => (f.path && base ? `[${f.name}](<${base}/#/files/${encodeURIComponent(f.path)}>)` : f.name)).join(", ");
-      const note = `-# ${left.length} file${left.length === 1 ? "" : "s"} not sent here (Discord takes ${DISCORD_FILES} per message, ${Math.round(DISCORD_FILE_BYTES / 1024 / 1024)} MB each): ${named}`;
+      const listed = left.map((f) => (f.path && base ? `[${f.name}](<${base}/#/files/${encodeURIComponent(f.path)}>)` : f.name)).join(", ");
+      notes.push(`-# ${left.length} file${left.length === 1 ? "" : "s"} not sent here (Discord takes ${DISCORD_FILES} per message, ${mb(DISCORD_FILE_BYTES)} each, ${mb(DISCORD_UPLOAD_BYTES)} in all): ${listed}`);
+    }
+    if (notes.length) {
+      const note = notes.join("\n");
       if (chunks.length) chunks[chunks.length - 1] = `${chunks[chunks.length - 1]}\n${note}`.slice(0, 2000);
       else chunks.push(note.slice(0, 2000));
     }
@@ -3023,10 +3063,10 @@ export class DiscordAdapter implements ChannelAdapter {
     return from !== undefined && this.owner !== undefined && (from === this.owner || (from.name === this.owner.name && from.avatarUrl === this.owner.avatarUrl));
   }
 
-  /** A block kept for its buttons, by a short key; the oldest let go past a few hundred. */
-  private keepBlock(block: KosBlock): string {
+  /** A block kept for its buttons, by a short key, with the chat it was said in; the oldest let go past a few hundred. */
+  private keepBlock(block: KosBlock, chat: string | undefined): string {
     const key = randomBytes(6).toString("base64url");
-    this.blocks.set(key, block);
+    this.blocks.set(key, { block, ...(chat ? { chat } : {}) });
     if (this.blocks.size > BLOCKS_KEPT) this.blocks.delete(this.blocks.keys().next().value!);
     return key;
   }
@@ -3041,13 +3081,14 @@ export class DiscordAdapter implements ChannelAdapter {
       await interaction.reply({ content: OWNER_ONLY, flags: MessageFlags.Ephemeral }).catch(() => undefined);
       return;
     }
-    const block = this.blocks.get(key);
-    if (!block) {
+    const kept = this.blocks.get(key);
+    if (!kept) {
       await interaction.reply({ content: "-# That draft is from before KOS last started. Ask for it again.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
       return;
     }
+    const { block, chat } = kept;
     if (!send) {
-      await interaction.reply({ content: copyReply(block), flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      await interaction.reply({ ...copyReply(block), flags: MessageFlags.Ephemeral }).catch(() => undefined);
       return;
     }
     const tool = sendTool(block, this.toolNames?.() ?? []);
@@ -3057,13 +3098,15 @@ export class DiscordAdapter implements ChannelAdapter {
     }
     await interaction.reply({ content: `-# Asked KOS to send it with ${tool}; it asks you before it does.`, flags: MessageFlags.Ephemeral }).catch(() => undefined);
     const message = interaction.message as unknown as Message;
+    // The chat the block was said in, wherever the DM has moved since; else the room's own.
     const binding = interaction.guildId ? this.bindingIn(interaction.channel) : undefined;
+    const conversationId = chat ?? binding?.conversationId;
     await this.messageHandler?.({
       channel: this.name,
       senderId: interaction.user.id,
       text: sendRequestOf(block, tool),
       room: this.roomOf(message),
-      ...(binding ? { conversationId: binding.conversationId } : {}),
+      ...(conversationId ? { conversationId } : {}),
       ...(binding?.newIn ? { newIn: binding.newIn } : {}),
       native: message,
     });

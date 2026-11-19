@@ -312,7 +312,7 @@ describe("the answer a turn shaped", () => {
     await p2!.complete({ text: "here", files: [big, ...many] });
     const capped = edits.at(-1) as { content: string; files: unknown[] };
     expect(capped.files).toHaveLength(10);
-    expect(capped.content).toBe("here\n-# 2 files not sent here (Discord takes 10 per message, 10 MB each): [big.bin](<https://kos.example/#/files/uploads%2Fbig.bin>), [f10.txt](<https://kos.example/#/files/uploads%2Ff10.txt>)");
+    expect(capped.content).toBe("here\n-# 2 files not sent here (Discord takes 10 per message, 10 MB each, 25 MB in all): [big.bin](<https://kos.example/#/files/uploads%2Fbig.bin>), [f10.txt](<https://kos.example/#/files/uploads%2Ff10.txt>)");
   });
 
   it("says a failure in one plain line, marked, with the thinking line taken down", async () => {

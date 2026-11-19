@@ -17,13 +17,37 @@ const BODY_MAX = 4096;
 const FIELD_VALUE_MAX = 1024;
 /** Discord shows ten embeds on a message, five rows of buttons. */
 export const BLOCKS_PER_MESSAGE = 5;
+export const EMBEDS_MAX = 10;
+export const ROWS_MAX = 5;
+/** Discord refuses a message whose embeds add up past 6000 characters; a little is kept spare. */
+export const EMBED_TOTAL_MAX = 5_800;
+/** The longest address a link button takes. */
+const LINK_URL_MAX = 512;
 
-/** A message's words with its typed blocks taken out, and the blocks, in order. */
-export function splitBlocks(text: string): { words: string; blocks: KosBlock[] } {
+/** Whether Discord takes an address as a link button's. */
+export function linkFits(url: string): boolean {
+  return url.length <= LINK_URL_MAX && /^https?:\/\/\S+$/i.test(url);
+}
+
+/** An embed's size as Discord counts it against a message's total. */
+export function embedLength(embed: EmbedBuilder): number {
+  const e = embed.toJSON();
+  const fields = (e.fields ?? []).reduce((n, f) => n + f.name.length + f.value.length, 0);
+  return (e.title?.length ?? 0) + (e.description?.length ?? 0) + (e.footer?.text.length ?? 0) + (e.author?.name.length ?? 0) + fields;
+}
+
+/**
+ * A message's words with its typed blocks taken out, and the blocks, in
+ * order. `fits` is asked of each block in turn and says whether it still
+ * fits on the message; once one does not, it and every block after it stay
+ * as their plain words, so an answer is never refused for its blocks.
+ */
+export function splitBlocks(text: string, fits: (block: KosBlock) => boolean = () => true): { words: string; blocks: KosBlock[] } {
   const blocks: KosBlock[] = [];
-  // Past what one message shows, a block stays as its plain words.
+  let full = false;
   const words = replaceBlocks(text, (block) => {
-    if (blocks.length >= BLOCKS_PER_MESSAGE) return plainOf(block);
+    full ||= blocks.length >= BLOCKS_PER_MESSAGE || !fits(block);
+    if (full) return plainOf(block);
     blocks.push(block);
     return "";
   });
@@ -79,14 +103,18 @@ export function blockButtons(key: string, block: KosBlock, tools: readonly strin
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`${BLOCK_COPY_PREFIX}${key}`).setLabel("Copy").setStyle(ButtonStyle.Secondary));
   const tool = canSend && view.kind.actions.includes("send") ? sendToolOf(block, tools) : undefined;
   if (tool) row.addComponents(new ButtonBuilder().setCustomId(`${BLOCK_SEND_PREFIX}${key}`).setLabel("Send").setStyle(ButtonStyle.Primary));
-  for (const l of view.links.slice(0, 3)) row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(l.href).setLabel(`${l.label} (${l.host})`.slice(0, 80)));
+  for (const l of view.links.filter((l) => linkFits(l.href)).slice(0, 3)) row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(l.href).setLabel(`${l.label} (${l.host})`.slice(0, 80)));
   return row;
 }
 
-/** What Copy answers with: the text in a code block, cut to fit a message. */
-export function copyReply(block: KosBlock): string {
-  const text = copyOf(block).replace(/```/g, "'''");
-  return `\`\`\`\n${text.length > 1980 ? `${text.slice(0, 1979)}…` : text}\n\`\`\``;
+/** The longest draft Copy answers with in a code block; a longer one comes as a file, whole. */
+const COPY_INLINE_MAX = 1_980;
+
+/** What Copy answers with: the text in a code block, or as a file when a message cannot hold it. */
+export function copyReply(block: KosBlock): { content: string; files?: { attachment: Buffer; name: string }[] } {
+  const text = copyOf(block);
+  if (text.length > COPY_INLINE_MAX) return { content: "-# The whole draft, as a file.", files: [{ attachment: Buffer.from(text, "utf8"), name: "draft.txt" }] };
+  return { content: `\`\`\`\n${text.replace(/```/g, "'''")}\n\`\`\`` };
 }
 
 /** The tool a block's Send would use, when it has one. */
