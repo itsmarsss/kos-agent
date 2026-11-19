@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
+import { homedir, userInfo } from "node:os";
 
 /**
  * The one Chrome.
@@ -105,6 +106,9 @@ export function chromeArgs(options: Pick<ChromeOptions, "port" | "profileDir"> &
     `--window-size=${size.width},${size.height}`,
     "--no-first-run",
     "--no-default-browser-check",
+    // Under a stand-in HOME (tests, scratch hosts) macOS finds no keychain for
+    // Chrome's cookie key and asks the owner where to keep it; a mock one asks nothing.
+    ...(homedir() === userInfo().homedir ? [] : ["--use-mock-keychain"]),
     // A tab in its own window is never backgrounded, but belt and braces:
     // nothing a page runs should slow because KOS is not looking at it.
     "--disable-background-timer-throttling",

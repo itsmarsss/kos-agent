@@ -186,7 +186,7 @@ say(`the Mac is behind (${waiting.build.id}) and waits: ${JSON.stringify(waiting
 const ext = join(DIR, "ext");
 cpSync(join(ROOT, "packages/browser-extension/dist"), ext, { recursive: true });
 writeFileSync(join(ext, "build.json"), JSON.stringify(OLD));
-const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${join(DIR, "chrome")}`, `--load-extension=${ext}`, "--enable-unsafe-extension-debugging", "--no-first-run", "about:blank"], { stdio: "ignore" });
+const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${join(DIR, "chrome")}`, `--load-extension=${ext}`, "--enable-unsafe-extension-debugging", "--no-first-run", "--use-mock-keychain", "about:blank"], { stdio: "ignore" });
 process.on("exit", () => chrome.kill());
 const devtools = await Devtools.open(CDP_PORT);
 const extension = await until("the extension to load", async () =>
