@@ -65,6 +65,8 @@ import {
 import { Thinking } from "./Thinking.js";
 import { MessageEditor } from "./MessageActions.js";
 import { MessageTurn, type TurnAction } from "./MessageTurn.js";
+import { UnsentNote } from "./UnsentNote.js";
+import { useReach } from "./reach.js";
 import { useStable } from "./stable.js";
 
 import {
@@ -179,6 +181,11 @@ export interface ChatsPageProps {
 }
 
 
+/** A title cut to a length, with an ellipsis: the composer's placeholder names the chat however long it is. */
+function clipped(title: string, max: number): string {
+  return title.length > max ? `${title.slice(0, max - 1).trimEnd()}…` : title;
+}
+
 function relative(ts: number): string {
   const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
   if (mins < 60) return `${mins}m`;
@@ -265,6 +272,8 @@ export function ChatsPage({
       : [];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  // KOS not answering this tab: sending waits, and says so, until it is back.
+  const reach = useReach();
   /** References put in the composer after what is typed, and the composer focused for the question. */
   const addToDraft = (words: string): void => {
     setDraft((d) => (d.trim() ? `${d.replace(/\s+$/, "")} ${words} ` : `${words} `));
@@ -976,6 +985,8 @@ export function ChatsPage({
     const text = composed ? draft.trim() : spoken;
     const target = activeId;
     if ((!text && (!composed || attachments.files.length === 0)) || !target) return;
+    // Nothing goes while KOS is not answering: the words stay in the box until it is back.
+    if (reach.down) return;
     if (composed && runLocally(text)) {
       setDraft("");
       return;
@@ -1073,7 +1084,6 @@ export function ChatsPage({
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setEvents((e) => [...e.filter((x) => x !== bubble), { kind: "message", role: "kos", text: `Error: ${msg}` }]);
       /*
        * Back in the composer only when it is not waiting on the server: an
        * answer lost on the way back can follow a message that was queued all
@@ -1082,7 +1092,12 @@ export function ChatsPage({
        */
       const waiting = await api.conversation(target).then((r) => r.pending).catch(() => undefined);
       if (waiting) showPending(target, waiting);
-      if (composed && (!waiting || !queuedAnyway(waiting, before, text))) {
+      const unsent = !waiting || !queuedAnyway(waiting, before, text);
+      // The owner's own bubble stays, marked as not sent and why, where KOS's reply would have gone before.
+      // Never the browser's words in KOS's slot: that read as KOS answering "Error: Failed to fetch".
+      setEvents((e) => (unsent && !looksLikeCommand ? e.map((x) => (x === bubble ? { ...bubble, unsent: msg } : x)) : e.filter((x) => x !== bubble)));
+      if (looksLikeCommand || aside) onNotice(msg);
+      if (composed && unsent) {
         setDraft((d) => backInComposer(d, text));
         attachments.restore(files);
       }
@@ -1336,8 +1351,21 @@ export function ChatsPage({
       );
     }
 
+    const said = <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} />;
+    if (e.kind !== "message" || e.unsent === undefined) return said;
     return (
-      <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} />
+      <Fragment key={i}>
+        {said}
+        <UnsentNote
+          reason={e.unsent}
+          down={reach.down}
+          onRetry={() => {
+            // Its words went back in the box; sent from there, the bubble is drawn again.
+            setEvents((all) => all.filter((x) => x !== e));
+            void send();
+          }}
+        />
+      </Fragment>
     );
   };
 
@@ -2634,7 +2662,13 @@ export function ChatsPage({
                     rows={1}
                     value={draft}
                     // On a narrow window the hints ran out of the box: who it goes to is the part to keep.
-                    placeholder={narrow ? `Message ${active.title.length > 20 ? "KOS" : active.title}` : `Message ${active.title.length > 32 ? "KOS" : active.title}, / for commands, @ to name things`}
+                    placeholder={
+                      reach.down
+                        ? "KOS is not answering, retrying"
+                        : narrow
+                          ? `Message ${clipped(active.title, 20)}`
+                          : `Message ${clipped(active.title, 32)}, / for commands, @ to name things`
+                    }
                     onChange={(e) => {
                       setDraft(e.target.value);
                       syncTrigger();
@@ -2736,7 +2770,7 @@ export function ChatsPage({
                       aria-label="Send"
                       title="Send (Enter)"
                       onClick={() => void send()}
-                      disabled={draft.trim() === "" && attachments.files.length === 0}
+                      disabled={reach.down || (draft.trim() === "" && attachments.files.length === 0)}
                     >
                       <SendIcon />
                     </button>
