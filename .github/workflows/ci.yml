@@ -59,7 +59,12 @@ jobs:
       - name: Chrome present
         run: google-chrome --version
 
-      - run: pnpm test
+      # The suites that drive a real Chrome run apart, one file at a time: Chromes started
+      # together on the runner's few cores can take past every launch bound to answer.
+      - run: pnpm exec vitest run --exclude '**/*.chrome.test.ts'
+
+      - name: Chrome suites
+        run: pnpm exec vitest run --no-file-parallelism .chrome.test.ts
 
   # The macOS jail (sandbox-exec) and the suites that run under it skip on
   # Linux. HOME is a temp dir so nothing reads the runner's own, by its real
