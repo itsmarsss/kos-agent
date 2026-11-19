@@ -1666,7 +1666,7 @@ export function SettingsPage({
               <Field group className="set-field"
                 key={r.id}
                 label={`${r.tool}${r.scope ? ` · ${r.scope}` : ""}`}
-                hint={r.project ? `In project ${r.project}` : "Everywhere"}
+                hint={`${r.project ? `In project ${r.project}` : "Everywhere"}${r.matches ? "" : ". Matches nothing now, so it never stops an ask; revoke it"}`}
               >
                 <button
                   type="button"

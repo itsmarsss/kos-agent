@@ -1,5 +1,6 @@
 import { foldName, placePath, type FileHome } from "@kos/shared";
 
+import type { AuditEntry } from "./audit.js";
 import type { Db } from "../store/db.js";
 import { hostOf, isSqlWrite, programOf, writtenTables } from "../risk/rules.js";
 import { parseMentions } from "../kernel/mentions.js";
@@ -28,6 +29,27 @@ export interface PermissionRule {
   /** The project slug it applies in, or null for everywhere. */
   project: string | null;
   createdAt: number;
+  /** False for a rule kept by an older build that no call can match any more: shown so in Settings. */
+  matches: boolean;
+}
+
+/** A directory scope as calls are named: no leading ./ or /, no trailing /. */
+function cleanDir(path: string): string {
+  return path.replace(/^(\.?\/)+/, "").replace(/\/+$/, "");
+}
+
+/**
+ * Whether any call could match a kept rule. A rule for the workspace's root
+ * (`dir:`), a directory spelled as calls never name one (`dir:./x`), or a
+ * yes to skills.commit, which asks every time, matches nothing.
+ */
+export function ruleMatches(rule: { tool: string; scope: string | null }): boolean {
+  if (rule.tool === "skills.commit") return false;
+  if (rule.scope?.startsWith("dir:")) {
+    const dir = rule.scope.slice(4);
+    return dir !== "" && cleanDir(dir) === dir;
+  }
+  return true;
 }
 
 const SCHEMA = `
@@ -223,7 +245,30 @@ export class PermissionStore {
         project: string | null;
         created_at: number;
       }[]
-    ).map((r) => ({ id: r.id, tool: r.tool, scope: r.scope, project: r.project, createdAt: r.created_at }));
+    ).map((r) => ({ id: r.id, tool: r.tool, scope: r.scope, project: r.project, createdAt: r.created_at, matches: ruleMatches(r) }));
+  }
+
+  /**
+   * Bring rules an older build kept to what calls now match: a rule for the
+   * workspace's root (`dir:`) covered every path and now covers none, so it
+   * goes; `dir:./x` and `dir:/x` are spelled `dir:x`, or go when that rule is
+   * already kept. Each change is on the audit record. Run at every boot, it
+   * changes nothing once done. Returns how many rules changed.
+   */
+  migrateScopes(audit: { record: (entry: AuditEntry) => unknown }): number {
+    const rules = this.list().filter((r) => r.scope?.startsWith("dir:") && !r.matches);
+    return this.db.transaction(() => {
+      for (const rule of rules) {
+        const dir = cleanDir(rule.scope!.slice(4));
+        const to = `dir:${dir}`;
+        const kept = this.list().some((r) => r.id !== rule.id && r.tool === rule.tool && r.project === rule.project && r.scope === to);
+        const result = dir === "" ? "removed: a rule for the workspace's root matches nothing" : kept ? `removed: the same rule is kept as ${to}` : `rescoped to ${to}`;
+        if (dir === "" || kept) this.db.prepare(`DELETE FROM permission_rules WHERE id = ?`).run(rule.id);
+        else this.db.prepare(`UPDATE permission_rules SET scope = ? WHERE id = ?`).run(to, rule.id);
+        audit.record({ tool: "permissions.migrate", args: { id: rule.id, tool: rule.tool, scope: rule.scope, project: rule.project }, result, isError: false });
+      }
+      return rules.length;
+    })();
   }
 
   /** Remember a decision. The same rule twice is one rule. */

@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
 import { writtenTables } from "../risk/rules.js";
-import { PermissionStore, familyOf, scopeCovers, scopeOf } from "./permissions.js";
+import { PermissionStore, familyOf, ruleMatches, scopeCovers, scopeOf } from "./permissions.js";
 
 describe("naming a call's scope", () => {
   it("names a file call by its directory, a fetch by its host, a write by its table", () => {
@@ -96,6 +96,47 @@ describe("remembered decisions", () => {
     expect(s.allows("files.rm", { path: "other.txt" })).toBe(false);
     expect(s.allows("files.rm", { path: "projects/books/old.md" })).toBe(false);
     expect(s.allows("files.rm", { path: "projects" })).toBe(false);
+  });
+
+  it("clears out the root rules an older build kept and spells the rest as they are matched, once, on the record", () => {
+    const db = new Database(":memory:");
+    const s = new PermissionStore(db, () => 1000);
+    s.add({ tool: "files.rm", scope: "dir:", project: null });
+    const dotted = s.add({ tool: "files.write", scope: "dir:./notes", project: null });
+    s.add({ tool: "files.write", scope: "dir:/notes/", project: "site" });
+    // Already kept under its proper spelling: the old one is the same rule twice.
+    s.add({ tool: "files.mv", scope: "dir:books", project: null });
+    s.add({ tool: "files.mv", scope: "dir:/books", project: null });
+    s.add({ tool: "http.fetch", scope: "host:a.com", project: null });
+    const recorded: { tool: string; args: Record<string, unknown>; result: string }[] = [];
+    expect(s.migrateScopes({ record: (e) => recorded.push(e) })).toBe(4);
+    expect(s.list().map((r) => [r.tool, r.scope, r.project])).toEqual([
+      ["files.write", "dir:notes", null],
+      ["files.write", "dir:notes", "site"],
+      ["files.mv", "dir:books", null],
+      ["http.fetch", "host:a.com", null],
+    ]);
+    expect(s.list()[0]!.id).toBe(dotted.id);
+    expect(recorded.map((e) => [e.tool, e.result])).toEqual([
+      ["permissions.migrate", "removed: a rule for the workspace's root matches nothing"],
+      ["permissions.migrate", "rescoped to dir:notes"],
+      ["permissions.migrate", "rescoped to dir:notes"],
+      ["permissions.migrate", "removed: the same rule is kept as dir:books"],
+    ]);
+    expect(s.allows("files.write", { path: "notes/a.md" })).toBe(true);
+    // Run again, nothing is left to do and nothing is recorded.
+    expect(s.migrateScopes({ record: (e) => recorded.push(e) })).toBe(0);
+    expect(recorded).toHaveLength(4);
+  });
+
+  it("says which kept rules can no longer match anything, for Settings to show", () => {
+    const s = store();
+    s.add({ tool: "skills.commit", scope: null, project: null });
+    s.add({ tool: "files.rm", scope: "dir:", project: null });
+    s.add({ tool: "files.rm", scope: "dir:notes", project: null });
+    expect(s.list().map((r) => r.matches)).toEqual([false, false, true]);
+    expect(ruleMatches({ tool: "files.rm", scope: "dir:./x" })).toBe(false);
+    expect(ruleMatches({ tool: "files.rm", scope: "file:notes.txt" })).toBe(true);
   });
 
   it("asks about every skills.commit, after an always as before it", () => {

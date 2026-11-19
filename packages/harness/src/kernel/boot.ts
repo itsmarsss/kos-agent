@@ -210,6 +210,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
 
   const daemons = new DaemonStore(workspace.db);
   const permissions = new PermissionStore(workspace.db);
+  // Rules an older build kept that no call can match: cleared or respelled, on the record.
+  permissions.migrateScopes(audit);
   const settings = new SettingsStore(workspace.db);
   const retired = retireBrowserEngine(workspace.root, settings, workspace.db);
   if (retired) console.log(`browser: KOS drives Chrome itself now; the ${retired} server is out of mcp.json, its settings and trusted sites kept`);
