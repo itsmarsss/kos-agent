@@ -54,6 +54,12 @@ const BIG = page(
   `<button id=b onclick="document.title='go'">Go</button>${Array.from({ length: 3000 }, (_, i) => `<div><a href="/p${i}">Product ${i}</a> <span>$${i}</span> <button onclick="document.title='added ${i}'">Add ${i}</button></div>`).join("")}`,
 );
 
+/** An article whose logo is an SVG link: an element with no innerText, which reading the page once threw on. */
+const DRAWN = page(
+  "Drawn",
+  `<header><svg width=20 height=20><a href="/home"><circle r=8 cx=10 cy=10 /><text>Logo</text></a></svg></header><main><h1>Institute</h1><p>The words of the piece.</p><a href="/more">Read more</a></main>`,
+);
+
 const HIDDEN = page(
   "Hidden",
   `<button>Shown</button>
@@ -152,7 +158,7 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     if (url.startsWith("/beacon") || url.startsWith("/pixel")) return void res.writeHead(204).end();
     if (url === "/api/settings") return void setTimeout(() => res.writeHead(200, { "content-type": "application/json" }).end('{"user":"Ada"}'), 200);
     if (url === "/inner") return html(page("Inner", `<button onclick="parent.postMessage('inner ' + location.port, '*')">Inner button</button>`));
-    const pages: Record<string, string> = { "/elsewhere": elsewhere(), "/fidelity": FIDELITY, "/finder": SEARCH, "/waiting": SLOW, "/fetched": FETCHED, "/chatty": CHATTY, "/stepped": STEPPED, "/app": SPA, "/big": BIG, "/hidden": HIDDEN, "/next": NEXT, "/secrets": SECRETS, "/framed": framed() };
+    const pages: Record<string, string> = { "/elsewhere": elsewhere(), "/fidelity": FIDELITY, "/finder": SEARCH, "/waiting": SLOW, "/fetched": FETCHED, "/chatty": CHATTY, "/stepped": STEPPED, "/app": SPA, "/big": BIG, "/hidden": HIDDEN, "/drawn": DRAWN, "/next": NEXT, "/secrets": SECRETS, "/framed": framed() };
     html(pages[url] ?? page("Start", `<a id=go href="/next">Next</a>`));
   };
 
@@ -273,6 +279,14 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     const add = /button "Add 3" @(e\d+)/.exec(seen.text)![1]!;
     await act(tab, stepsOf([{ click: `@${add}` }]), "none");
     expect(await tab.page.evaluate("document.title")).toBe("added 3");
+  });
+
+  it("reads a page with an SVG link as its words and its HTML links", async () => {
+    const read = await visit(tab, [`${base}/drawn`], { then: "read" });
+    expect(read.text).toContain("The words of the piece.");
+    expect(read.text).toMatch(/- Read more: http:\/\/[^\s]+\/more/);
+    expect(read.text).not.toContain("/home");
+    expect((await tab.page.read("svg")).length).toBeGreaterThan(0);
   });
 
   it("leaves out what is not drawn or is kept from readers", async () => {
