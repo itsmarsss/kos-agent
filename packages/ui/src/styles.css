@@ -2248,7 +2248,8 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  /* Packed from the left; the spacer before Send takes what is left over. */
+  justify-content: flex-start;
   gap: 0.4rem;
   min-width: 0;
   margin-top: 0.5rem;
@@ -2968,6 +2969,13 @@ li:hover .chats-item-when { opacity: 0; }
 .composer-box .hl textarea.hl-area { padding: 0.3rem 0.1rem; border-color: transparent; }
 .composer-box .hl textarea.hl-area:focus { border-color: transparent; }
 .composer-box .sheet-composer-bar { margin-top: 0; gap: 0.3rem; }
+/* The row stays one line: in a composer narrower than the whole row, the
+   meter keeps its percentage and drops the bar and the turn count. */
+.composer-box { container-type: inline-size; }
+@container (max-width: 46rem) {
+  .sheet-composer-bar .ctx-track,
+  .sheet-composer-bar .ctx-detail { display: none; }
+}
 /* One height for every control on the composer's row, from one token: the
    model, the mode, memory, attach, voice and send were 36, 24, 24, 26 and
    30 px. The chips are one capsule, the model's too (components.md's

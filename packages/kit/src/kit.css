@@ -657,7 +657,8 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 .mode-menu-fold[open] > .mode-menu-fold-head::before { transform: rotate(45deg); }
 .mode-menu-fold-head:hover { color: var(--text); }
 .mode-menu-fold-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.mode-menu-never { margin: 0; padding: 0 8px 6px 24px; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; }
+/* Its own scroll, so opening it never pushes the menu's top out of view above the composer. */
+.mode-menu-never { max-height: min(13rem, 38vh); overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: 0 8px 6px 24px; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; }
 .mode-menu-never li + li { margin-top: 1px; }
 
 /* —— a secret's field: masked as typed, never drawn back; and where it may be used —— */
