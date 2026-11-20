@@ -195,7 +195,9 @@ export function refusalText(err: unknown, ending?: string, kind: "computer" | "b
         ? `No session in the owner's Chrome in this chat${ended}. chrome.start asks for one; when the owner spoke in the side panel, the first browser call asks there itself.`
         : `No session on a computer in this chat${ended}. Call computer.start first; when the owner spoke in the KOS for Mac window, computer.act starts one itself.`;
     case "paused":
-      return "The owner took control partway. The next call waits for them to hand it back, then shows you the screen; act on what it shows.";
+      return kind === "browser"
+        ? "The owner took over their Chrome partway. Your next browser call waits for them to hand it back, then goes on; keep the session, and do not move the work to KOS's own browser."
+        : "The owner took control partway. The next call waits for them to hand it back, then shows you the screen; act on what it shows.";
     case "scrolled":
       return "The owner scrolled the screen partway, so the last picture no longer holds. Look again before acting.";
     case "held":
@@ -405,6 +407,17 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       throw new Error(`${name} (${p.x}, ${p.y}) is off the screen, which is ${session.space.width}x${session.space.height}`);
     }
     return p;
+  };
+
+  /** A zoom's region [x1, y1, x2, y2], checked to lie on the screen, as the device takes it. */
+  const regionOf = (session: Session, input: Record<string, unknown>): { x: number; y: number; width: number; height: number } => {
+    const r = input.region;
+    if (!Array.isArray(r) || r.length !== 4 || !r.every((n) => typeof n === "number")) throw new Error("zoom needs region [x1, y1, x2, y2]");
+    const [x1, y1, x2, y2] = (r as number[]).map(Math.round) as [number, number, number, number];
+    if (x2 <= x1 || y2 <= y1) throw new Error("region is [x1, y1, x2, y2] with x2 > x1 and y2 > y1");
+    inSpace(session, { x: x1, y: y1 }, "region");
+    inSpace(session, { x: x2 - 1, y: y2 - 1 }, "region");
+    return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
   };
 
   /**
@@ -645,8 +658,9 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     parse: (raw, i) => {
       const input = (typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
       const action = input.action as Action;
-      if (!ACTIONS.includes(action) || action === "zoom" || action === "screenshot") {
-        throw new Error(`step ${i + 1}: each is one of ${ACTIONS.filter((a) => a !== "zoom" && a !== "screenshot").join(", ")}`);
+      if (action === "zoom") throw new Error(`step ${i + 1}: a zoom is the run's last step, its closer look at the end, or a call of its own`);
+      if (!ACTIONS.includes(action) || action === "screenshot") {
+        throw new Error(`step ${i + 1}: each is one of ${ACTIONS.filter((a) => a !== "zoom" && a !== "screenshot").join(", ")}, and a zoom last`);
       }
       return { action, input };
     },
@@ -670,18 +684,27 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   /**
    * One action or a short run, through the shared runner: one round trip
    * and one picture for a sequence the model can see through. A screenshot
-   * in a run is the picture at its end; the run stops at the first action
-   * that fails, saying what was done.
+   * in a run is the picture at its end, and a zoom last is a closer look at
+   * its end instead (asked so to read what the run brought up); the run stops
+   * at the first action that fails, saying what was done.
    */
   const run = async (chat: string, session: Session, raw: unknown[], lookAfter: boolean): Promise<Look> => {
     const isLook = (item: unknown): boolean => typeof item === "object" && item !== null && (item as Record<string, unknown>).action === "screenshot";
-    const looks = raw.some(isLook);
-    const actions = raw.filter((item) => !isLook(item));
+    const last = raw.at(-1);
+    const zoom = typeof last === "object" && last !== null && (last as Record<string, unknown>).action === "zoom" ? regionOf(session, last as Record<string, unknown>) : undefined;
+    const steps = zoom ? raw.slice(0, -1) : raw;
+    const looks = steps.some(isLook);
+    const actions = steps.filter((item) => !isLook(item));
     const signal = turnStop.getStore();
     // One budget for the call: its waits, and the settle before its picture.
     const waits = new WaitBudget();
     const done = actions.length ? await runActions(deviceActions(chat, session), actions, { sleep, waits, ...(signal ? { signal } : {}) }) : [];
     const said = doneText(done);
+    if (zoom) {
+      const settle = waits.take(deps.settleMs ?? SETTLE_MS);
+      if (settle > 0) await sleep(settle);
+      return look(chat, said, zoom);
+    }
     if (!lookAfter && !looks) return said;
     return afterAction(chat, said, waits);
   };
@@ -756,7 +779,8 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           "should take, not a few seconds at a time. `then` \"look\" (the default) sends the picture when the screen changed since your last one " +
           "and says so in words when it did not; \"none\" skips it. The picture after an action is taken once the screen " +
           "settles, so do not add waits after clicks; wait only for something you know is slow. `actions` does several in one call, in " +
-          `order, each {action, coordinate, text, ...}, with one picture at the end (at most ${RUN_MAX}): click a field, type, press Return. ` +
+          `order, each {action, coordinate, text, ...}, with one picture at the end (at most ${RUN_MAX}): click a field, type, press Return; ` +
+          "a zoom as the last of them is that picture, closer. " +
           "Their coordinates are in the picture you last saw, so chain only what you can already see. " +
           "Say what the call is for in `intent`, a few words the owner reads as the step, like \"open the Quizzes tab\" or " +
           "\"search for the engagement form\": without it they see only clicks and keys. When the owner speaks in the KOS for Mac window, the first call " +
@@ -806,15 +830,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           if (raw) return await run(chat, session, raw, lookAfter);
           // Asked for outright, the picture is sent: the model may not have the last one any more.
           if (action === "screenshot") return await look(chat, "", undefined, 0, true);
-          if (action === "zoom") {
-            const r = input.region;
-            if (!Array.isArray(r) || r.length !== 4 || !r.every((n) => typeof n === "number")) throw new Error("zoom needs region [x1, y1, x2, y2]");
-            const [x1, y1, x2, y2] = (r as number[]).map(Math.round) as [number, number, number, number];
-            if (x2 <= x1 || y2 <= y1) throw new Error("region is [x1, y1, x2, y2] with x2 > x1 and y2 > y1");
-            inSpace(session, { x: x1, y: y1 }, "region");
-            inSpace(session, { x: x2 - 1, y: y2 - 1 }, "region");
-            return await look(chat, "", { x: x1, y: y1, width: x2 - x1, height: y2 - y1 });
-          }
+          if (action === "zoom") return await look(chat, "", regionOf(session, input));
           return await run(chat, session, [input], lookAfter);
         } catch (err) {
           if (err instanceof DeviceError) throw new Error(refusalText(err, hub.takeEnding(chat)));

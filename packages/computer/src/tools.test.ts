@@ -8,7 +8,8 @@ import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
 import { rawPublicKey } from "./keys.js";
 import { DeviceStore } from "./store.js";
-import { computerModule, pageText } from "./tools.js";
+import { DeviceError } from "./link.js";
+import { computerModule, pageText, refusalText } from "./tools.js";
 
 type Handler = (input: Record<string, unknown>) => unknown;
 type ToolSpec = Parameters<ModuleContext["registerTool"]>[0];
@@ -92,6 +93,14 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
 }
 
 const textOf = (r: Result): string => (typeof r === "string" ? r : r.text);
+
+describe("a device's refusal, as the agent is told it", () => {
+  it("tells a take-over of the owner's Chrome as a wait in the same place, not an end", () => {
+    const taken = new DeviceError("paused", "the owner has taken over");
+    expect(refusalText(taken, undefined, "browser")).toMatch(/next browser call waits for them to hand it back.*do not move the work to KOS's own browser/);
+    expect(refusalText(taken)).toMatch(/next call waits for them to hand it back, then shows you the screen/);
+  });
+});
 
 describe("the computer tools", () => {
   it("are offered only while a computer is paired", () => {
@@ -230,7 +239,15 @@ describe("the computer tools", () => {
     expect(fake.calls.slice(before).map((c) => c.method)).toEqual(["pointer.click", "keys.type", "keys.press", "screen.capture"]);
     expect(textOf(ran)).toMatch(/^Done: Clicked at \(10, 20\); Typed 4 characters; Pressed Return\. The screen/);
     await expect(call("computer.act", { actions: [{ action: "type", text: "a" }, { action: "left_click" }] })).rejects.toThrow(/^Done: Typed 1 character\. Step 2 \(left_click\) failed: left_click needs a coordinate/);
-    await expect(call("computer.act", { actions: [{ action: "zoom" }] })).rejects.toThrow(/step 1: each is one of/);
+    await expect(call("computer.act", { actions: [{ action: "hover", coordinate: [1, 1] }] })).rejects.toThrow(/step 1: each is one of .*, and a zoom last/);
+    // A zoom last is the run's picture, closer; anywhere else it is refused before anything is done.
+    const zoomed = fake.calls.length;
+    const closer = await call("computer.act", { actions: [{ action: "key", text: "cmd+l" }, { action: "zoom", region: [0, 0, 100, 50] }] });
+    expect(fake.calls.slice(zoomed).map((c) => c.method)).toEqual(["keys.press", "screen.capture"]);
+    expect(fake.calls.at(-1)).toMatchObject({ method: "screen.capture", params: { region: { x: 0, y: 0, width: 100, height: 50 } } });
+    expect(textOf(closer)).toMatch(/^Done: Pressed cmd\+l\. /);
+    await expect(call("computer.act", { actions: [{ action: "zoom", region: [0, 0, 100, 50] }, { action: "key", text: "Tab" }] })).rejects.toThrow(/step 1: a zoom is the run's last step/);
+    await expect(call("computer.act", { actions: [{ action: "key", text: "Tab" }, { action: "zoom" }] })).rejects.toThrow(/zoom needs region/);
     // A screenshot inside a run is the run's one picture, even when the run would not look.
     const shown = fake.calls.length;
     const looked = await call("computer.act", { then: "none", actions: [{ action: "key", text: "Tab" }, { action: "screenshot" }] });
