@@ -9,6 +9,7 @@ import { MATCHED_LIMIT, STANDING_LIMIT, type Recall } from "../memory/retriever.
 import type { Profile } from "./profile.js";
 import { clockLine } from "./when.js";
 import { ACTING, VOICE } from "./voice.js";
+import { WHERE_TO_ACT } from "./where.js";
 
 /**
  * Context assembly: each prompt gets profile + manifest summary + salient
@@ -73,10 +74,10 @@ export const TURN_CONTEXT_HEADER = "## Recalled for this turn";
 
 /** Build the system prompt block for one agent turn. */
 export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
-  // The voice, how KOS acts for the owner and how it writes a draft come
-  // second, before anything about the workspace: every surface and both
-  // engines share them.
-  const sections: string[] = [parts.baseSystem.trim(), VOICE, ACTING, BLOCKS_GUIDANCE];
+  // The voice, how KOS acts for the owner, where it acts and how it writes a
+  // draft come second, before anything about the workspace: every surface
+  // and both engines share them.
+  const sections: string[] = [parts.baseSystem.trim(), VOICE, ACTING, WHERE_TO_ACT, BLOCKS_GUIDANCE];
 
   sections.push(
     [
