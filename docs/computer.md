@@ -31,6 +31,13 @@ server. The device always connects out, so nothing listens on it.
 3. Grant Screen Recording and Accessibility when it asks.
 
 Then any chat can ask: "on my laptop, open the Figma file from yesterday".
+The owner's words pick the place: my Mac, my screen or KOS in Mac is the
+computer; my Chrome, my browser or KOS in Chrome is their Chrome; KOS's
+browser, or no place named, is KOS's own. Every chat is told so (the "Where
+to act" part of its prompt, `kernel/where.ts`, on both engines), and each of
+the owner's turns is told what is paired and online, as `computer.devices`
+says it. Asked for on a device, the work is done there, never sent as a link
+or moved to another place unasked.
 `computer.devices` says what is paired and online, asking nobody.
 `computer.start` picks the computer when one fits (or the one named; when
 several could be meant, or the one there is is offline, it says what is
@@ -84,7 +91,9 @@ While KOS is in control:
   flight, one wait budget of a minute a call for every wait in it (a pause,
   a wait for words on a page, the settle before the picture), none past the
   run's deadline, and "Done: ... Step 3 (click) failed: why." when it stops
-  part way. Stop in a step a device cannot take back says no more than
+  part way. A zoom as the run's last action is its picture, closer (to read
+  what the run brought up); anywhere else in a run it is refused before
+  anything is done. Stop in a step a device cannot take back says no more than
   "step 3 may have finished on the device";
 - the picture after an act goes only when the screen changed since the
   chat's last one, on any surface (one memory per chat, forgotten when a
