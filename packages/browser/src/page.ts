@@ -260,6 +260,11 @@ function exceptionText(details: unknown): string {
   return first ?? (d?.exception?.value !== undefined ? String(d.exception.value) : (d?.text ?? "an error"));
 }
 
+/** A script that failed to compile on a top-level `return`: written as a function's body, and nothing of it ran. */
+function illegalReturn(details: unknown): boolean {
+  return details !== undefined && /^SyntaxError: Illegal return statement/.test(exceptionText(details));
+}
+
 interface FrameInfo {
   id: string;
   url: string;
@@ -781,11 +786,15 @@ export class Page {
     this.scripted.mark(before.loader);
     // Run in the context checked, which no later page can host; and only while it is still on the origin checked.
     const guard = /^https?:/i.test(main.origin) ? `if (self.origin !== ${JSON.stringify(main.origin)}) throw new Error("the page moved to another site before the script ran");\n` : "";
-    const answer = await this.send(
-      "Runtime.evaluate",
-      { expression: guard + code, uniqueContextId: main.uniqueId, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
-      EVAL_MS + 2_000,
-    );
+    const run = (body: string): Promise<Record<string, unknown>> =>
+      this.send(
+        "Runtime.evaluate",
+        { expression: guard + body, uniqueContextId: main.uniqueId, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
+        EVAL_MS + 2_000,
+      );
+    // A script written as a function's body (its answer a top-level `return`) does not compile as a console line, so nothing of it ran: it runs as that body.
+    const first = await run(code);
+    const answer = illegalReturn(first["exceptionDetails"]) ? await run(`(async () => {\n${code}\n})()`) : first;
     const after = await this.document();
     if (after.loader !== before.loader) {
       // The script may have run on the next document too, or reached it: that one takes no fill either, and what came back is not said.
