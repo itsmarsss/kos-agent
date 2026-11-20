@@ -69,6 +69,8 @@ export interface ComputerUse {
   module: KosModule;
   /** The owner's Chrome, for the kernel to send a chat's browser tools to while it works there. */
   chrome: BrowserElsewhere;
+  /** What the owner has paired, one line each, while computer use is on; nothing while it is off. */
+  paired(): string | undefined;
   /** Why a yes on a secret's ask from this device, or from the dashboard, may be KOS's own hand (DeviceHub.handsOn). */
   handsOn(device: string | undefined, conversation: string | null): string | undefined;
   /** The side panel of each paired Chrome, as a channel. */
@@ -305,6 +307,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   return {
     module,
     chrome: elsewhere,
+    paired: () => active?.paired(),
     handsOn: (device, conversation) => hub?.handsOn(device, conversation),
     panel,
     mac,

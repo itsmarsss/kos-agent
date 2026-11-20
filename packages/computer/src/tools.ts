@@ -122,6 +122,8 @@ export interface ComputerModule extends KosModule {
   beginPanelChrome(conversation: string, signal?: AbortSignal): Promise<void>;
   /** The owner left a chat on a device of this kind (switched the panel to another chat): its session there ends. */
   left(conversation: string, kind: "computer" | "browser"): void;
+  /** What is paired, one line each, as computer.devices says it: for each of the owner's turns to know before it calls a tool. */
+  paired(): string;
 }
 
 const SETTLE_MS = 450;
@@ -728,14 +730,15 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
         name: "computer.start",
         description:
           "Start using a paired computer (KOS for Mac): its whole screen, its apps, the pointer and keyboard; the one there is, or the one " +
-          "named, and when none fits it says what is paired. Not for the owner's Chrome alone: when they mean their Chrome or the browser " +
+          "named, and when none fits it says what is paired. When the owner says my Mac, my computer, my screen or KOS in Mac, this is the tool, " +
+          "a web page they want there included. Not for the owner's Chrome alone: when they mean their Chrome or the browser " +
           "device, chrome.start works in it, tab by tab. When they ask for the computer and it is offline, say so and offer their Chrome if one " +
           "is online; do not switch to it unasked. The owner allows it on the computer, seeing `task`, so say plainly what you will do. Name " +
           "`app` when the work is in one app: the owner is offered its window first and may share only that window, which you then see and act " +
           "in alone (it is brought to the front for you). Returns the first picture of what was shared; work it with computer.act. The session " +
           "lasts past this turn in the owner's own turn, until computer.end, its time, or the owner leaving the chat; started by other " +
           "work it ends with the turn unless `keep`. When the owner speaks in the KOS for Mac window, computer.act starts one itself, " +
-          "so this is not needed there. Use it when the work needs a computer's own apps or files; the browser tools are quicker for a web page alone.",
+          "so this is not needed there. Unasked for, use it when the work needs a computer's own apps or files; KOS's own browser is quicker for a web page alone.",
         inputSchema: {
           type: "object",
           properties: {
@@ -864,7 +867,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
         description:
           "Work in the owner's own Chrome: the browser they use, on their computer, signed in to their accounts, paired through the KOS " +
           "extension. It is a different browser from KOS's own, which the browser.* tools use by default, and different from computer use. " +
-          "When the owner says my Chrome, my browser, the browser device, or names it, this is the tool. In the side panel's chat it is not " +
+          "When the owner says my Chrome, my browser, KOS in Chrome, the extension, or names it, this is the tool. In the side panel's chat it is not " +
           "needed when the owner speaks there: the browser.* tools work in the tab beside the panel from their first call. It is no stand-in for their computer: " +
           "when they asked for the computer and it is offline, say so and ask before using their Chrome instead. The owner allows it there, " +
           "seeing `task`, so say plainly what you will do. While the session lasts, this chat's browser.* tools work in the owner's Chrome " +
@@ -1075,6 +1078,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     manifest: COMPUTER_MANIFEST,
     stopped,
     beginPanelChrome: (chat, signal) => beginPanelChrome(chat, signal),
+    paired: () => pairedText(),
     left: (chat, kind) => {
       const session = hub.sessionOf(chat);
       if (!session || hub.list().find((d) => d.id === session.device)?.kind !== kind) return;

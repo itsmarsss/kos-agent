@@ -138,11 +138,12 @@ async function leaveKos<T>(tab: Tab, seen: T): Promise<T> {
  * the wrong one: the owner calls their own Chrome "the browser" as well.
  */
 const WHERE =
-  "These tools work in KOS's own browser: a Chrome that KOS runs on its own host, which the owner watches in the dashboard's " +
-  "Browser window. It is not the owner's Chrome. In the chat of KOS for Chrome's side panel they work in the owner's Chrome, " +
+  "These tools work in KOS's own browser: a Chrome KOS runs on its own host, which the owner only watches in the dashboard's " +
+  "Browser window. It is not the owner's Chrome and not their computer. In the chat of KOS for Chrome's side panel they work in the owner's Chrome, " +
   "in the tab beside the panel, from the first call of a turn the owner said there (they allow it there; any other turn calls chrome.start), and never in KOS's own; elsewhere, while " +
   "this chat holds the owner's Chrome (chrome.start), they work there instead. Each result says which browser it ran in. When " +
-  "the owner says my Chrome, my browser or the browser device, they mean their own Chrome: chrome.start, not these alone.";
+  "the owner names their Chrome (my Chrome, my browser, KOS in Chrome), call chrome.start first; when they name their computer " +
+  "(my Mac, my screen, KOS in Mac), the work is computer.start's, even for a web page.";
 const WHERE_SHORT = "In KOS's own browser, or in the owner's Chrome from its side panel or while chrome.start holds it; the result says which.";
 
 const THEN = { type: "string", enum: ["look", "snapshot", "read", "none"] };
@@ -322,7 +323,8 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.eval",
           description:
-            "Run JavaScript in your tab's page and get its answer back as text (JSON for objects); top-level await works. For what " +
+            "Run JavaScript in your tab's page and get its answer back as text (JSON for objects); top-level await works, and the " +
+            "answer is the last expression's value, as in a console (a top-level `return` works too). For what " +
             "the steps cannot do: reading a value a page keeps in a script, calling the page's own API. It asks the owner every time.",
           inputSchema: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
         },
