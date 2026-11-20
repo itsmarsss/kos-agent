@@ -305,6 +305,22 @@ describe("a script of KOS's in a page", () => {
     expect(marked).toEqual(["L1"]);
   });
 
+  it("runs a script written as a function's body, which compiled to nothing on its own, as that body", async () => {
+    const { page, calls } = scripted(
+      {
+        "Page.getFrameTree": () => tree("L1", "https://shop.example"),
+        "Runtime.evaluate": (p) =>
+          String(p["expression"]).includes("(async () => {")
+            ? { result: { type: "number", value: 3 } }
+            : { exceptionDetails: { text: "Uncaught", exception: { description: "SyntaxError: Illegal return statement" } } },
+      },
+      [{ frame: "F", origin: "https://shop.example" }],
+      { scripted: { has: () => false, mark: () => undefined } },
+    );
+    expect(await page.evaluate("const n = 3;\nreturn n;")).toBe("3");
+    expect(calls.filter((c) => c.method === "Runtime.evaluate").map((c) => String(c.params["expression"]).includes("(async () => {"))).toEqual([false, true]);
+  });
+
   it("withholds the answer when the page loaded another document while it ran, and marks that one too", async () => {
     const marked: string[] = [];
     let trees = 0;

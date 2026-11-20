@@ -961,6 +961,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
 
   // A chat that borrowed the owner's Chrome browses there.
   kernel.setBrowserElsewhere(computer.chrome);
+  // Each of the owner's turns knows what they have paired, so "on my Mac" is a device, not a guess.
+  kernel.setPaired(() => computer.paired());
   // A yes on a secret's ask is never taken from where KOS's own hand is.
   kernel.setHandsOn((device, conversation) => computer.handsOn(device, conversation));
 

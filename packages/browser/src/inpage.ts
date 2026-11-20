@@ -160,24 +160,27 @@ export function present(kind: "text" | "selector" | "gone", value: string): bool
 export function readPage(selector: string | null): { text: string; links: { text: string; href: string }[]; matched: number } | null {
   const body = document.body;
   if (!body) return null;
-  let picked: HTMLElement[];
+  // An SVG element (a logo's <a>, a selector naming an icon) has no innerText: its text content stands in.
+  const wordsOf = (el: Element): string => (el as HTMLElement).innerText ?? el.textContent ?? "";
+  let picked: Element[];
   if (selector) {
-    picked = Array.from(document.querySelectorAll<HTMLElement>(selector));
+    picked = Array.from(document.querySelectorAll(selector));
     if (picked.length === 0) return null;
   } else {
-    const main = document.querySelector<HTMLElement>("main, [role=main], article");
-    picked = [main && main.innerText.length > body.innerText.length * 0.3 ? main : body];
+    const main = document.querySelector("main, [role=main], article");
+    picked = [main && wordsOf(main).length > wordsOf(body).length * 0.3 ? main : body];
   }
   const text = picked
-    .map((el) => el.innerText.replace(/\n{3,}/g, "\n\n").trim())
+    .map((el) => wordsOf(el).replace(/\n{3,}/g, "\n\n").trim())
     .filter(Boolean)
     .join("\n\n");
   const seen = new Set<string>();
   const links: { text: string; href: string }[] = [];
   for (const el of picked) {
-    for (const a of Array.from(el.querySelectorAll<HTMLAnchorElement>("a[href]"))) {
+    // Links an HTML page draws; an SVG <a> matches the selector too, but its href is no address.
+    for (const a of Array.from(el.querySelectorAll("a[href]")).filter((a): a is HTMLAnchorElement => a instanceof HTMLAnchorElement)) {
       const href = a.href;
-      const words = a.innerText.replace(/\s+/g, " ").trim().slice(0, 80);
+      const words = wordsOf(a).replace(/\s+/g, " ").trim().slice(0, 80);
       if (!words || seen.has(href) || href.startsWith("javascript:")) continue;
       seen.add(href);
       links.push({ text: words, href });

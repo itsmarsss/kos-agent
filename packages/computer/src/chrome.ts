@@ -312,6 +312,8 @@ export class OwnerChrome implements BrowserElsewhere {
       return await this.hub.act(conversation, method, params, timeoutMs, turnStop.getStore());
     } catch (err) {
       if (err instanceof DeviceError && err.code === "no_session") throw new DeviceError("no_session", refusalText(err, this.hub.takeEnding(conversation), "browser"));
+      // Taken over between the gate and the call: said as what to do, not the device's bare word, which read as the session being over.
+      if (err instanceof DeviceError && err.code === "paused") throw new DeviceError("paused", refusalText(err, undefined, "browser"));
       throw err;
     }
   }

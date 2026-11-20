@@ -168,6 +168,7 @@ import { parseMentions } from "./mentions.js";
 import { originOf } from "./origin.js";
 import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
+import { pairedNote } from "./where.js";
 import { keepFile, readFile as readWorkspaceFile } from "./files.js";
 import { ASK, MODE_WORDS, UNCHANGED, liveMode, modeLabel, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
@@ -636,6 +637,8 @@ export class Kernel {
   readonly browser: BrowserLive;
   /** The owner's own Chrome, when computer use offers it. */
   private elsewhere: BrowserElsewhere | undefined;
+  /** What the owner has paired (their computers and Chromes), one line each, when computer use offers it. */
+  private paired: (() => string | undefined) | undefined;
   private handsOn: ((device: string | undefined, conversationId: string | null) => string | undefined) | undefined;
   /** The owner's Discord server, when KOS lives in one; what a "#channel" in a message is comes from here. */
   readonly discord: DiscordServices | undefined;
@@ -1360,7 +1363,9 @@ export class Kernel {
         const maskedNote = opts.masked?.length
           ? `The owner's message held the value of saved secret ${opts.masked.map((name) => `[secret ${name}]`).join(", ")}. KOS masked it before anything kept or read it; you never saw the value. Say so in one short line, and that a secret is saved on the Secrets page, not typed into a chat.${opts.maskedShut ? " The secrets vault is locked, so KOS masked by shape and its scrub index only, not every saved value exactly: tell the owner to unlock it on the Secrets page." : ""}`
           : null;
-        const pulled = [opts.context, mentioned, keptNote, guestNote, membersNote, hearingNote, maskedNote].filter((part): part is string => Boolean(part)).join("\n\n");
+        // The devices the owner has paired, as they are now, so a Mac or a Chrome they name is known before a tool is called; never to a guest.
+        const devicesNote = guest ? undefined : pairedNote(this.paired?.());
+        const pulled = [opts.context, mentioned, keptNote, guestNote, membersNote, hearingNote, maskedNote, devicesNote].filter((part): part is string => Boolean(part)).join("\n\n");
         const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
@@ -4408,6 +4413,11 @@ export class Kernel {
    */
   setBrowserElsewhere(place: BrowserElsewhere): void {
     this.elsewhere = place;
+  }
+
+  /** What the owner has paired, read with each of their turns, when a package offers devices (KOS for Mac, KOS for Chrome). */
+  setPaired(read: () => string | undefined): void {
+    this.paired = read;
   }
 
   /**
