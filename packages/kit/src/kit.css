@@ -608,7 +608,7 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 .kos-ask-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 /* Who asks, in sentence case at the small size (uppercase is for section titles): one line, cut, whole in its tooltip. */
 .kos-ask-who { min-width: 0; color: var(--warn); font-size: var(--text-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kos-ask-title { margin: 0; color: var(--text); font-size: var(--text-md); font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.kos-ask-title { margin: 0; color: var(--text); font-size: var(--text-md); font-weight: 600; line-height: 1.35; overflow-wrap: break-word; }
 .kos-ask-place { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.35; min-width: 0; }
 .kos-ask-place > span { overflow-wrap: anywhere; }
 .kos-ask-place svg { flex: none; width: 14px; height: 14px; border-radius: var(--r-xs); color: var(--faint); }
@@ -618,7 +618,7 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 .kos-ask-why { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
 .kos-ask-why::before { content: "\201c"; }
 .kos-ask-why::after { content: "\201d"; }
-.kos-ask-steps { margin: 2px 0 0; padding: 0 0 0 1.4em; color: var(--text); font-size: var(--text-md); font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
+.kos-ask-steps { margin: 2px 0 0; padding: 0 0 0 1.4em; color: var(--text); font-size: var(--text-md); font-weight: 500; line-height: 1.6; overflow-wrap: break-word; }
 .kos-ask-steps li::marker { color: var(--faint); font-variant-numeric: tabular-nums; }
 .kos-ask-steps--one { padding: 0; }
 .keycap { display: inline-block; min-width: 1.5em; margin: 0 1px; padding: 0 0.35em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-xs); background: var(--panel-2); color: var(--text); font: 500 0.88em/1.45 var(--mono); text-align: center; vertical-align: 0.05em; white-space: nowrap; }

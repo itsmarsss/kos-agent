@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { askView } from "@kos/shared";
 
-import { ASK_SETTLE_MS, AskCard } from "./AskCard.js";
+import { ASK_SETTLE_MS, AskCard, Breakable } from "./AskCard.js";
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -400,5 +400,13 @@ describe("the focus after a decision", () => {
     await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     expect(document.activeElement).toBe(box);
     box.remove();
+  });
+});
+
+describe("a URL on a narrow card", () => {
+  it("may break after each slash, never in the middle of a name for want of one", () => {
+    const { container } = render(<Breakable text="https://status.example.com/api/v2/summary.json" />);
+    expect(container.querySelectorAll("wbr")).toHaveLength(5);
+    expect(container.textContent).toBe("https://status.example.com/api/v2/summary.json");
   });
 });

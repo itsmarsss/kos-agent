@@ -54,7 +54,10 @@ export function Sidebar({ place, go, top, projects, drop, over, dropOnTrash, tra
       {top.includes("uploads") && folder("uploads", "Uploads", <UploadIcon size={15} />)}
       {top.includes("projects") && folder("projects", "Projects", <NavIcon name="projects" />)}
       {projects.length > 0 && <p className="label finder-side-head">Projects</p>}
-      {projects.map((p) => folder(`projects/${p.slug}`, p.name, <ProjectMark slug={p.slug} name={p.name} colour={p.colour} />))}
+      {/* By name, as every list of projects is, KOS's own last as on the rail. */}
+      {[...projects]
+        .sort((a, b) => Number(a.type === "system") - Number(b.type === "system") || a.name.localeCompare(b.name))
+        .map((p) => folder(`projects/${p.slug}`, p.name, <ProjectMark slug={p.slug} name={p.name} colour={p.colour} />))}
       <p className="label finder-side-head">Locations</p>
       {top.includes("blobs") && folder("blobs", "Blobs", <FileIcon name="blobs" kind="dir" size={15} />)}
       <Item label="Trash" icon={<NavIcon name="trash" />} current={place.kind === "trash"} onClick={() => go({ kind: "trash" })} drop={dropOnTrash} over={trashOver} />

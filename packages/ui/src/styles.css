@@ -7754,6 +7754,8 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 }
 .finder-nav { display: flex; align-items: center; gap: 0.1rem; min-width: 0; flex: 1 1 0; }
 .finder-title { display: flex; min-width: 0; flex: 1 1 auto; margin: 0 0 0 0.3rem; font-size: var(--text-lg); font-weight: 600; }
+/* On the Files page the folder is the page's title: a workspace head's size and weight, as a chat's and an artifact's. */
+.ops-page--full > .finder :is(.finder-title-words, .finder-crumb.is-here) { font-size: var(--text-xl); font-weight: var(--title-weight); }
 .finder-title-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .finder-tools { display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; flex: 0 1 auto; min-width: 0; }
 .finder-tools-wide, .finder-tools-narrow { display: contents; }
@@ -7809,7 +7811,8 @@ button.finder-crumb:hover { background: color-mix(in srgb, var(--text) 7%, trans
 .finder-body { flex: 1; min-height: 0; display: flex; }
 .finder-side {
   flex: none;
-  width: 12.5rem;
+  /* The rail's width, so a long project name is cut at the same place here as there. */
+  width: var(--rail-w, 240px);
   overflow-y: auto;
   padding: 0.35rem 0.4rem 0.75rem;
   border-right: 1px solid var(--line);

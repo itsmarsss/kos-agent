@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import { CODE_TTL_MS, codeProblem, registrableDomain, secretFieldWords, type AskSecret, type AskView, type StepLine } from "@kos/shared";
 
@@ -174,7 +174,9 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
         {expiresAt !== undefined && <Countdown until={expiresAt} />}
       </div>
       {/* With steps, they are what is approved: the title says only what they act on, quieter. */}
-      <p className={`kos-ask-title${view.steps ? " kos-ask-title--quiet" : ""}`}>{view.title}</p>
+      <p className={`kos-ask-title${view.steps ? " kos-ask-title--quiet" : ""}`}>
+        <Breakable text={view.title} />
+      </p>
       {view.place && (
         <p className="kos-ask-place">
           <PlaceMark tool={tool} />
@@ -360,7 +362,44 @@ export function AskStepList({ steps }: { steps: StepLine[] }): ReactElement {
 
 /** A step's line, its keys as keycaps. */
 function StepWords({ line }: { line: StepLine }): ReactElement {
-  return <>{line.map((piece, i) => ("key" in piece ? <kbd key={i} className="keycap">{piece.key}</kbd> : <span key={i}>{piece.text}</span>))}</>;
+  return (
+    <>
+      {line.map((piece, i) =>
+        "key" in piece ? (
+          <kbd key={i} className="keycap">
+            {piece.key}
+          </kbd>
+        ) : (
+          <span key={i}>
+            <Breakable text={piece.text} />
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * Words with a place to break after each slash, so a URL or a path on a
+ * narrow card wraps at "/" ("…/api/v2/" over "summary.json") rather than
+ * cutting a name mid-word; a word still too long for the line breaks anywhere.
+ */
+export function Breakable({ text }: { text: string }): ReactElement {
+  const parts = text.split("/");
+  return (
+    <>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {part}
+          {i < parts.length - 1 && (
+            <>
+              /<wbr />
+            </>
+          )}
+        </Fragment>
+      ))}
+    </>
+  );
 }
 
 /** The site's own icon, or the kind of place's mark when there is no site or it has none. */
