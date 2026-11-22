@@ -1652,7 +1652,7 @@ export function SettingsPage({
         {active === "browser" && (
           <Section
             title="KOS's browser"
-            blurb="The one Chrome KOS runs on this host, separate from your own Chrome: a tab per chat and tabs of your own. Headless by default: the Browser window on the sidebar is its screen. A change here takes effect when the browser next starts."
+            blurb="KOS keeps a Chrome of its own on this computer, apart from yours. Each chat that browses gets a tab there, shown as for that chat; a tab you open there is shown as opened by you. You watch it in the Browser window from the sidebar, where Take over lets you click and type in a tab. A change here applies when it next starts."
             saving={busy === "browser"}
             saved={browserDirty ? "Not saved yet" : (saved["browser"] ?? null)}
             canSave={browserDirty}

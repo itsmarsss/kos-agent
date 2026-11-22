@@ -129,7 +129,7 @@ function moveSender(): (tab: string, message: BrowserInputMessage) => void {
 
 /** A tab's name in the strip: whose it is, then what it shows. */
 function tabLabel(t: BrowserTab, titleFor: (conversationId: string) => string | undefined): { who: string; what: string } {
-  return { who: t.owner ? (titleFor(t.owner) ?? t.owner) : "", what: tabName(t) === "blank tab" ? "blank" : tabName(t) };
+  return { who: t.owner ? (titleFor(t.owner) ?? t.owner) : "", what: tabName(t) === "blank tab" ? "New tab" : tabName(t) };
 }
 
 export interface Handoff {
@@ -377,7 +377,6 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
   const url = current?.url && current.url !== "about:blank" ? current.url : "";
   const owner = current?.owner ? (titleFor(current.owner) ?? current.owner) : "";
   const placed: Box = maximized ? { left: EDGE, top: EDGE, width: window.innerWidth - EDGE * 2, height: window.innerHeight - EDGE * 2 } : box;
-  const frameNote = live.frame ? `${live.frame.width}×${live.frame.height}` : "";
   // The ask that belongs to the tab on screen, else the first one waiting.
   const handoff = handoffs.find((h) => current?.owner && h.conversationId === current.owner) ?? handoffs[0];
 
@@ -406,33 +405,28 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
           </span>
           {driving ? (
             <span className="browserwin-doing browserwin-doing--you">
-              {current?.waiting ? `${owner || "KOS"} is waiting for you to let go` : `you have the wheel${owner ? ` on ${owner}'s tab` : ""}`}
+              {current?.waiting ? `${owner || "KOS"} is waiting for you to hand it back` : `you are using it${owner ? `, ${owner} waits` : ""}`}
             </span>
           ) : current?.held ? (
-            <span className="browserwin-doing browserwin-doing--you">taken over in another window</span>
+            <span className="browserwin-doing browserwin-doing--you">you are using it in another window</span>
           ) : doing ? (
             <span className="browserwin-doing">{doing}</span>
           ) : owner ? (
-            <span className="browserwin-doing">{owner}</span>
+            <span className="browserwin-doing" title="The chat this tab is working for">for {owner}</span>
           ) : current ? (
-            <span className="browserwin-doing">your tab</span>
+            <span className="browserwin-doing" title="A tab you opened in KOS's own Chrome">opened by you</span>
           ) : null}
         </span>
         <span className="browserwin-acts">
-          {frameNote && (
-            <span className="browserwin-size" title="Frame size, in the browser's pixels">
-              {frameNote}
-            </span>
-          )}
           <button
             type="button"
             className={`btn btn--sm${driving ? " btn--primary" : ""}`}
             aria-pressed={driving}
             disabled={!current}
             onClick={() => setDriving((v) => !v)}
-            title={driving ? "Give the tab back: KOS carries on" : "The tab is yours: KOS waits while you click and type"}
+            title={driving ? "Give the tab back to KOS, and it carries on" : "Click and type in this tab yourself; KOS waits until you hand it back"}
           >
-            {driving ? "Let go" : "Take over"}
+            {driving ? "Hand back" : "Take over"}
           </button>
           <IconButton  label={maximized ? "Restore size" : "Maximize"} aria-pressed={maximized} title={maximized ? "Back to the window's own size" : "Fill the page (double-click the bar does too)"} onClick={() => setMaximized((v) => !v)}>
             {maximized ? <RestoreIcon /> : <MaximizeIcon />}
@@ -451,10 +445,10 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
             type="button"
             className={`browserwin-follow${follow ? " is-on" : ""}`}
             aria-pressed={follow}
-            title={follow ? "Following whoever is working; click to pin the tab you chose" : "Follow whoever is working"}
+            title={follow ? "Showing whichever tab KOS is working in. Press to stay on the tab you choose" : "Staying on the tab you chose. Press to follow KOS from tab to tab as it works"}
             onClick={() => setFollow((v) => !v)}
           >
-            {follow ? "Following" : "Pinned"}
+            {follow ? "Following KOS" : "Staying here"}
           </button>
         )}
         {live.tabs.map((t) => {
@@ -472,7 +466,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
             </span>
           );
         })}
-        <IconButton className="browserwin-new" label="New tab" title="A tab of your own" disabled={!ready} onClick={() => newTab()}>
+        <IconButton className="browserwin-new" label="New tab" title="Open a tab of your own in KOS's Chrome" disabled={!ready} onClick={() => newTab()}>
           <PlusIcon size={14} title="" />
         </IconButton>
       </div>

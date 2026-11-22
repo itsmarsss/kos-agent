@@ -6320,7 +6320,6 @@ a.health {
 .browserwin.is-max .browserwin-head { cursor: default; }
 .browserwin.is-fullscreen { left: 0; top: 0; width: 100vw; height: 100vh; border: 0; border-radius: 0; animation: none; }
 .browserwin.is-fullscreen .browserwin-body { border-radius: 0; }
-.browserwin-size { font-family: var(--mono); font-size: var(--text-xs); color: var(--faint); margin-right: 0.2rem; }
 .browserwin-tabs { display: flex; gap: 0.25rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
 .browserwin-follow {
   flex: none;
