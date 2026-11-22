@@ -196,3 +196,33 @@ function plain(name: string): string {
   const words = name.replace(/[._-]+/g, " ").trim();
   return words ? words[0]!.toUpperCase() + words.slice(1) : name;
 }
+
+/** The arguments that say what a step was done to, in the order a sentence would reach for them; never an id or a handle. */
+const TARGET_KEYS = ["path", "from", "url", "title", "name", "query", "pattern", "command", "text"] as const;
+const TARGET_MAX = 80;
+
+/**
+ * A step as a list row says it: what it did, and what it did it to when an
+ * argument says so ("Read a file", "notes/todo.md"). The arguments
+ * themselves, the tool's name and any id are for Details.
+ */
+export function stepLine(tool: string, args: unknown): { title: string; detail?: string } {
+  const title = toolWords(tool);
+  const a = typeof args === "string" ? parseObject(args) : args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
+  for (const key of TARGET_KEYS) {
+    const v = a[key];
+    if (typeof v !== "string" || !v.trim()) continue;
+    const one = v.replace(/\s+/g, " ").trim();
+    return { title, detail: one.length > TARGET_MAX ? `${one.slice(0, TARGET_MAX - 1)}…` : one };
+  }
+  return { title };
+}
+
+function parseObject(text: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(text) as unknown;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}

@@ -358,5 +358,5 @@ export {
   type TextMatch,
 } from "./search.js";
 export { assertName, checkName, NAME_MAX, NameError, nameRefusal, sameName, type FieldRefusal, type NameCheck, type NameProblem, type NameRules } from "./names.js";
-export { TOOL_WORDS, toolWords } from "./toolwords.js";
+export { stepLine, TOOL_WORDS, toolWords } from "./toolwords.js";
 export { errorWords } from "./errorwords.js";

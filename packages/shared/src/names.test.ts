@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { assertName, checkName, NAME_MAX, NameError, nameRefusal } from "./names.js";
 import { errorWords } from "./errorwords.js";
-import { toolWords, TOOL_WORDS } from "./toolwords.js";
+import { stepLine, toolWords, TOOL_WORDS } from "./toolwords.js";
 
 describe("the one name check", () => {
   const rules = { noun: "project", taken: ["Home lab", "Reading log"] };
@@ -70,6 +70,22 @@ describe("tool words", () => {
     expect(toolWords("files.chmod")).toBe("Work with files");
     expect(toolWords("mcp.gmail.send_email")).toBe("Send email on gmail");
     expect(toolWords("weird_tool")).toBe("Weird tool");
+  });
+});
+
+describe("a step as a row says it", () => {
+  it("is what it did, and what to, never an id, a handle or the raw arguments", () => {
+    expect(stepLine("files.read", { path: "notes/todo.md" })).toEqual({ title: "Read a file", detail: "notes/todo.md" });
+    expect(stepLine("files.ls", JSON.stringify({ path: "notes" }))).toEqual({ title: "List files", detail: "notes" });
+    expect(stepLine("artifact.trash", { id: "reading-shelf" })).toEqual({ title: "Move an artifact to the trash" });
+    expect(stepLine("secrets.write", { handle: "visa-ending-4242-d6xh", kind: "card", fields: ["number"] })).toEqual({ title: "Save a secret" });
+    expect(stepLine("http.fetch", "not json")).toEqual({ title: "Fetch a web address" });
+  });
+
+  it("cuts a long target to one short line", () => {
+    const { detail } = stepLine("shell.run", { command: `echo ${"x".repeat(200)}\nls` });
+    expect(detail!.length).toBe(80);
+    expect(detail!.endsWith("…")).toBe(true);
   });
 });
 
