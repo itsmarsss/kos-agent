@@ -138,6 +138,21 @@ export function relativeWords(seconds: number, now = Date.now()): string {
   return diff < 0 ? `${words} ago` : `in ${words}`;
 }
 
+/**
+ * How long ago, or how far off, a moment is in the dashboard's one short
+ * vocabulary: "just now", "5m ago", "3h ago", "2d ago"; "in 5m", "in 3h",
+ * "in 2d". Every list, rail and card says a relative time this way; a clock
+ * time is `momentWords`'s.
+ */
+export function timeWords(ms: number, now = Date.now()): string {
+  const diff = ms - now;
+  const mins = Math.round(Math.abs(diff) / 60_000);
+  if (mins < 1) return diff < 0 ? "just now" : "now";
+  const hours = Math.round(mins / 60);
+  const span = mins < 60 ? `${mins}m` : hours < 36 ? `${hours}h` : `${Math.round(hours / 24)}d`;
+  return diff < 0 ? `${span} ago` : `in ${span}`;
+}
+
 /** A moment in one of the styles, on the zone's clock; the machine's zone without one. */
 export function formatTime(seconds: number, style: TimeStyle = "f", timeZone?: string, now = Date.now()): string {
   if (style === "R") return relativeWords(seconds, now);
