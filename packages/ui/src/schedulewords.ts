@@ -1,6 +1,8 @@
+import { slugWords, SYSTEM_SCHEDULES, timeWords } from "@kos/shared";
+
 /**
  * Small readings of a schedule for a panel: which days of the week a cron
- * line runs on, and how far off a moment is, in a word or two.
+ * line runs on, what a schedule is called, and when it last ran.
  */
 
 /** Sunday first, as cron counts them. */
@@ -29,44 +31,20 @@ export function runDays(expr: string): Set<number> | null {
   return days;
 }
 
-/** "in 25m", "in 3h", "in 2d"; "now" once it is due. */
-export function inWords(at: number, now = Date.now()): string {
-  const mins = Math.round((at - now) / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `in ${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 36) return `in ${hours}h`;
-  return `in ${Math.round(hours / 24)}d`;
-}
-
-/** "just now", "5m ago", "6h ago", "3d ago". */
-export function agoWords(ts: number, now = Date.now()): string {
-  if (now - ts < 60_000) return "just now";
-  const mins = Math.round((now - ts) / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 36) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
-
 /**
- * KOS's own jobs by the names the owner sees: the memory jobs as Memory >
- * Jobs calls them (Read, Tidy, Condense), the rest in a word. The ids
- * (kos.memory, kos.dream) are the table's, never the page's.
+ * A schedule's name as every list writes it: KOS's own by the one name each
+ * goes by (the memory schedules as "Memory: Read"), a blob's as the blob's
+ * name, the owner's as they named it. The ids (kos.memory, blob.recap) are
+ * the store's, kept for a tooltip.
  */
-export const SYSTEM_JOBS: Readonly<Record<string, string>> = {
-  "kos.memory": "Read",
-  "kos.dream": "Tidy",
-  "kos.observe": "Condense",
-  "kos.backup": "Backup",
-  "kos.face": "Faces",
-  "kos.improve": "Improve",
-};
-
-/** A job's name as a list writes it: a memory job as "Memory: Read", a blob's as the blob, the owner's as they named it. */
 export function jobTitle(name: string): string {
-  const own = SYSTEM_JOBS[name];
-  if (own) return name === "kos.memory" || name === "kos.dream" || name === "kos.observe" ? `Memory: ${own}` : own;
-  if (name.startsWith("blob.")) return name.slice(5).replace(/[-_]+/g, " ");
+  const own = SYSTEM_SCHEDULES[name];
+  if (own) return own;
+  if (name.startsWith("blob.")) return slugWords(name.slice(5));
   return name;
+}
+
+/** When a schedule last ran, as its row or panel says it: how long ago, or that it never has. */
+export function lastRunWords(at: number | null | undefined, now = Date.now()): string {
+  return at ? timeWords(at, now) : "Never run";
 }

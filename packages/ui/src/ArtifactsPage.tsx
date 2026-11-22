@@ -1,5 +1,5 @@
 import { Chips, Count, EmptyState, Face, NavIcon, PlusIcon, Skeleton, type ChipOption } from "@kos/kit";
-import { SPAN_COLUMNS, WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage, type WidgetOutline } from "@kos/shared";
+import { SPAN_COLUMNS, WORKSPACE_SCOPE, type ArtifactKind, type HtmlPage, type WidgetOutline, timeWords } from "@kos/shared";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
 import { api, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
@@ -40,7 +40,6 @@ const KINDS: readonly ChipOption<ArtifactKind | "all">[] = [
   ["deck", "Decks"],
   ["sheet", "Sheets"],
 ];
-
 
 /** The project filter's "every project": like WORKSPACE_SCOPE, never a slug. */
 const ALL_PROJECTS = "@all";
@@ -122,7 +121,7 @@ function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary
             <span className="artifact-card-owner">
               <OwnerMark record={a} projects={projects} />
             </span>
-            <span className="artifact-card-time">{relativeWords(Math.round(a.updatedAt / 1000))}</span>
+            <span className="artifact-card-time">{timeWords(a.updatedAt)}</span>
           </span>
         </span>
       </button>
@@ -438,7 +437,6 @@ export function rootChatId(): Promise<string> {
   return rootChat;
 }
 
-
 /**
  * Where "Edit with KOS" takes the owner after asking: the project's page, the
  * blob's, or the root chat the request went to; the chat list when the root
@@ -721,7 +719,7 @@ export function ArtifactViewer({
       {preview && record && (
         <div className="ops-alert artifact-preview" role="status">
           <span>
-            Looking at version {preview.version.version}, from {relativeWords(Math.round(preview.version.at / 1000))}. Nothing here is saved.
+            Looking at version {preview.version.version}, from {timeWords(preview.version.at)}. Nothing here is saved.
           </span>
           <span className="artifact-preview-acts">
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => void load().catch(failed)}>

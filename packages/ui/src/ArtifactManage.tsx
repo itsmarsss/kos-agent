@@ -1,5 +1,5 @@
 import { CheckIcon, Face, Field, NavIcon, WorkingDots, spring } from "@kos/kit";
-import { EXPORT_WORDS, KIND_EXPORTS, RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, relativeWords, sheetDataOf, type ExportFormat, type HtmlPage } from "@kos/shared";
+import { EXPORT_WORDS, KIND_EXPORTS, RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, sheetDataOf, type ExportFormat, type HtmlPage, timeWords } from "@kos/shared";
 import { AnimatePresence, m } from "motion/react";
 import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
@@ -410,7 +410,7 @@ export function TrashNotice({ record, ops }: { record: PageSummary; ops: Pick<Ar
   return (
     <div className="ops-alert artifact-trashed" role="status">
       <span>
-        This artifact is in the trash{record.trashedAt ? ` (moved there ${relativeWords(Math.round(record.trashedAt / 1000))})` : ""}. It stays as it is until you restore it or delete it for good.
+        This artifact is in the trash{record.trashedAt ? ` (moved there ${timeWords(record.trashedAt)})` : ""}. It stays as it is until you restore it or delete it for good.
       </span>
       <span className="artifact-preview-acts">
         <ConfirmButton className="btn btn--sm btn--danger" label="Delete forever" text={deleteWords(record.title)} disabled={ops.busy} onConfirm={() => ops.remove(record)} />

@@ -1,8 +1,8 @@
 import { useMemo, useState, type ReactElement } from "react";
 
-import { clockWords, summarizeAction } from "@kos/shared";
+import { clockWords, formatDuration, kindWord, stateOfRun, summarizeAction } from "@kos/shared";
 
-import { Chips, Pill } from "@kos/kit";
+import { Chips, StatusPill } from "@kos/kit";
 
 import type { AuditRecord, Conversation, CronJob, Project, RunRecord } from "./api.js";
 import { ListPage } from "./ListPage.js";
@@ -63,13 +63,12 @@ export function dayLabel(ts: number, now: number = Date.now()): string {
   return DATE.format(ts);
 }
 
-/** A run's kind as the row's tag says it: a chat's turn, a scheduled job, KOS's own work on memory. */
+/** A run's kind as the row's tag says it: a chat's turn, a schedule's run, KOS's own work on memory. */
 export function runKind(kind: string): string {
-  if (kind === "chat") return "turn";
-  if (kind === "cron") return "job";
-  if (kind === "heartbeat") return "check";
-  if (kind.startsWith("memory.")) return "memory";
-  return kind;
+  if (kind === "chat") return "Turn";
+  if (kind === "heartbeat") return "Check";
+  if (kind.startsWith("memory.")) return "Memory";
+  return kindWord(kind);
 }
 
 /** What KOS's own work after a turn was, in words. */
@@ -184,7 +183,9 @@ export function HistoryPage({
       tabs={<RunsTabs current="history" />}
       rows={rows}
       rowKey={(r) => `${r.kind}-${r.kind === "tool" ? r.tool.id : r.run.id}`}
-      empty="Nothing has happened yet"
+      empty="Nothing has happened yet."
+      noun="runs"
+      onClearFilters={() => setFilter("all")}
       groupBy={(r) => dayLabel(r.at)}
       fixedLayout
       onRowClick={(r) =>
@@ -198,10 +199,10 @@ export function HistoryPage({
           key: "kind",
           header: "",
           width: "7%",
-          searchText: (r) => (r.kind === "tool" ? "tool" : runKind(r.run.kind)),
+          searchText: (r) => (r.kind === "tool" ? "Tool" : runKind(r.run.kind)),
           render: (r) => (
             <span className={`hist-kind hist-kind--${r.kind}`}>
-              {r.kind === "tool" ? "tool" : runKind(r.run.kind)}
+              {r.kind === "tool" ? "Tool" : runKind(r.run.kind)}
             </span>
           ),
         },
@@ -233,15 +234,8 @@ export function HistoryPage({
           key: "status",
           header: "Status",
           width: "10%",
-          searchText: (r) => (r.failed ? "failed" : "ok"),
-          render: (r) =>
-            r.failed ? (
-              <Pill tone="danger">failed</Pill>
-            ) : r.kind === "run" && r.run.status === "skipped" ? (
-              <Pill>skipped</Pill>
-            ) : (
-              <Pill tone="ok">ok</Pill>
-            ),
+          searchText: (r) => (r.failed ? "failed" : "done"),
+          render: (r) => <StatusPill state={r.failed ? "failed" : r.kind === "run" ? stateOfRun(r.run.status) : "ok"} />,
         },
         {
           key: "when",
@@ -250,12 +244,7 @@ export function HistoryPage({
           render: (r) => (
             <span className="ops-muted hist-when">
               {clockWords(r.at)}
-              {r.kind === "run" && r.run.durationMs ? (
-                <span className="hist-took">
-                  {" · "}
-                  {Math.round(r.run.durationMs / 100) / 10}s
-                </span>
-              ) : null}
+              {r.kind === "run" && r.run.durationMs ? <span className="hist-took"> · {formatDuration(r.run.durationMs)}</span> : null}
             </span>
           ),
         },

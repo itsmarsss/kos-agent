@@ -4,8 +4,8 @@ import { Chips, Countdown, EmptyState, Field, hintWords, SheetFoot, OriginList, 
 
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
-import { agoWords } from "./schedulewords.js";
-import { SECRET_KINDS, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSummary, type SecretUse, type SecretUseRow, type SecretValues, type VaultStatus } from "@kos/shared";
+
+import { SECRET_KINDS, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSummary, type SecretUse, type SecretUseRow, type SecretValues, type VaultStatus, timeWords } from "@kos/shared";
 
 import {
   ASK_WORDS,
@@ -351,7 +351,7 @@ function Grants({ secret, disabled, onChanged }: { secret: SecretSummary; disabl
           {secret.policy.grants.map((g) => (
             <li key={g.origin} className="secret-line">
               <span className="secret-line-main">{g.origin}</span>
-              <span className="secret-line-meta">{agoWords(g.at)}</span>
+              <span className="secret-line-meta">{timeWords(g.at)}</span>
               {!disabled && (
                 <button
                   type="button"
@@ -407,7 +407,7 @@ function Uses({ handle }: { handle: string }): ReactElement {
                   {u.decidedBy ? ` · ${u.decidedBy}` : ""}
                 </span>
               </span>
-              <span className="secret-line-meta">{agoWords(u.at)}</span>
+              <span className="secret-line-meta">{timeWords(u.at)}</span>
               <Pill tone={OUTCOME_TONE(u.outcome)}>{u.outcome}</Pill>
             </li>
           ))}

@@ -84,8 +84,8 @@ describe("day labels", () => {
 
 describe("run kinds", () => {
   it("names a run's kind as the owner would, never the table's word", () => {
-    expect(runKind("chat")).toBe("turn");
-    expect(runKind("cron")).toBe("job");
-    expect(runKind("memory.facts")).toBe("memory");
+    expect(runKind("chat")).toBe("Turn");
+    expect(runKind("cron")).toBe("Schedule");
+    expect(runKind("memory.facts")).toBe("Memory");
   });
 });

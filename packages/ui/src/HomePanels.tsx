@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
-import { momentWords, summarizeAction } from "@kos/shared";
-import { CloseIcon, Count, EmptyState, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
+import { momentWords, summarizeAction, timeWords } from "@kos/shared";
+import { CloseIcon, EmptyState, Face, GroupHead, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -10,7 +10,8 @@ import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick } from "./charts.js"
 import { PendingAsk } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
 import { ActivityDot, buildDot, fixLabel } from "./StatusDot.js";
-import { agoWords, jobTitle, SYSTEM_JOBS } from "./schedulewords.js";
+import { jobTitle } from "./schedulewords.js";
+import { scheduleWords } from "./schedule.js";
 
 /**
  * The panels a home page can be built from.
@@ -31,7 +32,7 @@ export function agentSide(a: AgentInfo): string {
   if (t?.activity === "error") return "failed";
   if (a.job && !a.job.enabled) return "paused";
   if (a.job?.nextRunAt) return `next ${momentWords(a.job.nextRunAt)}`;
-  if (t?.lastSaid) return agoWords(t.updatedAt);
+  if (t?.lastSaid) return timeWords(t.updatedAt);
   return "on request";
 }
 
@@ -46,13 +47,17 @@ function Head({
 }): ReactElement {
   return (
     <header className="panel-head">
-      <h2>{title}</h2>
-      {count !== undefined && count > 0 && <Count n={count} />}
-      {onMore && (
-        <button type="button" className="link panel-more" onClick={onMore}>
-          All →
-        </button>
-      )}
+      <GroupHead
+        title={title}
+        {...(count !== undefined && count > 0 ? { count } : {})}
+        action={
+          onMore && (
+            <button type="button" className="link panel-more" onClick={onMore}>
+              All
+            </button>
+          )
+        }
+      />
     </header>
   );
 }
@@ -67,7 +72,7 @@ const RUN_TONE: Record<string, Tone> = { ok: "ok", error: "danger", running: "ac
 function runTick(r: RunRecord): Tick {
   const what = r.kind === "cron" ? "job" : r.kind === "chat" ? "turn" : r.kind;
   const how = r.error ? `${r.status}: ${r.error}` : r.status;
-  return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${agoWords(r.startedAt)}` };
+  return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${timeWords(r.startedAt)}` };
 }
 
 const SHARE_TONES: Tone[] = ["accent", "ok", "warn", "muted"];
@@ -262,7 +267,7 @@ export function Panel({
                     </button>
                     <span className="panel-row-side">
                       {f.streak > 1 ? `${f.streak}x · ` : ""}
-                      {agoWords(f.since)}
+                      {timeWords(f.since)}
                       {/* Without this the only way to clear a failure the
                           owner has already handled is to wait for the job to
                           succeed, which for a nightly job means a red header
@@ -379,7 +384,7 @@ export function Panel({
                     <span className="panel-row-main">
                       {summarizeAction(t.tool, t.args)}
                     </span>
-                    <span className="panel-row-side">{agoWords(t.createdAt)}</span>
+                    <span className="panel-row-side">{timeWords(t.createdAt)}</span>
                   </span>
                 </li>
               ))}
@@ -438,7 +443,7 @@ export function Panel({
                           ? "needs you"
                           : c.activity === "error"
                             ? "failed"
-                            : agoWords(c.updatedAt)}
+                            : timeWords(c.updatedAt)}
                     </span>
                   </button>
                 </li>
@@ -472,11 +477,9 @@ export function Panel({
                           <span className="panel-row-project"> {data.projects.find((p) => p.slug === c.projectSlug)?.name ?? c.projectSlug}</span>
                         )}
                       </span>
-                      {next.has(c.id) ? (
-                        <span className="panel-row-side">{momentWords(next.get(c.id)!)}</span>
-                      ) : (
-                        <code className="panel-row-side">{c.schedule}</code>
-                      )}
+                      <span className="panel-row-side" title={c.schedule}>
+                        {next.has(c.id) ? momentWords(next.get(c.id)!) : scheduleWords(c.schedule)}
+                      </span>
                     </span>
                   </li>
                 ))}
@@ -572,7 +575,7 @@ export function Panel({
               ? "No memory jobs yet."
               : on.length === 0
                 ? `Jobs off${mem.extraction ? "; reading after each turn" : "; nothing reads the log"}.`
-                : `${on.map((j) => SYSTEM_JOBS[j.name] ?? j.name).join(", ")} on${latest ? `, last ran ${agoWords(latest)}` : ", never ran"}.`}
+                : `${on.map((j) => jobTitle(j.name)).join(", ")} on${latest ? `, last ran ${timeWords(latest)}` : ", never ran"}.`}
           </p>
         </div>
       );

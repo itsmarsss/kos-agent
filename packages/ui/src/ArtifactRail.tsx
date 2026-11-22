@@ -1,5 +1,5 @@
+import { timeWords } from "@kos/shared";
 import { Card, Collapse, DrawerRow, EmptyState, NavIcon } from "@kos/kit";
-import { relativeWords } from "@kos/shared";
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type PageSummary } from "./api.js";
@@ -97,7 +97,7 @@ function Rows({ items, open, onOpen }: ArtifactRailProps): ReactElement {
               <span className="line-text">
                 <strong>{a.title}</strong>
                 <span>
-                  {kind}, {relativeWords(Math.round(a.updatedAt / 1000))}
+                  {kind}, {timeWords(a.updatedAt)}
                 </span>
               </span>
             </button>

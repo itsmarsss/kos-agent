@@ -2,13 +2,12 @@ import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, 
 import { createPortal } from "react-dom";
 
 import { CloseIcon, Count, EmptyState, IconButton, NavIcon, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useFocusTrap, useOverlayScroll } from "@kos/kit";
-import { timeCard } from "@kos/shared";
+import { timeCard, timeWords } from "@kos/shared";
 
 import type { TurnRecall as Recall } from "./api.js";
 import { useEdgeFade } from "./edgefade.js";
 import { canonicalScope, describeScope } from "./KnowledgePage.js";
 import { hrefFor } from "./routes.js";
-import { agoWords } from "./schedulewords.js";
 
 /**
  * What the last turn was given from memory.
@@ -418,7 +417,7 @@ function MomentHead({ moment }: { moment: Moment }): ReactElement {
       {Number.isFinite(when.getTime()) && (
         <span className="recall-tags">
           <time className="recall-when" dateTime={when.toISOString()} title={timeCard(moment.ts / 1000).join(" ")}>
-            {agoWords(moment.ts)}
+            {timeWords(moment.ts)}
           </time>
         </span>
       )}

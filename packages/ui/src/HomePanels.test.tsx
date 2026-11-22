@@ -112,12 +112,12 @@ describe("the memory panel", () => {
       { id: 2, name: "kos.memory", enabled: true, lastRunAt: Date.now() - 120_000 },
       { id: 3, name: "kos.dream", enabled: true, lastRunAt: null },
     ] } }));
-    expect(screen.getByText(/Read, Tidy on, last ran 2m ago/)).toBeTruthy();
+    expect(screen.getByText(/Memory: Read, Memory: Tidy on, last ran 2m ago/)).toBeTruthy();
   });
 
   it("goes to the Memory page from its link", () => {
     const go = show("memory", data());
-    screen.getByText("All →").click();
+    screen.getByText("All").click();
     expect(go).toHaveBeenCalledWith("memory");
   });
 });
@@ -232,7 +232,7 @@ describe("the charts", () => {
     } }));
     screen.getByText("Set rates").click();
     expect(go).toHaveBeenCalledWith("settings", "spend");
-    screen.getByText("All →").click();
+    screen.getByText("All").click();
     expect(go).toHaveBeenLastCalledWith("settings", "spend");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agoWords, inWords, runDays } from "./schedulewords.js";
+import { jobTitle, lastRunWords, runDays } from "./schedulewords.js";
 
 describe("schedule words", () => {
   it("reads which weekdays a cron line runs on", () => {
@@ -18,14 +18,10 @@ describe("schedule words", () => {
     expect(runDays("nonsense")).toBeNull();
   });
 
-  it("says how far off and how long ago in a word or two", () => {
+  it("names a schedule by the one name it goes by, and says when it last ran", () => {
+    expect([jobTitle("kos.memory"), jobTitle("kos.dream"), jobTitle("blob.plant-watcher"), jobTitle("Morning brief")]).toEqual(["Memory: Read", "Memory: Tidy", "Plant watcher", "Morning brief"]);
     const now = 1_000_000_000_000;
-    expect(inWords(now + 20 * 60_000, now)).toBe("in 20m");
-    expect(inWords(now + 5 * 3_600_000, now)).toBe("in 5h");
-    expect(inWords(now + 3 * 86_400_000, now)).toBe("in 3d");
-    expect(inWords(now - 1, now)).toBe("now");
-    expect(agoWords(now - 30_000, now)).toBe("just now");
-    expect(agoWords(now - 6 * 3_600_000, now)).toBe("6h ago");
-    expect(agoWords(now - 2 * 86_400_000, now)).toBe("2d ago");
+    expect(lastRunWords(now - 6 * 3_600_000, now)).toBe("6h ago");
+    expect(lastRunWords(null, now)).toBe("Never run");
   });
 });

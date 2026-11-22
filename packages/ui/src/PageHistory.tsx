@@ -1,5 +1,5 @@
+import { timeWords } from "@kos/shared";
 import { EmptyState, Pill } from "@kos/kit";
-import { relativeWords } from "@kos/shared";
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type PageSummary, type PageVersion } from "./api.js";
@@ -41,7 +41,7 @@ function useVersions(record: PageSummary): { versions: PageVersion[]; error?: st
   return { versions, ...(error ? { error } : {}), rollBack };
 }
 
-const ago = (at: number): string => relativeWords(Math.round(at / 1000));
+const ago = (at: number): string => timeWords(at);
 
 /** The versions as a choice and a button, in a row above the page. */
 export function PageHistory({ record, onRolledBack }: { record: PageSummary; onRolledBack: () => Promise<unknown> }): ReactElement | null {

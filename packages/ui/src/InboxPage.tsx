@@ -8,7 +8,7 @@ import { MemoryDecision } from "./MemoryPage.js";
 import { PictureGallery } from "./Lightbox.js";
 import { PageHead } from "./PageHead.js";
 import { PendingAsk } from "./PendingAsk.js";
-import { agoWords as ago } from "./schedulewords.js";
+import { timeWords as ago } from "@kos/shared";
 import { ActivityDot, fixLabel } from "./StatusDot.js";
 import { Signed } from "./signed.js";
 

@@ -1,3 +1,4 @@
+import { timeWords } from "@kos/shared";
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { Chips, CloseIcon, Count, EditIcon, EmptyState, SheetFoot, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
@@ -8,7 +9,7 @@ import { useEdgeFade } from "./edgefade.js";
 import { useHashParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
 import { ConfirmButton } from "./kit.js";
-import { agoWords } from "./schedulewords.js";
+
 import { Select } from "./Select.js";
 
 /**
@@ -374,7 +375,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
                       {sourceWord(f.source) && <span className="know-from">from {sourceWord(f.source)}</span>}
                       {f.kind !== "fact" && <Tag>{f.kind}</Tag>}
                       {(f.tags ?? []).length > 0 && <span className="know-tags">{f.tags!.join(", ")}</span>}
-                      {f.updatedAt ? <span className="know-when">{agoWords(f.updatedAt)}</span> : null}
+                      {f.updatedAt ? <span className="know-when">{timeWords(f.updatedAt)}</span> : null}
                     </span>
                   </button>
                   <span className="know-acts">
@@ -420,7 +421,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
       <Drawer
         open={open !== null}
         title={open?.key ?? ""}
-        {...(open ? { subtitle: [open.kind, describeScope(open.scope), open.updatedAt ? `updated ${agoWords(open.updatedAt)}` : null].filter(Boolean).join(" · ") } : {})}
+        {...(open ? { subtitle: [open.kind, describeScope(open.scope), open.updatedAt ? `updated ${timeWords(open.updatedAt)}` : null].filter(Boolean).join(" · ") } : {})}
         onClose={() => {
           setOpen(null);
           setEdit(null);

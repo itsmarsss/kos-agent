@@ -1,3 +1,4 @@
+import { timeWords } from "@kos/shared";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import type { SecretSummary, VaultStatus } from "@kos/shared";
@@ -5,7 +6,7 @@ import { Card, clearSecretValues, EmptyState, hintWords, NavIcon, Pill, readSecr
 
 import { useHashParam } from "./hashparams.js";
 import { PageHead } from "./PageHead.js";
-import { agoWords } from "./schedulewords.js";
+
 import { SecretSheet, type SecretSheetMode } from "./SecretSheet.js";
 import { KINDS, refusal, secretsApi, whereWords } from "./secrets.js";
 
@@ -126,7 +127,7 @@ function SecretList({ secrets, onOpen }: { secrets: SecretSummary[]; onOpen: (s:
                 <span>{whereWords(s.use)}</span>
               </span>
             </span>
-            <span className="secret-row-used">{s.lastUsedAt ? `Used ${agoWords(s.lastUsedAt)}` : "Never used"}</span>
+            <span className="secret-row-used">{s.lastUsedAt ? `Used ${timeWords(s.lastUsedAt)}` : "Never used"}</span>
           </button>
         </li>
       ))}

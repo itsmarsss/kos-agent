@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { Card, Face, lookOf, moodOf, Pill, Tag, type Tone } from "@kos/kit";
-import { momentWords } from "@kos/shared";
+import { momentWords, timeWords } from "@kos/shared";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo } from "./api.js";
@@ -8,7 +8,7 @@ import { describeCron } from "./schedule.js";
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
-import { WEEK, agoWords, inWords, runDays } from "./schedulewords.js";
+import { WEEK, runDays } from "./schedulewords.js";
 
 /**
  * The column beside a blob's thread: who it is, how it is doing,
@@ -36,7 +36,6 @@ export interface AgentPanelProps {
 
 const POLL_MS = 5000;
 
-
 /** How each state reads as a pill. */
 const HERO_TONE = { working: "accent", "needs-you": "warn", error: "danger", asleep: "muted", idle: "ok" } as const satisfies Record<string, Tone>;
 
@@ -47,7 +46,7 @@ export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "nee
   if (t?.activity === "needs-you") return { tone: "needs-you", text: "Waiting on you" };
   if (t?.activity === "error") return { tone: "error", text: `Last turn failed${t.lastError ? `: ${t.lastError}` : ""}` };
   if (paused) return { tone: "asleep", text: "Asleep, its schedule is paused" };
-  if (t?.lastSaid) return { tone: "idle", text: `Quiet, last spoke ${agoWords(t.updatedAt)}` };
+  if (t?.lastSaid) return { tone: "idle", text: `Quiet, last spoke ${timeWords(t.updatedAt)}` };
   return { tone: "idle", text: "Quiet, nothing said yet" };
 }
 
@@ -158,12 +157,12 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
             <ul className="agent-kv">
               <li>
                 <span>Next run</span>
-                <b>{agent.job.nextRunAt ? inWords(agent.job.nextRunAt) : paused ? "when resumed" : "on its schedule"}</b>
+                <b>{agent.job.nextRunAt ? timeWords(agent.job.nextRunAt) : paused ? "when resumed" : "on its schedule"}</b>
                 {agent.job.nextRunAt && <span>{momentWords(agent.job.nextRunAt)}</span>}
               </li>
               <li>
                 <span>Last run</span>
-                <b>{agent.job.lastRunAt ? agoWords(agent.job.lastRunAt) : "not yet"}</b>
+                <b>{agent.job.lastRunAt ? timeWords(agent.job.lastRunAt) : "not yet"}</b>
                 {agent.job.lastRunAt && <span>{momentWords(agent.job.lastRunAt)}</span>}
               </li>
             </ul>

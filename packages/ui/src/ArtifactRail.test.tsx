@@ -31,7 +31,7 @@ describe("a project's artifacts beside its chat", () => {
     render(<ArtifactRail items={items} open="ledger" onOpen={open} />);
     const rows = within(screen.getByRole("list", { name: "Artifacts" })).getAllByRole("button");
     expect(rows.map((r) => r.querySelector("strong")?.textContent)).toEqual(["Committee minutes", "Ledger"]);
-    expect(rows[0]!.textContent).toMatch(/Doc, 5 minutes ago/);
+    expect(rows[0]!.textContent).toMatch(/Doc, 5m ago/);
     expect(rows[1]!.getAttribute("aria-current")).toBe("true");
     fireEvent.click(rows[0]!);
     expect(open).toHaveBeenCalledWith(items[0]);

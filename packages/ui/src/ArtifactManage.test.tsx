@@ -253,7 +253,7 @@ describe("exporting an artifact", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
     // A row in the trash holds only its way back and its way out.
     const row = within(screen.getByRole("list", { name: "Trash" })).getByRole("listitem");
-    expect(within(row).getAllByRole("button").map((b) => b.textContent)).toEqual(["Old memoDocWorkspace3 minutes ago", "Restore", "Delete forever"]);
+    expect(within(row).getAllByRole("button").map((b) => b.textContent)).toEqual(["Old memoDocWorkspace3m ago", "Restore", "Delete forever"]);
   });
 
   it("names the file as the server does, in full when it says so in UTF-8", () => {
@@ -288,7 +288,7 @@ describe("the gallery's trash", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Trash/ }));
     expect(screen.getByRole("heading", { name: /^Trash/ })).toBeTruthy();
     expect(cards("Trash")).toEqual(["Old memo"]);
-    expect(screen.getByTitle("When it was moved to the trash").textContent).toBe("3 minutes ago");
+    expect(screen.getByTitle("When it was moved to the trash").textContent).toBe("3m ago");
     fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
     expect(cards()).toEqual(["Q4 brief", "Garden pitch"]);
   });

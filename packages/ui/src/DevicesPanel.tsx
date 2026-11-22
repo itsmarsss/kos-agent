@@ -1,3 +1,4 @@
+import { timeWords } from "@kos/shared";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { EmptyState, Field, Pill, Switch, type Tone } from "@kos/kit";
 
@@ -5,7 +6,7 @@ import type { SecretSummary } from "@kos/shared";
 
 import { api, type ComputerSettings, type DeviceBuild, type DeviceCode, type LanStatus, type PairedDevice, type PushSettings, type PushStatus } from "./api.js";
 import { CommandLine, ConfirmButton, FieldRow } from "./kit.js";
-import { agoWords } from "./schedulewords.js";
+
 import { secretsApi } from "./secrets.js";
 import { Select } from "./Select.js";
 
@@ -204,7 +205,7 @@ function missing(d: PairedDevice): string | undefined {
 export function buildWords(build: DeviceBuild | undefined, now = Date.now()): string {
   if (!build) return "Build unknown";
   const short = build.commit ? build.commit.slice(0, 7) : build.id;
-  return build.builtAt ? `Build ${short}, built ${agoWords(build.builtAt, now)}` : `Build ${short}`;
+  return build.builtAt ? `Build ${short}, built ${timeWords(build.builtAt, now)}` : `Build ${short}`;
 }
 
 /** Where a device's build stands with KOS's, as a pill, and why when it is not up to date. */
@@ -248,10 +249,10 @@ export function canUpdate(d: PairedDevice): boolean {
 export function describeDevice(d: PairedDevice, now = Date.now()): string {
   const browser = d.kind === "browser";
   if (d.kind === "phone") {
-    const seen = d.online ? "online" : d.lastSeen ? `offline, last seen ${agoWords(d.lastSeen, now)}` : "never connected";
+    const seen = d.online ? "online" : d.lastSeen ? `offline, last seen ${timeWords(d.lastSeen, now)}` : "never connected";
     return `Your phone${d.os ? `, iOS ${d.os}` : ""}, through KOS for iPhone · chat only, no computer use · ${seen}`;
   }
-  if (!d.online) return d.lastSeen ? `Offline, last seen ${agoWords(d.lastSeen, now)}` : browser ? "Never connected. Pair it from KOS for Chrome." : "Never connected. Open KOS for Mac on it.";
+  if (!d.online) return d.lastSeen ? `Offline, last seen ${timeWords(d.lastSeen, now)}` : browser ? "Never connected. Pair it from KOS for Chrome." : "Never connected. Open KOS for Mac on it.";
   const parts = [
     browser
       ? `Your own Chrome${d.os ? ` on ${d.os}` : ""}, through KOS for Chrome; not KOS's browser`

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
-import { AUTO_DECIDER, momentWords, timeCard } from "@kos/shared";
+import { AUTO_DECIDER, momentWords, timeCard, timeWords } from "@kos/shared";
 import { ChevronDown, Chips, Collapse, Count, EmptyState, Pill, spring, Tag, type Tone } from "@kos/kit";
 
 import { api, type DecidedAction, type DecidedStatus, type InboxData } from "./api.js";
 import { useEdgeFade } from "./edgefade.js";
-import { agoWords } from "./schedulewords.js";
 
 /**
  * What the Inbox has already settled, kept so a link to an old ask lands.
@@ -282,7 +281,7 @@ export function InboxDecided({
                   {a.id === linked?.id && !rows.some((r) => r.id === a.id) && <Tag>Linked</Tag>}
                   {a.asker && <span className="inbox-decided-where">{a.asker}</span>}
                   <time className="inbox-decided-when" dateTime={new Date(when).toISOString()} title={timeCard(when / 1000).join(" ")}>
-                    {agoWords(when)}
+                    {timeWords(when)}
                   </time>
                   <m.span className="chev" animate={{ rotate: isOpen ? 180 : 0 }} transition={spring}>
                     <ChevronDown size={12} />

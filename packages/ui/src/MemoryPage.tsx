@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
 import { Chips, EmptyState, Pill, Switch, Tag } from "@kos/kit";
-import { momentWords } from "@kos/shared";
+import { momentWords, timeWords } from "@kos/shared";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 import { PageHead, PageTabs, tabId } from "./PageHead.js";
 import { useHashParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
-import { agoWords } from "./schedulewords.js";
 
 /**
  * Memory, in one place.
@@ -124,7 +123,6 @@ function Group({ title, shown = true, blurb, children }: { title: string; shown?
   );
 }
 
-
 /** What the question is, in the owner's terms rather than memory's. */
 const HEADLINE: Record<ReviewItem["kind"], string> = {
   contradiction: "These claims disagree",
@@ -155,8 +153,8 @@ function metaOf(c: ReviewClaim): string {
   return [
     c.kind,
     c.trust && c.trust !== "owner" ? `from ${c.trust === "agent" ? "KOS" : c.trust}` : null,
-    c.useCount ? `used ${c.useCount}×${c.lastUsedAt ? `, last ${agoWords(c.lastUsedAt)}` : ""}` : "never used",
-    c.createdAt ? `written ${agoWords(c.createdAt)}` : null,
+    c.useCount ? `used ${c.useCount}×${c.lastUsedAt ? `, last ${timeWords(c.lastUsedAt)}` : ""}` : "never used",
+    c.createdAt ? `written ${timeWords(c.createdAt)}` : null,
   ]
     .filter(Boolean)
     .join(" · ");

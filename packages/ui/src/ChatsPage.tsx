@@ -12,7 +12,7 @@ import {
 import { AnimatePresence, m } from "motion/react";
 import { cycled, runningTail, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
 import { isModeKey, ModeChip } from "@kos/kit";
-import { ArchiveIcon, type BlockActions, MessageTime, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, type BlockActions, MessageTime, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
 import { PendingAsk } from "./PendingAsk.js";
@@ -193,14 +193,6 @@ interface Unsent {
 
 function clipped(title: string, max: number): string {
   return title.length > max ? `${title.slice(0, max - 1).trimEnd()}…` : title;
-}
-
-function relative(ts: number): string {
-  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
 }
 
 /** What a running conversation is doing, for the list. */
@@ -1544,7 +1536,7 @@ export function ChatsPage({
             {c.role && <Face seed={c.role} size={16} mood={moodOf(c.activity)} />}
             <span className="chats-item-title">{label ?? c.title}</span>
             <QueuedMark n={c.queued} />
-            <span className="chats-item-when">{relative(c.updatedAt)}</span>
+            <span className="chats-item-when"><When at={c.updatedAt} /></span>
           </span>
           {/* Title and state only. The brief and the tool list made every
               row a paragraph; a chat's details are one click away. */}
@@ -1877,7 +1869,7 @@ export function ChatsPage({
                               </span>
                               <span className="chats-item-title">{surfaceName(c.channel ?? c.title)}</span>
                               {stirring(c) && <ThreadDot live={progress[c.id]} chat={c} waiting={waitingOn.has(c.id)} />}
-                              <span className="chats-item-when">{relative(c.updatedAt)}</span>
+                              <span className="chats-item-when"><When at={c.updatedAt} /></span>
                             </span>
                           </a>
                         </li>
@@ -2012,7 +2004,7 @@ export function ChatsPage({
                                 </span>
                                 <span className="chats-item-title">{c.title}</span>
                                 <QueuedMark n={c.queued} />
-                                <span className="chats-item-when">{relative(c.updatedAt)}</span>
+                                <span className="chats-item-when"><When at={c.updatedAt} /></span>
                               </span>
                             </a>
                           </li>

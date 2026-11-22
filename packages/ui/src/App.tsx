@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, overlayScroll, StatusDot } from "@kos/kit";
-import { clockWords, momentWords, timeCard } from "@kos/shared";
+import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, overlayScroll, StatusPill, When } from "@kos/kit";
+import { momentWords, timeCard } from "@kos/shared";
 
 import {
   type FailingJob,
@@ -27,7 +27,7 @@ import { chatShown, frameOf, hrefFor, pageKeyOf, parseRoute, type Route } from "
 import { Drawer } from "./Drawer.js";
 import { targetHref } from "./hashparams.js";
 import { CronEditor } from "./CronEditor.js";
-import { describeCron, scheduleWords } from "./schedule.js";
+import { scheduleWords } from "./schedule.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
@@ -57,18 +57,9 @@ import { Refreshes } from "./refreshes.js";
 import { HostBanner } from "./HostBanner.js";
 import { Toast } from "./Toast.js";
 import { useReach } from "./reach.js";
-import { agoWords, jobTitle } from "./schedulewords.js";
+import { jobTitle, lastRunWords } from "./schedulewords.js";
 
 type Toast = { kind: "ok" | "warn" | "err"; text: string } | null;
-
-/** "in 25m", "in 3h, 9:00 AM", "Tomorrow 9:00 AM": when a job fires next, at a glance, on the reader's clock. */
-function whenNext(at: number): string {
-  const diff = at - Date.now();
-  if (diff < 60_000) return "any moment";
-  if (diff < 3_600_000) return `in ${Math.round(diff / 60_000)}m`;
-  if (diff < 12 * 3_600_000) return `in ${Math.round(diff / 3_600_000)}h, ${clockWords(at)}`;
-  return momentWords(at);
-}
 
 export function App(): React.ReactElement {
   const [route, setRoute] = useState<Route>(() =>
@@ -764,8 +755,6 @@ export function App(): React.ReactElement {
           )}
         </AnimatePresence>
 
-
-
         {/* A page arriving. Keyed on the route so switching tabs is a change
             the eye can follow rather than a swap between two frames. Short
             and small: this is orientation, not decoration. The page carries
@@ -1176,10 +1165,12 @@ export function App(): React.ReactElement {
       <ListPage
         title="Runs"
         tabs={<RunsTabs current="crons" />}
-        subtitle="Jobs KOS runs on its own. Click a row to edit it."
+        subtitle="What KOS runs on its own. Press one to change it."
         rows={rows}
         rowKey={(c) => c.id}
-        empty="No crons match"
+        empty="Nothing runs on its own yet."
+        noun="schedules"
+        onClearFilters={() => setCronFilter("all")}
         groupBy={groupOf}
         collapsible
         // The address says which job is open, so it can be sent or come
@@ -1207,16 +1198,15 @@ export function App(): React.ReactElement {
         columns={[
           {
             key: "name",
-            header: "Job",
+            header: "Name",
             searchText: (c) => `${jobTitle(c.name)} ${c.name} ${c.schedule} ${c.type}`,
             render: (c) => (
               <span className="sched-name">
                 {/* KOS's own jobs by the names the owner knows them by; the id is in the title. */}
                 <span className="sched-title" title={c.name}>{jobTitle(c.name)}</span>
                 <span className="sched-sub">
-                  <span>{describeCron(c.schedule) ?? "custom"}</span>
-                  <code title="cron expression">{c.schedule}</code>
-                  <span>{c.type === "self_prompt" ? "asks KOS" : "tool calls"}</span>
+                  <span title={c.schedule}>{scheduleWords(c.schedule)}</span>
+                  <span>{c.type === "self_prompt" ? "Asks KOS" : "Runs its steps"}</span>
                 </span>
               </span>
             ),
@@ -1226,15 +1216,7 @@ export function App(): React.ReactElement {
             header: "State",
             width: "7rem",
             searchText: (c) => (c.running ? "running" : c.enabled ? "on" : "off"),
-            render: (c) => (
-              <span className="sched-state">
-                <StatusDot
-                  state={c.running ? "working" : c.enabled ? "on" : "off"}
-                  label={c.running ? "running" : c.enabled ? "on" : "off"}
-                />
-                {c.running ? "running" : c.enabled ? "on" : "off"}
-              </span>
-            ),
+            render: (c) => <StatusPill state={c.running ? "running" : c.enabled ? "on" : "off"} />,
           },
           {
             key: "next",
@@ -1244,10 +1226,10 @@ export function App(): React.ReactElement {
             render: (c) =>
               c.enabled && c.nextRunAt ? (
                 <span className={`sched-when${c.nextRunAt - Date.now() < 3_600_000 ? " sched-when--soon" : ""}`} title={timeCard(c.nextRunAt / 1000).join(" ")}>
-                  {whenNext(c.nextRunAt)}
+                  {momentWords(c.nextRunAt)}
                 </span>
               ) : (
-                <span className="ops-muted">{c.enabled ? "—" : "paused"}</span>
+                <span className="ops-muted">—</span>
               ),
           },
           {
@@ -1255,25 +1237,8 @@ export function App(): React.ReactElement {
             header: "Last run",
             width: "10rem",
             searchText: () => "",
-            /* Where the job's runs live. Each one is a turn in a thread of
-               its own, so this opens what it is doing now and what it did
-               last week, and the owner can ask it there. */
-            render: (c) =>
-              c.conversationId ? (
-                <button
-                  type="button"
-                  className="link"
-                  title="Open the thread its runs are written into"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    go({ name: "chats", id: c.conversationId! });
-                  }}
-                >
-                  {c.running ? "Watch" : c.lastRunAt ? agoWords(c.lastRunAt) : "Open"}
-                </button>
-              ) : (
-                <span className="ops-muted">never</span>
-              ),
+            // Words, not a link: the thread its runs are written into opens from the row's own button.
+            render: (c) => <span className="ops-muted">{c.lastRunAt ? <When at={c.lastRunAt} /> : lastRunWords(null)}</span>,
           },
           {
             key: "project",
@@ -1294,12 +1259,24 @@ export function App(): React.ReactElement {
             // its schedule, which for a nightly job is a day per attempt.
             key: "run",
             header: "",
-            width: "6rem",
+            width: "8rem",
             render: (c) => (
               <span className="sched-acts">
+                {/* Where its runs live: a thread of its own, what it is doing now and did last week. */}
+                {c.conversationId && (
+                  <IconButton
+                    label="Open the thread its runs are written into"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      go({ name: "chats", id: c.conversationId! });
+                    }}
+                  >
+                    <ChatIcon title="" />
+                  </IconButton>
+                )}
                 <button
                   type="button"
-                  className="btn btn--sm btn--ghost"
+                  className="btn btn--sm"
                   disabled={firing === c.id}
                   title="Fire it now, the way the schedule would"
                   onClick={(e) => {
@@ -1365,6 +1342,4 @@ export function App(): React.ReactElement {
     />,
   );
 }
-
-
 
