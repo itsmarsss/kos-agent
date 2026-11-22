@@ -42,7 +42,7 @@ export { Countdown, QuoteLine, quoteSource, Card, Chips, Collapse, Count, type C
 export { EmptyState, noMatchWords, type EmptyStateProps } from "./EmptyState.js";
 export { When } from "./When.js";
 export { SheetFoot, SheetHead, type SheetFootProps } from "./Sheet.js";
-export { GroupHead, NotFound, SearchField, TableGroup, TableHead, type Column } from "./PageParts.js";
+export { GroupHead, ListHead, NotFound, SearchField, TableGroup, TableHead, type Column } from "./PageParts.js";
 export { PlacePicker, type Place } from "./PlacePicker.js";
 export { ASK_SETTLE_MS, AskCard, AskDetails, AskSecretBlock, AskStepList, type AskCardProps } from "./AskCard.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";

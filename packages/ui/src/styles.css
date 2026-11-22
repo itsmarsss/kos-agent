@@ -6023,8 +6023,11 @@ a.health {
 .inbox-decided-tools .chips--scroll { flex: 0 1 auto; contain: none; }
 .inbox-decided-line .tag { flex: none; padding: 0 0.45rem; font-size: var(--text-xs); }
 .inbox-decided-missing { margin: 0; }
-.inbox-decided-search { box-sizing: border-box; min-width: 0; width: 13rem; height: 1.85rem; font-size: var(--text-base); }
-.inbox-decided { list-style: none; margin: 0; padding: 0 0.4rem; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
+.inbox-decided-search { min-width: 0; width: 15rem; }
+.inbox-decided-search .search-field-input { height: var(--control-h-sm); }
+.inbox-decided { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
+.inbox-decided > .table-head { border-bottom: 1px solid var(--line); }
+.inbox-decided-list { list-style: none; margin: 0; padding: 0 0.4rem; min-width: 0; }
 .inbox-decided-row + .inbox-decided-row { border-top: 1px solid var(--line); }
 .inbox-decided-row.is-highlit { box-shadow: inset 2px 0 0 var(--accent); }
 .inbox-decided-line {
@@ -6050,7 +6053,7 @@ a.health {
 .inbox-decided-line:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .inbox-decided-outcome { flex: none; width: 5.4rem; display: flex; }
 .inbox-decided-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inbox-decided-where { flex: none; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--text-sm); }
+.inbox-decided-where { flex: none; width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--text-sm); }
 .inbox-decided-when { flex: none; min-width: 3.6rem; text-align: right; color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .inbox-decided-row .collapse { margin-top: 0; }
 .inbox-decided-row .collapse-body { padding-top: 0; }

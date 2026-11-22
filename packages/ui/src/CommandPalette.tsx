@@ -342,7 +342,7 @@ const KIND_GROUP: Record<string, string> = {
   blob: "Blobs",
   build: "Builds",
   channel: "Channels",
-  approval: "Approvals",
+  approval: "Inbox",
 };
 
 export function CommandPalette({

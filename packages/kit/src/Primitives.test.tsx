@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EmptyState, noMatchWords } from "./EmptyState.js";
 import { StatusPill } from "./kit.js";
-import { GroupHead, NotFound, SearchField, TableGroup, TableHead } from "./PageParts.js";
+import { GroupHead, ListHead, NotFound, SearchField, TableGroup, TableHead } from "./PageParts.js";
 import { PlacePicker, type Place } from "./PlacePicker.js";
 import { SheetFoot, SheetHead } from "./Sheet.js";
 import { When } from "./When.js";
@@ -121,6 +121,8 @@ describe("GroupHead and the table's head", () => {
     );
     expect([...table.container.querySelectorAll(".table-head th")].map((th) => th.className)).toEqual(["", "is-end"]);
     expect(table.container.querySelector(".table-group th")?.getAttribute("colspan")).toBe("2");
+    const list = render(<ListHead columns={[{ label: "Outcome", width: "5rem" }, { label: "What" }]} />);
+    expect([...list.container.querySelectorAll(".table-head-cell")].map((c) => c.textContent)).toEqual(["Outcome", "What"]);
   });
 });
 

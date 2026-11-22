@@ -22,7 +22,7 @@ import { scheduleWords } from "./schedule.js";
  * makes a dashboard trustworthy.
  */
 
-type Go = (to: "blobs" | "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
+type Go = (to: "inbox" | "blobs" | "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
 
 /** A blob's state in a word or two, for the side of its row. */
 export function agentSide(a: AgentInfo): string {
@@ -125,7 +125,7 @@ export function Panel({
       const decisions = data.memory.decisions;
       return (
         <div className="panel panel--attention">
-          <Head title={title ?? "Needs you"} count={rows.length + decisions} />
+          <Head title={title ?? "Inbox"} count={rows.length + decisions} onMore={() => onGo("inbox")} />
           {decisions > 0 && (
             /* Memory's open questions count as waiting on you too; they are
                answered on the Memory page, where the claims are. */

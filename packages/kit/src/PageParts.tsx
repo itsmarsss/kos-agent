@@ -111,6 +111,22 @@ export function TableHead({ columns }: { columns: readonly Column[] }): ReactEle
   );
 }
 
+/**
+ * The same head over a list drawn as rows rather than a table (the Inbox's
+ * Decided): the columns' names in the one style, each as wide as its column.
+ */
+export function ListHead({ columns, className }: { columns: readonly Column[]; className?: string }): ReactElement {
+  return (
+    <div className={`table-head table-head--list${className ? ` ${className}` : ""}`} aria-hidden="true">
+      {columns.map((c, i) => (
+        <span key={i} className={`table-head-cell${c.align === "end" ? " is-end" : ""}`} style={c.width ? { flex: `none`, width: c.width } : { flex: 1, minWidth: 0 }}>
+          {c.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** A group's head inside a table (Today, Yours): a GroupHead across its columns. */
 export function TableGroup({ title, count, columns }: { title: ReactNode; count?: number; columns: number }): ReactElement {
   return (

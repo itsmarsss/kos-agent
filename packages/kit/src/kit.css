@@ -309,6 +309,9 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .group-action { display: inline-flex; align-items: center; gap: 0.35rem; flex: none; }
 
 /* —— a table's head (TableHead) and a group inside it (TableGroup) —— */
+.table-head--list { display: flex; align-items: center; gap: 0.65rem; padding: 0 0.9rem; }
+.table-head-cell { padding: 0.45rem 0; color: var(--faint); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
+.table-head-cell.is-end { text-align: right; }
 .table-head th { padding: 0.45rem 0.75rem; color: var(--faint); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
 .table-head th.is-end { text-align: right; }
 .table-group > th { padding: 0.85rem 0.75rem 0.35rem; text-align: left; font-weight: 600; }
