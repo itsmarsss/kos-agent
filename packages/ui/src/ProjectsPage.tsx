@@ -158,7 +158,7 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
     <div className="projects-page">
       <PageHead
         title="Projects"
-        count={owned.length}
+        {...(loading ? {} : { count: owned.length })}
         subtitle="Each one is a chat of its own, with its agents, tables, files and artifacts."
         search={{ value: query, onChange: setQuery, noun: "projects" }}
         actions={

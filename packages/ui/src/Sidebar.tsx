@@ -96,7 +96,7 @@ export function Sidebar({
   const failing = status?.unhealthy ?? 0;
   // A status read before KOS stopped answering says nothing about now.
   const healthClass = down ? "health--bad" : status?.halted ? "health--halted" : failing > 0 ? "health--bad" : "health--ok";
-  const healthText = down ? "Can't reach KOS" : status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "Working";
+  const healthText = down ? "Can't reach KOS" : status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "All working";
   const actions: Record<MoreAction, () => void> = { refresh: onRefresh, snapshot: onSnapshot, open: onOpenWorkspace, copy: onCopyWorkspace };
   const model = status?.routes?.["reasoning"];
 

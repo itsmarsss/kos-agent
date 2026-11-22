@@ -50,6 +50,6 @@ describe("the sidebar", () => {
   it("says KOS cannot be reached once it stops answering, whatever the last status said", () => {
     show({ name: "chats" }, 0, false, true);
     expect(screen.getByText("Can't reach KOS")).toBeTruthy();
-    expect(screen.queryByText("Working")).toBeNull();
+    expect(screen.queryByText("All working")).toBeNull();
   });
 });
