@@ -7070,7 +7070,7 @@ button.project-stat:focus-visible { outline: 2px solid var(--accent); outline-of
 
 .toolpick-wrap { display: flex; flex-direction: column; gap: 0.4rem; }
 .toolpick-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-@media (max-width: 720px) { .agents-fields, .agents-fields--reach { grid-template-columns: 1fr; } .agent-editor-head { flex-direction: column; } .face-editor-fields { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .agents-fields, .agents-fields--reach { grid-template-columns: 1fr; } .agent-editor-head { flex-direction: column; } .face-editor-fields { grid-template-columns: 1fr; } .face-editor { flex-direction: column; align-items: stretch; } .face-editor > :first-child { align-self: center; } }
 
 /* A blob's row on the Overview: its face leads, centred on the line. */
 .panel-row--agent { align-items: center; }

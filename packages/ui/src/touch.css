@@ -46,11 +46,11 @@
   }
 
   /* A mark too small to grow without breaking its line (a switch, a bare ×,
-     a disclosure chevron) keeps its look and takes a finger's area round it. */
-  :is(.switch, .icon-btn--bare, button.finder-disclose) {
+     a disclosure chevron, a head's All, a colour) keeps its look and takes a finger's area round it. */
+  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch) {
     position: relative;
   }
-  :is(.switch, .icon-btn--bare, button.finder-disclose)::after {
+  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch)::after {
     position: absolute;
     top: 50%;
     left: 50%;
@@ -62,6 +62,11 @@
 
   .finder {
     --finder-row: var(--tap);
+  }
+  /* A colour a size up, so a finger's area round each overlaps its neighbour's least. */
+  .swatch:not(.swatch--any) {
+    width: 2.25rem;
+    height: 2.25rem;
   }
 
   /* A box that scrolls inside a panel that scrolls lets a swipe that reaches
