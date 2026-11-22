@@ -48,7 +48,7 @@ import { placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { SecretsPage } from "./SecretsPage.js";
 import { InboxPage } from "./InboxPage.js";
-import { RunsTabs } from "./RunsTabs.js";
+import { RUNS_SUBTITLE, RunsTabs } from "./RunsTabs.js";
 import { Sidebar } from "./Sidebar.js";
 import { WidgetPage } from "./WidgetPage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
@@ -1194,7 +1194,7 @@ export function App(): React.ReactElement {
       <ListPage
         title="Runs"
         tabs={<RunsTabs current="crons" />}
-        subtitle="What KOS runs on its own, on a timer. Press one to change it, or New schedule to add one."
+        subtitle={RUNS_SUBTITLE.crons}
         rows={rows}
         loading={!read.has("crons")}
         rowKey={(c) => c.id}

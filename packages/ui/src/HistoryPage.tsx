@@ -7,7 +7,7 @@ import { Chips, StatusPill } from "@kos/kit";
 import type { AuditRecord, Conversation, CronJob, Project, RunRecord } from "./api.js";
 import { ListPage } from "./ListPage.js";
 import { ProjectMark } from "./ProjectMark.js";
-import { RunsTabs } from "./RunsTabs.js";
+import { RUNS_SUBTITLE, RunsTabs } from "./RunsTabs.js";
 import { jobTitle } from "./schedulewords.js";
 
 /**
@@ -192,7 +192,7 @@ export function HistoryPage({
   return (
     <ListPage
       title="Runs"
-      subtitle="What KOS did, newest first: its replies, its schedules' runs and each step. What waits on you is in the Inbox."
+      subtitle={RUNS_SUBTITLE.history}
       stackOnPhone
       loading={loading}
       tabs={<RunsTabs current="history" />}
