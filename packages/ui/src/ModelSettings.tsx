@@ -19,7 +19,7 @@ type TaskKey = "reasoning" | "cheap" | "screen";
 
 const TASKS: Array<{ key: TaskKey; label: string; hint: string }> = [
   { key: "reasoning", label: "The model for thinking", hint: "answers every chat and runs every schedule" },
-  { key: "cheap", label: "The cheap model", hint: "small jobs, like deciding what is worth remembering" },
+  { key: "cheap", label: "The cheap model", hint: "small tasks, like deciding what is worth remembering" },
   { key: "screen", label: "The screen model", hint: "clicks and looks on a computer or in Chrome; the thinking model unless you pick another" },
 ];
 
