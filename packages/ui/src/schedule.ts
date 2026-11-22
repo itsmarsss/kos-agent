@@ -22,15 +22,56 @@ export type ScheduleShape =
 
 export type ScheduleKind = ScheduleShape["kind"];
 
-export const KINDS: { kind: ScheduleKind; label: string }[] = [
-  { kind: "daily", label: "Daily" },
+/** The shapes the picker offers, in the words of its chips; a line none of them writes is edited as text, under Advanced. */
+export const KINDS: { kind: Exclude<ScheduleKind, "custom">; label: string }[] = [
+  { kind: "daily", label: "Every day" },
   { kind: "weekdays", label: "Weekdays" },
-  { kind: "weekly", label: "Weekly" },
-  { kind: "hourly", label: "Hourly" },
-  { kind: "minutes", label: "Minutes" },
+  { kind: "weekly", label: "Some days" },
+  { kind: "hourly", label: "Every few hours" },
+  { kind: "minutes", label: "Every few minutes" },
   { kind: "monthly", label: "Monthly" },
-  { kind: "custom", label: "Custom" },
 ];
+
+/** Each of the five fields of a cron line: its name in a sentence and the numbers it takes. */
+const CRON_FIELDS: readonly { name: string; min: number; max: number; names?: readonly string[] }[] = [
+  { name: "minute", min: 0, max: 59 },
+  { name: "hour", min: 0, max: 23 },
+  { name: "day of the month", min: 1, max: 31 },
+  { name: "month", min: 1, max: 12, names: ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"] },
+  { name: "day of the week", min: 0, max: 7, names: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] },
+];
+
+/** A value of one field: a number in its range, or a month's or a day's name. */
+function valueOk(v: string, f: (typeof CRON_FIELDS)[number]): boolean {
+  if (/^\d+$/.test(v)) return Number(v) >= f.min && Number(v) <= f.max;
+  return f.names?.includes(v.toLowerCase()) ?? false;
+}
+
+/** One comma-separated part: *, a value, a range, either stepped by /n. */
+function partOk(part: string, f: (typeof CRON_FIELDS)[number]): boolean {
+  const [base, step, extra] = part.split("/");
+  if (extra !== undefined || base === undefined || base === "") return false;
+  if (step !== undefined && !(/^\d+$/.test(step) && Number(step) >= 1)) return false;
+  if (base === "*") return true;
+  const [from, to, more] = base.split("-");
+  if (more !== undefined || from === undefined) return false;
+  return to === undefined ? valueOk(from, f) : valueOk(from, f) && valueOk(to, f);
+}
+
+/**
+ * What is wrong with a cron line, in the owner's words, or null when it is
+ * one: the line a schedule is written in, checked before Create so a bad one
+ * never reaches KOS to be refused there.
+ */
+export function cronProblem(expr: string): string | null {
+  const parts = expr.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "Pick when it runs.";
+  if (parts.length !== 5) return `A schedule line has five parts: minute, hour, day of the month, month, day of the week. This has ${parts.length}.`;
+  for (const [i, f] of CRON_FIELDS.entries()) {
+    if (!parts[i]!.split(",").every((p) => partOk(p, f))) return `The ${f.name} must be ${f.min} to ${f.max}, *, or a range such as ${f.min}-${f.min + 2}.`;
+  }
+  return null;
+}
 
 const TIME = /^(\d{1,2}):(\d{2})$/;
 

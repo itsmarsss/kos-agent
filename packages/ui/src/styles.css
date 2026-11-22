@@ -8198,6 +8198,7 @@ img.ov-shape { object-fit: fill; }
 .secret-facts dt { color: var(--muted); font-size: var(--text-sm); font-weight: 600; }
 .secret-facts dd { margin: 0.15rem 0 0; }
 .secret-vault-acts { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.secret-vault-danger { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.9rem; padding-top: 0.75rem; border-top: 1px solid var(--line); }
 .secret-confirm-acts { justify-content: flex-end; }
 .secret-wipe { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--line); }
 .secret-wipe .hint { margin: 0; }

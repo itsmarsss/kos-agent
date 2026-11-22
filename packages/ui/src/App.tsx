@@ -796,6 +796,7 @@ export function App(): React.ReactElement {
               projects={projects.filter((p) => p.status === "active").map((p) => ({ slug: p.slug, name: p.name }))}
               {...(editingCron.projectSlug ? { defaultProject: editingCron.projectSlug } : {})}
               {...(editingCron.job ? { job: editingCron.job } : {})}
+              taken={crons.filter((c) => c.id !== editingCron.job?.id).map((c) => c.name)}
               hooks={status?.hooks === true}
               onDone={() => {
                 setEditingCron(null);

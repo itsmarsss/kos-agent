@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { checkName } from "@kos/shared";
 import { Field, SheetFoot, StatusPill } from "@kos/kit";
 
-import { api, type CronJob, type JobSpend, type SkillInfo } from "./api.js";
+import { api, fieldErrorOf, type CronJob, type JobSpend, type SkillInfo } from "./api.js";
 import { scriptIn, withScript } from "./cronscript.js";
 import { ConfirmButton } from "./kit.js";
-import { describeCron } from "./schedule.js";
+import { cronProblem, describeCron } from "./schedule.js";
 import { SchedulePicker } from "./SchedulePicker.js";
 import { Select } from "./Select.js";
 import { money, tokens } from "./SpendPanel.js";
@@ -33,6 +34,8 @@ import { money, tokens } from "./SpendPanel.js";
 export const TEMPLATES: {
   id: string;
   label: string;
+  /** What it does, in a line, said under the pick once it is picked. */
+  about: string;
   name: string;
   schedule: string;
   /** A self-prompt job's instruction. */
@@ -42,6 +45,7 @@ export const TEMPLATES: {
 }[] = [
   {
     id: "brief",
+    about: "Reads your calendar and mail, once those are added under Settings, MCP servers, and sends you the day in a message.",
     label: "Morning brief",
     name: "Morning brief",
     schedule: "30 7 * * 1-5",
@@ -56,6 +60,7 @@ export const TEMPLATES: {
   },
   {
     id: "review",
+    about: "Looks back at last week's projects and schedules and sends you what to do first.",
     label: "Weekly review",
     name: "Weekly review",
     schedule: "0 8 * * 1",
@@ -69,6 +74,7 @@ export const TEMPLATES: {
   },
   {
     id: "watch",
+    about: "Reads a page and tells you when it changes. Needs no model, so it costs nothing to run.",
     label: "Watch a page",
     name: "Watch: example.com",
     schedule: "0 */6 * * *",
@@ -78,6 +84,7 @@ export const TEMPLATES: {
   },
   {
     id: "script",
+    about: "Runs a script KOS wrote and you promoted, picked below. Needs no model.",
     label: "Run a script",
     name: "Run a script",
     schedule: "0 9 * * *",
@@ -86,6 +93,7 @@ export const TEMPLATES: {
   },
   {
     id: "command",
+    about: "Runs a command in the workspace. It asks the first time; press Always and it never asks again.",
     label: "Run a command",
     name: "Run a command",
     schedule: "0 */6 * * *",
@@ -121,6 +129,7 @@ export function CronEditor({
   onToggle,
   onDelete,
   hooks = false,
+  taken = [],
 }: {
   /** Absent when writing a new one. */
   job?: CronJob;
@@ -138,6 +147,8 @@ export function CronEditor({
   onToggle?: (id: number, enabled: boolean) => void;
   /** Remove it, and the thread its runs were written into. */
   onDelete?: (id: number) => void;
+  /** The other schedules' names, so a taken one is said as it is typed. */
+  taken?: readonly string[];
 }): ReactElement {
   const [name, setName] = useState(job?.name ?? "");
   const [schedule, setSchedule] = useState(job?.schedule ?? "0 9 * * *");
@@ -158,6 +169,14 @@ export function CronEditor({
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [template, setTemplate] = useState("");
+  // What the server said of a field, until that field changes; an empty name is said once Save was tried.
+  const [refused, setRefused] = useState<{ field: "name" | "schedule"; message: string } | null>(null);
+  const [tried, setTried] = useState(false);
+  const nameCheck = checkName(name, { noun: "schedule", taken });
+  const nameError = refused?.field === "name" ? refused.message : nameCheck && (nameCheck.problem !== "empty" || tried) ? nameCheck.message : null;
+  const whenError = refused?.field === "schedule" ? refused.message : cronProblem(schedule);
+  const blocked = nameCheck !== null || whenError !== null || refused !== null;
   // The scripts a job may run without asking: promoted and on. Read once;
   // a job that runs one is a pick here rather than JSON to type.
   const [scripts, setScripts] = useState<SkillInfo[]>([]);
@@ -175,6 +194,8 @@ export function CronEditor({
   }, []);
 
   const save = (): void => {
+    setTried(true);
+    if (blocked || saving) return;
     setError(null);
     let parsed: unknown = undefined;
     if (type === "actions") {
@@ -200,15 +221,27 @@ export function CronEditor({
       : api.createCron(body);
     void call
       .then(onDone)
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      )
+      .catch((err: unknown) => {
+        const onName = fieldErrorOf(err, "name");
+        const onWhen = fieldErrorOf(err, "schedule");
+        if (onName) setRefused({ field: "name", message: onName });
+        else if (onWhen) setRefused({ field: "schedule", message: onWhen });
+        else setError(err instanceof Error ? err.message : String(err));
+      })
       .finally(() => setSaving(false));
   };
 
 
   return (
-    <div className="settings cron-editor">
+    // A form, so Enter in the name saves as it does in every other form; the buttons are plain buttons but Save.
+    <form
+      className="settings cron-editor"
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
       {/* What this job is doing right now, and the two things worth doing to
           it while reading it. Trying a schedule meant closing the drawer and
           finding the row again, and waiting for tomorrow to find out. */}
@@ -256,25 +289,23 @@ export function CronEditor({
 
       <div className="set-group">
         <h3>When it runs</h3>
-        <p className="hint">
-          The name is how it is referred to everywhere else, including in a
-          message about it failing.
-        </p>
         {!job && (
           <Field
             label="Start from"
-            hint="A whole schedule, written out; change any of it below. The brief reads your calendar and mail when those servers are added under Settings, MCP servers, and says what it could not read until then. A watch reads a page in the browser and tells you what changed, with no model turn. Run a script runs a promoted script skill, picked below, with no model turn; Run a command runs a shell line, which asks the first time and never again once you press Always."
+            hint={TEMPLATES.find((t) => t.id === template)?.about ?? "A ready-made schedule to change, or a blank one."}
           >
             <Select
               className="settings-select"
               label="Start from a template"
-              value=""
+              value={template}
               options={[
                 { value: "", label: "A blank schedule" },
                 ...TEMPLATES.map((t) => ({ value: t.id, label: t.label, hint: describeCron(t.schedule) ?? t.schedule })),
               ]}
               onChange={(v) => {
                 const t = TEMPLATES.find((x) => x.id === v);
+                setTemplate(v);
+                setRefused(null);
                 if (!t) return;
                 setName(t.name);
                 setSchedule(t.schedule);
@@ -290,24 +321,28 @@ export function CronEditor({
             />
           </Field>
         )}
-        <Field label="Name" required>
+        <Field label="Name" required hint="How it is named in lists, and in a message if it fails." {...(nameError ? { error: nameError } : {})}>
           <input
             className="kos-input"
             value={name}
             placeholder="Morning summary"
-            onChange={(e) => setName(e.target.value)}
+            aria-invalid={nameError ? true : undefined}
+            onChange={(e) => {
+              if (refused?.field === "name") setRefused(null);
+              setName(e.target.value);
+            }}
           />
         </Field>
 
         {!system && (
-          <Field label="Project" hint="Whose schedule this is. A self-prompt runs with the project's context; its runs sit in the project's rail.">
+          <Field label="Project" hint="Whose schedule this is. Its runs can use that project's files and tables, and show beside its chat.">
             <Select
               className="settings-select"
               label="Project"
               value={projectSlug}
               options={[
-                { value: "", label: "None", hint: "yours, at the root" },
-                ...projects.map((p) => ({ value: p.slug, label: p.name, hint: p.slug })),
+                { value: "", label: "None", hint: "yours, outside any project" },
+                ...projects.map((p) => ({ value: p.slug, label: p.name })),
               ]}
               onChange={(v) => setProjectSlug(v)}
             />
@@ -315,31 +350,41 @@ export function CronEditor({
         )}
 
         <Field label="When" required group>
-          <SchedulePicker value={schedule} onChange={setSchedule} />
+          <SchedulePicker
+            value={schedule}
+            onChange={(expr) => {
+              if (refused?.field === "schedule") setRefused(null);
+              setSchedule(expr);
+            }}
+          />
+          {refused?.field === "schedule" && (
+            <span className="field-error" role="alert">
+              {refused.message}
+            </span>
+          )}
         </Field>
       </div>
 
       <div className="set-group">
         <h3>What it does</h3>
         <p className="hint">
-          Either KOS decides what to do each time, or the same calls run
-          unchanged.
+          KOS decides what to do each time, or the same steps run unchanged.
         </p>
         <Field label="Kind" group>
           <Select
             className="settings-select"
-            label="Job type"
+            label="What it does"
             value={type}
             options={[
               {
                 value: "self_prompt",
                 label: "Ask KOS",
-                hint: "reads, decides, then acts",
+                hint: "it reads, decides, then acts",
               },
               {
                 value: "actions",
-                label: "Fixed tool calls",
-                hint: "exactly these, every time",
+                label: "Fixed steps",
+                hint: "exactly these, every time, no model",
               },
             ]}
             onChange={(v) =>
@@ -352,18 +397,18 @@ export function CronEditor({
           <Field label="Model" group>
             <Select
               className="settings-select"
-              label="Model class"
+              label="Model"
               value={task}
               options={[
-                { value: "reasoning", label: "Reasoning", hint: "the model every chat turn uses" },
-                { value: "cheap", label: "Cheap", hint: "the small model from Settings, for reading and filing" },
+                { value: "reasoning", label: "The model for thinking", hint: "the one your chats use" },
+                { value: "cheap", label: "The cheap model", hint: "smaller and cheaper, for reading and filing" },
               ]}
               onChange={(v) => setTask(v === "cheap" ? "cheap" : "reasoning")}
             />
           </Field>
         )}
         {type === "self_prompt" ? (
-          <Field label="Prompt" required hint="Written as an instruction to KOS, the way you would say it.">
+          <Field label="What to do" required hint="Say it to KOS the way you would in a chat.">
             <textarea
               className="kos-input"
               rows={4}
@@ -396,7 +441,7 @@ export function CronEditor({
                 onChange={(name) => setActions(withScript(actions, name))}
               />
             </Field>
-            <Field label="Tool calls" required hint="Run in order. {column} in a string argument is replaced from the query's first row, read again before each call. A shell.run call asks the first time; Always on that ask remembers the program.">
+            <Field label="Steps" required hint="Advanced: the steps as KOS writes them, run in order. A command asks the first time; Always on that ask stops it asking.">
               <textarea
                 className="kos-input kos-mono"
                 rows={7}
@@ -423,11 +468,11 @@ export function CronEditor({
              removed. Apart, at the far left. */
           danger={job && onDelete && <ConfirmButton label="Delete" className="btn btn--danger" text={`Delete “${job.name}” and its runs?`} onConfirm={() => onDelete(job.id)} />}
           primary={
-            <button type="button" className="btn btn--primary" disabled={saving || !name.trim()} onClick={save}>
+            <button type="submit" className="btn btn--primary" disabled={saving || blocked}>
               {saving ? "Saving…" : job ? "Save" : "Create"}
             </button>
           }
         />
-    </div>
+    </form>
   );
 }
