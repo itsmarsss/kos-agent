@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { EmptyState, noMatchWords } from "./EmptyState.js";
+import { EmptyState, listState, noMatchWords } from "./EmptyState.js";
 import { StatusPill } from "./kit.js";
 import { GroupHead, ListHead, NotFound, PaneHead, SearchField, TableGroup, TableHead } from "./PageParts.js";
 import { PlacePicker, type Place } from "./PlacePicker.js";
@@ -39,6 +39,36 @@ describe("EmptyState", () => {
     );
     expect(container.querySelector("tr.empty-row td")?.getAttribute("colspan")).toBe("4");
     expect(container.textContent).toBe("No runs match these words and filters.");
+  });
+
+  it("draws where the list will be while it is read, never that it is empty", () => {
+    const { container, rerender } = render(<EmptyState loading title="No projects yet">Ask KOS to build something.</EmptyState>);
+    expect(container.textContent).toBe("");
+    expect(screen.getByRole("status", { name: "Loading" })).toBeTruthy();
+    expect(container.querySelectorAll(".skeleton").length).toBeGreaterThan(0);
+    rerender(
+      <table>
+        <tbody>
+          <EmptyState loading variant="row" columns={3} query={{ noun: "runs" }} />
+        </tbody>
+      </table>,
+    );
+    expect(container.textContent).not.toContain("match");
+    expect(container.querySelector("tr td")?.getAttribute("colspan")).toBe("3");
+  });
+});
+
+describe("listState", () => {
+  it("is loading until read, whatever the list holds", () => {
+    expect(listState(false, 0)).toBe("loading");
+    expect(listState(false, 4, 0)).toBe("loading");
+  });
+
+  it("is empty only once read with nothing, no-match when filters hide every row", () => {
+    expect(listState(true, 0)).toBe("empty");
+    expect(listState(true, 0, 0)).toBe("empty");
+    expect(listState(true, 5, 0)).toBe("no-match");
+    expect(listState(true, 5, 2)).toBe("rows");
   });
 });
 

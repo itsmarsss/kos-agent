@@ -578,6 +578,9 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 }
 @keyframes kos-skeleton { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+/* A list being read: its rows' skeletons where the empty box would be. */
+.list-loading { display: grid; gap: 8px; margin: 0; }
+p.list-loading { padding: 4px 0; }
 
 /* What an ask would do, under the model's words for it: on the row, wrapped, never cut. */
 /* —— a step's picture (StepPicture): small under its step, larger on a press —— */
