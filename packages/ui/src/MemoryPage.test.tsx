@@ -12,6 +12,7 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
   vi.spyOn(api, "memoryReview").mockResolvedValue({ pending: [], recent: [], pages: [], edited: [] });
   vi.spyOn(api, "memoryLog").mockResolvedValue({ events: [], query: "" });
+  vi.spyOn(api, "memoryChanges").mockResolvedValue({ changes: [] });
 });
 afterEach(() => {
   cleanup();
@@ -57,5 +58,27 @@ describe("the Memory page", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Log" }));
     await act(async () => {});
     expect(within(head as HTMLElement).queryByRole("button", { name: "New claim" })).toBeNull();
+  });
+
+  it("shows each change to a claim as a diff, with who made it", async () => {
+    vi.spyOn(api, "memoryChanges").mockResolvedValue({
+      changes: [
+        { id: 3, at: Date.now(), action: "archive", key: "trip", scope: "global", value: "maybe Porto in May", was: null, reason: "a plan that passed", by: "kos.dream" },
+        { id: 2, at: Date.now(), action: "supersede", key: "city", scope: "project:travel", value: "Lisbon", was: "Montreal", reason: null, by: "Trip planning" },
+      ],
+    });
+    window.location.hash = "#/memory?tab=decisions";
+    render(<MemoryPage facts={[]} tags={[]} onChanged={() => undefined} />);
+    await act(async () => {});
+    const changes = screen.getByRole("region", { name: "Changes" });
+    const rows = within(changes).getAllByRole("listitem");
+    expect(rows[0]!.textContent).toContain("archived");
+    expect(rows[0]!.querySelector("del")!.textContent).toBe("maybe Porto in May");
+    expect(rows[0]!.textContent).toContain("a plan that passed");
+    expect(rows[1]!.querySelector("del")!.textContent).toBe("Montreal");
+    expect(rows[1]!.querySelector("ins")!.textContent).toBe("Lisbon");
+    expect(rows[1]!.textContent).toContain("Trip planning");
+    expect(rows[1]!.textContent).toContain("travel");
+    window.location.hash = "";
   });
 });
