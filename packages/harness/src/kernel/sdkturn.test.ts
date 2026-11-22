@@ -107,6 +107,47 @@ describe("a turn on the SDK engine", () => {
     expect(logged).toEqual(["owner: my sister Nadia is a nurse in Halifax", "agent: Your sister is Nadia."]);
   });
 
+  const fireCheap = async (): Promise<void> => {
+    const job = kernel.crons.create({ name: `tidy-${Date.now()}`, schedule: "0 4 * * *", type: "self_prompt", prompt: "tidy memory", task: "cheap", enabled: true });
+    kernel.startCron();
+    try {
+      await kernel.fireCron(job.id);
+      await kernel.queue.drain();
+    } finally {
+      kernel.stopCron();
+    }
+  };
+
+  it("keeps a cheap task's spend under cheap, and tells the owner of an unavailable cheap model only when they chose it", async () => {
+    const tell = vi.spyOn(kernel.caretaker, "tell").mockImplementation(() => undefined);
+    const asked: (string | undefined)[] = [];
+    sdk.run = async (o) => {
+      asked.push(o.model);
+      if (o.model) throw new Error("There's an issue with the selected model. It may not exist or you may not have access to it.");
+      return { ...answer([], "Done."), models: [{ model: "engine-default", inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 }] };
+    };
+    // Another provider's cheap model: the engine's smallest stands in, and its absence is nobody's choice to hear about.
+    kernel.applyModelSettings({ cheap: { provider: "openai", model: "gpt-5.4-mini" } });
+    await fireCheap();
+    expect(asked[0]).toBeDefined();
+    expect(asked[0]).not.toBe("gpt-5.4-mini");
+    expect(tell).not.toHaveBeenCalled();
+    expect((kernel.workspace.db.prepare("SELECT DISTINCT task FROM token_usage").all() as { task: string }[]).map((r) => r.task)).toEqual(["cheap"]);
+    // The owner's own cheap model on the engine's provider: told, as a cheap model.
+    kernel.applyModelSettings({ cheap: { provider: "anthropic", model: "claude-cheap-not-on-plan" } });
+    await fireCheap();
+    expect(tell).toHaveBeenCalledTimes(1);
+    expect(tell.mock.calls[0]![0]).toContain("cheap model you chose, claude-cheap-not-on-plan");
+  });
+
+  it("logs nothing for a guest's dispatched hop or a hop another chat passed on", async () => {
+    sdk.run = async () => answer([], "Noted.");
+    await kernel.handleMessage("my sister Nadia is a nurse", { sessionId: chat, guested: { project: undefined, chat: "room-1" } });
+    await kernel.handleMessage("the owner's sister is Nadia", { sessionId: chat, from: { kind: "chat", name: "Planner" } });
+    expect(kernel.events.since(kernel.profile.ownerId, 0, 10)).toEqual([]);
+    expect(kernel.facts.all(kernel.profile.ownerId)).toEqual([]);
+  });
+
   it("answers on the engine's default when the chosen model is not on its login, and tells the owner once", async () => {
     kernel.applyModelSettings({ reasoning: { model: "claude-not-on-plan" } });
     kernel.settings.set("models", { reasoning: { model: "claude-not-on-plan" } });
