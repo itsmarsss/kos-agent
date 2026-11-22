@@ -18,9 +18,27 @@
     --control-h-sm: var(--tap);
   }
 
-  .icon-btn:not(.icon-btn--bare) {
+  .icon-btn:not(.icon-btn--bare),
+  .icon-btn.rail-group-add,
+  .phonebar-menu {
     width: var(--tap);
     height: var(--tap);
+  }
+  .head-act {
+    min-width: var(--tap);
+    height: var(--tap);
+    justify-content: center;
+  }
+  /* A one-word button or chip ("Fix", "On") is as wide as a finger too. */
+  .btn,
+  .chips button {
+    min-width: var(--tap);
+    justify-content: center;
+  }
+  .phonebar .brand {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
   }
 
   /* Rows, tabs and menu rows: their height, with what they hold centred in it. */
@@ -36,7 +54,13 @@
   .chats-item,
   .drawer-row,
   .set-rail-item,
-  .pal-item {
+  .pal-item,
+  .rail-group-fold,
+  .list-group-fold,
+  .chats-foot-btn,
+  .ask-details-toggle,
+  .finder-col-label,
+  .kos-input {
     box-sizing: border-box;
     min-height: var(--tap);
   }
@@ -46,11 +70,11 @@
   }
 
   /* A mark too small to grow without breaking its line (a switch, a bare ×,
-     a disclosure chevron, a head's All, a colour) keeps its look and takes a finger's area round it. */
-  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch) {
+     a disclosure chevron, a link in a line, a crumb, a colour) keeps its look and takes a finger's area round it. */
+  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch, button.link, .finder-crumb) {
     position: relative;
   }
-  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch)::after {
+  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch, button.link, .finder-crumb)::after {
     position: absolute;
     top: 50%;
     left: 50%;
