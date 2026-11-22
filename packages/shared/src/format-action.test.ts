@@ -192,8 +192,8 @@ describe("the risky tools say what they would do", () => {
   it("names the command, the job, the agent and the daemon", () => {
     expect(summarizeAction("shell.run", { command: "git status", cwd: "projects/site" })).toBe("Run: git status (in projects/site)");
     expect(summarizeAction("shell.run", JSON.stringify({ command: "rm -rf build" }))).toBe("Run: rm -rf build");
-    expect(summarizeAction("cron.run", { id: 11 })).toBe("Run the job #11 now");
-    expect(summarizeAction("builds.run", { dir: "projects/site", task: "Add a footer" })).toBe("Start a coding agent in projects/site: Add a footer");
+    expect(summarizeAction("cron.run", { id: 11 })).toBe("Run the schedule #11 now");
+    expect(summarizeAction("builds.run", { dir: "projects/site", task: "Add a footer" })).toBe("Start a build in projects/site: Add a footer");
     expect(summarizeAction("blobs.list", {})).toBe("List the blobs");
     expect(summarizeAction("blobs.create", { name: "watch", description: "Watches a listing" })).toBe("Make the blob watch: Watches a listing");
     expect(summarizeAction("blobs.dispatch", { agent: "recap", task: "x", project: "garden" })).toBe("Hand work to the blob recap in garden");
@@ -235,7 +235,7 @@ describe("names beside ids", () => {
     expect(summarizeAction("discord.audience", { channel: "1561", audience: "guests" }, names)).toBe("Open #leetcode to everyone on the server, reading and writing");
     expect(summarizeAction("notify", { to: "discord:channel:1561", text: "hi" }, names)).toBe("Post to #leetcode on Discord: hi");
     expect(summarizeAction("notify", { text: "hi" }, names)).toBe("Tell you: hi");
-    expect(summarizeAction("cron.run", { id: 18 }, names)).toBe("Run the job Daily board now");
+    expect(summarizeAction("cron.run", { id: 18 }, names)).toBe("Run the schedule Daily board now");
     expect(summarizeAction("discord.make", { name: "picks", kind: "channel", category: "Club", access: [{ who: "Members", view: true, write: true }] })).toBe("Make the channel picks under Club, open to Members");
   });
 

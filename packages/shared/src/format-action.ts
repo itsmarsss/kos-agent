@@ -538,9 +538,9 @@ export function summarizeAction(
     case "sql":
       return `SQL: ${fmtVal(a.sql)}`;
     case "http.fetch":
-      return `HTTP fetch ${fmtVal(a.url)}`;
+      return `Fetch ${fmtVal(a.url)}`;
     case "cron.schedule":
-      return `Schedule cron “${fmtVal(a.name)}” [${fmtVal(a.schedule)}]`;
+      return `Set up the schedule “${fmtVal(a.name)}”`;
     case "artifacts.write":
       return `Write ${fmtVal(a.kind ?? "page")} “${fmtVal(a.title)}”${a.project ? ` for project ${fmtVal(a.project)}` : ""}`;
     case "artifacts.patch":
@@ -560,7 +560,7 @@ export function summarizeAction(
       return to ? `Post to ${named("target", to)}: ${fmtVal(a.text)}` : `Tell you: ${fmtVal(a.text)}`;
     }
     case "skills.test":
-      return `Sandbox test ${fmtVal(a.entry)}`;
+      return `Test ${fmtVal(a.entry)} safely`;
     case "skills.promote":
       return `Promote skill ${fmtVal(a.entry)}`;
     case "chats.list":
@@ -608,9 +608,9 @@ export function summarizeAction(
     case "memory.tags":
       return "List knowledge tags";
     case "cron.list":
-      return "List scheduled jobs";
+      return "List schedules";
     case "cron.remove":
-      return `Delete scheduled job ${fmtVal(a.id)}`;
+      return `Delete the schedule ${named("schedule", a.id, `#${fmtVal(a.id)}`)}`;
     case "skills.run":
       return `Run skill ${fmtVal(a.entry)} for real`;
     // The risky ones most often waiting on an approval. Each says the
@@ -618,9 +618,9 @@ export function summarizeAction(
     case "shell.run":
       return `Run: ${fmtVal(a.command)}${a.cwd || (where && where.home.folder !== "") ? ` (in ${at(a.cwd, "change")})` : ""}${a.writes === "workspace" ? ", writing anywhere in the workspace" : ""}`;
     case "cron.run":
-      return `Run the job ${named("schedule", a.id, `#${fmtVal(a.id)}`)} now`;
+      return `Run the schedule ${named("schedule", a.id, `#${fmtVal(a.id)}`)} now`;
     case "builds.run":
-      return `Start a coding agent in ${fmtVal(a.dir)}: ${fmtVal(a.task)}`;
+      return `Start a build in ${fmtVal(a.dir)}: ${fmtVal(a.task)}`;
     case "daemons.create":
       return `Create daemon “${fmtVal(a.name)}”: ${fmtVal(a.runtime)} ${fmtVal(a.entry)}${Array.isArray(a.args) && a.args.length ? ` ${fmtVal(a.args.join(" "))}` : ""}`;
     case "daemons.start":
