@@ -128,6 +128,25 @@
   }
 }
 
+/* The search's way out, which a keyboard has as Escape. */
+.pal-cancel {
+  display: none;
+}
+@media (hover: none) {
+  .pal {
+    position: relative;
+  }
+  .pal-cancel {
+    display: inline-flex;
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+  }
+  .pal-input {
+    padding-right: 6rem;
+  }
+}
+
 /* Typing into a chat on a phone, the keyboard takes half the screen: the
    chat's head keeps only its title, on one line, and the room goes to the
    messages. It was the crumbs, a title on two lines and its brief, 150 px of
