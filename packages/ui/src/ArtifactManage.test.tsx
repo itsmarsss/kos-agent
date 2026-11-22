@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, dispositionName, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
 import { emptyWords } from "./ArtifactManage.js";
 import { ArtifactViewer, ArtifactsPage } from "./ArtifactsPage.js";
 import { ArtifactOpen, ArtifactStep } from "./ArtifactStep.js";
+import { ToastHost } from "./Toast.js";
+
+// The app mounts the one toast host; a page on its own here gets one too.
+beforeEach(() => void render(<ToastHost />));
 
 beforeAll(() => {
   window.matchMedia ??= (() => ({ addEventListener: () => undefined, removeEventListener: () => undefined })) as unknown as typeof window.matchMedia;

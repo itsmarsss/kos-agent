@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type DirEntry, type FileContent } from "../api.js";
 import { Finder } from "./Finder.js";
+import { ToastHost } from "../Toast.js";
+
+// The app mounts the one toast host; a page on its own here gets one too.
+beforeEach(() => void render(<ToastHost />));
 
 /**
  * The file manager as Finder has it: choosing by click, Shift and Cmd, the

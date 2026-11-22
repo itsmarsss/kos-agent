@@ -575,23 +575,28 @@ select {
   border: 1px solid rgba(240, 113, 120, 0.35);
 }
 
-/* A word from KOS about what just happened (Toast.tsx): one pill at the
-   bottom, centred, with a mark that says how it went and Undo when it can be
-   undone. Approve, archive and the files each drew their own before. */
-.ops-toast {
+/* A word from KOS about what just happened (Toast.tsx): one stack at the
+   bottom, centred, lifted over the composer when one is on screen, each note
+   with a mark that says how it went and Undo when it can be undone. */
+.ops-toasts {
   position: fixed;
   bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
-  /* Centred by its margins, not by half the window: shrunk to fit beside 50%, it wrapped on a phone. */
   left: 1rem;
   right: 1rem;
-  width: fit-content;
-  margin-inline: auto;
   z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  pointer-events: none;
+}
+.ops-toast {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 0.55rem;
   /* The window less its gutters on a phone; a comfortable line on a desk. */
-  max-width: 36rem;
+  max-width: min(36rem, 100%);
   padding: 0.45rem 0.95rem 0.45rem 0.55rem;
   border-radius: var(--r-lg);
   border: 1px solid var(--line-strong);
@@ -613,6 +618,7 @@ select {
 }
 .ops-toast-text { min-width: 0; overflow-wrap: anywhere; }
 .ops-toast--ok .ops-toast-icon { background: var(--ok-dim); color: var(--ok); }
+.ops-toast--info .ops-toast-icon { background: var(--panel-2); color: var(--muted); }
 .ops-toast--err { border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
 .ops-toast--warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line-strong)); }
 .ops-toast--warn .ops-toast-icon { background: var(--warn-dim); color: var(--warn); }
