@@ -791,7 +791,7 @@ export function SettingsPage({
             </Field>
             <Field group className="set-field"
               label="Timezone"
-              hint="Schedules and “today” follow this. Checked against what this machine knows, so a typo cannot quietly move every cron job."
+              hint="Schedules and “today” follow this. Checked against what this machine knows, so a typo cannot quietly move every schedule."
             >
               {zones.current.length > 0 ? (
                 <Select
