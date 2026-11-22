@@ -1508,7 +1508,12 @@ export class Kernel {
           /** The calls this turn has written to the chat so far, by id. */
           const told = new Set<string>();
           // The owner's reasoning model when the engine runs that provider; the engine's own default otherwise.
-          const chosen = sdkTurnModel(this.inference.routeFor?.("reasoning"), parseModelSettings(this.settings.get(MODEL_SETTINGS_KEY)).reasoning);
+          // A cheap task (the memory jobs, a role set to cheap) runs on the cheap route's model when the
+          // engine can run it, else the engine's smallest: it ran on the engine's default, the largest,
+          // and the three memory jobs spent close to half of everything KOS spent.
+          const chosen = opts.task === "cheap"
+            ? { model: sdkModelFor(this.inference.routeFor?.("cheap")) }
+            : sdkTurnModel(this.inference.routeFor?.("reasoning"), parseModelSettings(this.settings.get(MODEL_SETTINGS_KEY)).reasoning);
           const runOn = async (pick: { model?: string; effort?: Effort }): Promise<SdkChatResult> => runSdkChat({
             signal: stop.signal,
             // An aside reads the context chat's history (plus its own earlier
@@ -1606,7 +1611,7 @@ export class Kernel {
             throw err;
           });
 
-          const settleSdk = (sdk: SdkChatResult, resumed = false): string => {
+          const settleSdk = async (sdk: SdkChatResult, resumed = false): Promise<string> => {
             const reply = sdk.text ? inHouseVoice(sdk.text) : stop.signal.aborted ? "Stopped." : "I do not have anything to add to that.";
             if (useSession) {
               /*
@@ -1668,6 +1673,7 @@ export class Kernel {
                 costUSD: used.costUSD,
               });
             }
+            await this.rememberTurn({ userId, text, reply, sessionId, origin: opts.origin, stopped: stop.signal.aborted });
             return reply;
           };
 
@@ -2036,7 +2042,7 @@ export class Kernel {
   private onChosenModelUnavailable(model: string, retry: () => Promise<SdkChatResult>): Promise<SdkChatResult> {
     if (!this.unavailableTold.has(model)) {
       this.unavailableTold.add(model);
-      this.caretaker.tell(`The reasoning model you chose, ${model}, is not available on the Claude login KOS's chat engine uses, so its own default model answered. Pick another in Settings, Models, or sign in with a plan that has it.`);
+      this.caretaker.tell(`The model you chose, ${model}, is not available on the Claude login KOS's chat engine uses, so its own default model answered. Pick another in Settings, Models, or sign in with a plan that has it.`);
     }
     return retry();
   }
@@ -4248,20 +4254,31 @@ export class Kernel {
       );
     }
 
-    // Only owner turns are remembered; harness-generated ones are plumbing.
-    // Awaited so a write cannot be lost when the process exits right after a
-    // reply, and so failures surface in the runs log instead of vanishing.
-    // A stopped turn is not held for it: the memory pass embeds and may ask
-    // a model, and the owner pressed Stop to have the chat back now.
-    if (origin !== "system") {
-      const remembering = this.afterTurn.remember(userId, text, reply, sessionId, this.ownerSaid.get(sessionId)?.eventId).then(() => this.maybeExtract());
-      if (result.stopped) remembering.catch(() => undefined);
-      else await remembering;
-    }
+    await this.rememberTurn({ userId, text, reply, sessionId, origin, stopped: result.stopped === true });
 
     if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], { resumed: ctx.resumed ?? false, from: ctx.from, dm: ctx.dm });
     this.runs.finish(runId, "ok");
     return reply;
+  }
+
+  /**
+   * Log the exchange and read it for memory, on either engine.
+   *
+   * Only owner turns are remembered; harness-generated ones are plumbing.
+   * Awaited so a write cannot be lost when the process exits right after a
+   * reply, and so failures surface in the runs log instead of vanishing.
+   * A stopped turn is not held for it: the memory pass embeds and may ask
+   * a model, and the owner pressed Stop to have the chat back now.
+   *
+   * The SDK engine's turns settled without it, so on that engine nothing
+   * the owner said reached the log: the memory job read an empty feed every
+   * six hours for weeks, and recall by meaning had nothing new to find.
+   */
+  private async rememberTurn(turn: { userId: string; text: string; reply: string; sessionId: string; origin: "owner" | "system" | undefined; stopped: boolean }): Promise<void> {
+    if (turn.origin === "system" || this.closed) return;
+    const remembering = this.afterTurn.remember(turn.userId, turn.text, turn.reply, turn.sessionId, this.ownerSaid.get(turn.sessionId)?.eventId).then(() => this.maybeExtract());
+    if (turn.stopped) remembering.catch(() => undefined);
+    else await remembering;
   }
 
   /** A turn's exchange, told to whoever shows the chat elsewhere, with the files that came with it and who passed the words on. */

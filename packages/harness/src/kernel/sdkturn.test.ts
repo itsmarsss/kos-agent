@@ -80,6 +80,33 @@ describe("a turn on the SDK engine", () => {
     expect(asked?.effort).toBe("max");
   });
 
+  it("runs a cheap task on the cheap route's model, not the engine's default", async () => {
+    let asked: SdkChatOptions | undefined;
+    sdk.run = async (o) => {
+      asked = o;
+      return answer([], "Done.");
+    };
+    kernel.applyModelSettings({ cheap: { model: "claude-haiku-4-5" } });
+    const job = kernel.crons.create({ name: "tidy", schedule: "0 4 * * *", type: "self_prompt", prompt: "tidy memory", task: "cheap", enabled: true });
+    kernel.startCron();
+    try {
+      await kernel.fireCron(job.id);
+      await kernel.queue.drain();
+    } finally {
+      kernel.stopCron();
+    }
+    expect(asked?.model).toBe("claude-haiku-4-5");
+    await turn("hello");
+    expect(asked?.model).toBeUndefined();
+  });
+
+  it("logs both sides of an owner's turn for memory, as the other engine does", async () => {
+    sdk.run = async () => answer([], "Your sister is Nadia.");
+    await turn("my sister Nadia is a nurse in Halifax");
+    const logged = kernel.events.since(kernel.profile.ownerId, 0, 10).map((e) => `${e.role}: ${e.text}`);
+    expect(logged).toEqual(["owner: my sister Nadia is a nurse in Halifax", "agent: Your sister is Nadia."]);
+  });
+
   it("answers on the engine's default when the chosen model is not on its login, and tells the owner once", async () => {
     kernel.applyModelSettings({ reasoning: { model: "claude-not-on-plan" } });
     kernel.settings.set("models", { reasoning: { model: "claude-not-on-plan" } });

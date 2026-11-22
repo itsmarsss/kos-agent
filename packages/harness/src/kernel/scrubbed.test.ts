@@ -105,4 +105,15 @@ describe("a secret in what a tool answers", () => {
     expectScrubbed(seenByModel);
     expect(events.flatMap((e) => (e.kind === "delta" ? [e.text] : [])).join("")).toBe("the key was [secret canary]");
   });
+
+  it("keeps no secret in what the SDK engine's turn logs for memory", async () => {
+    kernel.settings.set(BEHAVIOUR_KEY, { engine: "sdk" });
+    sdk.run = async () => ({ text: `noted, the key is ${CANARY}`, calls: [], usage: { inputTokens: 0, outputTokens: 0 }, models: [], costUSD: 0, stopped: false });
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Keys" }).id;
+    await kernel.handleChannelTurn({ text: `remember my key ${CANARY}`, userId: kernel.profile.ownerId, channel: "dashboard", conversationId: chat });
+    const logged = kernel.events.since(kernel.profile.ownerId, 0, 10);
+    expect(logged).toHaveLength(2);
+    expect(leaks(JSON.stringify(logged))).toBe(false);
+    expect(leaks(JSON.stringify(kernel.facts.all(kernel.profile.ownerId)))).toBe(false);
+  });
 });
