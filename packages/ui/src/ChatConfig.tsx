@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type Conversation, type ToolInfo } from "./api.js";
 import { ToolPicker } from "./ToolPicker.js";
-import { Field } from "@kos/kit";
+import { Field, SheetFoot } from "@kos/kit";
 
 /**
  * Owner-editable configuration for one conversation: what it is called, what
@@ -84,19 +84,15 @@ export function ChatConfig({
         </div>
       </Field>
 
-      <div className="chatcfg-bar">
-        <button type="button" className="btn btn--ghost" onClick={onClose}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="btn btn--primary"
-          onClick={() => void save()}
-          disabled={saving}
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </div>
+      <SheetFoot
+        inline
+        onCancel={onClose}
+        primary={
+          <button type="button" className="btn btn--primary" onClick={() => void save()} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        }
+      />
     </div>
   );
 }

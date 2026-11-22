@@ -3474,7 +3474,6 @@ li:hover .chats-item-when { opacity: 0; }
 .chatcfg-tools { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
 .chatcfg-reset { align-self: flex-start; padding-left: 0; }
-.chatcfg-bar { display: flex; justify-content: flex-end; gap: 0.4rem; }
 
 /* —— modal —— */
 .modal-backdrop {
@@ -5025,17 +5024,15 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   border-radius: var(--r-lg);
   background: var(--bg);
 }
+/* A switch row: the words at the left, the switch at the right, as every setting's. */
 .toolpick-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.6rem;
   padding: 0.5rem 0.7rem;
   border-bottom: 1px solid var(--line);
-  cursor: pointer;
 }
 .toolpick-row:last-child { border-bottom: 0; }
-.toolpick-row:hover { background: var(--panel); }
-.toolpick-row input { margin-top: 0.15rem; accent-color: var(--accent); }
 .toolpick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
 .toolpick-name { font-family: var(--mono); font-size: var(--text-base); }
 .toolpick-row:not(.is-on) .toolpick-name { color: var(--faint); }
@@ -5427,7 +5424,6 @@ a.health {
 .rename-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
 
 .agent-start { display: flex; flex-direction: column; gap: 0.9rem; }
-.agent-start-actions { display: flex; gap: 0.5rem; }
 
 /* —— drawer ——
    The house style for anything with more than a field or two in it. */
@@ -5542,14 +5538,9 @@ a.health {
 
 /* Actions stay in reach: the form is taller than the drawer and they used to
    scroll off the end of it. */
-.drawer-body .cron-actions {
-  position: sticky;
-  bottom: -1.1rem;
-  /* Auto on top: a short form left them floating mid-drawer with the rest
-     of it empty beneath. They sit at the foot whatever the form's height. */
-  margin: auto -1.1rem -1.1rem;
-  background: var(--panel);
-}
+/* Auto on top: a short form left its foot floating mid-drawer with the rest
+   of it empty beneath. It sits at the bottom whatever the form's height. */
+.cron-editor > .sheet-foot--inline { margin-top: auto; }
 .drawer-body > .cron-editor { min-height: 100%; }
 .cron-editor { gap: 1.3rem; }
 /* Sideways resizing pushed the box out of its own drawer, and there is
@@ -7571,8 +7562,6 @@ html.has-presenter { overflow: hidden; }
 .artifact-dialog .hint { margin: 0; }
 .artifact-dialog-about { resize: vertical; min-height: 4.4rem; line-height: 1.45; }
 /* A dialog's foot: what it does in words at the start, then Cancel, then the one to press. */
-.artifact-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }
-.artifact-dialog-note { margin-right: auto; color: var(--faint); font-size: var(--text-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* New artifact (NewArtifact.tsx): the four kinds as tiles, chosen as a radio group. */
 .new-artifact-kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .new-artifact-kind { all: unset; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel-2); cursor: pointer; transition: border-color 140ms ease-out, background 140ms ease-out, transform 80ms ease-out; }

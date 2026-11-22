@@ -12,7 +12,7 @@ import {
 import { AnimatePresence, m } from "motion/react";
 import { cycled, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
 import { isModeKey, ModeChip } from "@kos/kit";
-import { ArchiveIcon, type BlockActions, MessageTime, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, type BlockActions, Field, MessageTime, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
 import { PendingAsk } from "./PendingAsk.js";
@@ -2381,6 +2381,7 @@ export function ChatsPage({
               <Modal
                 open={renaming !== null}
                 title="Rename chat"
+                size="sm"
                 onClose={() => setRenaming(null)}
               >
                 <form
@@ -2398,30 +2399,25 @@ export function ChatsPage({
                       .catch(() => setRenaming(null));
                   }}
                 >
-                  <input
-                    className="kos-input"
-                    autoFocus
-                    value={renaming?.title ?? ""}
-                    onChange={(e) =>
-                      setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
+                  <Field label="Title">
+                    <input
+                      className="kos-input"
+                      autoFocus
+                      value={renaming?.title ?? ""}
+                      onChange={(e) =>
+                        setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
+                      }
+                    />
+                  </Field>
+                  <SheetFoot
+                    inline
+                    onCancel={() => setRenaming(null)}
+                    primary={
+                      <button type="submit" className="btn btn--primary" disabled={!renaming?.title.trim()}>
+                        Save
+                      </button>
                     }
                   />
-                  <div className="rename-actions">
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => setRenaming(null)}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="btn btn--primary"
-                      disabled={!renaming?.title.trim()}
-                    >
-                      Rename
-                    </button>
-                  </div>
                 </form>
               </Modal>
 

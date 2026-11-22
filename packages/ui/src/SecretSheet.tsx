@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactElement, type ReactNode } from "react";
 
-import { Chips, Countdown, EmptyState, Field, hintWords, SheetFoot, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
+import { Chips, Countdown, EmptyState, Field, hintWords, SheetFoot, OriginList, PAYMENT_FRAMES, Pill, SecretField, GroupHead, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
 
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
@@ -197,7 +197,7 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
           </Field>
         )}
 
-        <Section label="Values">
+        <SheetGroup title="Values">
           <div className="secret-fields">
             {editing && !readOnly && <p className="hint secret-section-hint">What is kept is never shown here. A blank field keeps it; type to replace it.</p>}
             {kind === "login" && (
@@ -224,20 +224,20 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
             )}
             {kind === "note" && field("text", { required: true, multiline: true })}
           </div>
-        </Section>
+        </SheetGroup>
 
         {kind === "card" && (
-          <Section label={FIELD_LABEL.billing}>
+          <SheetGroup title={FIELD_LABEL.billing}>
             <div className="secret-billing">
               {BILLING_PARTS.map((p) => (
                 <SecretField key={p.key} label={p.label} name={`billing.${p.key}`} plain disabled={readOnly} {...(set("billing") ? { placeholder: "Unchanged" } : {})} />
               ))}
             </div>
             {set("billing") && <p className="hint secret-section-hint">Leave it blank to keep the address. Parts you type replace those parts; the rest are kept.</p>}
-          </Section>
+          </SheetGroup>
         )}
 
-        <Section label="Where it may be used">
+        <SheetGroup title="Where it may be used">
           <div className="secret-fields">
             {kind === "apikey" ? (
               <>
@@ -260,9 +260,9 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
             )}
             <OriginList label="Mac apps" mode="bundle" value={use.apps} disabled={readOnly} onChange={(apps) => setUse({ ...use, apps })} />
           </div>
-        </Section>
+        </SheetGroup>
 
-        <Section label="When KOS asks">
+        <SheetGroup title="When KOS asks">
           <div className="secret-fields">
             <Field label="Ask" group>
               <Chips small options={(Object.keys(ASK_WORDS) as SecretDraft["policy"]["ask"][]).map((a) => [a, ASK_WORDS[a]] as const)} selected={policy.ask} onChoose={(ask) => !readOnly && setPolicy({ ...policy, ask })} label="Ask" />
@@ -272,7 +272,7 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
             <SwitchLine label="Only in some chats" on={policy.chats !== null} disabled={readOnly} onChange={(on) => setPolicy({ ...policy, chats: on ? [] : null })} />
             {policy.chats !== null && <ChatPicks chosen={policy.chats} conversations={conversations} disabled={readOnly} onChange={(chats) => setPolicy({ ...policy, chats })} />}
           </div>
-        </Section>
+        </SheetGroup>
         {error && (
           <p className="ops-alert ops-alert--err" role="alert">
             {error}
@@ -343,7 +343,7 @@ function Grants({ secret, disabled, onChanged }: { secret: SecretSummary; disabl
   const [error, setError] = useState<string | null>(null);
   if (secret.policy.ask !== "site" && secret.policy.grants.length === 0) return null;
   return (
-    <Section label="Remembered sites">
+    <SheetGroup title="Remembered sites">
       {secret.policy.grants.length === 0 ? (
         <EmptyState variant="inline">None yet. A yes you ask KOS to remember shows here.</EmptyState>
       ) : (
@@ -371,7 +371,7 @@ function Grants({ secret, disabled, onChanged }: { secret: SecretSummary; disabl
         </ul>
       )}
       {error && <p className="field-error">{error}</p>}
-    </Section>
+    </SheetGroup>
   );
 }
 
@@ -389,7 +389,7 @@ function Uses({ handle }: { handle: string }): ReactElement {
     };
   }, [handle]);
   return (
-    <Section label="Used">
+    <SheetGroup title="Used">
       {error ? (
         <p className="field-error">{error}</p>
       ) : uses === null ? (
@@ -413,7 +413,7 @@ function Uses({ handle }: { handle: string }): ReactElement {
           ))}
         </ul>
       )}
-    </Section>
+    </SheetGroup>
   );
 }
 
@@ -481,7 +481,7 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
   }, [until]);
 
   return (
-    <Section label="Reveal">
+    <SheetGroup title="Reveal">
       {until ? (
         <div className="secret-revealed">
           <code ref={out} className="secret-revealed-value" aria-label={`${FIELD_LABEL[field]}, shown for 30 seconds`} />
@@ -530,6 +530,16 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
           )}
         </form>
       )}
-    </Section>
+    </SheetGroup>
+  );
+}
+
+/** A titled part of the sheet: its head as every group's (GroupHead), then what it holds. */
+function SheetGroup({ title, children }: { title: string; children: ReactNode }): ReactElement {
+  return (
+    <section className="section sheet-group">
+      <GroupHead as="h3" title={title} />
+      {children}
+    </section>
   );
 }

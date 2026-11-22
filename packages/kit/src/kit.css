@@ -331,6 +331,7 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .sheet-title { margin: 0; color: var(--text); font-size: var(--text-xl); font-weight: var(--title-weight, 700); line-height: 1.3; overflow-wrap: anywhere; }
 .sheet-sub { margin: 0.15rem 0 0; color: var(--muted); font-size: var(--text-base); }
 .sheet-foot { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; padding: 0.75rem 1.1rem; border-top: 1px solid var(--line); }
+.sheet-foot--inline { position: sticky; bottom: -1.1rem; z-index: 1; margin: 1.1rem -1.1rem -1.1rem; background: var(--panel); }
 .sheet-foot-danger { display: inline-flex; gap: 0.5rem; }
 .sheet-foot-note { flex: 1; min-width: 0; color: var(--faint); font-size: var(--text-sm); }
 

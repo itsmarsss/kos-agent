@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type Conversation, type Project } from "./api.js";
 import { Select } from "./Select.js";
-import { Field } from "@kos/kit";
+import { Field, SheetFoot } from "@kos/kit";
 
 /**
  * Handing a chat on by hand.
@@ -93,14 +93,15 @@ export function HandoffForm({
         <input className="kos-input" value={ask} placeholder="Check the lending table" onChange={(e) => setAsk(e.target.value)} />
       </Field>
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
-      <div className="rename-actions">
-        <button type="button" className="btn btn--ghost" onClick={onClose}>
-          Cancel
-        </button>
-        <button type="submit" className="btn btn--primary" disabled={busy || drafting || !to || !brief.trim()}>
-          {busy ? "Handing off…" : "Hand off"}
-        </button>
-      </div>
+      <SheetFoot
+        inline
+        onCancel={onClose}
+        primary={
+          <button type="submit" className="btn btn--primary" disabled={busy || drafting || !to || !brief.trim()}>
+            {busy ? "Handing off…" : "Hand off"}
+          </button>
+        }
+      />
     </form>
   );
 }

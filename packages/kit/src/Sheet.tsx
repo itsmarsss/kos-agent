@@ -38,11 +38,17 @@ export interface SheetFootProps {
   danger?: ReactNode;
   /** A quiet word before the buttons: where it goes, why it cannot yet. */
   note?: ReactNode;
+  /**
+   * Drawn at the end of the sheet's body by a form that keeps its own state
+   * (a chat's settings, a blob's file): the same foot, stuck to the bottom
+   * of the body as it scrolls, edge to edge as the sheet's own foot is.
+   */
+  inline?: boolean;
 }
 
-export function SheetFoot({ primary, onCancel, cancelLabel = "Cancel", danger, note }: SheetFootProps): ReactElement {
+export function SheetFoot({ primary, onCancel, cancelLabel = "Cancel", danger, note, inline = false }: SheetFootProps): ReactElement {
   return (
-    <footer className="sheet-foot">
+    <footer className={inline ? "sheet-foot sheet-foot--inline" : "sheet-foot"}>
       {danger && <span className="sheet-foot-danger">{danger}</span>}
       <span className="sheet-foot-note">{note}</span>
       {onCancel && (

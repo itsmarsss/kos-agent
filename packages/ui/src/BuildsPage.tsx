@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { Chips, EmptyState, listItem, Pill, type Tone } from "@kos/kit";
+import { Chips, EmptyState, listItem, Pill, type Tone, SheetFoot } from "@kos/kit";
 
 import { AgentTerminal } from "./AgentTerminal.js";
 import { Drawer } from "./Drawer.js";
@@ -299,7 +299,7 @@ export function BuildsPage({
               </div>
             )}
             <span className="hint">
-              Workspace-relative, created if missing. The agent works only in
+              Workspace-relative, created if missing. The build works only in
               here; anything outside it comes back to you for approval.
             </span>
           </label>
@@ -317,22 +317,15 @@ export function BuildsPage({
               to know.
             </span>
           </label>
-          <div className="agent-start-actions">
-            <button
-              type="submit"
-              className="btn btn--primary"
-              disabled={busy || !draft.dir.trim() || !draft.task.trim()}
-            >
-              {busy ? "Starting…" : "Start"}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => setStarting(false)}
-            >
-              Cancel
-            </button>
-          </div>
+          <SheetFoot
+            inline
+            onCancel={() => setStarting(false)}
+            primary={
+              <button type="submit" className="btn btn--primary" disabled={busy || !draft.dir.trim() || !draft.task.trim()}>
+                {busy ? "Starting…" : "Start"}
+              </button>
+            }
+          />
         </form>
       </Drawer>
 

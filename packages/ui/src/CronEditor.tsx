@@ -415,8 +415,8 @@ export function CronEditor({
         </p>
       )}
 
-      <div className="cron-actions">
-        <SheetFoot
+      <SheetFoot
+          inline
           onCancel={onCancel}
           /* The only delete lived in a panel the schedule list does not
              open, so from here a schedule could be paused forever and never
@@ -428,7 +428,6 @@ export function CronEditor({
             </button>
           }
         />
-      </div>
     </div>
   );
 }
