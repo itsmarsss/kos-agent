@@ -25,23 +25,23 @@ describe("the Memory page", () => {
     render(<MemoryPage facts={[]} tags={[]} onChanged={() => undefined} />);
     await act(async () => {});
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["Claims", "Decisions", "Pages", "Log", "Schedule", "Callers"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["What it knows", "To decide", "Notes", "Everything said", "Upkeep", "Other apps"]);
     expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1, -1, -1, -1]);
     expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(tabs[0]!.id);
     fireEvent.keyDown(tabs[0]!, { key: "ArrowRight" });
     await act(async () => {});
-    expect(screen.getByRole("tab", { name: "Decisions" }).getAttribute("aria-selected")).toBe("true");
-    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Decisions" }));
+    expect(screen.getByRole("tab", { name: "To decide" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "To decide" }));
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     await act(async () => {});
-    expect(screen.getByRole("tab", { name: "Callers" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Other apps" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("leaves a turn's claims behind when another tab is chosen", async () => {
     window.location.hash = "#/memory?tab=claims&ids=1,2";
     render(<MemoryPage facts={[]} tags={[]} onChanged={() => undefined} />);
     await act(async () => {});
-    fireEvent.click(screen.getByRole("tab", { name: "Log" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Everything said" }));
     await act(async () => {});
     expect(window.location.hash).toBe("#/memory?tab=log");
     window.location.hash = "";
@@ -52,12 +52,12 @@ describe("the Memory page", () => {
     await act(async () => {});
     const head = document.querySelector(".list-head")!;
     fireEvent.click(within(head as HTMLElement).getByRole("button", { name: "New claim" }));
-    expect(screen.getByRole("textbox", { name: /^Key/ })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: /^Name/ })).toBeTruthy();
     // The head's button stays New claim; the sheet closes from its own Cancel.
     expect(within(head as HTMLElement).queryByRole("button", { name: "Cancel" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("textbox", { name: /^Key/ })).toBeNull());
-    fireEvent.click(screen.getByRole("tab", { name: "Log" }));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: /^Name/ })).toBeNull());
+    fireEvent.click(screen.getByRole("tab", { name: "Everything said" }));
     await act(async () => {});
     expect(within(head as HTMLElement).queryByRole("button", { name: "New claim" })).toBeNull();
   });

@@ -23,12 +23,12 @@ import { jobTitle, lastRunWords } from "./schedulewords.js";
 type Tab = "claims" | "decisions" | "pages" | "log" | "jobs" | "callers";
 
 const TABS: { id: Tab; label: string; blurb: string }[] = [
-  { id: "claims", label: "Claims", blurb: "What KOS believes, shared by every chat: true everywhere or in one place, each with where it came from." },
-  { id: "decisions", label: "Decisions", blurb: "What Tidy could not settle on its own, what was settled, and every change to what KOS believes." },
-  { id: "pages", label: "Pages", blurb: "Memory in prose, written from the claims and yours to edit." },
-  { id: "log", label: "Log", blurb: "Everything said, searched by words and by meaning." },
-  { id: "jobs", label: "Schedule", blurb: "Read, Tidy and Condense: the three schedules that keep memory, and when they run." },
-  { id: "callers", label: "Callers", blurb: "Other programs that share memory, and what each may see." },
+  { id: "claims", label: "What it knows", blurb: "Each thing KOS believes (a claim), for every chat to read: true everywhere or in one project, with where it came from." },
+  { id: "decisions", label: "To decide", blurb: "What KOS was not sure enough to settle when it tidied memory, what you settled, and every change to what it believes." },
+  { id: "pages", label: "Notes", blurb: "Memory written out as notes, from what KOS knows. Yours to edit." },
+  { id: "log", label: "Everything said", blurb: "Every message to and from KOS, kept, and searched by words or by meaning." },
+  { id: "jobs", label: "Upkeep", blurb: "The three schedules that keep memory up: reading what was said, tidying it, and condensing long chats." },
+  { id: "callers", label: "Other apps", blurb: "Other programs you let share KOS's memory, and what each may see." },
 ];
 
 export function MemoryPage({
@@ -36,9 +36,12 @@ export function MemoryPage({
   tags,
   conversations = [],
   projectNames,
+  loading = false,
   onChanged,
 }: {
   facts: FactRow[];
+  /** The claims have not been read yet: the page draws where they will be. */
+  loading?: boolean;
   tags: string[];
   /** Projects by slug, so a project's claims are headed by its name. */
   projectNames?: ReadonlyMap<string, string>;
@@ -107,7 +110,7 @@ export function MemoryPage({
         }
       />
       <div id="mem-panel" role="tabpanel" aria-labelledby={tabId("Memory", tab)} className="mem-panel">
-      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} query={claimsQuery} onQuery={setClaimsQuery} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
+      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} query={claimsQuery} onQuery={setClaimsQuery} {...(projectNames ? { projectNames } : {})} loading={loading} onChanged={onChanged} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}
       {tab === "log" && <LogTab titles={titles} query={logQuery} {...(projectNames ? { projectNames } : {})} />}
@@ -147,11 +150,11 @@ function leanOf(item: ReviewItem): { words: string; action: ReviewAction; key?: 
   const keep = /^keep\s+(\S+)$/i.exec(lean);
   if (keep && item.keys.includes(keep[1]!)) {
     const scope = keep[1]!.slice(0, keep[1]!.lastIndexOf("/"));
-    return { words: `keep the ${scope === "global" ? "global" : scope.replace(/^project:/, "")} one`, action: "keep", key: keep[1]! };
+    return { words: `keep the ${scope === "global" ? "everywhere" : scope.replace(/^project:/, "")} one`, action: "keep", key: keep[1]! };
   }
   const plain = lean.toLowerCase();
   if (plain === "both") return { words: "leave them both", action: "both" };
-  if (plain === "promote") return { words: "make it global", action: "promote" };
+  if (plain === "promote") return { words: "make it true everywhere", action: "promote" };
   if (plain === "dismiss") return { words: "keep it to the project", action: "dismiss" };
   return null;
 }
@@ -264,7 +267,7 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
           <>
             {lean?.action !== "promote" && (
               <button type="button" className={`btn btn--sm ${lean ? "" : "btn--primary"}`} disabled={busy} onClick={() => decide("promote")}>
-                Yes, make it global
+                Yes, make it true everywhere
               </button>
             )}
             {lean?.action !== "dismiss" && (
@@ -340,8 +343,8 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   useEffect(load, [load]);
   return (
     <>
-      <Group title="Needs a decision" blurb="Only what KOS was not sure enough to settle itself. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.">
-        {pending.length === 0 && <EmptyState variant="inline">Nothing waiting. Tidy settles what it is sure of and leaves here only a contradiction or a promotion it was not; how sure it has to be is in Settings, Behaviour.</EmptyState>}
+      <Group title="Needs a decision" blurb="Only what KOS was not sure enough to settle itself. Keeping one side puts the other away; making one true everywhere moves it out of its project. Either is kept on the record as your choice.">
+        {pending.length === 0 && <EmptyState variant="inline">Nothing to decide. When KOS tidies memory it settles what it is sure of and leaves here only what it is not. How sure it must be is in Settings, Behaviour.</EmptyState>}
         {pending.map((item) => (
           <MemoryDecision key={item.id} item={item} onResolved={() => { load(); onChanged(); }} />
         ))}
@@ -409,8 +412,8 @@ function PagesTab(): ReactElement {
     void api.memoryPage(named).then(setOpen).catch(() => undefined);
   }, [named, clearNamed]);
   return (
-    <Group title="Pages" shown={false} blurb={'One for you everywhere, one per project, written by Tidy from current claims. Edit a line in the form "- key: value" and it reads back as your word.'}>
-      {pages.length === 0 && <EmptyState variant="inline">No pages yet. Tidy writes them; Run now on the Schedule tab if you do not want to wait for 4 AM.</EmptyState>}
+    <Group title="Pages" shown={false} blurb={'One note for everywhere and one per project, written from what KOS knows each time it tidies memory. Edit a line written as "- name: value" and KOS reads it back as yours.'}>
+      {pages.length === 0 && <EmptyState variant="inline">No notes yet. KOS writes them when it tidies memory; press Run now on the Upkeep tab rather than wait for 4 AM.</EmptyState>}
       {edited.length > 0 && (
         <p className="hint">
           Edited since memory wrote them: {edited.join(", ")}.{" "}
@@ -449,7 +452,7 @@ function LogTab({ titles, query, projectNames }: { titles: Map<string, string>; 
     return () => clearTimeout(handle);
   }, [query]);
   return (
-    <Group title="Log" shown={false} blurb="Every message in and out, kept. Searched by words and by meaning at once; shadowed means out of a thread's context, still here.">
+    <Group title="Log" shown={false} blurb="Every message in and out, kept, and searched by words and by meaning at once. A faded one has dropped out of its chat's view, and is still kept here.">
       {events.length === 0 && (query ? <EmptyState variant="inline" query={{ noun: "messages" }} /> : <EmptyState variant="inline">Nothing said yet.</EmptyState>)}
       {events.map((e) => (
         <div key={e.id} className={`mem-event ${e.shadowed ? "is-shadowed" : ""}`}>
@@ -488,7 +491,7 @@ function JobsTab(): ReactElement {
   }, []);
   useEffect(load, [load]);
   return (
-    <Group title="Memory's schedules" blurb="Memory is kept by KOS itself, on schedules you can read, change on the Schedule page, switch off, and run now. Each runs on the model class it names.">
+    <Group title="Memory's schedules" blurb="KOS keeps its memory itself, on these schedules. Switch them off or run them now here; change when they run under Runs, Schedule.">
       {unread && <p className="hint">Unread by memory: {unread.count} messages, about {Math.round(unread.chars / 1000)}k characters.</p>}
       {JOBS.map((j) => {
         const job = crons.find((c) => c.name === j.name);
@@ -500,7 +503,7 @@ function JobsTab(): ReactElement {
                 <strong title={j.name}>{jobTitle(j.name)}</strong>
               </div>
               <div className="hint">
-                {j.what} · <span title={job.schedule}>{scheduleWords(job.schedule)}</span> · {job.task ?? "reasoning"} route · {job.lastRunAt ? `last run ${lastRunWords(job.lastRunAt)}` : "never run"}
+                {j.what} · <span title={job.schedule}>{scheduleWords(job.schedule)}</span> · {job.task === "cheap" ? "the cheap model" : "the model for thinking"} · {job.lastRunAt ? `last run ${lastRunWords(job.lastRunAt)}` : "never run"}
               </div>
               {said[job.id] && <div className="mem-job-said">{said[job.id]}</div>}
             </div>
@@ -517,7 +520,7 @@ function JobsTab(): ReactElement {
           </div>
         );
       })}
-      <p className="hint">Background extraction in Settings, Behaviour fires Read whenever enough is unread; these switches are the schedule.</p>
+      <p className="hint">Settings, Behaviour can also start Memory: Read whenever enough is unread; these switches are its schedule.</p>
     </Group>
   );
 }
@@ -531,35 +534,35 @@ function CallersTab(): ReactElement {
   }, []);
   useEffect(load, [load]);
   return (
-    <Group title="Callers" shown={false} blurb="Another program with its own token and its own corner of memory. It reads your global claims only under the tags you grant, writes global only if you say so, and never sees a project or another caller. The token is shown once.">
+    <Group title="Other apps" shown={false} blurb="Another program with its own key and a corner of memory of its own. It sees what KOS knows about you only under the tags you allow, adds to it only if you say so, and never sees a project or another app. Its key is shown once.">
       {issued && (
         <div className="mem-issued">
-          <strong>Token for {issued.name}</strong>
+          <strong>Key for {issued.name}</strong>
           <p className="hint">Copy it now; it is not stored and cannot be shown again.</p>
           <code className="ops-mono">{issued.token}</code>
         </div>
       )}
-      {callers.length === 0 && <EmptyState variant="inline">No callers yet. Make one below and give the token to the other program.</EmptyState>}
+      {callers.length === 0 && <EmptyState variant="inline">No other apps yet. Make one below and give its key to the other program.</EmptyState>}
       {callers.map((c) => (
         <div key={c.id} className="mem-row mem-row--split">
           <div>
             <strong>{c.name}</strong>
-            <div className="hint">reads {c.readTags.length ? c.readTags.join(", ") : "nothing global"}{c.writeGlobal ? " · may write global" : ""}{c.lastSeenAt ? ` · last seen ${momentWords(c.lastSeenAt)}` : " · never used"}</div>
+            <div className="hint">sees {c.readTags.length ? c.readTags.join(", ") : "nothing of yours"}{c.writeGlobal ? " · may add to what KOS knows" : ""}{c.lastSeenAt ? ` · last seen ${momentWords(c.lastSeenAt)}` : " · never used"}</div>
           </div>
           <button type="button" className="btn btn--sm btn--danger" onClick={() => void api.revokeCaller(c.id).then(load, load)}>Revoke</button>
         </div>
       ))}
       <div className="mem-new">
-        <input className="kos-input" placeholder="name, e.g. resume-ops" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-        <input className="kos-input" placeholder="global tags it may read: career, resume (or *)" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
+        <input className="kos-input" placeholder="Its name, such as resume-ops" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+        <input className="kos-input" placeholder="Tags it may see: career, resume (or * for all)" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
         <label className="set-toggle">
-          <Switch label="May write global" on={draft.writeGlobal} onChange={(on) => setDraft({ ...draft, writeGlobal: on })} />
-          <span>May write global</span>
+          <Switch label="May add to what KOS knows" on={draft.writeGlobal} onChange={(on) => setDraft({ ...draft, writeGlobal: on })} />
+          <span>May add to what KOS knows</span>
         </label>
         <button type="button" className="btn btn--primary" disabled={!draft.name.trim()} onClick={() => {
           const tags = draft.tags.split(",").map((t) => t.trim()).filter(Boolean);
           void api.createCaller(draft.name.trim(), tags, draft.writeGlobal).then((r) => { setIssued({ name: r.caller.name, token: r.token }); setDraft({ name: "", tags: "", writeGlobal: false }); load(); }).catch(() => undefined);
-        }}>Create caller</button>
+        }}>Create</button>
       </div>
     </Group>
   );
