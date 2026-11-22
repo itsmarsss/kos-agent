@@ -28,7 +28,9 @@ project, written from current claims. Edit a line in the form
 ## The jobs
 
 Memory is maintained by KOS itself, as three scheduled jobs on the cheap
-model class. Each is off until you switch it on under Memory, Jobs, and each
+model class, on either engine: on the Claude Agent SDK engine a cheap task
+runs on the cheap route's model when the engine can run it, else on the
+engine's smallest. Each is off until you switch it on under Memory, Jobs, and each
 has a brief you can read and edit on the Schedule page.
 
 - **Read** (`kos.memory`, every six hours, and whenever enough is unread):
@@ -51,14 +53,34 @@ has a brief you can read and edit on the Schedule page.
   their budget.
 
 `kos eval memory`, `kos eval dream` and `kos eval observe` score each job on
-a golden set, so a change to a brief is measured rather than felt.
+a golden set, so a change to a brief is measured rather than felt. `kos eval
+recall` scores what a turn is then given from a fixed store, with no model.
+
+Every change a job, a chat or you made to a claim (changed, merged, archived)
+is under Memory, Decisions, Changes, with what it said before.
 
 ## In a chat
 
-Each turn is given the claims whose words match the message, the pinned
-claims always, and the log moments that read like it. The chip beside the
-composer shows exactly what came along. Pinning a claim puts it in every
-conversation.
+Each turn is given what stands, the claims whose words match the message,
+and the log moments that read like it. The chip beside the composer shows
+exactly what came along.
+
+- **What stands**: pinned claims and your own preferences in the scopes in
+  play, up to eight, with half kept for your preferences however many pins
+  there are; your own pins always stand. Pinning a claim puts it in every
+  conversation of its scope: a global pin everywhere, a project's pin in
+  that project, an agent's in that agent's chats.
+- **What matches**: a word of a claim's key always matches it ("sister"
+  finds sister and sister_birthday); a word in a value counts by how rare it
+  is among the claims, so a word most notes share does not bring them all
+  along, and a message of only "can you do that again" matches nothing. Among the
+  matches, a claim stated recently, by you, ranks first. One answer per key,
+  your word over anyone else's, then the narrower scope's, within about 3000
+  characters.
+
+Both engines log what you said and what KOS answered, so the Read job and
+recall by meaning see every chat. A guest's words, and work another chat or
+a schedule passed on, are not logged as yours.
 
 ## Callers
 

@@ -120,6 +120,11 @@ describe("memory tools: reading the log and citing it", () => {
     expect(facts.get("owner", "home_city")).toBeUndefined();
     expect((await call("memory.archive", { key: "trip", reason: "a plan, not a fact" })).json).toEqual({ archived: "global/trip" });
     expect(facts.get("owner", "trip")).toBeUndefined();
+    // An agent's own claim, named as review names it, can be merged: it was read as a project slug.
+    facts.upsert("owner", { key: "claim_form", value: "Form to the office by Friday.", kind: "fact", scope: "agent:assistant" });
+    facts.upsert("owner", { key: "claim_form", value: "Form to the office by Friday, signed.", kind: "fact" });
+    expect((await call("memory.merge", { keep: "claim_form", keepScope: "global", drop: "claim_form", dropScope: "agent:assistant" })).json).toEqual({ kept: "global/claim_form", dropped: "agent:assistant/claim_form" });
+    expect(facts.get("owner", "claim_form", "agent:assistant")).toBeUndefined();
     const keys = ["global/city", "project:trip/city"];
     // Not sure enough: raised for the owner, lean and all.
     const flagged = (await call("memory.flag", { kind: "contradiction", keys, note: "Montreal or Lisbon?", lean: "keep global/city", sure: 0.5 })).json!;

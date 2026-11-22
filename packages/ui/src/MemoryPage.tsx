@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from "re
 import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
 import { momentWords } from "@kos/shared";
 
-import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
+import { api, type CallerInfo, type CronJob, type FactRow, type MemoryChange, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 import { PageHead, PageTabs, tabId } from "./PageHead.js";
 import { useHashParam } from "./hashparams.js";
@@ -23,7 +23,7 @@ type Tab = "claims" | "decisions" | "pages" | "log" | "jobs" | "callers";
 
 const TABS: { id: Tab; label: string; blurb: string }[] = [
   { id: "claims", label: "Claims", blurb: "What KOS believes, shared by every chat: true everywhere or in one place, each with where it came from." },
-  { id: "decisions", label: "Decisions", blurb: "What Tidy could not settle on its own, and what was settled." },
+  { id: "decisions", label: "Decisions", blurb: "What Tidy could not settle on its own, what was settled, and every change to what KOS believes." },
   { id: "pages", label: "Pages", blurb: "Memory in prose, written from the claims and yours to edit." },
   { id: "log", label: "Log", blurb: "Everything said, searched by words and by meaning." },
   { id: "jobs", label: "Schedule", blurb: "Read, Tidy and Condense: the three jobs that keep memory, and when they run." },
@@ -282,12 +282,54 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
 /** Settled questions shown before "Show all". */
 const SETTLED_FIRST = 5;
 
+/** What a change did, in a word, for its tag. */
+const CHANGE_WORD: Record<MemoryChange["action"], string> = { supersede: "changed", merge: "merged", archive: "archived" };
+
+/**
+ * One change to a claim, as a diff: what it said before, struck, and what
+ * it says now; for an archive, what was put away and why.
+ */
+function ChangeRow({ change }: { change: MemoryChange }): ReactElement {
+  const scope = change.scope === "global" ? "" : change.scope.replace(/^project:/, "");
+  return (
+    <li className="mem-change">
+      <div className="mem-settled-row">
+        <Tag>{CHANGE_WORD[change.action]}</Tag>
+        <span className="mem-settled-keys">
+          <span className="mem-settled-key">
+            {scope && <span className="mem-scope">{scope}</span>}
+            {change.key}
+          </span>
+        </span>
+        {change.by && <span className="mem-settled-how">{change.by}</span>}
+        <time className="mem-settled-when">{momentWords(change.at)}</time>
+      </div>
+      <div className="mem-change-diff">
+        {change.action === "archive" ? (
+          <>
+            <del><Clamp text={change.value} chars={160} /></del>
+            {change.reason && <span className="mem-change-why">{change.reason}</span>}
+          </>
+        ) : (
+          <>
+            {change.was && <del><Clamp text={change.was} chars={160} /></del>}
+            <ins><Clamp text={change.value} chars={160} /></ins>
+          </>
+        )}
+      </div>
+    </li>
+  );
+}
+
 function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   const [pending, setPending] = useState<ReviewItem[]>([]);
   const [recent, setRecent] = useState<ReviewItem[]>([]);
+  const [changes, setChanges] = useState<MemoryChange[]>([]);
   const [allSettled, setAllSettled] = useState(false);
+  const [allChanges, setAllChanges] = useState(false);
   const load = useCallback(() => {
     void api.memoryReview().then((r) => { setPending(r.pending); setRecent(r.recent.filter((i) => i.resolvedAt !== null)); }).catch(() => undefined);
+    void api.memoryChanges().then((r) => setChanges(r.changes)).catch(() => undefined);
   }, []);
   useEffect(load, [load]);
   return (
@@ -325,6 +367,18 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
           {recent.length > SETTLED_FIRST && (
             <button type="button" className="btn btn--sm btn--ghost mem-settled-more" onClick={() => setAllSettled((v) => !v)}>
               {allSettled ? "Show fewer" : `Show all ${recent.length}`}
+            </button>
+          )}
+        </Group>
+      )}
+      {changes.length > 0 && (
+        <Group title="Changes" blurb="Every claim a job, a chat or you changed, merged or put away, newest first, with what it said before. History keeps the old value; a wrong change is undone by saying the claim again.">
+          <ul className="mem-settled">
+            {(allChanges ? changes : changes.slice(0, SETTLED_FIRST)).map((c) => <ChangeRow key={c.id} change={c} />)}
+          </ul>
+          {changes.length > SETTLED_FIRST && (
+            <button type="button" className="btn btn--sm btn--ghost mem-settled-more" onClick={() => setAllChanges((v) => !v)}>
+              {allChanges ? "Show fewer" : `Show all ${changes.length}`}
             </button>
           )}
         </Group>

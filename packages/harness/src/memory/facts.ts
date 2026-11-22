@@ -1,4 +1,5 @@
 import type { Db } from "../store/db.js";
+import { lengthNorm, onePerKey, rarity, standingWeight } from "./rank.js";
 import type { CandidateFact, FactKind } from "./salience.js";
 
 export type ClaimScope = string;
@@ -155,6 +156,7 @@ const MAX_TOKENS = 12;
 export function stem(token: string): string {
   if (token.length < 5) return token;
   if (token.endsWith("ies")) return `${token.slice(0, -3)}y`;
+  if (token.endsWith("oes")) return token.slice(0, -2);
   if (token.endsWith("sses") || token.endsWith("shes") || token.endsWith("ches")) {
     return token.slice(0, -2);
   }
@@ -165,7 +167,9 @@ export function stem(token: string): string {
 export function tokenize(text: string): string[] {
   const raw = text.toLowerCase().match(/[a-z0-9][a-z0-9'_-]*/g) ?? [];
   const seen = new Set<string>();
-  for (const token of raw) {
+  for (const word of raw) {
+    // A possessive names the thing: "sister's" asks about the sister.
+    const token = word.endsWith("'s") ? word.slice(0, -2) : word;
     if (token.length < MIN_TOKEN_LENGTH) continue;
     if (STOPWORDS.has(token)) continue;
     seen.add(token);
@@ -223,6 +227,49 @@ export interface Trace {
   /** What it replaced, newest first. */
   before: Fact[];
   revisions: { action: string; actor: string | null; at: number; detail: string | null }[];
+}
+
+/** One change to what memory believes, for the owner to read back: what it was, what it is, who did it. */
+export interface MemoryChange {
+  id: number;
+  at: number;
+  action: "supersede" | "merge" | "archive";
+  /** Who changed it: a schedule (cron:<id>), a conversation, the owner. */
+  actor: string | null;
+  key: string;
+  scope: string;
+  /** The claim's value after the change; for an archive, the value put away. */
+  value: string;
+  /** What it said before, or what a merge folded in. */
+  was: string | null;
+  /** Why it was archived. */
+  reason: string | null;
+}
+
+/** Where `token` starts a word of `text`: "budget" in "budgets", not "run" in "truncate". */
+function startsWord(text: string, token: string): boolean {
+  let at = text.indexOf(token);
+  while (at >= 0) {
+    if (at === 0 || !/[a-z0-9]/.test(text[at - 1]!)) return true;
+    at = text.indexOf(token, at + 1);
+  }
+  return false;
+}
+
+/**
+ * What one token is worth on one claim before its rarity: 2 when it is one
+ * of the key's words, 1 on a word of the value. The same word in another
+ * number is the same word ("tomatoes" names tomato_varieties). A key's
+ * words are whole: matched inside them, "list" found http_allowlist and
+ * "run" every key with "runs" in it. A value is prose, where a word's start
+ * is the word ("budget" in "budgets").
+ */
+function tokenHit(fact: Fact, token: string): number {
+  const root = stem(token);
+  if (fact.key.toLowerCase().split(/[^a-z0-9]+/).some((word) => word === token || stem(word) === root)) return 2;
+  const value = fact.value.toLowerCase();
+  if (startsWord(value, token) || startsWord(value, root)) return 1;
+  return 0;
 }
 
 /** Structured claims: the cheap, exact tier of memory, consulted every turn. */
@@ -351,14 +398,29 @@ export class FactsStore {
    * of its words and planned chicken. Only the owner's own preferences
    * stand, those whose evidence is the owner's words: one an agent wrote down
    * or a tool produced would otherwise go into every prompt unasked, and
-   * waits to be matched like any other claim. `limit` bounds the whole list.
-   * Pinned entries stand everywhere, unless `within` keeps them to `scopes`
-   * as well: a guest's work is told none of the owner's own.
+   * waits to be matched like any other claim.
+   *
+   * `limit` bounds the whole list. The owner's own pins always stand; other
+   * pins share what is left after the preferences keep half of it.
+   * Pins came first and took every place: agents pin freely, and fifteen
+   * pins left none of the owner's six preferences in any turn. Pins are read
+   * in the scopes in play too, the owner's own first, then the chat's own
+   * project's: a project's pin is that project's, not every chat's, and a
+   * guest's work is told none of the owner's. One claim per key, the
+   * narrower scope's.
    */
-  standing(userId: string, scopes: ClaimScope[], limit = 8, options: { within?: boolean } = {}): Fact[] {
-    const pinned = options.within ? this.pinned(userId, scopes) : this.pinned(userId);
-    const prefs = this.all(userId, scopes).filter((f) => f.kind === "preference" && !f.pinned && f.trust === "owner");
-    return [...pinned, ...prefs].slice(0, limit);
+  standing(userId: string, scopes: ClaimScope[], limit = 8): Fact[] {
+    const here = this.all(userId, scopes);
+    // One per key within pins and within preferences, each apart: an unpinned
+    // claim under a pin's key must not take the pin's place.
+    const pinned = onePerKey(here.filter((f) => f.pinned)).sort((a, b) => Number(b.scope !== GLOBAL_SCOPE) - Number(a.scope !== GLOBAL_SCOPE));
+    const prefs = onePerKey(here.filter((f) => f.kind === "preference" && !f.pinned && f.trust === "owner"));
+    // The owner's own pins always stand; the rest share what the preferences leave.
+    const ownerPins = pinned.filter((f) => f.trust === "owner");
+    const otherPins = pinned.filter((f) => f.trust !== "owner");
+    const room = Math.max(limit - ownerPins.length - Math.min(prefs.length, Math.ceil(limit / 2)), 0);
+    const chosen = onePerKey([...ownerPins, ...otherPins.slice(0, room), ...prefs]);
+    return chosen.slice(0, limit);
   }
 
   setPinned(userId: string, key: string, pinned: boolean, scope?: ClaimScope): Fact | undefined {
@@ -413,42 +475,81 @@ export class FactsStore {
    *
    * The query is a whole user message, so it is tokenized rather than matched
    * as one substring. Claims are per-user and small, so scoring in code buys
-   * better ranking than SQL can express here.
+   * better ranking than SQL can express here. A blank query lists by recency;
+   * words that are all scaffolding ("can you do that again") match nothing,
+   * where they used to bring the newest claims along unasked.
+   *
+   * A word counts by how rare it is among the claims searched (see rank.ts):
+   * the floor is a match on words that pick a claim out. What clears it is
+   * ordered by match, then by how fresh, trusted and sure each claim is.
    */
   search(userId: string, query: string, limit = 20, options: ClaimQuery = {}): Fact[] {
-    const tokens = tokenize(query);
     const wanted = options.tags?.filter(Boolean) ?? [];
     const sources = options.sources;
     const all = this.all(userId, options.scopes) // already ordered by updated_at DESC
       .filter((f) => (!wanted.length || f.tags.some((t) => wanted.includes(t))) && (!sources || (f.source !== null && sources.includes(f.source))));
-    if (tokens.length === 0) return all.slice(0, limit);
+    if (!query.trim()) return all.slice(0, limit);
+    const tokens = tokenize(query);
+    if (tokens.length === 0) return [];
     const needle = query.trim().toLowerCase();
     const floor = options.minScore ?? 0;
-    const scored: { fact: Fact; score: number }[] = [];
-    for (const fact of all) {
-      const key = fact.key.toLowerCase();
-      const value = fact.value.toLowerCase();
+    // Each token's hit on each claim, then how many claims it hit, for its weight.
+    const hits = all.map((fact) => tokens.map((token) => tokenHit(fact, token)));
+    const holding = tokens.map((_, t) => hits.filter((h) => h[t]! > 0).length);
+    const now = this.now();
+    const meanValue = all.reduce((n, f) => n + f.value.length, 0) / Math.max(1, all.length);
+    const scored: { fact: Fact; score: number; rank: number }[] = [];
+    all.forEach((fact, i) => {
+      // A long value holds more words by length alone; its value hits count for less (see rank.ts).
+      const norm = lengthNorm(fact.value.length, meanValue);
+      // The floor: a key hit is a whole 2 however many keys share the word, so
+      // "sister" finds sister and sister_birthday both; a value hit counts by
+      // its rarity, which is what keeps page-long notes out. The order: every
+      // hit by its rarity, so the claim the word picks out comes first.
       let score = 0;
-      for (const token of tokens) {
-        // A hit on the key is a stronger signal than one buried in the value.
-        if (key.includes(token)) score += 2;
-        else if (value.includes(token)) score += 1;
-        else {
-          // The same word in a different number is still the same word, and
-          // worth slightly less only because it is a looser match.
-          const root = stem(token);
-          if (root === token) continue;
-          if (key.includes(root)) score += 1.5;
-          else if (value.includes(root)) score += 0.5;
-        }
-      }
+      let rank = 0;
+      hits[i]!.forEach((hit, t) => {
+        if (hit === 0) return;
+        const weight = rarity(holding[t]!, all.length);
+        score += hit === 2 ? 2 : hit * norm * weight;
+        rank += (hit === 2 ? 2 : hit * norm) * weight;
+      });
       // Whole-phrase containment stays the strongest signal when it happens.
       // A phrase is more than one word; one word already scored above.
-      if (tokens.length > 1 && needle && (key.includes(needle) || value.includes(needle))) score += 5;
-      if (score > 0 && score >= floor) scored.push({ fact, score });
-    }
-    scored.sort((a, b) => b.score - a.score || b.fact.updatedAt - a.fact.updatedAt);
+      if (tokens.length > 1 && needle && (fact.key.toLowerCase().includes(needle) || fact.value.toLowerCase().includes(needle))) {
+        score += 5;
+        rank += 5;
+      }
+      if (score > 0 && score >= floor) scored.push({ fact, score, rank: rank * standingWeight(fact, now) });
+    });
+    scored.sort((a, b) => b.rank - a.rank || b.fact.updatedAt - a.fact.updatedAt);
     return scored.slice(0, limit).map((s) => s.fact);
+  }
+
+  /**
+   * What changed in memory, newest first: supersessions, merges and
+   * archives, each with what it was. Additions are the claims themselves;
+   * this is the diff a tidy or a reader made to what was already believed,
+   * so a wrong merge is seen and undone by hand rather than found later.
+   */
+  changes(userId: string, limit = 50): MemoryChange[] {
+    const rows = this.db.prepare(
+      `SELECT r.id, r.action, r.actor, r.at, r.detail, c.key, c.scope, c.value FROM memory_revisions r
+       JOIN memory_claims c ON c.id = r.claim_id
+       WHERE c.user_id = ? AND r.action IN ('supersede', 'merge', 'archive')
+       ORDER BY r.id DESC LIMIT ?`,
+    ).all(userId, limit) as { id: number; action: MemoryChange["action"]; actor: string | null; at: number; detail: string | null; key: string; scope: string; value: string }[];
+    return rows.map((r) => ({
+      id: r.id,
+      at: r.at,
+      action: r.action,
+      actor: r.actor,
+      key: r.key,
+      scope: r.scope,
+      value: r.value,
+      was: r.action === "supersede" ? (r.detail?.replace(/^was: /, "") ?? null) : r.action === "merge" ? (r.detail?.replace(/^absorbed /, "") ?? null) : null,
+      reason: r.action === "archive" ? r.detail : null,
+    }));
   }
 
   /**

@@ -2,21 +2,25 @@ import type { EmbeddingProvider } from "./embeddings.js";
 import { deadline } from "../context/shelf.js";
 import type { EventHit, EventLog } from "./events.js";
 import { GLOBAL_SCOPE, projectScope, type Fact, type FactsStore } from "./facts.js";
+import { onePerKey, withinChars } from "./rank.js";
 
 /** The things every turn knows unmatched (pinned, the owner's preferences), at most. */
 export const STANDING_LIMIT = 8;
 /** The claims a turn's words matched, at most: their own room, which standing ones never take. */
 export const MATCHED_LIMIT = 10;
+/** The most characters of matched claims a turn is given, keys and values, past the first. */
+export const MATCHED_CHARS = 3000;
 
 /**
  * A turn's claims: what stands, then what the words matched, each within its
  * own budget. They shared one slice of twelve, and four pinned entries and
  * eight preferences left no room for a single claim the message was about.
+ * A key that stands is not matched again, in any scope: one answer per key.
  */
 export function withStanding(standing: Fact[], matched: Fact[]): Fact[] {
   const kept = standing.slice(0, STANDING_LIMIT);
-  const rest = matched.filter((f) => !kept.some((s) => s.key === f.key && s.scope === f.scope)).slice(0, MATCHED_LIMIT);
-  return [...kept, ...rest];
+  const rest = matched.filter((f) => !kept.some((s) => s.key === f.key)).slice(0, MATCHED_LIMIT);
+  return [...kept, ...withinChars(rest, MATCHED_CHARS)];
 }
 
 export interface Recall {
@@ -58,11 +62,12 @@ export class MemoryRetriever {
 
   async recall(userId: string, query: string, options: RecallOptions = {}): Promise<Recall> {
     const scopes = options.only ?? [GLOBAL_SCOPE, ...(options.projectSlug ? [projectScope(options.projectSlug)] : []), ...(options.scopes ?? [])];
-    const facts = this.facts.search(userId, query, options.factLimit ?? 10, {
+    // One answer per key, within the turn's budget, before use is counted: a claim cut here was never in front of the model.
+    const facts = withinChars(onePerKey(this.facts.search(userId, query, options.factLimit ?? 10, {
       scopes,
       ...(options.minScore !== undefined ? { minScore: options.minScore } : {}),
       ...(options.sources ? { sources: options.sources } : {}),
-    });
+    })), MATCHED_CHARS);
     this.facts.markUsed(facts.map((f) => f.id));
     let events: EventHit[] = [];
     if (this.events && query.trim() && !options.only) {

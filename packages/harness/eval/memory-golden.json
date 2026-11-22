@@ -283,6 +283,83 @@
         }
       ],
       "forbid": []
+    },
+    {
+      "name": "a test message keeps nothing",
+      "events": [
+        {
+          "role": "owner",
+          "text": "test"
+        },
+        {
+          "role": "agent",
+          "text": "Got it, I'm here."
+        }
+      ],
+      "expect": [],
+      "forbid": [
+        "test"
+      ]
+    },
+    {
+      "name": "how a tool behaved is the assistant's note, not the owner",
+      "events": [
+        {
+          "role": "owner",
+          "text": "did the morning post go out?"
+        },
+        {
+          "role": "agent",
+          "text": "No: the notify step failed because the Discord surface was not connected after the restart. I re-ran the job and it posted."
+        }
+      ],
+      "expect": [],
+      "forbid": [
+        "notify",
+        "discord",
+        "restart"
+      ]
+    },
+    {
+      "name": "a one-off event once done is not a standing fact",
+      "events": [
+        {
+          "role": "owner",
+          "text": "I emailed the landlord about the leak this morning, so that's handled."
+        }
+      ],
+      "expect": [],
+      "forbid": [
+        "landlord",
+        "leak"
+      ]
+    },
+    {
+      "name": "a restated preference updates its key",
+      "seed": [
+        {
+          "key": "reply_style",
+          "value": "Prefers short replies.",
+          "kind": "preference"
+        }
+      ],
+      "events": [
+        {
+          "role": "owner",
+          "text": "Again: keep it short, and use bullet points instead of paragraphs."
+        }
+      ],
+      "expect": [
+        {
+          "key": [
+            "reply_style"
+          ],
+          "value": [
+            "bullet"
+          ]
+        }
+      ],
+      "forbid": []
     }
   ]
 }
