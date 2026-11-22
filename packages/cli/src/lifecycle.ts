@@ -219,3 +219,57 @@ export function restartArgs(main: string, flags: StartFlags): string[] {
     ...(flags.sitesPort !== undefined ? ["--sites-port", String(flags.sitesPort)] : []),
   ];
 }
+
+/**
+ * How long `kos start` and `kos restart` wait for a host to answer: a cold
+ * boot that opens Chrome, logs Discord in and syncs the server ran past
+ * the 15 s it once was, and the command said it failed while KOS came up.
+ */
+export const HOST_WAIT_MS = 60_000;
+
+/** Who answered a host's /api/health: its pid and its workspace (real path). */
+export interface HostSeen {
+  pid: number;
+  workspace: string;
+}
+
+export type RestartResult = { ok: true; pid: number } | { ok: false; why: string };
+
+/**
+ * Whether a restart landed: this workspace's host answering on its port
+ * under a pid other than `before`, the host from before the restart (none
+ * when nothing ran). The old host still answering, another workspace's, or
+ * nothing at all is waited past until `timeoutMs`, and the last of them is
+ * why it did not.
+ */
+export async function awaitNewHost(options: {
+  probe: () => Promise<HostSeen | undefined>;
+  workspace: string;
+  before: number | undefined;
+  timeoutMs: number;
+  everyMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<RestartResult> {
+  const { probe, workspace, before, timeoutMs, everyMs = 500, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = options;
+  const end = now() + timeoutMs;
+  let why = "nothing answered";
+  for (;;) {
+    const seen = await probe();
+    if (seen && seen.workspace === workspace && seen.pid !== before) return { ok: true, pid: seen.pid };
+    if (seen) why = seen.workspace !== workspace ? `another workspace's host answered (pid ${seen.pid}, ${seen.workspace})` : `only the host from before answered (pid ${seen.pid})`;
+    if (now() >= end) return { ok: false, why };
+    await sleep(everyMs);
+  }
+}
+
+/**
+ * What a restart under launchd does once the old host is stopped: start
+ * it, unless launchd already runs one of its own under a new pid (a host
+ * that exited badly is brought back by KeepAlive), which `kickstart -k`
+ * would kill mid-boot. A host still running as the old pid is the one
+ * stop could not end, and kickstart -k ends it.
+ */
+export function launchdStep(running: number | undefined, before: number | undefined): "kickstart" | "wait" {
+  return running !== undefined && running !== before ? "wait" : "kickstart";
+}
