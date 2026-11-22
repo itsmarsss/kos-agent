@@ -48,9 +48,9 @@ export const LIST_COLUMNS: readonly ColumnSpec[] = [
 
 /** A panel beside a chat starts narrower: a short date, a short kind. */
 export const PANEL_COLUMNS: readonly ColumnSpec[] = [
-  { key: "modified", label: "Date Modified", width: 132, min: 96, rank: 2 },
-  { key: "size", label: "Size", width: 72, min: 56, rank: 3 },
-  { key: "kind", label: "Kind", width: 112, min: 72, rank: 1 },
+  { key: "modified", label: "Date Modified", width: 140, min: 96, rank: 2 },
+  { key: "size", label: "Size", width: 80, min: 56, rank: 3 },
+  { key: "kind", label: "Kind", width: 116, min: 72, rank: 1 },
 ];
 
 export const TRASH_COLUMNS: readonly ColumnSpec[] = [

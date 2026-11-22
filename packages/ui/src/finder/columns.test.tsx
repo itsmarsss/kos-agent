@@ -100,11 +100,11 @@ describe("the columns that fit", () => {
     expect(at(0)).toEqual(["modified", "size", "kind"]);
   });
 
-  it("gives a panel beside a chat its narrower widths: Size at 300, Date too at 380, all at 520", () => {
-    const panel = { modified: 132, size: 72, kind: 112 };
-    const keys = (room: number): string[] => fitColumns(room, PANEL_COLUMNS, panel);
+  it("gives a panel beside a chat its narrower widths: Size at 300 and 380, every column at 520", () => {
+    const keys = (room: number): string[] => fitColumns(room, PANEL_COLUMNS, readWidths(PANEL_WIDTHS_KEY, PANEL_COLUMNS));
     expect(keys(300 - 14)).toEqual(["size"]);
-    expect(keys(380 - 14)).toEqual(["modified", "size"]);
+    expect(keys(380 - 14)).toEqual(["size"]);
+    expect(keys(440 - 14)).toEqual(["modified", "size"]);
     expect(keys(520 - 14)).toEqual(["modified", "size", "kind"]);
   });
 
@@ -173,7 +173,7 @@ describe("a divider in the list's head", () => {
   it("keeps a panel's widths apart from the Files page's", () => {
     render(<ListView rows={[]} sort={{ key: "name", desc: false }} onSort={() => undefined} h={h} empty="Empty" layout={PANEL_LAYOUT} />);
     fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Size" }), { key: "ArrowLeft" });
-    expect(kept(PANEL_WIDTHS_KEY)).toEqual({ modified: 132, size: 80, kind: 112 });
+    expect(kept(PANEL_WIDTHS_KEY)).toEqual({ modified: 140, size: 88, kind: 116 });
     expect(kept(LIST_WIDTHS_KEY)).toBeNull();
   });
 
