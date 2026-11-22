@@ -1,0 +1,220 @@
+/*
+ * A finger (docs/design.md, Touch). Loaded after styles.css, so one block
+ * says how every control changes under a coarse pointer rather than each
+ * page saying it again, or forgetting to.
+ *
+ * - Every target is at least --tap (44 px) square: a button by its own
+ *   tokens, a row or a tab by its height, a small mark by a hit area round it.
+ * - Every field's words are at least --tap-text (16 px): under that, iOS
+ *   zooms the page in on focus and leaves it zoomed.
+ * - Nothing waits on a hover a finger cannot make: what the pointer would
+ *   reveal is shown, and the keyboard's shortcuts are not offered.
+ */
+
+@media (pointer: coarse) {
+  /* Buttons are drawn at two heights (design.test.ts); under a finger both are a finger's. */
+  :root {
+    --control-h: var(--tap);
+    --control-h-sm: var(--tap);
+  }
+
+  .icon-btn:not(.icon-btn--bare),
+  .icon-btn.rail-group-add,
+  .phonebar-menu {
+    width: var(--tap);
+    height: var(--tap);
+  }
+  .head-act {
+    min-width: var(--tap);
+    height: var(--tap);
+    justify-content: center;
+  }
+  /* A one-word button or chip ("Fix", "On") is as wide as a finger too. */
+  .btn,
+  .chips button {
+    min-width: var(--tap);
+    justify-content: center;
+  }
+  .phonebar .brand {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
+  }
+
+  /* Rows, tabs and menu rows: their height, with what they hold centred in it. */
+  .chips button,
+  .page-tab,
+  [role="tab"],
+  [role^="menuitem"],
+  [role="option"],
+  .menu-body > :is(button, a),
+  .sel-option,
+  .sel-button,
+  .side-link,
+  .chats-item,
+  .drawer-row,
+  .set-rail-item,
+  .pal-item,
+  .rail-group-fold,
+  .list-group-fold,
+  .chats-foot-btn,
+  .ask-details-toggle,
+  .finder-col-label,
+  .kos-input {
+    box-sizing: border-box;
+    min-height: var(--tap);
+  }
+  .sel-option,
+  .menu-body > :is(button, a) {
+    align-items: center;
+  }
+
+  /* A mark too small to grow without breaking its line (a switch, a bare ×,
+     a disclosure chevron, a link in a line, a crumb, a colour) keeps its look and takes a finger's area round it. */
+  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch, button.link, .finder-crumb) {
+    position: relative;
+  }
+  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch, button.link, .finder-crumb)::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--tap));
+    height: max(100%, var(--tap));
+    transform: translate(-50%, -50%);
+    content: "";
+  }
+
+  .finder {
+    --finder-row: var(--tap);
+  }
+  /* A colour a size up, so a finger's area round each overlaps its neighbour's least. */
+  .swatch:not(.swatch--any) {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  /* A box that scrolls inside a panel that scrolls lets a swipe that reaches
+     its end carry on into the panel: the project's files held every swipe
+     that started on them, and the sections under them were out of reach. */
+  .project-panel .finder-main {
+    overscroll-behavior: auto;
+  }
+  .chats.is-panel-drawer .project-files .finder {
+    height: clamp(14rem, 45dvh, 24rem);
+  }
+
+  /* A sheet ends above the keyboard on screen (watchKeyboard in touch.ts), so its foot and the field typed into both show. */
+  :is(.drawer-backdrop, .insp-backdrop, .sheet-backdrop, .modal-wrap, .pal-wrap) {
+    bottom: var(--kb-inset, 0px);
+  }
+
+  /*
+   * The one !important in the sheets: a floor under every field, whatever
+   * its own rule says. A page's rule for its field is always more specific
+   * than one rule for all of them, and a single field left at 13 px is a
+   * page that zooms in and stays zoomed.
+   */
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]),
+  textarea,
+  select {
+    font-size: max(var(--tap-text), 1em) !important;
+  }
+}
+
+@media (hover: none) {
+  /* What the pointer reveals on a row or a message is always there. */
+  .chats-more,
+  .acts {
+    opacity: 1;
+  }
+  .chats-row > .chats-item {
+    padding-right: calc(var(--tap) + 0.25rem);
+  }
+  li:hover .chats-item-when {
+    opacity: 1;
+  }
+
+  /* A setting's words, cut at two lines with a hover to say there is more, are whole. */
+  .set-field--row .set-hint {
+    display: block;
+    -webkit-line-clamp: unset;
+  }
+
+  /* A claim's actions apart enough for a finger, Forget a step further from Edit. */
+  .know-acts {
+    gap: 0.25rem;
+  }
+  .know-acts > :last-child {
+    margin-left: 0.5rem;
+  }
+
+  /* A keyboard's shortcuts mean nothing to a finger. */
+  .finder-menu-keys,
+  .side kbd,
+  .chats-kbd,
+  .pal-foot {
+    display: none;
+  }
+}
+
+/* The search's way out, which a keyboard has as Escape. */
+.pal-cancel {
+  display: none;
+}
+@media (hover: none) {
+  .pal {
+    position: relative;
+  }
+  .pal-cancel {
+    display: inline-flex;
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+  }
+  .pal-input {
+    padding-right: 6rem;
+  }
+}
+
+/* Typing into a chat on a phone, the keyboard takes half the screen: the
+   chat's head keeps only its title, on one line, and the room goes to the
+   messages. It was the crumbs, a title on two lines and its brief, 150 px of
+   a 500 px window. */
+@media (pointer: coarse) and (max-width: 860px) {
+  .chats:has(.composer-input textarea:focus) .chats-view-head :is(.chats-view-path, .chats-lineage, .chats-brief, .chats-meta) {
+    display: none;
+  }
+  .chats:has(.composer-input textarea:focus) .chats-view-head h1 {
+    display: block;
+    overflow: hidden;
+    font-size: var(--text-lg);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* On a phone a note comes in under the bar at the top, as the phone's own
+   do: at the bottom it sat over what is pinned there, Files' path, a sheet's
+   Save, the composer. */
+@media (max-width: 860px) {
+  /* The drawer has no narrow rail to fold into. */
+  .side-collapse {
+    display: none;
+  }
+
+  /* A settings card's Save stays at the window's foot while the card is longer than it. */
+  .set-card {
+    /* Clipped round its corners without being a scroller of its own, which would hold the foot. */
+    overflow: clip;
+  }
+  .set-card > .sheet-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background: var(--panel);
+  }
+  .ops-toast {
+    top: calc(3.25rem + 0.5rem + env(safe-area-inset-top, 0px));
+    bottom: auto;
+  }
+}

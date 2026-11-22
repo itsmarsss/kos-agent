@@ -224,6 +224,7 @@ export function HistoryPage({
         {
           key: "what",
           header: "What",
+          stack: "title",
           searchText: (r) =>
             r.kind === "tool"
               ? `${stepLine(r.tool.tool, r.tool.args).title} ${summarizeAction(r.tool.tool, r.tool.args)} ${r.tool.tool}`
@@ -264,6 +265,7 @@ export function HistoryPage({
           // fix, and a button there would be noise on every line.
           key: "fix",
           header: "",
+          stack: "aside",
           width: "10%",
           render: (r) => {
             if (!r.failed || !onFix) return null;

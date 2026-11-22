@@ -29,6 +29,8 @@ export interface ProjectPanelProps {
   hidden?: boolean;
   /** Drawn as a drawer over the chat, where the page has no room for its column: a modal while it is. */
   modal?: boolean;
+  /** Shuts the drawer: its ×, as a phone has no room beside it for the toggle that opened it. */
+  onClose?: () => void;
   /** The project's artifacts (ArtifactRail), which open in place beside it. */
   rail: ReactNode;
 }
@@ -40,7 +42,7 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onError, hidden = false, modal = false, rail }: ProjectPanelProps): ReactElement {
+export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onError, hidden = false, modal = false, onClose, rail }: ProjectPanelProps): ReactElement {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The colour row under the head, shown on request. */
@@ -123,6 +125,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
       {/* Who it is: its mark in its own colour, its name, kind and state,
           what it is for, how much it holds, and what can be done with it. */}
       <PaneHead
+        {...(modal && onClose ? { onClose } : {})}
         mark={
           <span className="hero-mark hero-mark--sm hero-mark--letter" aria-hidden="true" style={project.colour ? { background: project.colour, color: markInk(project.colour) } : undefined}>
             {markLetter(project.name)}

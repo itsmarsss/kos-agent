@@ -324,6 +324,7 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .pane-head-titles h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
 .pane-head-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pane-head-top .pill { flex: none; }
+.pane-head-close { margin: -4px -4px 0 auto; }
 .pane-head-desc { margin: 0; color: var(--muted); font-size: var(--text-base); line-height: 1.45; }
 
 /* —— a search box (SearchField): the glass, the words, a clear —— */

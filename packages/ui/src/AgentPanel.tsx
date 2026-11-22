@@ -32,6 +32,8 @@ export interface AgentPanelProps {
   hidden?: boolean;
   /** Drawn as a drawer over the chat, where the page has no room for its column: a modal while it is. */
   modal?: boolean;
+  /** Shuts the drawer: its ×, as a phone has no room beside it for the toggle that opened it. */
+  onClose?: () => void;
   /** The artifacts of the projects it works in, listed under its folder. */
   rail?: ReactNode;
 }
@@ -56,7 +58,7 @@ export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "nee
 /** What each blob's panel last showed, so opening it again does not pass through "Loading…". */
 const remembered = new Map<string, AgentInfo | null>();
 
-export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onError, onNotice, onRemoved, hidden = false, modal = false, rail }: AgentPanelProps): ReactElement {
+export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onError, onNotice, onRemoved, hidden = false, modal = false, onClose, rail }: AgentPanelProps): ReactElement {
   const [agent, setAgent] = useState<AgentInfo | null | undefined>(remembered.get(name));
   const [invalidReason, setInvalidReason] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -138,6 +140,7 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
     <aside className="project-panel agent-panel" {...(modal ? { role: "dialog", "aria-modal": true } : {})} aria-label={`${title}, the blob`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is, as a project's pane says it: its face, its name, how it is doing, what it is for. */}
       <PaneHead
+        {...(modal && onClose ? { onClose } : {})}
         mark={<Face seed={agent.name} look={agent.face ?? {}} size={36} mood={moodOf(agent.thread?.activity, { paused })} />}
         title={title}
         sub={state.text}

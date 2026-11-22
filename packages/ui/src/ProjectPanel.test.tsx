@@ -44,7 +44,7 @@ type Handlers = {
   onError: ReturnType<typeof vi.fn>;
 };
 
-function open(over: Partial<ProjectDetail> = {}, files: { name: string; size: number }[] = [{ name: "plan.md", size: 2048 }]): Handlers {
+function open(over: Partial<ProjectDetail> = {}, files: { name: string; size: number }[] = [{ name: "plan.md", size: 2048 }], drawer?: { onClose: () => void }): Handlers {
   vi.spyOn(api, "projectDetail").mockResolvedValue(detail(over));
   vi.spyOn(api, "files").mockResolvedValue({
     path: `projects/${slug}`,
@@ -53,7 +53,7 @@ function open(over: Partial<ProjectDetail> = {}, files: { name: string; size: nu
   const h: Handlers = { onOpen: vi.fn(), onOpenFile: vi.fn(), onChanged: vi.fn(), onError: vi.fn() };
   const { onOpen, ...rest } = h;
   const d = detail(over);
-  render(<ProjectPanel slug={slug} {...rest} rail={<ArtifactRail items={d.pages} onOpen={(a) => onOpen(a.id)} />} />);
+  render(<ProjectPanel slug={slug} {...rest} {...(drawer ? { modal: true, onClose: drawer.onClose } : {})} rail={<ArtifactRail items={d.pages} onOpen={(a) => onOpen(a.id)} />} />);
   return h;
 }
 
@@ -85,6 +85,18 @@ describe("the project panel", () => {
     expect(h.onOpen).toHaveBeenCalledWith("tasks_kitchen_redo");
     fireEvent.click(screen.getByText("Open in Files"));
     expect(h.onOpenFile).toHaveBeenCalledWith(`projects/${slug}`);
+  });
+
+  it("shuts by its own × when drawn as a drawer over the chat, and has none as a column", async () => {
+    const onClose = vi.fn();
+    open({}, undefined, { onClose });
+    await screen.findByText("Kitchen redo");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    cleanup();
+    open();
+    await screen.findByText("Kitchen redo");
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 
   it("leaves out what the project has none of, and says so", async () => {

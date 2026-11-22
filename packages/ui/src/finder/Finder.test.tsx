@@ -242,6 +242,50 @@ describe("the finder", () => {
     expect(localStorage.getItem("kos.finder.showOwn")).toBe("1");
   });
 
+  it("opens on a tap and asks for the menu on a long press: a finger has no double press or other button", async () => {
+    await openGarden();
+    const tap = (el: HTMLElement): void => {
+      fireEvent.pointerDown(el, { pointerType: "touch", clientX: 5, clientY: 5 });
+      fireEvent.mouseDown(el);
+      fireEvent.pointerUp(el, { pointerType: "touch" });
+      fireEvent.click(el);
+    };
+    tap(row("projects/garden/a.md"));
+    expect(await screen.findByRole("dialog", { name: "Quick Look: a.md" })).toBeTruthy();
+    fireEvent.keyDown(main(), { key: " " });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // A click from a mouse still only chooses.
+    fireEvent.pointerDown(row("projects/garden/b.txt"), { pointerType: "mouse" });
+    fireEvent.mouseDown(row("projects/garden/b.txt"));
+    fireEvent.click(row("projects/garden/b.txt"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(row("projects/garden/c.txt"), { pointerType: "touch", clientX: 5, clientY: 5 });
+      act(() => vi.advanceTimersByTime(600));
+      fireEvent.pointerUp(row("projects/garden/c.txt"), { pointerType: "touch" });
+      fireEvent.click(row("projects/garden/c.txt"));
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(screen.getByRole("menu", { name: "Actions for c.txt" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Quick Look: c.txt" })).toBeNull();
+  });
+
+  it("names a folder before making it at the workspace's top level, which cannot be renamed after", async () => {
+    const make = vi.spyOn(api, "makeDir").mockResolvedValue({ path: "garden" });
+    render(<Finder path="." />);
+    await screen.findByText("projects");
+    key("n", { shiftKey: true, metaKey: true });
+    const dialog = await screen.findByRole("dialog", { name: "New folder" });
+    expect(make).not.toHaveBeenCalled();
+    const field = within(dialog).getByRole("textbox") as HTMLInputElement;
+    expect(field.value).toBe("untitled folder");
+    fireEvent.change(field, { target: { value: "garden" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(make).toHaveBeenCalledWith("garden"));
+  });
+
   it("marks KOS's own files and offers nothing that would change them, saying why", async () => {
     const trash = vi.spyOn(api, "trashFile");
     localStorage.setItem("kos.finder.showOwn", "1");

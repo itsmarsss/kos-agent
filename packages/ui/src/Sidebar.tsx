@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
+import { swipedShut } from "./touch.js";
 
 /**
  * The shell's left edge: where you are, where else you can be, and whether
@@ -85,6 +86,8 @@ export function Sidebar({
       // Remembered for this visit only.
     }
   }, [railed]);
+  /** Where a finger came down on the drawer: a swipe back toward the edge shuts it, as a phone's drawers do. */
+  const swipe = useRef<{ x: number; y: number } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDetailsElement>(null);
   useDismiss(moreOpen, () => setMoreOpen(false), { inside: [moreRef] });
@@ -117,7 +120,20 @@ export function Sidebar({
         </IconButton>
       </header>
       {open && <div className="side-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />}
-      <aside className={`side${open ? " is-open" : ""}`} aria-label="Primary">
+      <aside
+        className={`side${open ? " is-open" : ""}`}
+        aria-label="Primary"
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          swipe.current = t ? { x: t.clientX, y: t.clientY } : null;
+        }}
+        onTouchEnd={(e) => {
+          const from = swipe.current;
+          const t = e.changedTouches[0];
+          swipe.current = null;
+          if (open && from && t && swipedShut(t.clientX - from.x, t.clientY - from.y)) setOpen(false);
+        }}
+      >
         <div className="side-brand-row">
           <a className="brand side-brand" href="#/">
             <Face seed={KOS_SEED} look={faceLookOf(kos)} size={22} mood={kosMood} label="KOS" />
@@ -222,7 +238,16 @@ export function Sidebar({
             <span className="health-dot" />
             <span className="side-health-text">
               {busy ? `${busy}…` : healthText}
-              {model && <span className="side-model" title={`The model for thinking, from ${model.provider}. Change it in Settings, Models.`}>Thinks with {model.model}</span>}
+              {/* Its line is kept before the status comes, so the block does not grow under the pointer as it loads. */}
+              {model ? (
+                <span className="side-model" title={`The model for thinking, from ${model.provider}. Change it in Settings, Models.`}>
+                  Thinks with {model.model}
+                </span>
+              ) : (
+                <span className="side-model" aria-hidden="true">
+                  {"\u00a0"}
+                </span>
+              )}
             </span>
           </a>
         </div>

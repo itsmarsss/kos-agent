@@ -1,7 +1,7 @@
 import { useImperativeHandle, useRef, type FocusEvent, type KeyboardEvent, type ReactElement, type ReactNode, type Ref } from "react";
 
 import { CloseIcon, SearchIcon } from "./icons.js";
-import { Count } from "./kit.js";
+import { Count, IconButton } from "./kit.js";
 
 /**
  * The head over a group of rows, or a section of a form: its name at the
@@ -168,9 +168,9 @@ export function TableGroup({ title, count, columns }: { title: ReactNode; count?
  * The head of a pane beside a chat, a project's or a blob's alike: its mark
  * (a project's tile, a blob's face), its name over its kind, its state at the
  * right, what it is for under them, then whatever the pane adds (how much it
- * holds, its buttons).
+ * holds, its buttons). Over the chat, as a drawer, it has an × to close.
  */
-export function PaneHead({ mark, title, sub, pill, desc, children }: { mark: ReactNode; title: string; sub?: ReactNode; pill?: ReactNode; desc?: ReactNode; children?: ReactNode }): ReactElement {
+export function PaneHead({ mark, title, sub, pill, desc, onClose, children }: { mark: ReactNode; title: string; sub?: ReactNode; pill?: ReactNode; desc?: ReactNode; onClose?: () => void; children?: ReactNode }): ReactElement {
   return (
     <header className="pane-head">
       <div className="pane-head-top">
@@ -180,6 +180,12 @@ export function PaneHead({ mark, title, sub, pill, desc, children }: { mark: Rea
           {sub && <span className="pane-head-sub">{sub}</span>}
         </div>
         {pill}
+        {/* A pane drawn over the chat, as on a phone, shuts here as a sheet does. */}
+        {onClose && (
+          <IconButton className="pane-head-close" label="Close" title="Close" onClick={onClose}>
+            <CloseIcon size={14} title="" />
+          </IconButton>
+        )}
       </div>
       {desc && <p className="pane-head-desc">{desc}</p>}
       {children}

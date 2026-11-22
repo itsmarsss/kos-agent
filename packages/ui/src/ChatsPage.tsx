@@ -131,6 +131,8 @@ export interface ChatsPageProps {
   activeId?: string;
   /** The chats have not been read yet: a chat's address shows where its thread will be, not the landing. */
   loading?: boolean;
+  /** The landing was asked for (New chat): on a phone it takes the list's place, as an open chat does. */
+  composing?: boolean;
   /** Pending-action ids still awaiting a decision. */
   pendingApprovals: Set<string>;
   /**
@@ -236,6 +238,7 @@ export function ChatsPage({
   projects,
   activeId,
   loading = false,
+  composing = false,
   pendingApprovals,
   approvals,
   deciding,
@@ -1566,7 +1569,7 @@ export function ChatsPage({
   return (
     <ArtifactOpen.Provider value={artifactOpeners}>
       <div
-        className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && panelFits && !panelOpen ? "panel-hidden" : ""} ${(project || agent) && drawer.open ? "is-panel-drawer" : ""} ${resizing ? "is-resizing" : ""}`}
+        className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active || composing ? "has-view" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && panelFits && !panelOpen ? "panel-hidden" : ""} ${(project || agent) && drawer.open ? "is-panel-drawer" : ""} ${resizing ? "is-resizing" : ""}`}
         ref={root}
         style={{ "--rail-w": `${railW}px`, "--panel-w": `${panelW}px` } as CSSProperties}
       >
@@ -1776,7 +1779,7 @@ export function ChatsPage({
                 title="New chat"
                 onClick={() => {
                   if (narrow) setListOpen(false);
-                  window.location.hash = hrefFor({ name: "chats" });
+                  window.location.hash = hrefFor({ name: "chats", compose: true });
                 }}
               >
                 <ComposeIcon />
@@ -2829,6 +2832,7 @@ export function ChatsPage({
             onError={project.onError}
             hidden={!panelShown}
             modal={drawer.open}
+            onClose={drawer.close}
           />
         )}
         {agent && (
@@ -2842,6 +2846,7 @@ export function ChatsPage({
             onRemoved={agent.onRemoved}
             hidden={!panelShown}
             modal={drawer.open}
+            onClose={drawer.close}
             rail={<ArtifactRail {...railProps} />}
           />
         )}
