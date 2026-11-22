@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactElement } from "react";
 
-import { NavIcon } from "@kos/kit";
+import { NavIcon, useOverlayScroll } from "@kos/kit";
 
 import { Toast } from "../Toast.js";
 import { api, type Attachment, type DirEntry, type FileSearch, type Project } from "../api.js";
@@ -18,6 +18,7 @@ import { EMPTY_SELECTION, clickSelect, freeName, kindOf, moveLead, nameOf, only,
 import { MoveDialog } from "./MoveDialog.js";
 import { useFinderOps } from "./ops.js";
 import { PathBar } from "./PathBar.js";
+import { reveal } from "./reveal.js";
 import type { RowHandlers } from "./rows.js";
 import { Sidebar, samePlace, type Place } from "./Sidebar.js";
 import { Toolbar } from "./Toolbar.js";
@@ -103,6 +104,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
 
   const frame = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLDivElement>(null);
+  const mainScroll = useOverlayScroll(main);
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
     const el = frame.current;
@@ -274,7 +276,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   useEffect(() => {
     if (!sel.lead) return;
     const lead = sel.lead;
-    [...(main.current?.querySelectorAll<HTMLElement>("[data-path]") ?? [])].find((el) => el.dataset.path === lead)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    const row = [...(main.current?.querySelectorAll<HTMLElement>("[data-path]") ?? [])].find((el) => el.dataset.path === lead);
+    if (row) reveal(row);
   }, [sel.lead]);
 
   const ops = useFinderOps({
@@ -680,7 +683,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
       <div className="finder-body">
         {sidebarShown && <Sidebar place={place} go={go} top={top} projects={projects} drop={dropInto} over={over} dropOnTrash={dropOnTrash} trashOver={over === "#trash"} />}
         <div
-          ref={main}
+          ref={mainScroll}
           className={`finder-main${over === here && place.kind === "folder" ? " is-drop" : ""}`}
           tabIndex={0}
           aria-label={`${title}, ${status}`}
