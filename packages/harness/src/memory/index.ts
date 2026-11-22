@@ -45,3 +45,4 @@ export { OBSERVE_JOB, OBSERVE_JOB_PROMPT, ensureDefaultObserveCron } from "./job
 export { CallerStore, mayRead, CALLER_NAME, type Caller } from "./callers.js";
 export { applyResolution, splitQualified, type ReviewAction, type Resolution, type ResolutionReport } from "./resolve.js";
 export { runDreamEval, runObserveEval, renderJobEvalReport, loadDreamGolden, loadObserveGolden, type DreamCase, type ObserveCase, type JobEvalReport } from "./evaljobs.js";
+export { runRecallEval, renderRecallReport, loadRecallGolden, type RecallCase, type RecallSet, type RecallEvalReport } from "./recalleval.js";

@@ -34,6 +34,8 @@ import {
   renderJobEvalReport,
   runDreamEval,
   runMemoryEval,
+  runRecallEval,
+  renderRecallReport,
   runObserveEval,
   serversFromJson,
   setMcpServerEnabled,
@@ -732,13 +734,19 @@ async function main(): Promise<void> {
   // cheap model and print the numbers. Spends a little; prints what it did.
   if (command === "eval") {
     const inference = createDefaultRouter(SecretsRegistry.fromEnv());
+    // Recall asks no model: it scores what a turn is given from a fixed store.
+    if (rest[0] === "recall") {
+      const report = await runRecallEval();
+      console.log(flags.json === true ? JSON.stringify(report, null, 2) : renderRecallReport(report));
+      return;
+    }
     if (rest[0] === "dream" || rest[0] === "observe") {
       const report = rest[0] === "dream" ? await runDreamEval(inference) : await runObserveEval(inference);
       console.log(flags.json === true ? JSON.stringify(report, null, 2) : renderJobEvalReport(report));
       return;
     }
     if (rest[0] !== "memory") {
-      console.error("usage: kos eval memory [--agent] | dream | observe  [--json]");
+      console.error("usage: kos eval memory [--agent] | recall | dream | observe  [--json]");
       process.exitCode = 1;
       return;
     }
