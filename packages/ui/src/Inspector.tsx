@@ -718,7 +718,7 @@ export function Inspector(props: {
         {head ?? (
           <header className="insp-head">
             <div>
-              <div className="insp-kicker">{target.kind}</div>
+              <div className="insp-kicker">{target.kind === "tool" ? "Step" : kindWord(target.kind)}</div>
               <h2 className="insp-title">{title}</h2>
               <div className="ops-muted">{subtitle}</div>
             </div>
