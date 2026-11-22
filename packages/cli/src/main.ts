@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
@@ -62,7 +63,7 @@ import {
   uninstallService,
 } from "./service.js";
 import { bindRefusal } from "./bind.js";
-import { SHUTDOWN_MS } from "./lifecycle.js";
+import { HOST_WAIT_MS, SHUTDOWN_MS, awaitNewHost, launchdStep } from "./lifecycle.js";
 import { runHost, waitForPortFree } from "./host.js";
 import { awaitOwnHost } from "./porttaken.js";
 import { runSecrets } from "./secrets.js";
@@ -73,6 +74,7 @@ import {
   isKosHostProcess,
   isPidAlive,
   readDaemonState,
+  readHealth,
   verifyHost,
   type DaemonState,
 } from "./state.js";
@@ -297,7 +299,7 @@ async function cmdStart(
       if (await waitForDaemon(baseUrl, dashboardToken())) {
         console.log(`KOS started under launchd on ${baseUrl}`);
       } else {
-        console.error(`launchd started the host but it did not answer within 15s; check ${daemonLogPath(rootDir)}`);
+        console.error(`launchd started the host but it did not answer within ${HOST_WAIT_MS / 1000}s; check ${daemonLogPath(rootDir)}`);
         process.exitCode = 1;
       }
       return;
@@ -360,9 +362,9 @@ async function cmdStart(
   });
 }
 
-/** Poll health until it answers, or give up after 15s. */
+/** Poll health until it answers, or give up after HOST_WAIT_MS. */
 async function waitForDaemon(baseUrl: string, token: string | undefined): Promise<boolean> {
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + HOST_WAIT_MS;
   while (Date.now() < deadline) {
     if (await probeDaemon(baseUrl, token)) return true;
     await new Promise((r) => setTimeout(r, 200));
@@ -403,7 +405,7 @@ async function cmdService(
         console.log(`iMessage under launchd needs Full Disk Access for ${process.execPath}: System Settings > Privacy & Security > Full Disk Access, then kos restart`);
       }
     } else {
-      console.error(`launchd has it, but the host did not answer within 15s; check ${daemonLogPath(rootDir)}`);
+      console.error(`launchd has it, but the host did not answer within ${HOST_WAIT_MS / 1000}s; check ${daemonLogPath(rootDir)}`);
       process.exitCode = 1;
     }
     return;
@@ -642,67 +644,110 @@ async function cmdMcp(rootDir: string, rest: string[], flags: Record<string, str
 }
 
 async function cmdStop(rootDir: string): Promise<void> {
+  if (!(await stopHost(rootDir))) process.exitCode = 1;
+}
+
+/** Stop this workspace's host, saying what happened; false only when it could not be signalled. */
+async function stopHost(rootDir: string): Promise<boolean> {
   const state = readDaemonState(rootDir);
   if (!state) {
     console.log("no kos host is running for this workspace");
-    return;
+    return true;
   }
   if (!isPidAlive(state.pid)) {
     clearDaemonState(rootDir);
     console.log("stale pid cleared; host was not running");
-    return;
+    return true;
   }
   // Only this workspace's KOS is signalled: by its answer, or, wedged, by its command line.
   const check = await verifyHost(state, dashboardToken());
   if (!check.ok && !isKosHostProcess(state.pid, SELF, rootDir)) {
     clearDaemonState(rootDir);
     console.log(`stale state cleared; pid ${state.pid} is not this workspace's KOS host (${check.why}), so it was not signalled`);
-    return;
+    return true;
   }
-  try {
-    process.kill(state.pid, "SIGTERM");
-  } catch (err) {
-    console.error(
-      `failed to signal pid ${state.pid}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    process.exitCode = 1;
-    return;
+  // A host that exits between the checks above and a signal has stopped; only another failure to signal is one.
+  const signal = (name: NodeJS.Signals): Error | undefined => {
+    try {
+      process.kill(state.pid, name);
+      return undefined;
+    } catch (err) {
+      return (err as NodeJS.ErrnoException).code === "ESRCH" ? undefined : (err as Error);
+    }
+  };
+  const failed = signal("SIGTERM");
+  if (failed) {
+    console.error(`failed to signal pid ${state.pid}: ${failed.message}`);
+    return false;
   }
   // The host bounds its own shutdown; SIGKILL only past that, so daemons it is stopping are not orphaned.
   const deadline = Date.now() + STOP_GRACE_MS;
   while (Date.now() < deadline && isPidAlive(state.pid)) {
     await new Promise((r) => setTimeout(r, 100));
   }
-  if (isPidAlive(state.pid)) {
-    process.kill(state.pid, "SIGKILL");
-  }
+  if (isPidAlive(state.pid)) signal("SIGKILL");
   clearDaemonState(rootDir);
   console.log(`stopped kos host (was pid ${state.pid})`);
+  return true;
 }
 
-/** Stop the running host, wait for its port, then start a fresh one. */
+/**
+ * Stop the running host and start a fresh one. Under launchd the result is
+ * what answers after: this workspace's host on its port under a new pid
+ * within HOST_WAIT_MS is a restart, whatever the steps on the way said (a
+ * host that exits badly is brought back by KeepAlive, a cold boot outlasts
+ * a short wait); anything else is not.
+ */
 async function cmdRestart(
   rootDir: string,
   flags: Record<string, string | boolean>,
 ): Promise<void> {
-  await cmdStop(rootDir);
   const host = listenHost(flags.host);
   const port = listenPort(flags.port);
-  if (!(await waitForPortFree(host, port))) {
-    // A host that exits non-zero on its way down is brought straight back by launchd's KeepAlive, on the new build: that is the restart.
-    const service = await serviceState(SERVICE_LABEL);
-    const baseUrl = `http://${host}:${port}`;
-    if (service.loaded && service.workspace === rootDir && (await waitForDaemon(baseUrl, dashboardToken()))) {
-      console.log(`KOS restarted under launchd on ${baseUrl}`);
+  const service = await serviceState(SERVICE_LABEL);
+  const before = readDaemonState(rootDir)?.pid ?? service.pid;
+  const stopped = await stopHost(rootDir);
+  if (!(service.loaded && service.workspace === rootDir)) {
+    if (!stopped) {
+      process.exitCode = 1;
       return;
     }
-    console.error(
-      `port ${port} is still in use; something other than this workspace's host may be holding it`,
-    );
-    process.exitCode = 1;
+    if (!(await waitForPortFree(host, port))) {
+      console.error(`port ${port} is still in use; something other than this workspace's host may be holding it`);
+      process.exitCode = 1;
+      return;
+    }
+    await cmdStart(rootDir, flags);
     return;
   }
-  await cmdStart(rootDir, flags);
+
+  const baseUrl = `http://${host}:${port}`;
+  const running = (await serviceState(SERVICE_LABEL)).pid;
+  if (launchdStep(running, before) === "wait") {
+    console.log(`launchd started the host again itself (pid ${running})`);
+  } else {
+    // The old host letting go of the port first, so the new one binds at its first try.
+    if (running === undefined) await waitForPortFree(host, port);
+    await kickstart(SERVICE_LABEL).catch((err: unknown) => console.error(err instanceof Error ? err.message : String(err)));
+  }
+  console.log(`waiting up to ${HOST_WAIT_MS / 1000}s for this workspace's host to answer on ${baseUrl} under a pid other than ${before ?? "none"}`);
+  const token = dashboardToken();
+  const result = await awaitNewHost({ probe: () => readHealth(baseUrl, token), workspace: realWorkspace(rootDir), before, timeoutMs: HOST_WAIT_MS });
+  if (result.ok) {
+    console.log(`KOS restarted under launchd on ${baseUrl} (pid ${result.pid})`);
+    return;
+  }
+  console.error(`KOS did not come back on ${baseUrl} within ${HOST_WAIT_MS / 1000}s: ${result.why}; check ${daemonLogPath(rootDir)}`);
+  process.exitCode = 1;
+}
+
+/** The workspace as a host names it in its health: its real path. */
+function realWorkspace(rootDir: string): string {
+  try {
+    return realpathSync(rootDir);
+  } catch {
+    return resolve(rootDir);
+  }
 }
 
 async function main(): Promise<void> {

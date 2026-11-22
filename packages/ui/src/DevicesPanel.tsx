@@ -98,12 +98,24 @@ function PhoneRules({ settings, lan, onChange }: { settings: ComputerSettings; l
   );
 }
 
-/** One of the APNs key's names, saved when the owner leaves the field. */
+/**
+ * One of the APNs key's names, saved when the owner leaves the field.
+ *
+ * A new saved value replaces the draft only while the owner has no edit of
+ * their own in it, and during render rather than in an effect: an effect
+ * that copied the value in could run after the first keystroke and erase it.
+ */
 function PushText({ label, hint, field, value, placeholder, disabled, onSave }: { label: string; hint: string; field: keyof PushSettings; value: string; placeholder: string; disabled: boolean; onSave: (patch: Partial<PushSettings>) => void }): ReactElement {
   const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  const [synced, setSynced] = useState(value);
+  if (value !== synced) {
+    setSynced(value);
+    if (draft === synced) setDraft(value);
+  }
   const save = (): void => {
-    if (draft.trim() !== value) onSave({ [field]: draft.trim() });
+    const next = draft.trim();
+    setDraft(next);
+    if (next !== value) onSave({ [field]: next });
   };
   return (
     <Field className="set-field" label={label} hint={hint}>

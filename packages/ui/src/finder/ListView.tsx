@@ -6,13 +6,15 @@ import { bytesWords } from "@kos/shared";
 import type { DirEntry } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { FILES_LAYOUT, useColumns, type ColumnLayout } from "./columns.js";
+import { levelStyle, treeStyle } from "./indent.js";
 import { dateWords, kindOf, parentOf, sortBy, type Sort, type SortKey } from "./model.js";
 import { EntryName, rowProps, stateClass, type RowHandlers } from "./rows.js";
 
 /**
  * The list: a row per thing, sortable by any column, a folder opening in
- * place under its triangle. Rows are one height whatever they hold. The
- * columns after Name are resized by the dividers in the head (columns.tsx).
+ * place under its triangle, stepped in as indent.ts says. Rows are one
+ * height whatever they hold. The columns after Name are resized by the
+ * dividers in the head (columns.tsx).
  */
 
 export interface ListRow {
@@ -37,7 +39,7 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
   const cell = (key: SortKey, entry: DirEntry): ReactNode =>
     key === "modified" ? dateWords(entry.modifiedAt) : key === "size" ? (entry.kind === "file" ? bytesWords(entry.size) : "--") : kindOf(entry);
   return (
-    <div className="finder-list" role="grid" aria-multiselectable="true" aria-label="Files" aria-rowcount={rows.length} style={cols.style}>
+    <div className="finder-list" role="grid" aria-multiselectable="true" aria-label="Files" aria-rowcount={rows.length} style={{ ...cols.style, ...treeStyle(rows) }}>
       <div className="finder-list-head" role="row" ref={cols.headRef}>
         {keys.map((key) => (
           <div key={key} role="columnheader" data-head={key} className={`finder-col finder-col--${key}`} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : "none"}>
@@ -68,7 +70,8 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
           {...h.drag(entry)}
           {...(entry.kind === "dir" ? h.drop(entry.path) : {})}
         >
-          <span role="gridcell" className="finder-col finder-col--name" style={{ paddingLeft: `calc(${depth} * var(--finder-indent) + 0.35rem)` }}>
+          <span role="gridcell" className="finder-col finder-col--name" style={levelStyle(depth)}>
+            {depth > 0 && <span className="finder-guide" style={levelStyle(depth - 1)} aria-hidden="true" />}
             {entry.kind === "dir" && onToggle && where === undefined ? (
               <button
                 type="button"

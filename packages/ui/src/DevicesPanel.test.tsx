@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api, type PairedDevice, type PushStatus } from "./api.js";
@@ -231,6 +231,10 @@ describe("a phone's notifications", () => {
   it("keep the key's names on the Devices page, and pick the .p8 from the vault's secrets", async () => {
     vi.spyOn(api, "devices").mockResolvedValue({ devices: [{ ...phone, push: { on: true, env: "sandbox" } }], settings: { askMinutes: 15, unattended: false, lan: false, autoUpdate: true }, push: off });
     vi.spyOn(secretsApi, "list").mockResolvedValue([]);
+    // Every clock read is 20 ms on, so React yields between a commit and its
+    // effects, as it does on a loaded machine: typing lands before they run.
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => (clock += 20));
     const setPush = vi.spyOn(api, "setPush").mockResolvedValue({ ...off, settings: { ...settings, keyId: "ABC123DEFG" } });
     render(<DevicesPanel />);
     expect(await screen.findByText(/Push ready on the iPhone/)).toBeTruthy();
@@ -238,5 +242,21 @@ describe("a phone's notifications", () => {
     fireEvent.change(keyId, { target: { value: " ABC123DEFG " } });
     fireEvent.keyDown(keyId, { key: "Enter" });
     await waitFor(() => expect(setPush).toHaveBeenCalledWith({ keyId: "ABC123DEFG" }));
+    expect((keyId as HTMLInputElement).value).toBe("ABC123DEFG");
+  });
+
+  it("keep what the owner is typing when a saved value comes back for that field", async () => {
+    vi.spyOn(api, "devices").mockResolvedValue({ devices: [phone], settings: { askMinutes: 15, unattended: false, lan: false, autoUpdate: true }, push: off });
+    vi.spyOn(secretsApi, "list").mockResolvedValue([]);
+    vi.spyOn(api, "setPush").mockResolvedValue({ ...off, problem: "Push needs the bundle ID.", settings: { ...settings, keyId: "ABC123DEFG", teamId: "SAVEDELSEW" } });
+    render(<DevicesPanel />);
+    const teamId = (await screen.findByPlaceholderText("DEF123GHIJ")) as HTMLInputElement;
+    const keyId = screen.getByPlaceholderText("ABC123DEFG");
+    fireEvent.change(teamId, { target: { value: "DEF1" } });
+    fireEvent.change(keyId, { target: { value: "ABC123DEFG" } });
+    fireEvent.keyDown(keyId, { key: "Enter" });
+    expect(await screen.findByText("Push needs the bundle ID.")).toBeTruthy();
+    await act(async () => {});
+    expect(teamId.value).toBe("DEF1");
   });
 });

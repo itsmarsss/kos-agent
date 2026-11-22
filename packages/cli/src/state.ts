@@ -128,6 +128,20 @@ export async function verifyHost(state: DaemonState, token: string | undefined, 
   }
 }
 
+/** Who answers as KOS at `baseUrl`: the pid and workspace its health says, or undefined while nothing does (down, or still booting). */
+export async function readHealth(baseUrl: string, token: string | undefined, timeoutMs = 2_000): Promise<{ pid: number; workspace: string } | undefined> {
+  try {
+    const res = await fetch(`${baseUrl}/api/health`, {
+      ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const health = (await res.json()) as { ok?: unknown; pid?: unknown; workspace?: unknown };
+    return res.ok && health.ok === true && typeof health.pid === "number" && typeof health.workspace === "string" ? { pid: health.pid, workspace: health.workspace } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A process's command line, or undefined when there is no such process. */
 function commandOf(pid: number): string | undefined {
   try {

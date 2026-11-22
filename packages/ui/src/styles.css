@@ -7871,7 +7871,8 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder {
   container: finder / inline-size;
   --finder-row: 1.75rem;
-  /* How far each level of a folder opened in place steps in. */
+  /* How far each of the first levels of a folder opened in place steps in;
+     deeper ones step less (finder/indent.ts). */
   --finder-indent: 1.15rem;
   position: relative;
   display: flex;
@@ -8110,6 +8111,28 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 :is(.finder-row, .finder-tile, .finder-crow).is-dragged { opacity: 0.45; }
 .finder-col { min-width: 0; padding: 0 0.6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .finder-col--name { display: flex; align-items: center; gap: 0.4rem; color: var(--text); }
+/* A row's indent: its level in steps (finder/indent.ts), one step for the
+   whole list, a whole --finder-indent until the Name column cannot spare
+   it. The deepest row (--finder-units) stays within a quarter of the
+   column and leaves the widest name kept (--finder-keep) its room past the
+   triangle, the icon, the gaps and the cell's padding. 100% is the
+   column's width both in the cell's padding and in its guides' offsets. */
+.finder-row .finder-col--name {
+  --finder-name-chrome: calc(0.35rem + 0.95rem + 16px + 0.8rem + 0.6rem);
+  --finder-step: max(0px, min(var(--finder-indent), 100% * 0.25 / var(--finder-units, 1), (100% - var(--finder-name-chrome) - var(--finder-keep, 0ch)) / var(--finder-units, 1)));
+  position: relative;
+  padding-left: calc(0.35rem + var(--finder-level, 0) * var(--finder-step));
+}
+/* A faint line under a row's parent's triangle: its children's run of it. */
+.finder-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(0.35rem + var(--finder-level) * var(--finder-step) + 0.475rem - 0.5px);
+  width: 1px;
+  background: color-mix(in srgb, var(--text) 11%, transparent);
+  pointer-events: none;
+}
 .finder-col--size { text-align: right; font-variant-numeric: tabular-nums; }
 .finder-disclose {
   flex: none;
