@@ -3281,6 +3281,7 @@ li:hover .chats-item-when { opacity: 0; }
 .chats-placeholder {
   flex: 1;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   color: var(--faint);
 }
@@ -3292,7 +3293,9 @@ li:hover .chats-item-when { opacity: 0; }
  * the backdrop, or Escape.
  */
 @media (max-width: 860px) {
-  .chats, .chats.is-project { grid-template-columns: 1fr; height: calc(100vh - 6.5rem); }
+  /* minmax(0, ...): a bare 1fr is as wide as the longest line in it, and the
+     landing's recent chats widened it past the phone. */
+  .chats, .chats.is-project { grid-template-columns: minmax(0, 1fr); height: calc(100vh - 6.5rem); }
   .chats.is-narrow:not(.has-view) .chats-view { display: none; }
   .chats.is-narrow .chats-list { border-right: 0; padding-right: 0; }
   .chats.is-narrow.has-view .chats-list {
@@ -5436,6 +5439,9 @@ a.health {
   overflow-y: auto;
   padding: 1.1rem;
 }
+/* A foot pinned inside the body: a field scrolled to (by a tab, or as the
+   keyboard on screen comes up) stops above it rather than behind it. */
+.drawer-body:has(.sheet-foot--inline) { scroll-padding-bottom: calc(var(--control-h) + 2rem); }
 
 
 .note-done { align-self: flex-start; margin-top: 0.6rem; }
@@ -6093,6 +6099,8 @@ a.health {
   gap: 0.4rem;
 }
 .chats-welcome .hint { margin: 0; }
+.chats-welcome-recent li { min-width: 0; max-width: 100%; }
+.chats-welcome-recent li > * { max-width: 100%; }
 
 /* —— the chat header's lineage —— */
 .chats-toggle { display: inline-flex; align-items: center; justify-content: center; }
@@ -7115,7 +7123,7 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 /* When something runs, as choices: a row of kinds, the kind's few controls, the line in words. */
 .sched { display: flex; flex-direction: column; gap: 0.55rem; }
 .sched-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; font-size: var(--text-md); color: var(--muted); }
-.kos-input--time { width: 7.5rem; flex: none; font-variant-numeric: tabular-nums; }
+.kos-input--time { width: 7.5rem; min-width: max-content; flex: none; font-variant-numeric: tabular-nums; }
 .kos-input--n { width: 4.5rem; flex: none; text-align: center; font-variant-numeric: tabular-nums; }
 .daypick { display: inline-flex; gap: 0.25rem; }
 .daypick-day { width: 2rem; height: 2rem; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--panel-2); color: var(--muted); font: inherit; font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
