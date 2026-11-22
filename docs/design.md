@@ -252,8 +252,11 @@ Discord, the side panel, KOS for Mac, and in what KOS says.
 | blob | a standing helper with a face and a thread of its own | its name, never "agent" |
 | build | coding work KOS runs in a folder | its folder; never "coding agent" |
 | chat | anything else: a chat at the root, a surface's own stream | its title |
-| schedule | what KOS runs on its own, on a timer | "Schedule" everywhere in the dashboard: the page, its tab, New schedule, the editor; never "cron" or "job" in words the owner reads. The cron line and an id are for a tooltip; the words are `scheduleWords` ("Weekdays at 8:00 AM") |
+| schedule | what KOS runs on its own, on a timer | "Schedule" everywhere in the dashboard: the page, its tab, New schedule, the editor; never "cron" or "job" in words the owner reads. The cron line and an id are for a tooltip; the words are `scheduleWords` ("Weekdays at 8:00 AM"). The editor picks when (Every day, Weekdays, Some days, Every few hours, Every few minutes, Monthly) and writes the line; the line itself is "Advanced: write the line", checked as typed (`cronProblem`) |
 | Inbox | the one queue of what waits on the owner | Inbox: the nav, Home's panel, the palette; "Approvals" only as the group of asks inside it |
+| step | one thing KOS did along the way (read a file, fetch a page) | by what it did, from `toolWords` (`@kos/shared`): "List files", "Save a secret", with what it was done to after it (`stepLine`); never the tool's name ("files.ls"), an id or its arguments, which are for a tooltip and Details |
+| sites KOS may reach | the hosts KOS fetches from without asking | "Sites KOS may reach" in Settings, Network and Permissions, and in an ask ("example.com is not one of the sites KOS may reach"); never "allowed hosts" or "allowlist" |
+| the model for thinking, the cheap model, the screen model | the three routes a turn's models go by | those words in Settings, Models, the composer's model chip and a schedule's Model; never "reasoning route" or "cheap route" |
 
 Maintenance, where KOS repairs itself, is a project and goes by Maintenance.
 
@@ -269,6 +272,18 @@ Deck, Login, API key. A thing is named by its name, never its slug ("Plant
 watcher", not plant-watcher; "Reading log", not reading_log); an id or a
 slug is for a tooltip. Every trash says Restore, Delete forever and Empty
 trash. A list of projects is by name, KOS's own last.
+
+A name the owner gives (a project, a schedule, a secret, a blob, an
+artifact) is checked one way (`checkName` in `@kos/shared`), by the server
+and by the form as it is typed: empty, longer than 80 characters (an
+artifact's title 120), a line break, no letter or digit, or another's name
+in any case, each said in one sentence on the field ("There is already a
+project called “Home lab”. Pick another name."), with Create held while it
+stands. Enter submits every form. An error is said in words (`errorWords`):
+"There is no file or folder called “notes.md”", never a store's ("UNIQUE
+constraint failed"), a tool's ("ENOENT") or a host's path; the raw text is
+under Details. A list shows where its rows will be while it is read
+(EmptyState's `loading`) and says it is empty only once it has been.
 
 When something happened is said one way (`timeWords`): "just now", "5m
 ago", "3h ago", "2d ago", "in 25m"; a clock time is `momentWords`'s ("Tomorrow
