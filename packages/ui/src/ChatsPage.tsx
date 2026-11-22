@@ -10,7 +10,7 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { cycled, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { cycled, kindWord, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
 import { isModeKey, ModeChip } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
@@ -1587,9 +1587,9 @@ export function ChatsPage({
                 <span className="chats-project-sub">
                   {projectRecord
                     ? projectRecord.description
-                      ? `${projectRecord.type} · ${projectRecord.description}`
-                      : projectRecord.type
-                    : "Not in the manifest"}
+                      ? `${kindWord(projectRecord.type)} · ${projectRecord.description}`
+                      : kindWord(projectRecord.type)
+                    : "Not in the project list"}
                 </span>
               </div>
               <SearchField className="chats-find" noun="chats" value={query} onChange={setQuery} />

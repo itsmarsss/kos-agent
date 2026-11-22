@@ -600,7 +600,7 @@ export function Inspector(props: {
                 <dl className="insp-about">
                   <div>
                     <dt>Type</dt>
-                    <dd>{p.type}</dd>
+                    <dd>{kindWord(p.type)}</dd>
                   </div>
                   <div>
                     <dt>Module</dt>
