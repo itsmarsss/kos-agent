@@ -402,13 +402,11 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
       setSel((s) => clickSelect(s, entry.path, order, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey }));
     },
     open: openEntry,
-    menu: (e, entry) => {
-      e.preventDefault();
-      e.stopPropagation();
+    menu: (at, entry) => {
       const keep = sel.paths.includes(entry.path);
       const entries = keep ? chosen : [entry];
       if (!keep) setSel(only(entry.path));
-      setMenu({ at: { x: e.clientX, y: e.clientY }, items: itemsFor(entries), label: `Actions for ${entries.length === 1 ? entry.name : `${entries.length} items`}` });
+      setMenu({ at, items: itemsFor(entries), label: `Actions for ${entries.length === 1 ? entry.name : `${entries.length} items`}` });
     },
     renamed: (entry, name) => {
       setEditing(null);
