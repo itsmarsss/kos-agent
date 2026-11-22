@@ -2255,6 +2255,19 @@ describe("handleApiRequest", () => {
     });
   });
 
+  it("lists what changed in memory, with who changed it in words", async () => {
+    const job = kernel.crons.create({ name: "kos.dream", schedule: "0 4 * * *", type: "self_prompt", prompt: "tidy", enabled: false });
+    kernel.facts.upsert("owner", { key: "city", value: "Montreal", kind: "fact" });
+    kernel.facts.upsert("owner", { key: "city", value: "Lisbon", kind: "fact" }, `cron:${job.id}`);
+    kernel.facts.upsert("owner", { key: "trip", value: "maybe Porto", kind: "fact" });
+    kernel.facts.archive("owner", "trip", "global", "owner", "a plan, not a fact");
+    const res = await handleApiRequest(kernel, { method: "GET", path: "/api/memory/changes" });
+    expect((res.body as { changes: unknown[] }).changes).toEqual([
+      expect.objectContaining({ action: "archive", key: "trip", value: "maybe Porto", reason: "a plan, not a fact", by: "owner" }),
+      expect.objectContaining({ action: "supersede", key: "city", value: "Lisbon", was: "Montreal", by: "kos.dream" }),
+    ]);
+  });
+
   it("carries out a review decision and reads page edits back", async () => {
     kernel.facts.upsert("owner", { key: "city", value: "Montreal", kind: "fact" });
     kernel.facts.upsert("owner", { key: "city", value: "Lisbon", kind: "fact", scope: "project:trip" });

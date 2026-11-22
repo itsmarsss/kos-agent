@@ -5638,6 +5638,12 @@ a.health {
 .mem-settled-vs { color: var(--faint); font-family: var(--font); }
 .mem-settled-how { flex: none; color: var(--muted); font-size: var(--text-sm); }
 .mem-settled-when { flex: none; color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.mem-change { border-top: 1px solid var(--line); padding-bottom: 0.45rem; }
+.mem-change > .mem-settled-row { border-top: 0; }
+.mem-change-diff { display: flex; flex-direction: column; gap: 0.2rem; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.mem-change-diff del { color: var(--faint); }
+.mem-change-diff ins { text-decoration: none; color: var(--text); }
+.mem-change-why { color: var(--muted); font-style: italic; }
 @media (max-width: 640px) { .mem-settled-how { display: none; } }
 .mem-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
 .mem-decision-acts { justify-content: flex-start; }

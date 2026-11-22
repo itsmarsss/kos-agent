@@ -255,6 +255,20 @@ export interface ReviewClaim {
   createdAt?: number;
 }
 
+/** One change to what memory believes: what it was, what it is now, and who changed it. */
+export interface MemoryChange {
+  id: number;
+  at: number;
+  action: "supersede" | "merge" | "archive";
+  key: string;
+  scope: string;
+  value: string;
+  was: string | null;
+  reason: string | null;
+  /** Who, in words: a schedule's name, a chat's title, the owner. */
+  by: string | null;
+}
+
 export interface ReviewItem {
   id: number;
   kind: "contradiction" | "promotion" | "other";
@@ -1766,6 +1780,7 @@ export const api = {
     post<FactRow>("/api/memory/pin", { key, pinned }),
   memoryReview: () =>
     get<{ pending: ReviewItem[]; recent: ReviewItem[]; pages: { name: string; path: string; updatedAt: number }[]; edited: string[] }>("/api/memory/review"),
+  memoryChanges: (limit = 50) => get<{ changes: MemoryChange[] }>(`/api/memory/changes?limit=${limit}`),
   resolveMemoryReview: (id: number, action: "keep" | "both" | "promote" | "dismiss", key?: string) =>
     post<{ item: ReviewItem; archived: string[]; promoted: string[] }>("/api/memory/review/resolve", { id, action, ...(key ? { key } : {}) }),
   importMemoryPages: (name?: string) =>

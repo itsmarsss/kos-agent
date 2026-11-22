@@ -45,7 +45,7 @@ const HELP = `kos commands:
   crons | snapshot | clear | memory | pages
   doctor               preflight checks
   secrets <init|status|unlock|list|add|rm|rotate|export|wipe>  the encrypted vault (kos secrets help)
-  eval memory [--agent] | dream | observe  score a memory job on its golden set; --agent runs kos.memory itself
+  eval memory [--agent] | recall | dream | observe  score a memory job on its golden set; --agent runs kos.memory itself; recall scores what a turn is given
   memory-mcp --token <caller token>  KOS memory as an MCP server for another agent, within that caller's grant
   serve                alias: host in foreground (API; Discord optional)
   discord              alias: host in foreground, require Discord
