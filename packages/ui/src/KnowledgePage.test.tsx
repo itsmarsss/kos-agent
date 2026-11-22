@@ -92,7 +92,7 @@ describe("the claims list", () => {
     // A project scope with no project behind it says so, under its slug.
     expect(groupByScope([fact({ scope: "project:gone" })], new Map())[0]).toMatchObject({ title: "gone", kind: "No such project", unknown: true });
     // Before the manifest is read, nothing is called missing.
-    expect(groupByScope([fact({ scope: "project:trip" })])[0]).toMatchObject({ title: "trip", kind: "project" });
+    expect(groupByScope([fact({ scope: "project:trip" })])[0]).toMatchObject({ title: "Trip", kind: "Project" });
     expect(groupByScope([fact({ scope: "project:trip" })])[0]!.unknown).toBeUndefined();
     // A slug written with its prefix twice is the same project.
     const twice = groupByScope([fact({ key: "x", scope: "project:project:trip" }), fact({ key: "y", scope: "project:trip" })], new Map([["trip", "Lisbon trip"]]));
