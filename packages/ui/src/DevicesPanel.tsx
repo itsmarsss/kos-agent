@@ -140,8 +140,8 @@ function PushText({ label, hint, field, value, placeholder, disabled, onSave }: 
 /** Where push stands, in the owner's words: what is wrong, where it is set, or that it is on. */
 export function pushStanding(push: PushStatus): string {
   if (push.problem) return push.problem;
-  if (push.configured) return push.source === "env" ? "On, set by KOS_APNS_* on the host. Each iPhone that turned notifications on gets KOS's asks, to approve or deny from the lock screen." : "On. Each iPhone that turned notifications on gets KOS's asks, to approve or deny from the lock screen.";
-  return "Off until an APNs key is added. It takes an Apple developer account: in Certificates, Identifiers and Profiles, make a key with Apple Push Notifications service, and download its .p8 file.";
+  if (push.configured) return push.source === "env" ? "On, set when KOS was started. Each iPhone with notifications on gets KOS's asks, to approve or deny from the lock screen." : "On. Each iPhone with notifications on gets KOS's asks, to approve or deny from the lock screen.";
+  return "Off. To get KOS's asks on an iPhone's lock screen, you need an Apple developer account and a push key from Apple; the fields below say where each part comes from.";
 }
 
 /**
@@ -331,6 +331,24 @@ function DeviceRow({ device, push, onChanged }: { device: PairedDevice; push: Pu
   );
 }
 
+/**
+ * Where the two apps come from, for an owner who has neither: both are built
+ * from KOS's own folder, so each is one step there, said as the command to run.
+ */
+function GetTheApps(): ReactElement {
+  return (
+    <div className="set-group device-get">
+      <h2>Get the apps</h2>
+      <p className="hint">KOS for Mac lets KOS work a Mac. Build it once, in Terminal, from KOS's folder:</p>
+      <CommandLine command="packages/device-macos/scripts/bundle.sh --install" />
+      <p className="hint">
+        KOS for Chrome lets KOS work in tabs of your own Chrome. Open chrome://extensions, turn on Developer mode, press Load unpacked, and pick the
+        packages/browser-extension/dist folder in KOS's folder.
+      </p>
+    </div>
+  );
+}
+
 function PairingCode({ code, now, onDone }: { code: DeviceCode; now: number; onDone: () => void }): ReactElement {
   const origin = window.location.origin;
   const link = pairingLink(origin, code.code);
@@ -346,9 +364,16 @@ function PairingCode({ code, now, onDone }: { code: DeviceCode; now: number; onD
       </p>
       <p className="hint">
         {left > 0
-          ? `On a Mac, open KOS for Mac and paste the link, or enter ${origin} and this code. In Chrome, paste the link into KOS for Chrome. Good for ${left} more minute${left === 1 ? "" : "s"}, once.`
+          ? `This code works once, for ${left} more minute${left === 1 ? "" : "s"}.`
           : "This code has expired. Make another."}
       </p>
+      {left > 0 && (
+        <ol className="device-steps hint">
+          <li>On this Mac: press Open KOS for Mac below, and it pairs on its own.</li>
+          <li>On another Mac: open KOS for Mac, choose Add a KOS, and paste the link from Copy link. Or type this KOS's address, {origin}, and the code.</li>
+          <li>In Chrome: open KOS for Chrome from the toolbar, choose Add a KOS, and paste the same link.</li>
+        </ol>
+      )}
       {code.lan && left > 0 && (
         <p className="hint">
           On an iPhone on this Wi-Fi, paste the phone link into KOS for iPhone, or enter {code.lan.url} and this code. Check your iPhone shows{" "}
@@ -445,8 +470,9 @@ export function DevicesPanel(): ReactElement {
   return (
     <>
       {devices.length === 0 && !code && (
-        <EmptyState variant="inline">Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</EmptyState>
+        <EmptyState variant="inline">Nothing paired yet. Get KOS for Mac or KOS for Chrome below, then press Add a device.</EmptyState>
       )}
+      {devices.length === 0 && !code && <GetTheApps />}
       {joined && <p className="hint">Paired {joined}.</p>}
       <div className="set-rows">
         {devices.map((d) => (
@@ -464,7 +490,12 @@ export function DevicesPanel(): ReactElement {
       )}
       {settings && <SessionRules settings={settings} onChange={change} />}
       {settings && <PhoneRules settings={settings} lan={lan} onChange={change} />}
-      {push && <PushRules push={push} onSave={savePush} />}
+      {push && (
+        <details className="settings-more" open={push.configured || Boolean(push.problem)}>
+          <summary>Advanced: phone notifications</summary>
+          <PushRules push={push} onSave={savePush} />
+        </details>
+      )}
       {settings && <UpdateRules settings={settings} onChange={change} />}
     </>
   );

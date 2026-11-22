@@ -129,10 +129,15 @@ describe("the Devices panel", () => {
     vi.spyOn(api, "deviceCode").mockResolvedValue({ code: "K7QX-M2PA", expiresAt: Date.now() + 10 * 60_000 });
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<DevicesPanel />);
+    // With nothing paired, it says where each app comes from before asking for a code.
+    expect(await screen.findByText("Get the apps")).toBeTruthy();
+    expect(screen.getByText("packages/device-macos/scripts/bundle.sh --install")).toBeTruthy();
+    expect(screen.getByText(/Load unpacked/)).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Add a device" }));
     expect(await screen.findByLabelText("Pairing code")).toBeTruthy();
     expect(screen.getByText("Open KOS for Mac").getAttribute("href")).toMatch(/^kos-device:\/\/pair\?url=.*&code=K7QX-M2PA$/);
-    expect(screen.getByText(/Good for 10 more minutes, once/)).toBeTruthy();
+    expect(screen.getByText(/works once, for 10 more minutes/)).toBeTruthy();
+    expect(screen.getByText(/In Chrome: open KOS for Chrome/)).toBeTruthy();
 
     devices.mockResolvedValue({ devices: [laptop], settings: { askMinutes: 15, unattended: false, lan: false, autoUpdate: true } });
     await vi.advanceTimersByTimeAsync(3_100);
@@ -224,7 +229,7 @@ describe("a phone's notifications", () => {
 
   it("say where push stands: what is wrong first, where it is set, or how to get a key", () => {
     expect(pushStanding({ ...off, problem: "Push needs the team ID." })).toBe("Push needs the team ID.");
-    expect(pushStanding({ ...on, source: "env" })).toMatch(/KOS_APNS_\*/);
+    expect(pushStanding({ ...on, source: "env" })).toMatch(/set when KOS was started/);
     expect(pushStanding(off)).toMatch(/Apple developer account/);
   });
 
