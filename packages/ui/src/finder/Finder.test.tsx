@@ -232,8 +232,19 @@ describe("the finder", () => {
     expect(JSON.parse(localStorage.getItem("kos.finder.views")!)).toEqual({ "projects/garden": "columns" });
   });
 
-  it("marks KOS's own files and offers nothing that would change them", async () => {
+  it("hides KOS's own files until asked, and remembers the choice", async () => {
+    render(<Finder path="." />);
+    await screen.findByText("projects");
+    expect(screen.queryByText("kos.sqlite")).toBeNull();
+    fireEvent.contextMenu(main(), { clientX: 5, clientY: 5 });
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Show KOS's files" }));
+    expect(await screen.findByText("kos.sqlite")).toBeTruthy();
+    expect(localStorage.getItem("kos.finder.showOwn")).toBe("1");
+  });
+
+  it("marks KOS's own files and offers nothing that would change them, saying why", async () => {
     const trash = vi.spyOn(api, "trashFile");
+    localStorage.setItem("kos.finder.showOwn", "1");
     render(<Finder path="." />);
     await screen.findByText("kos.sqlite");
     const own = row("kos.sqlite");
@@ -243,6 +254,7 @@ describe("the finder", () => {
     const items = screen.getAllByRole("menuitem").map((el) => el.textContent ?? "");
     expect(items.some((t) => t.startsWith("Get Info"))).toBe(true);
     for (const word of ["Rename", "Duplicate", "Move to", "Move to Trash"]) expect(items.some((t) => t.startsWith(word))).toBe(false);
+    expect(items).toContain("KOS's own file: it can't be renamed, moved or trashed");
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.mouseDown(own);
     key("Enter");
