@@ -111,6 +111,14 @@
     -webkit-line-clamp: unset;
   }
 
+  /* A claim's actions apart enough for a finger, Forget a step further from Edit. */
+  .know-acts {
+    gap: 0.25rem;
+  }
+  .know-acts > :last-child {
+    margin-left: 0.5rem;
+  }
+
   /* A keyboard's shortcuts mean nothing to a finger. */
   .finder-menu-keys,
   .side kbd,
@@ -141,6 +149,11 @@
    do: at the bottom it sat over what is pinned there, Files' path, a sheet's
    Save, the composer. */
 @media (max-width: 860px) {
+  /* The drawer has no narrow rail to fold into. */
+  .side-collapse {
+    display: none;
+  }
+
   /* A settings card's Save stays at the window's foot while the card is longer than it. */
   .set-card {
     /* Clipped round its corners without being a scroller of its own, which would hold the foot. */

@@ -23,6 +23,14 @@ export function keyboardInset(windowHeight: number, visibleHeight: number, visib
   return Math.max(0, Math.round(windowHeight - seen));
 }
 
+/** How far, in px, a finger travels toward the edge before a drawer from that edge shuts. */
+const SWIPE_SHUT = 56;
+
+/** Whether a finger's travel (`dx` left is negative) is a swipe back to the left edge: far enough, and more across than down. */
+export function swipedShut(dx: number, dy: number): boolean {
+  return dx <= -SWIPE_SHUT && Math.abs(dx) > 1.5 * Math.abs(dy);
+}
+
 const EDITABLE = "input, textarea, select, [contenteditable='true']";
 
 /**
