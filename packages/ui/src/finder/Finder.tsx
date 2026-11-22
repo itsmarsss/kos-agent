@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactElement } from "react";
 
-import { NavIcon, SheetFoot, useOverlayScroll } from "@kos/kit";
+import { EmptyState, NavIcon, SheetFoot, useOverlayScroll } from "@kos/kit";
 
 import { Toast } from "../Toast.js";
 import { api, type Attachment, type DirEntry, type FileSearch, type Project } from "../api.js";
@@ -590,7 +590,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   const loading = place.kind === "folder" && !found && !folders.get(folder).entries && !folders.get(folder).error;
   const folderError = place.kind === "folder" ? folders.get(folder).error : undefined;
   const title = found ? `Searching “${query.trim()}”` : place.kind === "recents" ? "Recents" : place.kind === "trash" ? "Trash" : folder === root ? rootName : nameOf(folder);
-  const emptyWords = found ? (found.entries.length ? "" : `Nothing ${contents ? "holds" : "is named"} “${query.trim()}” here.`) : place.kind === "recents" ? "Nothing has changed lately." : folderError ?? "This folder is empty.";
+  const emptyWords = place.kind === "recents" ? "Nothing has changed lately." : folderError ?? "This folder is empty.";
   /** An empty folder says how things get in; anything else just says what it found. */
   const empty =
     place.kind === "folder" && !found && !folderError ? (
@@ -599,6 +599,9 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
         <span>{emptyWords}</span>
         <span className="finder-empty-hint">Drop files here, or use Upload.</span>
       </>
+    ) : found ? (
+      // A search that found nothing says so as every search does, with the one way back.
+      <EmptyState variant="inline" query={{ noun: "files", onClear: () => setQuery("") }} />
     ) : (
       emptyWords
     );
