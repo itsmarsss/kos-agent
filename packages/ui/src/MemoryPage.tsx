@@ -37,6 +37,7 @@ export function MemoryPage({
   conversations = [],
   projectNames,
   onChanged,
+  onNotice,
 }: {
   facts: FactRow[];
   tags: string[];
@@ -45,6 +46,8 @@ export function MemoryPage({
   /** So a log row can name the chat it came from rather than show its id. */
   conversations?: Conversation[];
   onChanged: () => void;
+  /** Says what an action on a claim did, for a toast. */
+  onNotice?: (text: string) => void;
 }): ReactElement {
   const titles = useMemo(() => new Map(conversations.map((c) => [c.id, c.title])), [conversations]);
   const [tab, setTab] = useState<Tab>(() => {
@@ -107,7 +110,7 @@ export function MemoryPage({
         }
       />
       <div id="mem-panel" role="tabpanel" aria-labelledby={tabId("Memory", tab)} className="mem-panel">
-      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} query={claimsQuery} onQuery={setClaimsQuery} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
+      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} query={claimsQuery} onQuery={setClaimsQuery} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} {...(onNotice ? { onNotice } : {})} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}
       {tab === "log" && <LogTab titles={titles} query={logQuery} {...(projectNames ? { projectNames } : {})} />}

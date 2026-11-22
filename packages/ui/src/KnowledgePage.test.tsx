@@ -153,6 +153,33 @@ describe("the claims list", () => {
     expect(document.activeElement).toBe(edit);
   });
 
+  it("pins, edits and asks to forget from one key on a focused row, and says so", async () => {
+    const pin = vi.spyOn(api, "pinMemory").mockResolvedValue(fact({ pinned: true }));
+    const forget = vi.spyOn(api, "deleteMemory").mockResolvedValue({ key: "monthly_budget", removed: true });
+    const notice = vi.fn();
+    render(<Claims facts={[fact()]} tags={[]} onChanged={() => undefined} onNotice={notice} />);
+    const open = document.querySelector<HTMLButtonElement>(".know-open")!;
+    open.focus();
+    fireEvent.keyDown(open, { key: "p" });
+    expect(pin).toHaveBeenCalledWith("monthly_budget", true);
+    await waitFor(() => expect(notice).toHaveBeenCalledWith("Pinned monthly_budget"));
+    // Delete only asks: the confirm opens and nothing is forgotten yet.
+    fireEvent.keyDown(open, { key: "Delete" });
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+    expect(forget).not.toHaveBeenCalled();
+    fireEvent.keyDown(open, { key: "e" });
+    expect(screen.getByDisplayValue("1200 a month")).toBeTruthy();
+  });
+
+  it("leaves a letter typed on an action button alone", () => {
+    const pin = vi.spyOn(api, "pinMemory").mockResolvedValue(fact({ pinned: true }));
+    pin.mockClear();
+    render(<Claims facts={[fact()]} tags={[]} onChanged={() => undefined} />);
+    const edit = screen.getByRole("button", { name: "Edit monthly_budget" });
+    fireEvent.keyDown(edit, { key: "p" });
+    expect(pin).not.toHaveBeenCalled();
+  });
+
   it("counts each kind on its chip", () => {
     render(<Claims facts={[fact({ key: "p1", kind: "preference" }), fact({ key: "f1", pinned: true }), fact({ key: "f2" })]} tags={[]} onChanged={() => undefined} />);
     const kind = screen.getByRole("group", { name: "Kind" });
