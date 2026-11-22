@@ -104,7 +104,7 @@ describe("the memory panel", () => {
     show("memory", data({ memory: { claims: 12, unread: 3, extraction: true, decisions: 0, jobs: [{ id: 2, name: "kos.memory", enabled: false, lastRunAt: null }] } }));
     expect(screen.getByText("12")).toBeTruthy();
     expect(screen.getByText("claims")).toBeTruthy();
-    expect(screen.getByText(/Jobs off; reading after each turn/)).toBeTruthy();
+    expect(screen.getByText(/Its schedules are off; reading after each turn/)).toBeTruthy();
   });
 
   it("names the jobs that are on and when one last ran", () => {

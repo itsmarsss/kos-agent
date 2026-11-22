@@ -263,14 +263,14 @@ export function CronEditor({
         {!job && (
           <Field
             label="Start from"
-            hint="A whole job, written out; change any of it below. The brief reads your calendar and mail when those servers are added under Settings, MCP servers, and says what it could not read until then. A watch reads a page in the browser and tells you what changed, with no model turn. Run a script runs a promoted script skill, picked below, with no model turn; Run a command runs a shell line, which asks the first time and never again once you press Always."
+            hint="A whole schedule, written out; change any of it below. The brief reads your calendar and mail when those servers are added under Settings, MCP servers, and says what it could not read until then. A watch reads a page in the browser and tells you what changed, with no model turn. Run a script runs a promoted script skill, picked below, with no model turn; Run a command runs a shell line, which asks the first time and never again once you press Always."
           >
             <Select
               className="settings-select"
               label="Start from a template"
               value=""
               options={[
-                { value: "", label: "a blank job" },
+                { value: "", label: "A blank schedule" },
                 ...TEMPLATES.map((t) => ({ value: t.id, label: t.label, hint: describeCron(t.schedule) ?? t.schedule })),
               ]}
               onChange={(v) => {
@@ -300,7 +300,7 @@ export function CronEditor({
         </Field>
 
         {!system && (
-          <Field label="Project" hint="Whose job this is. A self-prompt runs with the project's context; its runs sit in the project's rail.">
+          <Field label="Project" hint="Whose schedule this is. A self-prompt runs with the project's context; its runs sit in the project's rail.">
             <Select
               className="settings-select"
               label="Project"

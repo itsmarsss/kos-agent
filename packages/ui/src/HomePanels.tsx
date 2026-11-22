@@ -70,7 +70,7 @@ const RUN_TONE: Record<string, Tone> = { ok: "ok", error: "danger", running: "ac
 
 /** One run as a tick: its colour is its outcome, its title the rest. */
 function runTick(r: RunRecord): Tick {
-  const what = r.kind === "cron" ? "job" : r.kind === "chat" ? "turn" : r.kind;
+  const what = r.kind === "cron" ? "schedule" : r.kind === "chat" ? "turn" : r.kind;
   const how = r.error ? `${r.status}: ${r.error}` : r.status;
   return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${timeWords(r.startedAt)}` };
 }
@@ -572,9 +572,9 @@ export function Panel({
           </div>
           <p className="panel-note panel-memory-jobs">
             {mem.jobs.length === 0
-              ? "No memory jobs yet."
+              ? "No memory schedules yet."
               : on.length === 0
-                ? `Jobs off${mem.extraction ? "; reading after each turn" : "; nothing reads the log"}.`
+                ? `Its schedules are off${mem.extraction ? "; reading after each turn" : "; nothing reads the log"}.`
                 : `${on.map((j) => jobTitle(j.name)).join(", ")} on${latest ? `, last ran ${timeWords(latest)}` : ", never ran"}.`}
           </p>
         </div>

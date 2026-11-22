@@ -1100,7 +1100,7 @@ export function SettingsPage({
                   }
                 />
                 <Limit
-                  label="Self-prompted jobs per hour"
+                  label="Schedules that ask KOS, per hour"
                   hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
                   value={how.selfPromptsPerHour}
                   range={limits.selfPromptsPerHour}

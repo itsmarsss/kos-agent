@@ -35,7 +35,7 @@ type Filter = "all" | "tools" | "runs" | "failures";
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "Everything" },
   { value: "tools", label: "Tools" },
-  { value: "runs", label: "Turns and jobs" },
+  { value: "runs", label: "Turns and schedules" },
   { value: "failures", label: "Failed" },
 ];
 

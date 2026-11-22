@@ -17,7 +17,7 @@ import { Select } from "./Select.js";
 type TaskKey = "reasoning" | "cheap" | "screen";
 
 const TASKS: Array<{ key: TaskKey; label: string; hint: string }> = [
-  { key: "reasoning", label: "Reasoning", hint: "every chat turn and scheduled job" },
+  { key: "reasoning", label: "Reasoning", hint: "every chat turn and schedule" },
   { key: "cheap", label: "Cheap", hint: "deciding what is worth remembering" },
   { key: "screen", label: "Screen work", hint: "the clicks and looks on a computer or in Chrome; the reasoning model unless you choose another" },
 ];

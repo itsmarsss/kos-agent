@@ -68,7 +68,7 @@ export function describeSource(source: string | null | undefined): string {
   if (!source) return "unknown";
   if (source === "dashboard") return "you, here";
   if (source === "chat") return "a chat";
-  if (source.startsWith("cron:")) return `a scheduled job (#${source.slice("cron:".length)})`;
+  if (source.startsWith("cron:")) return "a schedule";
   if (source.startsWith("caller:")) return `the ${source.slice("caller:".length)} caller`;
   if (source.startsWith("project:")) return `the ${source.slice("project:".length)} orchestrator`;
   return source.replace(/:owner$/, "");

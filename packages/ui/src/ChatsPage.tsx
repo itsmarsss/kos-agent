@@ -1685,7 +1685,7 @@ export function ChatsPage({
                   type="button"
                   className="chats-group-add"
                   aria-label="New schedule"
-                  title="Schedule a job for this project"
+                  title="A new schedule for this project"
                   onClick={() => onEditCron(undefined, project.slug)}
                 >
                   +
@@ -1959,7 +1959,7 @@ export function ChatsPage({
                       rather than what the owner is doing now. */}
                   {scheduled.length > 0 && (
                     <RailGroup
-                      title="Scheduled"
+                      title="Schedules"
                       count={scheduled.length}
                       {...(runningJobs > 0 ? { note: `${runningJobs} running` } : {})}
                       open={q !== "" || folds.isOpen("scheduled")}
@@ -2236,8 +2236,8 @@ export function ChatsPage({
                     {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} />}
                     {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
                     {active.title}
-                    {active.kind === "project" && <span className="chats-role">orchestrator</span>}
-                    {(active.kind === "agent" || active.role) && <span className="chats-role">blob</span>}
+                    {active.kind === "project" && <span className="chats-role">Orchestrator</span>}
+                    {(active.kind === "agent" || active.role) && <span className="chats-role">Blob</span>}
                   </h1>
                   {/* Inside the project the rail lists the agents, so the count
                       would say what is already in view. */}
