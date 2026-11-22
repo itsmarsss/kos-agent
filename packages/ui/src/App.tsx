@@ -55,11 +55,10 @@ import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { Refreshes } from "./refreshes.js";
 import { HostBanner } from "./HostBanner.js";
-import { Toast } from "./Toast.js";
+import { toast, ToastHost, type ToastTone } from "./Toast.js";
 import { useReach } from "./reach.js";
 import { jobTitle, lastRunWords } from "./schedulewords.js";
 
-type Toast = { kind: "ok" | "warn" | "err"; text: string } | null;
 
 export function App(): React.ReactElement {
   const [route, setRoute] = useState<Route>(() =>
@@ -93,7 +92,6 @@ export function App(): React.ReactElement {
   const [busy, setBusy] = useState<string | null>(null);
   /** Pending actions being decided right now. */
   const [deciding, setDeciding] = useState<ReadonlySet<number>>(new Set());
-  const [toast, setToast] = useState<Toast>(null);
   const [activePage, setActivePage] = useState<AnyPagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
@@ -184,6 +182,11 @@ export function App(): React.ReactElement {
     const job = crons.find((c) => c.name.toLowerCase() === want || String(c.id) === want);
     if (job) setEditingCron({ job });
   }, [route, crons]);
+  /** The schedule's drawer shut, and its address with it, so the next read of the jobs does not open it again. */
+  const closeCron = (): void => {
+    setEditingCron(null);
+    if (route.name === "crons" && route.job) window.location.hash = hrefFor({ name: "crons" });
+  };
   const [conversations, setConversations] = useState<Conversation[]>([]);
   /** KOS's own look, from the status: every face of KOS and the tab icon use it. */
   const kosLook = useMemo(() => lookOf(KOS_SEED, status?.face ?? {}), [status?.face]);
@@ -213,10 +216,8 @@ export function App(): React.ReactElement {
     link.href = faceDataUrl(kosLook, mood);
   }, [kosLook, status?.pendingApprovals, status?.halted]);
 
-  const flash = (kind: "ok" | "warn" | "err", text: string): void => {
-    setToast({ kind, text });
-    window.setTimeout(() => setToast(null), 3200);
-  };
+  /** A note in the one toast queue: its own id and timer, so the same words twice show twice. */
+  const flash = (kind: ToastTone, text: string): void => void toast({ kind, text });
 
   /**
    * One poll feeds the whole dashboard. Settled rather than all: under
@@ -394,7 +395,8 @@ export function App(): React.ReactElement {
         await refresh();
         return;
       }
-      flash("ok", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
+      // A no is said in the quiet tone: the green check is for what was done, not for what was refused.
+      flash(approved ? "ok" : "info", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
@@ -524,7 +526,7 @@ export function App(): React.ReactElement {
     try {
       await api.setKill(!status.halted);
       await refresh();
-      flash("ok", status.halted ? "Resumed" : "Halted");
+      flash(status.halted ? "ok" : "info", status.halted ? "Resumed" : "Halted");
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
     } finally {
@@ -721,7 +723,7 @@ export function App(): React.ReactElement {
       />
       <main className="ops" tabIndex={-1} data-focus-home>
         <HostBanner reach={reach} />
-        <Toast note={toast} />
+        <ToastHost />
         {/* Keyed on what it shows, and still keyed on it while it shuts, so
             the drawer leaves with what it held rather than vanishing. */}
           <Inspector
@@ -783,25 +785,23 @@ export function App(): React.ReactElement {
           open={editingCron !== null}
           title={editingCron?.job ? jobTitle(editingCron.job.name) : "New schedule"}
           subtitle={editingCron?.job ? scheduleWords(editingCron.job.schedule) : "Runs on its own, on a schedule you set"}
-          onClose={() => {
-            setEditingCron(null);
-            if (route.name === "crons" && route.job) window.location.hash = hrefFor({ name: "crons" });
-          }}
+          onClose={closeCron}
         >
           {editingCron && (
             <CronEditor
+              onNotice={(text) => flash("ok", text)}
               projects={projects.filter((p) => p.status === "active").map((p) => ({ slug: p.slug, name: p.name }))}
               {...(editingCron.projectSlug ? { defaultProject: editingCron.projectSlug } : {})}
               {...(editingCron.job ? { job: editingCron.job } : {})}
               hooks={status?.hooks === true}
               onDone={() => {
-                setEditingCron(null);
+                closeCron();
                 void refresh();
               }}
-              onCancel={() => setEditingCron(null)}
+              onCancel={closeCron}
               onRunNow={(id) => {
                 const job = crons.find((c) => c.id === id);
-                setEditingCron(null);
+                closeCron();
                 void runCronNow(id, job?.name ?? `cron #${id}`);
               }}
               onToggle={(id, enabled) => {
@@ -1326,6 +1326,7 @@ export function App(): React.ReactElement {
   if (route.name === "memory") {
     return shell(
       <MemoryPage
+        onNotice={(text) => flash("ok", text)}
         facts={facts}
         tags={factTags}
         {...(projectNames ? { projectNames } : {})}

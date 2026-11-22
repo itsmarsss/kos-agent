@@ -458,7 +458,7 @@ export function CommandPalette({
         if (m.kind === "chat") ctx.openChat(m.id);
         else if (m.kind === "page") ctx.go({ name: "page", id: m.id });
         else if (m.kind === "file") ctx.go({ name: "files", path: m.id });
-        else if (m.kind === "schedule") ctx.go({ name: "crons" });
+        else if (m.kind === "schedule") ctx.go({ name: "crons", job: m.id });
         else if (m.kind === "project") ctx.go({ name: "project", slug: m.id });
         else if (m.kind === "blob") ctx.go({ name: "blobs", blob: m.id });
         else if (m.kind === "build") ctx.openAgent(Number(m.id));
