@@ -9,6 +9,7 @@ import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { hrefFor } from "./routes.js";
+import { groupsOf } from "./ToolPicker.js";
 import { lastRunWords, runDays, WEEK } from "./schedulewords.js";
 
 /**
@@ -114,7 +115,7 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
         {invalidReason ? (
           <>
             <p className="ops-alert ops-alert--err" role="alert">
-              {`blobs/${name}/blob.md does not read as a blob: ${invalidReason}.`}
+              {`This blob's file can't be read: ${invalidReason}.`}
             </p>
             <button type="button" className="btn btn--sm" onClick={() => onOpenFile(`blobs/${name}/blob.md`)}>
               Open the file
@@ -201,16 +202,16 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
       <Card title="Reach">
         <div className="tags">
           {agent.tools?.length ? (
-            agent.tools.map((t) => (
-              <Tag key={t} mono title="A tool family it may use">
-                {t}
+            groupsOf(agent.tools).map((g) => (
+              <Tag key={g.name} title={`${g.line} (${g.families.join(", ")})`}>
+                {g.name}
               </Tag>
             ))
           ) : (
-            <Tag title="Every tool KOS has">Full toolkit</Tag>
+            <Tag title="Every tool KOS has">Everything KOS can do</Tag>
           )}
           <Tag title={agent.memory === "own" ? "What it remembers is its own" : "It shares memory with the project it is in, or the global pool"}>{agent.memory === "own" ? "Own memory" : "Shared memory"}</Tag>
-          <Tag title="Which model class answers">{agent.task === "cheap" ? "Cheap model" : "Reasoning model"}</Tag>
+          <Tag title={agent.task === "cheap" ? "The cheap model, for routine checks" : "The model for thinking, for work that needs judgement"}>{agent.task === "cheap" ? "Quick model" : "Thinking model"}</Tag>
           {agent.report === "always" && <Tag title="Each scheduled run's answer is sent to you, tagged as its own">Reports each run</Tag>}
         </div>
       </Card>
@@ -238,7 +239,7 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
         />
       </footer>
 
-      <Drawer open={editing} title={`Edit ${title}`} subtitle="Its file, as a form; what you save is the next turn's brief" wide onClose={() => setEditing(false)}>
+      <Drawer open={editing} title={`Edit ${title}`} subtitle="What you save, it follows from its next run" wide onClose={() => setEditing(false)}>
         {editing && (
           <AgentEditor
             initial={agent}
