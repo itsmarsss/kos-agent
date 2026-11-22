@@ -93,6 +93,7 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
         mode={sheet ?? { kind: "add" }}
         status={status}
         conversations={conversations}
+        taken={(secrets ?? []).filter((x) => x.source === "vault").map((x) => x.label)}
         onClose={close}
         onSaved={saved}
         onDeleted={saved}
@@ -277,27 +278,33 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
     <Card title="Vault" pill={<Pill tone="ok">Open</Pill>} className="secret-vault">
       <dl className="secret-facts">
         <div>
-          <dt>Opens with</dt>
-          <dd>{hasPassphrase ? "Passphrase" : "Key file"}</dd>
+          <dt>Unlocks</dt>
+          <dd title={hasPassphrase ? "The vault has a passphrase and no key file" : "A key file on this computer, outside the workspace, opens it"}>
+            {hasPassphrase ? "When you type the passphrase" : "On its own when KOS starts"}
+          </dd>
         </div>
         <div>
-          <dt>Masked since start</dt>
-          <dd title="Times a secret's value was caught in KOS's output and masked before it was kept or shown">
-            {status.scrubbed} {status.scrubbed === 1 ? "time" : "times"}
+          <dt>Kept out of what KOS writes</dt>
+          <dd title="Times a secret's value turned up in KOS's output and was hidden before it was kept or shown, since KOS started">
+            {status.scrubbed} {status.scrubbed === 1 ? "time" : "times"} since KOS started
           </dd>
         </div>
       </dl>
       <div className="secret-vault-acts">
-        <button type="button" className="btn" disabled={busy} onClick={() => void run(secretsApi.rotate, "Key rotated.")}>
-          Rotate key
+        <button type="button" className="btn" disabled={busy} title="Re-encrypt every secret with a fresh key; nothing else changes" onClick={() => void run(secretsApi.rotate, "Key changed.")}>
+          Change the key
         </button>
-        <button type="button" className="btn" aria-expanded={open === "passphrase"} onClick={() => toggle("passphrase")}>
+        <button type="button" className="btn" aria-expanded={open === "passphrase"} title={hasPassphrase ? undefined : "Lock the vault behind a passphrase you type after each start"} onClick={() => toggle("passphrase")}>
           {hasPassphrase ? "Change passphrase" : "Add passphrase"}
         </button>
-        <button type="button" className="btn btn--danger" aria-expanded={open === "wipe"} onClick={() => toggle("wipe")}>
+        {note && <span className="hint">{note}</span>}
+      </div>
+      {/* Apart from the routine two, and said for what it is. */}
+      <div className="secret-vault-danger">
+        <span className="hint">Erase the vault and every secret in it, for good.</span>
+        <button type="button" className="btn btn--danger btn--sm" aria-expanded={open === "wipe"} onClick={() => toggle("wipe")}>
           Wipe vault
         </button>
-        {note && <span className="hint">{note}</span>}
       </div>
       {open === "passphrase" && (
         <form key={`pass-${hasPassphrase}`} className="secret-wipe" aria-label="The vault's passphrase" autoComplete="off" onSubmit={(e) => {

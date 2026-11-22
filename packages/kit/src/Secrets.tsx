@@ -31,6 +31,8 @@ export interface SecretFieldProps {
   help?: ReactNode;
   /** A passphrase being set: told to the browser as a new password, so it is never offered back or filled in. */
   newPassword?: boolean;
+  /** What is wrong with it, said under it in place of the help. */
+  error?: string | null;
 }
 
 /**
@@ -55,7 +57,7 @@ const SECRET_ATTR = "data-secret";
  * A secret's value, masked as it is typed. Blank means unchanged when one
  * is kept; paste works; the browser is told not to remember, fill or check it.
  */
-export function SecretField({ label, name, hint, set = false, plain = false, multiline = false, required = false, disabled = false, placeholder, inputMode, seed, autoFocus, help, newPassword = false }: SecretFieldProps): ReactElement {
+export function SecretField({ label, name, hint, set = false, plain = false, multiline = false, required = false, disabled = false, placeholder, inputMode, seed, autoFocus, help, newPassword = false, error }: SecretFieldProps): ReactElement {
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     if (seed && ref.current) ref.current.value = seed;
@@ -83,7 +85,7 @@ export function SecretField({ label, name, hint, set = false, plain = false, mul
     required: required && !set,
   } as const;
   return (
-    <Field label={label} required={required && !set} hint={help}>
+    <Field label={label} required={required && !set} hint={help} error={error}>
       {multiline ? <textarea rows={3} {...common} /> : <input type={type} inputMode={inputMode} {...common} />}
     </Field>
   );

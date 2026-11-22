@@ -139,7 +139,10 @@ describe("the Secrets page", () => {
     expect(screen.getByText("github.com")).toBeTruthy();
     expect(screen.getAllByText("Used 2h ago")).toHaveLength(2);
     expect(screen.getByText("From env")).toBeTruthy();
-    expect(screen.getByText("3 times")).toBeTruthy();
+    expect(screen.getByText("3 times since KOS started")).toBeTruthy();
+    expect(screen.getByText("On its own when KOS starts")).toBeTruthy();
+    // Wipe stands apart from the routine two, said for what it does.
+    expect(screen.getByText("Wipe vault").closest(".secret-vault-danger")?.textContent).toContain("every secret in it, for good");
   });
 
   it("never draws a value from a GET, and opens an edit with every value field blank", async () => {
@@ -206,6 +209,48 @@ describe("the Secrets page", () => {
     const sent = calls.find((c) => c.method === "POST" && c.path === "/api/secrets")!.body as { use: { http: unknown }; values: unknown };
     expect(sent.use.http).toEqual({ hosts: ["api.openai.com"], as: "bearer" });
     expect(sent.values).toEqual({ token: "sk-proj-abcdefghijklmnop" });
+  });
+
+  it("says a taken label and an empty value under their fields, not the browser's words, and keeps Create off while the label is taken", async () => {
+    serve("ready", { "POST /api/secrets": () => ({ handle: "x" }) });
+    render(<SecretsPage />);
+    fireEvent.click(await screen.findByText("New secret"));
+    const create = (): HTMLButtonElement => screen.getAllByText("Create").find((b) => b.closest(".sheet-foot"))! as HTMLButtonElement;
+    fireEvent.click(create());
+    expect(await screen.findByText("Give the secret a name.")).toBeTruthy();
+    expect(screen.getByText("Type the password.")).toBeTruthy();
+    expect(calls.some((c) => c.method === "POST" && c.path === "/api/secrets")).toBe(false);
+    fireEvent.change(screen.getByLabelText("Label", { exact: false }), { target: { value: "github " } });
+    expect(screen.getByText("There is already a secret called “GitHub”. Pick another name.")).toBeTruthy();
+    expect(create().disabled).toBe(true);
+  });
+
+  it("puts the server's refusal of a label on the Label field", async () => {
+    routes = {};
+    serve("ready");
+    vi.mocked(fetch).mockImplementation(async (path, init) => {
+      const method = init?.method ?? "GET";
+      calls.push({ method, path: String(path), body: undefined });
+      if (method === "POST" && path === "/api/secrets") return new Response(JSON.stringify({ error: "Keep it to 80 characters; this is 90.", field: "label", problem: "too_long" }), { status: 400 });
+      const route = routes[`${method} ${String(path)}`];
+      return route ? new Response(JSON.stringify(route(method, undefined))) : new Response("{}", { status: 404 });
+    });
+    render(<SecretsPage />);
+    fireEvent.click(await screen.findByText("New secret"));
+    fireEvent.change(screen.getByLabelText("Label", { exact: false }), { target: { value: "Work laptop" } });
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: "pw" } });
+    fireEvent.click(screen.getAllByText("Create").find((b) => b.closest(".sheet-foot"))!);
+    const said = await screen.findByText("Keep it to 80 characters; this is 90.");
+    expect(said.closest("[data-field]")?.getAttribute("data-field")).toBe("Label");
+  });
+
+  it("warns of an API key with no host, and offers no per-site ask for it", async () => {
+    serve("ready");
+    render(<SecretsPage />);
+    fireEvent.click(await screen.findByText("New secret"));
+    fireEvent.click(await screen.findByRole("button", { name: "API key" }));
+    expect(screen.getByText(/With no host, KOS can't send this key anywhere/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Once per site" })).toBeNull();
   });
 
   it("revokes a remembered site and lists the uses", async () => {
