@@ -6,7 +6,7 @@ import { kindWord, momentWords, slugWords, timeWords } from "@kos/shared";
 import { api, type CallerInfo, type CronJob, type FactRow, type MemoryChange, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 import { PageHead, PageTabs, tabId } from "./PageHead.js";
-import { useHashParam } from "./hashparams.js";
+import { useCreateParam, useHashParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
 import { scheduleWords } from "./schedule.js";
 import { jobTitle, lastRunWords } from "./schedulewords.js";
@@ -67,6 +67,10 @@ export function MemoryPage({
   };
   /** The new-claim form, opened from the page head. */
   const [adding, setAdding] = useState(false);
+  useCreateParam(() => {
+    setTab("claims");
+    setAdding(true);
+  });
   // The head's search is the open tab's: the claims', or the log's.
   const [claimsQuery, setClaimsQuery] = useState("");
   const [logQuery, setLogQuery] = useState("");

@@ -333,7 +333,6 @@ export function SettingsPage({
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState(0);
   const [found, setFound] = useState<{ label?: string; n: number } | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   // On a phone the rail is a strip that scrolls sideways: it fades where there is more.
   const sideFade = useEdgeFade<HTMLDivElement>(".set-rail", "x", data !== null && data !== undefined);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -401,17 +400,6 @@ export function SettingsPage({
     timer = window.setTimeout(look, 60);
     return () => window.clearTimeout(timer);
   }, [found]);
-  // "/" finds a setting, from anywhere on the page that is not a field.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const t = e.target as HTMLElement | null;
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || t?.closest("input, textarea, select, [contenteditable]")) return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
   const [how, setHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
   /** The last values the server confirmed, so an edit can be seen as one. */
   const [savedHow, setSavedHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
@@ -715,7 +703,6 @@ export function SettingsPage({
       <div className="set-side" ref={sideFade}>
         <div className="set-search">
           <SearchField
-            inputRef={searchRef}
             className="set-search-input"
             noun="settings"
             value={query}

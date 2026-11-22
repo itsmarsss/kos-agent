@@ -117,6 +117,20 @@ describe("what the palette does with what you type", () => {
       }
     });
 
+    it("offers each page's create, the theme, the quick question, the browser and the keys", () => {
+      const c: PaletteContext = { ...ctx(), quickAsk: vi.fn(), openBrowser: vi.fn(), setTheme: vi.fn(), showKeys: vi.fn() };
+      const actions = buildActions(c);
+      const labels = actions.map((a) => a.label);
+      for (const want of ["New project", "New schedule", "New claim", "Quick ask", "KOS's browser", "Theme: Light", "Theme: Dark", "Keyboard shortcuts"]) expect(labels).toContain(want);
+      // A create goes to its page with `new` on the address, which the page opens its sheet for.
+      actions.find((a) => a.label === "New schedule")!.run();
+      expect(window.location.hash).toBe("#/schedule?new=1");
+      actions.find((a) => a.label === "Theme: Light")!.run();
+      expect(c.setTheme).toHaveBeenCalledWith("light");
+      // "new project" is found by its words.
+      expect(fuzzyScore(actions.find((a) => a.id === "new-project")!.label, "new project")).toBeGreaterThan(0);
+    });
+
     it("runs the action it was given", () => {
       const c = ctx();
       buildActions(c).find((a) => a.label === "Open KOS")?.run();

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 
-import { ChevronLeft, ChevronRight, CloseIcon, EmptyState, FullscreenIcon, IconButton, MaximizeIcon, PlusIcon, RestoreIcon, RetryIcon, StatusDot } from "@kos/kit";
+import { ChevronLeft, ChevronRight, CloseIcon, EmptyState, FullscreenIcon, IconButton, MaximizeIcon, PlusIcon, restoreFocus, RestoreIcon, RetryIcon, StatusDot } from "@kos/kit";
 
 import { tabName, toAddress } from "./address.js";
 import { api } from "./api.js";
@@ -140,6 +140,8 @@ export interface Handoff {
 
 export interface BrowserWindowProps {
   open: boolean;
+  /** Opened by the owner: the keys go to it. Opened on its own (KOS began to browse), they stay in the box being typed in. */
+  grab?: boolean;
   onClose: () => void;
   /** Agents waiting for the owner's hands on their tab. */
   handoffs?: Handoff[];
@@ -154,7 +156,7 @@ export interface BrowserWindowProps {
   titleFor?: (conversationId: string) => string | undefined;
 }
 
-export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = () => undefined, handoffs = [], onDecide }: BrowserWindowProps): ReactElement | null {
+export function BrowserWindow({ open, grab = false, onClose, doing, prefer, pick, titleFor = () => undefined, handoffs = [], onDecide }: BrowserWindowProps): ReactElement | null {
   /** A tab picked by hand; with follow on, the working agent's tab wins. */
   const [chosen, setChosen] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
@@ -170,6 +172,19 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
   /** What is in the address bar while it is being edited; null shows the tab's own address. */
   const [typed, setTyped] = useState<string | null>(null);
   const shell = useRef<HTMLDivElement>(null);
+  // Opened, the keys go to it (Escape then shuts it); shut, they go back to where they were.
+  useEffect(() => {
+    if (!open || !grab) return;
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const enter = requestAnimationFrame(() => {
+      if (!shell.current?.contains(document.activeElement)) shell.current?.focus({ preventScroll: true });
+    });
+    return () => {
+      cancelAnimationFrame(enter);
+      const at = document.activeElement;
+      if (!at || at === document.body || !at.isConnected) restoreFocus(before);
+    };
+  }, [open]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const address = useRef<HTMLInputElement>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
@@ -387,6 +402,14 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
       className={`browserwin${driving ? " is-driving" : ""}${maximized ? " is-max" : ""}${fullscreen ? " is-fullscreen" : ""}`}
       role="dialog"
       aria-label="KOS's browser"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        // Escape shuts it, unless the keys are driving the page in it or a field inside has had it.
+        if (e.key === "Escape" && !driving && !e.defaultPrevented) {
+          e.preventDefault();
+          onClose();
+        }
+      }}
       style={fullscreen ? undefined : { left: placed.left, top: placed.top, width: placed.width, height: placed.height }}
     >
       <div

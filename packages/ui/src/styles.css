@@ -6167,7 +6167,8 @@ a.health {
    on the page. */
 .browserwin {
   position: fixed;
-  z-index: 79;
+  /* A window beside the page, under any sheet opened over the page (60): a sheet's buttons are never under it. */
+  z-index: 58;
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -6205,6 +6206,7 @@ a.health {
 .browserwin-handoff-acts { display: inline-flex; gap: 0.3rem; flex: none; }
 .browserwin-body { position: relative; flex: 1; min-height: 0; background: var(--bg); border-radius: 0 0 var(--r-sm) var(--r-sm); overflow: hidden; }
 .browserwin-canvas { display: block; width: 100%; height: 100%; outline: none; }
+.browserwin:focus { outline: none; }
 .is-driving .browserwin-canvas { cursor: crosshair; }
 .browserwin-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 1.5rem; text-align: center; color: var(--muted); font-size: var(--text-md); }
 .browserwin.is-max { animation: none; }
@@ -7053,16 +7055,6 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .chats-item.is-active .chats-lead--glyph { color: var(--accent); }
 .chats-item-title--strong { font-weight: 600; }
 :root[data-theme="light"] .project-mark { color: hsl(var(--blob-h, 214) 60% 38%); }
-.chats-kbd {
-  flex: none;
-  align-self: center;
-  padding: 0.02rem 0.32rem;
-  border: 1px solid var(--line);
-  border-radius: var(--r-xs);
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: var(--text-xs);
-}
 .project-mark {
   width: 18px;
   height: 18px;
@@ -8123,3 +8115,12 @@ img.ov-shape { object-fit: fill; }
 .token-gate { min-height: 100dvh; display: grid; place-items: center; padding-inline: 16px; background: var(--bg); }
 .token-gate__card { width: min(30rem, 100%); display: grid; gap: 0.75rem; }
 .token-gate__title { margin: 0; font-size: 1.25rem; }
+
+/* The "?" sheet (KeysSheet.tsx): each place a label over its keys, the keys as keycaps at the left. */
+.keys-sheet { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem 1.5rem; }
+.keys-group h3 { margin: 0 0 0.4rem; }
+.keys-group dl { margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.keys-row { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 0.6rem; align-items: baseline; font-size: var(--text-base); }
+.keys-row dt { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.keys-row dd { margin: 0; color: var(--muted); }
+.keys-row kbd { padding: 0.05rem 0.35rem; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--panel-2); color: var(--text); font-family: inherit; font-size: var(--text-sm); }

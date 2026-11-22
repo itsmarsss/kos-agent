@@ -1788,7 +1788,6 @@ export function ChatsPage({
                               </span>
                               <span className="chats-item-title chats-item-title--strong">{orchestrator.title}</span>
                               {stirring(orchestrator) && <ThreadDot live={progress[orchestrator.id]} chat={orchestrator} waiting={waitingOn.has(orchestrator.id)} />}
-                              <kbd className="chats-kbd">⌘K</kbd>
                             </span>
                           </a>
                         </li>

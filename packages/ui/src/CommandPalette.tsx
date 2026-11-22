@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 import { isSearchKind, marksOfLetters, SEARCH_KINDS, type HitKind, type SearchHit, type SearchKind, type SearchTarget, type Snippet } from "@kos/shared";
-import { ease, EmptyState, Marked } from "@kos/kit";
+import { ease, EmptyState, Marked, useFocusTrap } from "@kos/kit";
 
 import { api } from "./api.js";
-import { NAV, type Route } from "./routes.js";
+import { withParams } from "./hashparams.js";
+import { hrefFor, NAV, type Route } from "./routes.js";
+import type { Theme } from "./theme.js";
 import { SECTIONS, searchSettings } from "./settingsindex.js";
 
 /**
@@ -58,6 +60,22 @@ export interface PaletteContext {
   sitesBase: string | null;
   /** Opens a full-text hit where it is: a chat at the message, a file at the line. */
   openTarget: (target: SearchTarget) => void;
+  /** The quick question's window. */
+  quickAsk?: () => void;
+  /** KOS's own browser window. */
+  openBrowser?: () => void;
+  /** The palette the dashboard is drawn in, chosen here as in Settings. */
+  setTheme?: (theme: Theme) => void;
+  /** The sheet of the keys there are. */
+  showKeys?: () => void;
+}
+
+/**
+ * Where a page's own create sheet opens: the page, with `?new` on its
+ * address, which the page reads once (`useCreateParam`) and takes back off.
+ */
+export function createHref(route: Route): string {
+  return withParams(hrefFor(route), { new: "1" });
 }
 
 const KINDS = [
@@ -291,7 +309,24 @@ export function buildActions(ctx: PaletteContext): Action[] {
       keywords: "reload update",
       run: ctx.refresh,
     },
+    // Each page's own create, so "new project" is typed rather than found.
+    ...(
+      [
+        ["new-project", "New project", "a chat of its own, with its tables and files", "make create", { name: "projects" }],
+        ["new-schedule", "New schedule", "something KOS runs on its own, on a timer", "make create cron job timer", { name: "crons" }],
+        ["new-claim", "New claim", "something KOS should know, in Memory", "make create memory fact remember", { name: "memory" }],
+      ] as const
+    ).map(([id, label, hint, keywords, route]): Action => ({ id, label, hint, group: "Actions", keywords, run: () => void (window.location.hash = createHref(route)) })),
   ];
+  if (ctx.quickAsk) actions.push({ id: "quick-ask", label: "Quick ask", hint: "a question beside the open chat · ⌘⇧K", group: "Actions", keywords: "btw aside question", run: ctx.quickAsk });
+  if (ctx.openBrowser) actions.push({ id: "browser", label: "KOS's browser", hint: "watch it browse · ⌘⇧B", group: "Actions", keywords: "web tab watch window", run: ctx.openBrowser });
+  if (ctx.setTheme) {
+    const setTheme = ctx.setTheme;
+    for (const [theme, label] of [["light", "Light"], ["dark", "Dark"], ["system", "Match the system"]] as const) {
+      actions.push({ id: `theme-${theme}`, label: `Theme: ${label}`, group: "Actions", keywords: "appearance colour color mode", run: () => setTheme(theme) });
+    }
+  }
+  if (ctx.showKeys) actions.push({ id: "keys", label: "Keyboard shortcuts", hint: "?", group: "Actions", keywords: "keys help cheat sheet", run: ctx.showKeys });
 
   // Agents and Schedule sit under Runs in the nav; the palette still names
   // them, since "go to schedule" is what someone will type.
@@ -363,6 +398,7 @@ export function CommandPalette({
   const [everywhere, setEverywhere] = useState<Everywhere | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const box = useRef<HTMLDivElement>(null);
 
   const parsed = useMemo(() => parseQuery(query), [query]);
   const actions = useMemo(() => buildActions(ctx), [ctx]);
@@ -495,11 +531,16 @@ export function CommandPalette({
 
   const choose = (action: Action | undefined): void => {
     if (!action) return;
+    // Something was chosen: the keys go on with it (the page it opens, a chat's box, a sheet), not back to where the palette was opened from.
+    document.querySelector<HTMLElement>("[data-focus-home]")?.focus({ preventScroll: true });
     onClose();
     action.run();
   };
 
   const moveTo = (index: number): void => setCursorId(results[index]?.id ?? null);
+
+  // The tab key stays in the palette and, shut by Escape, the focus goes back to what had it.
+  useFocusTrap(box, open);
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === "ArrowDown") {
@@ -541,6 +582,7 @@ export function CommandPalette({
           />
           <div className="pal-wrap">
             <m.div
+              ref={box}
               className="pal"
               role="dialog"
               aria-label="Search and commands"
