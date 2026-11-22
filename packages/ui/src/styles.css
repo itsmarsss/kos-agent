@@ -7164,16 +7164,6 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .chats-item.is-active .chats-lead--glyph { color: var(--accent); }
 .chats-item-title--strong { font-weight: 600; }
 :root[data-theme="light"] .project-mark { color: hsl(var(--blob-h, 214) 60% 38%); }
-.chats-kbd {
-  flex: none;
-  align-self: center;
-  padding: 0.02rem 0.32rem;
-  border: 1px solid var(--line);
-  border-radius: var(--r-xs);
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: var(--text-xs);
-}
 .project-mark {
   width: 18px;
   height: 18px;
@@ -8248,3 +8238,7 @@ img.ov-shape { object-fit: fill; }
 /* A fold of settings few owners need: closed by default, its summary a quiet link. */
 .settings-more > summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); padding: 6px 0; }
 .settings-more[open] > summary { margin-bottom: 8px; }
+/* A menu item with a line under it saying what it does (the sidebar's More). */
+.menu-body .menu-item--hint { display: flex; flex-direction: column; gap: 1px; max-width: 18rem; }
+.menu-body .menu-hint { color: var(--muted); font-size: var(--text-sm); font-weight: 400; white-space: normal; }
+.menu-body .menu-rule { border: 0; border-top: 1px solid var(--line); margin: 3px 0; }

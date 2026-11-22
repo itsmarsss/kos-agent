@@ -1825,7 +1825,6 @@ export function ChatsPage({
                               </span>
                               <span className="chats-item-title chats-item-title--strong">{orchestrator.title}</span>
                               {stirring(orchestrator) && <ThreadDot live={progress[orchestrator.id]} chat={orchestrator} waiting={waitingOn.has(orchestrator.id)} />}
-                              <kbd className="chats-kbd">⌘K</kbd>
                             </span>
                           </a>
                         </li>
@@ -2162,9 +2161,9 @@ export function ChatsPage({
                         label="What to create"
                         selected={mode}
                         options={[
-                          ["kos", "Ask KOS"],
-                          ["chat", "Chat"],
-                          ["project", "Project"],
+                          ["kos", "Ask KOS", "KOS answers, and starts a chat or a project if it needs one"],
+                          ["chat", "New chat", "Opens a chat of its own with these words"],
+                          ["project", "New project", "Makes a project, and its chat, from this description"],
                         ]}
                         onChoose={setMode}
                       />
@@ -2179,7 +2178,7 @@ export function ChatsPage({
                             ? "Create"
                             : mode === "chat"
                               ? "Start"
-                              : "Ask KOS"}
+                              : "Send"}
                       </button>
                     </div>
                   </div>

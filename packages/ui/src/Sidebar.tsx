@@ -17,6 +17,16 @@ import { hrefFor, NAV, navActive, type Route } from "./routes.js";
  * On a phone the column is a drawer behind a menu button in a slim bar, the
  * way every chat product does it.
  */
+type MoreAction = "refresh" | "snapshot" | "open" | "copy";
+
+/** The More menu's everyday items, each with a line saying what it does; Halt stands apart below them. */
+const MORE_ITEMS: { action: MoreAction; label: string; hint: string }[] = [
+  { action: "refresh", label: "Refresh", hint: "Read everything on this page again" },
+  { action: "snapshot", label: "Snapshot now", hint: "Save a copy of the workspace you can roll back to" },
+  { action: "open", label: "Open workspace folder", hint: "Show KOS's folder in Finder" },
+  { action: "copy", label: "Copy workspace path", hint: "Copy where KOS's folder is" },
+];
+
 export function Sidebar({
   route,
   status,
@@ -86,7 +96,8 @@ export function Sidebar({
   const failing = status?.unhealthy ?? 0;
   // A status read before KOS stopped answering says nothing about now.
   const healthClass = down ? "health--bad" : status?.halted ? "health--halted" : failing > 0 ? "health--bad" : "health--ok";
-  const healthText = down ? "Can't reach KOS" : status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "Running";
+  const healthText = down ? "Can't reach KOS" : status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "Working";
+  const actions: Record<MoreAction, () => void> = { refresh: onRefresh, snapshot: onSnapshot, open: onOpenWorkspace, copy: onCopyWorkspace };
   const model = status?.routes?.["reasoning"];
 
   return (
@@ -136,7 +147,7 @@ export function Sidebar({
           ))}
         </nav>
         <div className="side-foot">
-          <button type="button" className="side-link side-search" onClick={onSearch} title="Search">
+          <button type="button" className="side-link side-search" onClick={onSearch} title="Search chats, projects, files and memory, or run a command">
             <NavIcon name="search" />
             <span className="side-label">Search</span>
             <kbd>⌘K</kbd>
@@ -145,7 +156,7 @@ export function Sidebar({
             type="button"
             className="side-link side-search"
             onClick={onAsk}
-            title="Quick ask about the open chat"
+            title="A quick question about the open chat, without adding to it"
           >
             <NavIcon name="ask" />
             <span className="side-label">Quick ask</span>
@@ -187,12 +198,16 @@ export function Sidebar({
               <span className="side-label">More…</span>
             </summary>
             <div className="menu-body">
-              <button type="button" onClick={onRefresh}>Refresh</button>
-              <button type="button" onClick={onSnapshot}>Snapshot now</button>
-              <button type="button" onClick={onOpenWorkspace}>Open workspace folder</button>
-              <button type="button" onClick={onCopyWorkspace}>Copy workspace path</button>
-              <button type="button" className="is-danger" onClick={onToggleKill}>
-                {status?.halted ? "Resume KOS" : "Halt KOS"}
+              {MORE_ITEMS.map((item) => (
+                <button key={item.label} type="button" className="menu-item--hint" onClick={actions[item.action]}>
+                  <span>{item.label}</span>
+                  <small className="menu-hint">{item.hint}</small>
+                </button>
+              ))}
+              <hr className="menu-rule" />
+              <button type="button" className="is-danger menu-item--hint" onClick={onToggleKill}>
+                <span>{status?.halted ? "Resume KOS" : "Halt KOS"}</span>
+                <small className="menu-hint">{status?.halted ? "Let schedules and chats run again" : "Stop every schedule and chat at once, until you resume"}</small>
               </button>
             </div>
           </details>
@@ -207,7 +222,7 @@ export function Sidebar({
             <span className="health-dot" />
             <span className="side-health-text">
               {busy ? `${busy}…` : healthText}
-              {model && <span className="side-model" title={`${model.provider} · reasoning turns`}>{model.model}</span>}
+              {model && <span className="side-model" title={`The model for thinking, from ${model.provider}. Change it in Settings, Models.`}>Thinks with {model.model}</span>}
             </span>
           </a>
         </div>
