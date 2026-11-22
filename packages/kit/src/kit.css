@@ -329,7 +329,7 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 /* —— a search box (SearchField): the glass, the words, a clear —— */
 .search-field { position: relative; display: flex; align-items: center; min-width: 0; }
 .search-field > svg { position: absolute; left: 0.6rem; width: 14px; height: 14px; color: var(--faint); pointer-events: none; }
-.search-field-input { width: 100%; min-width: 0; padding-left: 1.85rem; padding-right: 1.7rem; }
+.search-field .search-field-input { width: 100%; min-width: 0; padding-left: 1.85rem; padding-right: 1.7rem; }
 .search-field-input::-webkit-search-cancel-button { display: none; }
 .search-field-clear { position: absolute; right: 0.4rem; display: grid; place-items: center; width: 1.25rem; height: 1.25rem; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--faint); cursor: pointer; }
 .search-field-clear:hover { background: var(--panel-2); color: var(--text); }

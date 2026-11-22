@@ -1,4 +1,4 @@
-import { timeWords } from "@kos/shared";
+import { slugWords, timeWords } from "@kos/shared";
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { Chips, CloseIcon, Count, EditIcon, EmptyState, Field, GroupHead, IconButton, PinIcon, SheetFoot, Tag, UnpinIcon } from "@kos/kit";
@@ -90,14 +90,17 @@ export interface ScopeGroup {
 function placeOf(scope: string, names: ReadonlyMap<string, string> | undefined): { title: string; kind: string | null; rank: number; project?: string; unknown?: boolean } {
   if (scope === "global") return { title: "Everywhere", kind: null, rank: 0 };
   const blob = /^project:blob:(.+)$/.exec(scope);
-  if (blob) return { title: blob[1]!, kind: "blob", rank: 2 };
+  if (blob) return { title: slugWords(blob[1]!), kind: "Blob", rank: 2 };
   if (scope.startsWith("project:")) {
     const slug = scope.slice("project:".length);
-    if (!names) return { title: slug, kind: "project", rank: 1 };
+    if (!names) return { title: slugWords(slug), kind: "Project", rank: 1 };
     const name = names.get(slug);
-    return name ? { title: name, kind: "project", rank: 1, project: slug } : { title: slug, kind: "no such project", rank: 1, unknown: true };
+    return name ? { title: name, kind: "Project", rank: 1, project: slug } : { title: slug, kind: "No such project", rank: 1, unknown: true };
   }
-  if (scope.startsWith("caller:")) return { title: scope.slice("caller:".length), kind: "caller", rank: 3 };
+  if (scope.startsWith("caller:")) return { title: scope.slice("caller:".length), kind: "Caller", rank: 3 };
+  // A bare project slug, as some writers keep it: the project by its name.
+  const named = names?.get(scope);
+  if (named) return { title: named, kind: "Project", rank: 1, project: scope };
   return { title: scope, kind: null, rank: 4 };
 }
 

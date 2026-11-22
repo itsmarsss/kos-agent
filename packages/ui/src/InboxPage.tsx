@@ -85,7 +85,6 @@ export function InboxPage({
                   ask={a}
                   deciding={deciding}
                   onDecide={onDecide}
-                  bare
                   meta={
                     <>
                       Asked <When at={a.requestedAt} />
