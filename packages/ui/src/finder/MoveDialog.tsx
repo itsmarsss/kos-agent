@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { Face, Field, NavIcon, PlacePicker, SheetFoot, type Place } from "@kos/kit";
 import { slugWords } from "@kos/shared";
@@ -47,6 +47,30 @@ export function MoveDialog({ paths, folders, projects, onMove, onClose }: { path
     .map((f) => placeOf(f, projects))
     .sort((a, b) => a.name.localeCompare(b.name));
   const target = dir.trim().replace(/^\/+|\/+$/g, "");
+  /**
+   * The keys straight to a move: Enter on a place moves there; in the search,
+   * Enter moves to the one place that matches (or goes to the first of
+   * several), and the down arrow goes into the list.
+   */
+  const keys = (e: KeyboardEvent<HTMLDivElement>): void => {
+    const el = e.target as HTMLElement;
+    const open = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("[data-place]:not(:disabled)")];
+    const top = open[0];
+    if (e.key === "Enter" && el.dataset.place) {
+      e.preventDefault();
+      onMove(el.dataset.place);
+      return;
+    }
+    if (el.tagName !== "INPUT" || !top) return;
+    if (e.key === "ArrowDown" || (e.key === "Enter" && open.length > 1)) {
+      e.preventDefault();
+      setDir(top.dataset.place!);
+      top.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      onMove(top.dataset.place!);
+    }
+  };
   const title = paths && paths.length === 1 ? `Move ${nameOf(paths[0]!)}` : `Move ${paths?.length ?? 0} items`;
   return (
     <Modal
@@ -73,7 +97,9 @@ export function MoveDialog({ paths, folders, projects, onMove, onClose }: { path
           if (target) onMove(target);
         }}
       >
-        <PlacePicker places={places} {...(current !== undefined ? { current } : {})} value={places.some((p) => p.id === target) ? target : null} onChoose={(id) => setDir(id ?? "")} />
+        <div className="file-move-places" onKeyDown={keys}>
+          <PlacePicker places={places} {...(current !== undefined ? { current } : {})} value={places.some((p) => p.id === target) ? target : null} onChoose={(id) => setDir(id ?? "")} />
+        </div>
         <Field label="Or a folder by its path" hint="Further in than those above: projects/garden/notes.">
           <input className="kos-input ops-mono" value={places.some((p) => p.id === target) ? "" : dir} onChange={(e) => setDir(e.target.value)} />
         </Field>

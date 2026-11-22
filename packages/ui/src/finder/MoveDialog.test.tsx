@@ -36,4 +36,28 @@ describe("Move to…", () => {
     fireEvent.click(screen.getByRole("button", { name: "Move" }));
     expect(onMove).toHaveBeenCalledWith("notes/deep");
   });
+
+  const many = [".", "notes", "build", "drafts", "old", "photos", "music", "archive", "inbox"];
+
+  it("moves to the one place a search finds on Enter", () => {
+    const onMove = vi.fn();
+    render(<MoveDialog paths={["a.md"]} folders={many} projects={[]} onMove={onMove} onClose={() => {}} />);
+    const search = screen.getByRole("searchbox");
+    fireEvent.change(search, { target: { value: "build" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(onMove).toHaveBeenCalledWith("build");
+  });
+
+  it("goes into the places on the down arrow, and moves to one on Enter", () => {
+    const onMove = vi.fn();
+    render(<MoveDialog paths={["a.md"]} folders={many} projects={[]} onMove={onMove} onClose={() => {}} />);
+    const search = screen.getByRole("searchbox");
+    fireEvent.change(search, { target: { value: "o" } });
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    const at = document.activeElement as HTMLElement;
+    expect(at.getAttribute("role")).toBe("radio");
+    expect(onMove).not.toHaveBeenCalled();
+    fireEvent.keyDown(at, { key: "Enter" });
+    expect(onMove).toHaveBeenCalledWith(at.dataset.place);
+  });
 });
