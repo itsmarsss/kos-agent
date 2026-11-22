@@ -5885,7 +5885,9 @@ a.health {
   .phonebar {
     position: sticky;
     top: 0;
-    z-index: 60;
+    /* Under every sheet, drawer and panel (40 and up), over the page: at 60 it
+       covered a run's details, their title and their Close under it. */
+    z-index: 30;
     display: flex;
     align-items: center;
     gap: 0.5rem;
