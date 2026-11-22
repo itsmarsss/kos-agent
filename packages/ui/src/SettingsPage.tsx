@@ -1,7 +1,7 @@
 import { m } from "motion/react";
 import { marksOfLetters } from "@kos/shared";
 import { CloseIcon, ease, EmptyState, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, SheetFoot, Switch, Tag, useOverlayScroll } from "@kos/kit";
-import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import {
   api,
@@ -245,7 +245,9 @@ function Section({
     <section className="set-section">
       <PageHead title={title} subtitle={blurb} />
       <div className="set-card">
-        <div className="set-card-body">{children}</div>
+        <div className="set-card-body" onKeyDown={onSave && canSave !== false && !saving ? (e) => enterSaves(e, onSave) : undefined}>
+          {children}
+        </div>
         {onSave && (
           <SheetFoot
             note={saved && <span className={`set-saved ${saved === "Not saved yet" ? "is-unsaved" : ""}`}>{saved}</span>}
@@ -262,6 +264,21 @@ function Section({
       </div>
     </section>
   );
+}
+
+/**
+ * Enter in a one-line field saves the card, as it would submit a form: the
+ * card is not a form, since some hold forms of their own. A field in one of
+ * those, a search, a box that takes Enter itself, or text still being
+ * composed is left alone.
+ */
+export function enterSaves(e: ReactKeyboardEvent<HTMLElement>, save: () => void): void {
+  const t = e.target;
+  if (e.key !== "Enter" || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.nativeEvent.isComposing) return;
+  if (!(t instanceof HTMLInputElement) || t.closest("form") || e.defaultPrevented) return;
+  if (["search", "checkbox", "radio", "button", "submit", "file", "range", "color"].includes(t.type)) return;
+  e.preventDefault();
+  save();
 }
 
 /** The zones this machine knows, so a typo cannot break every schedule. */
@@ -315,8 +332,7 @@ export function SettingsPage({
   /** The search over every setting, and the one it last sent you to, to show. */
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState(0);
-  const [found, setFound] = useState<{ label: string; n: number } | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
+  const [found, setFound] = useState<{ label?: string; n: number } | null>(null);
   // On a phone the rail is a strip that scrolls sideways: it fades where there is more.
   const sideFade = useEdgeFade<HTMLDivElement>(".set-rail", "x", data !== null && data !== undefined);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -325,16 +341,26 @@ export function SettingsPage({
   const railScroll = useOverlayScroll(railRef);
   // On a phone the rail is a strip that scrolls sideways: keep the open section in sight on it.
   const loaded = data !== null;
+  // On a wider window the rail scrolls up and down under the search: a section
+  // a search sent you to is brought fully into it, not left cut off at its top.
   useEffect(() => {
     const rail = railRef.current;
     const on = rail?.querySelector<HTMLElement>(".set-rail-item.is-on");
-    if (!rail || !on || rail.scrollWidth <= rail.clientWidth) return;
-    rail.scrollTo({ left: Math.max(0, on.offsetLeft - (rail.clientWidth - on.offsetWidth) / 2), behavior: "auto" });
+    if (!rail || !on) return;
+    if (rail.scrollWidth > rail.clientWidth) {
+      rail.scrollTo({ left: Math.max(0, on.offsetLeft - (rail.clientWidth - on.offsetWidth) / 2), behavior: "auto" });
+      return;
+    }
+    const top = on.getBoundingClientRect().top - rail.getBoundingClientRect().top;
+    const room = 8;
+    if (top < room) rail.scrollTop += top - room;
+    else if (top + on.offsetHeight > rail.clientHeight - room) rail.scrollTop += top + on.offsetHeight - rail.clientHeight + room;
   }, [active, loaded]);
+  // The focus goes with you: to the setting found, or to a section's first control.
   const jump = (hit: SettingHit): void => {
     setActive(hit.section);
     setQuery("");
-    setFound(hit.label ? { label: hit.label, n: Date.now() } : null);
+    setFound({ ...(hit.label ? { label: hit.label } : {}), n: Date.now() });
   };
   // A new section opens at its top; one a search sent you to, at the setting.
   useEffect(() => {
@@ -347,9 +373,20 @@ export function SettingsPage({
     // The section may still be loading what the setting sits in; look again for a moment.
     const look = (): void => {
       const pane = paneRef.current;
+      const label = found.label;
+      if (label === undefined) {
+        const first = pane?.querySelector<HTMLElement>(".set-pane :is(input, select, textarea, button):not([disabled])");
+        if (!first) {
+          if (tries++ < 20) timer = window.setTimeout(look, 100);
+          return;
+        }
+        if (pane) pane.scrollTop = 0;
+        first.focus({ preventScroll: true });
+        return;
+      }
       const target =
-        pane?.querySelector<HTMLElement>(`[data-field="${CSS.escape(found.label)}"]`) ??
-        [...(pane?.querySelectorAll<HTMLElement>("h3") ?? [])].find((h) => h.textContent?.trim() === found.label);
+        pane?.querySelector<HTMLElement>(`[data-field="${CSS.escape(label)}"]`) ??
+        [...(pane?.querySelectorAll<HTMLElement>("h3") ?? [])].find((h) => h.textContent?.trim() === label);
       if (!target) {
         if (tries++ < 20) timer = window.setTimeout(look, 100);
         return;
@@ -363,17 +400,6 @@ export function SettingsPage({
     timer = window.setTimeout(look, 60);
     return () => window.clearTimeout(timer);
   }, [found]);
-  // "/" finds a setting, from anywhere on the page that is not a field.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const t = e.target as HTMLElement | null;
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || t?.closest("input, textarea, select, [contenteditable]")) return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
   const [how, setHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
   /** The last values the server confirmed, so an edit can be seen as one. */
   const [savedHow, setSavedHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
@@ -677,7 +703,6 @@ export function SettingsPage({
       <div className="set-side" ref={sideFade}>
         <div className="set-search">
           <SearchField
-            inputRef={searchRef}
             className="set-search-input"
             noun="settings"
             value={query}
@@ -732,7 +757,10 @@ export function SettingsPage({
                 key={s.id}
                 type="button"
                 className={`set-rail-item ${active === s.id ? "is-on" : ""}`}
-                onClick={() => setActive(s.id)}
+                onClick={() => {
+                  setFound(null);
+                  setActive(s.id);
+                }}
               >
                 <span className="set-rail-label">{s.label}</span>
                 <span className="set-rail-blurb">{s.blurb}</span>

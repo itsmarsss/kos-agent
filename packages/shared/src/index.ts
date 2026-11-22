@@ -225,7 +225,7 @@ export { CHANNEL_TOKEN, channelNamesIn, surfaceName } from "./channel.js";
 export { MENTION_KINDS, MENTION_SOURCE, type MentionKind } from "./mentions.js";
 export { MATH, displayMathAt, mathOf, type MathSource } from "./math.js";
 export { desaturateHex, hexOfHsv, hsvOfHex, type Hsv } from "./colour.js";
-export { COLOURS, EASE, FLOAT_SHADOW, isDrawnTheme, isThemeMode, LIGHT_COLOURS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TOUCH, TYPE, type ColourToken, type DashboardTheme, type DrawnTheme, type ThemeMode } from "./design.js";
+export { COLOURS, EASE, FLOAT_SHADOW, HOVER, isDrawnTheme, isThemeMode, LIGHT_COLOURS, PRESS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TOUCH, TYPE, type ColourToken, type DashboardTheme, type DrawnTheme, type ThemeMode } from "./design.js";
 export { colourOf, sameGround, type Rgba } from "./colourof.js";
 export { listAt, startsList, type MdList, type MdListItem } from "./lists.js";
 export {

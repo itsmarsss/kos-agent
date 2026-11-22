@@ -40,6 +40,10 @@
   --r-md: 10px;
   --r-lg: 14px;
   --float: 0 12px 32px rgba(0, 0, 0, 0.45);
+  /* What answers the pointer: one hover, one press (design.ts HOVER, PRESS). */
+  --hover: 140ms ease-out;
+  --press: 80ms ease-out;
+  --press-scale: 0.97;
   --gutter: 16px;
 }
 /*

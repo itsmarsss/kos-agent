@@ -53,6 +53,36 @@ export const fromTop: Variants = {
   show: { opacity: 1, y: 0 },
 };
 
+/**
+ * What floats over the page arriving and going (a menu, a popover): a fade
+ * and a scale from 0.98, from the corner it hangs by (its transform-origin).
+ */
+export const float: Variants = {
+  hidden: { opacity: 0, scale: 0.98 },
+  show: { opacity: 1, scale: 1 },
+};
+
+/**
+ * A page arriving in the window: there from its first frame (a fade from
+ * most of the way, never from nothing) and an 8 px rise, on the one ease.
+ * The page it replaces goes at once rather than fading out first, so a
+ * switch never shows a frame with no page in it.
+ */
+export const pageArrive = {
+  initial: { opacity: 0.6, y: 8 },
+  animate: { opacity: 1, y: 0 },
+} as const;
+
+/**
+ * Content arriving in a list or leaving it (an approval in the Inbox): a fade
+ * and an 8 px rise, and back down as it goes.
+ */
+export const rise: Variants = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: 8 },
+};
+
 /** A row entering or leaving a list. */
 export const listItem: Variants = {
   hidden: { opacity: 0, y: 6 },

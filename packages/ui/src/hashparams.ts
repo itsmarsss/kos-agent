@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { SearchTarget } from "@kos/shared";
 
@@ -40,6 +40,23 @@ export function useHashParam(name: string): [string | undefined, () => void] {
     setValue(undefined);
   }, [name]);
   return [value, clear];
+}
+
+/**
+ * A page's create sheet asked for by its address (`#/projects?new=1`, what
+ * the palette's New project goes to): opened once, the `new` taken back off,
+ * so Back or a reload does not open it again. `here` is whether this page is
+ * the one the address names, for a listener that outlives the page.
+ */
+export function useCreateParam(open: () => void, here = true): void {
+  const [asked, clear] = useHashParam("new");
+  const latest = useRef(open);
+  latest.current = open;
+  useEffect(() => {
+    if (asked === undefined || !here) return;
+    clear();
+    latest.current();
+  }, [asked, here, clear]);
 }
 
 /** The address without `name`, in place: acted on, it is not acted on again by Back or a reload. */

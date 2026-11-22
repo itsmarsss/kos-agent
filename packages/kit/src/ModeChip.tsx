@@ -1,9 +1,11 @@
 import { AUTO_NEVER, AUTO_SESSIONS, AUTO_SPANS, cycled, liveMode, MODE_WORDS, modeLabel, modeTip, spanOf, untilOf, type ChatMode, type ChatModeName } from "@kos/shared";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, m } from "motion/react";
 
 import { BoltIcon, CheckIcon, ChevronDown, HandIcon } from "./icons.js";
 import { Switch } from "./kit.js";
+import { ease, float } from "./motion.js";
 import { useDismiss } from "./useDismiss.js";
 
 /** Shift+Tab in a composer: the key that cycles the chat's mode. */
@@ -31,10 +33,15 @@ function withSessions(mode: ChatMode, on: boolean): ChatMode {
 const ICON: Record<ChatModeName, (p: { size?: number }) => ReactElement> = { ask: HandIcon, auto: BoltIcon };
 
 /**
- * The chat's mode in the composer: Ask or Auto, a press (or Shift+Tab in the
- * box) to cycle, and a menu for how long Auto lasts, whether it starts
- * sessions, and what it never covers. Lit in Auto, and beating while a turn
- * runs under it. The harness decides what Auto lets through; this only sets it.
+ * The chat's mode in the composer: Ask or Auto, and a menu for how long Auto
+ * lasts, whether it starts sessions, and what it never covers. Lit in Auto,
+ * and beating while a turn runs under it. The harness decides what Auto lets
+ * through; this only sets it.
+ *
+ * Going into Auto is a choice made in the menu, where it says what it does:
+ * a press on the chip in Ask opens the menu rather than switching, so one
+ * stray tap never lets KOS go ahead unasked. Back to Ask is one press.
+ * Shift+Tab in the box, a chord no one presses by chance, still cycles.
  */
 export function ModeChip({ mode, onChange, running = false, disabled = false }: { mode: ChatMode; onChange: (mode: ChatMode) => void; running?: boolean; disabled?: boolean }): ReactElement {
   const now = useNow(typeof mode.until === "number");
@@ -43,7 +50,16 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
   const chip = useRef<HTMLSpanElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const [spot, setSpot] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
-  useDismiss(open, () => setOpen(false), { inside: [chip, menu] });
+  // Shut, the focus goes back to the chip when it was in the menu, rather than to the top of the page.
+  useDismiss(
+    open,
+    () => {
+      const held = menu.current?.contains(document.activeElement) === true;
+      setOpen(false);
+      if (held) chip.current?.querySelector<HTMLButtonElement>(".mode-chip-main")?.focus();
+    },
+    { inside: [chip, menu] },
+  );
 
   // Above the chip, inside the window side to side: the side panel is narrow and the chip sits mid-row.
   useLayoutEffect(() => {
@@ -54,13 +70,29 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
     // As tall as the room above the chip allows; past that it scrolls.
     setSpot({ left: Math.max(8, Math.min(at.left, window.innerWidth - width - 8)), bottom: window.innerHeight - at.top + 6, maxHeight: at.top - 14 });
   }, [open]);
+  // Placed (hidden until then, and a hidden row takes no focus), the focus goes in, onto the mode in force: going into Auto is then a step down and a press, never the first key.
+  const placed = open && spot !== null;
+  useLayoutEffect(() => {
+    if (placed) menu.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')?.focus({ preventScroll: true });
+  }, [placed]);
+  const walk = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const rows = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]:not(:disabled), summary') ?? [])];
+    const now = rows.indexOf(document.activeElement as HTMLElement);
+    rows[(now + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]?.focus();
+  };
 
   const Icon = ICON[live.mode];
   const span = spanOf(live);
-  const set = (next: ChatMode): void => onChange(next);
+  const set = (next: ChatMode): void => {
+    onChange(next);
+    if (next.mode === "auto" && live.mode === "ask") setOpen(false);
+  };
+  const inAuto = live.mode === "auto";
   return (
     <span ref={chip} className="mode-chip" data-mode={live.mode} data-running={(running && live.mode === "auto") || undefined}>
-      <button type="button" className="mode-chip-main" disabled={disabled} title={modeTip(live, now)} aria-label={`Mode: ${modeLabel(live, now)}. Press to change.`} onClick={() => set(cycled(live))}>
+      <button type="button" className="mode-chip-main" disabled={disabled} title={modeTip(live, now)} aria-label={`Mode: ${modeLabel(live, now)}. ${inAuto ? "Press for Ask." : "Press to choose."}`} aria-haspopup={inAuto ? undefined : "menu"} onClick={() => (inAuto ? set(cycled(live)) : setOpen((o) => !o))}>
         <Icon size={12} />
         <span>{MODE_WORDS[live.mode].label}</span>
         {/* How long Auto has left, which a narrow composer leaves to the tooltip. */}
@@ -69,9 +101,10 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
       <button type="button" className="mode-chip-more" disabled={disabled} aria-label="Mode options" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <ChevronDown size={10} title="" />
       </button>
-      {open &&
-        createPortal(
-          <div ref={menu} className="mode-menu kos-pop" role="menu" style={spot ?? { visibility: "hidden" }}>
+      {createPortal(
+        <AnimatePresence>
+          {open && (
+          <m.div ref={menu} className="mode-menu kos-pop" role="menu" style={spot ? { ...spot, transformOrigin: "bottom left" } : { visibility: "hidden" }} variants={float} initial="hidden" animate="show" exit="hidden" transition={ease} onKeyDown={walk}>
             {(["ask", "auto"] as const).map((name) => {
               const Mark = ICON[name];
               return (
@@ -120,9 +153,11 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
                 ))}
               </ul>
             </details>
-          </div>,
-          document.body,
-        )}
+          </m.div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
     </span>
   );
 }

@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
+import { ToastHost } from "./Toast.js";
+
+// The app mounts the one toast host; a page on its own here gets one too.
+beforeEach(() => void render(<ToastHost />));
 
 /**
  * The project's folder, browsed without leaving the chat: the same file

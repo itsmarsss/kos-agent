@@ -7,7 +7,7 @@
  * tokens; each app loads it beside its own stylesheet.
  */
 
-export { arrive, card, ease, fromTop, hover, inPlace, listItem, pageMove, spring, stagger } from "./motion.js";
+export { arrive, card, ease, float, fromTop, hover, inPlace, listItem, pageArrive, pageMove, rise, spring, stagger } from "./motion.js";
 export {
   AgentFaces,
   EYES,
@@ -46,8 +46,10 @@ export { GroupHead, ListHead, NotFound, PaneHead, SearchField, TableGroup, Table
 export { PlacePicker, type Place } from "./PlacePicker.js";
 export { ASK_SETTLE_MS, AskCard, AskDetails, AskSecretBlock, AskStepList, type AskCardProps } from "./AskCard.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";
+export { Menu, menuPlace, type MenuItem, type MenuProps, type MenuSide } from "./Menu.js";
 export { isModeKey, ModeChip } from "./ModeChip.js";
-export { useFocusTrap } from "./useFocusTrap.js";
+export { restoreFocus, tabStops, useFocusTrap, type FocusTrapOptions } from "./useFocusTrap.js";
+export { sheetOpen } from "./layers.js";
 export { useSteadyPress } from "./useSteadyPress.js";
 export { overlayScroll, useOverlayScroll } from "./OverlayScroll.js";
 export * from "./icons.js";

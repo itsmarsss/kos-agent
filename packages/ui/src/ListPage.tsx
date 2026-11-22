@@ -2,6 +2,7 @@ import { EmptyState, GroupHead, TableHead } from "@kos/kit";
 import { Fragment, useMemo, useState } from "react";
 
 import { PageHead } from "./PageHead.js";
+import { rowKeys } from "./rowkeys.js";
 
 export interface Column<T> {
   key: string;
@@ -128,7 +129,7 @@ export function ListPage<T>(props: {
           className={`ops-table ${props.fixedLayout ? "ops-table--fixed" : ""}`}
         >
           <TableHead columns={props.columns.map((c) => ({ label: c.header, ...(c.width ? { width: c.width } : {}) }))} />
-          <tbody>
+          <tbody data-rows="">
             {filtered.length === 0 &&
               (props.rows.length === 0 ? (
                 <EmptyState variant="row" columns={props.columns.length}>
@@ -167,6 +168,7 @@ export function ListPage<T>(props: {
                     <tr
                       className="ops-row-click"
                       onClick={() => props.onRowClick(row)}
+                      {...rowKeys(() => props.onRowClick(row))}
                     >
                       {props.columns.map((c) => (
                         <td key={c.key} data-col={c.key} data-stack={c.stack} data-label={c.stackLabel ? c.header : undefined}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
 import { hexOfHsl, hueOfHex, isState, kindWord, momentWords, STATE_WORDS, stateOfRun, summarizeAction } from "@kos/shared";
-import { Card, ease, Field, lookOf, spring, StatusPill, Tag, When } from "@kos/kit";
+import { Card, ease, Field, lookOf, SheetFoot, StatusPill, Tag, When } from "@kos/kit";
 
 import type {
   AuditRecord,
@@ -12,6 +12,7 @@ import type {
 } from "./api.js";
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
+import { Drawer } from "./Drawer.js";
 import { FileIcon } from "./FileIcon.js";
 import { ConfirmButton } from "./kit.js";
 import { markInk } from "./ProjectMark.js";
@@ -144,16 +145,12 @@ export function Inspector(props: {
     };
   }, [openCallId]);
 
-  if (!target) return null;
-
-  const projectSlug = target.kind === "project" ? target.data.slug : "";
+  if (!target) return <Drawer open={false} title="" onClose={onClose}>{null}</Drawer>;
 
   let title = "";
   let subtitle = "";
   let body: React.ReactNode = null;
   let actions: React.ReactNode = null;
-  /** A head of the target's own, in place of the plain title and subtitle. */
-  let head: React.ReactNode = null;
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     setBusy(true);
@@ -322,8 +319,8 @@ export function Inspector(props: {
           setLocal({ name: p.name, description: p.description ?? null, type: p.type, colour });
         });
       };
-      head = (
-        <header className="insp-head insp-head--hero" style={{ "--blob-h": String(hue) } as React.CSSProperties}>
+      const hero = (
+        <div className="insp-hero-row" style={{ "--blob-h": String(hue) } as React.CSSProperties}>
           <div className="insp-hero">
             <span className="hero-mark hero-mark--sm" aria-hidden="true" style={p.colour ? { background: p.colour, color: markInk(p.colour) } : undefined}>
               <FileIcon name={p.slug} kind="dir" size={22} />
@@ -371,8 +368,6 @@ export function Inspector(props: {
               </form>
             ) : (
               <div className="insp-hero-words">
-                <div className="insp-kicker">Project</div>
-                <h2 className="insp-title">{p.name}</h2>
                 {p.description && <p className="insp-desc">{p.description}</p>}
                 <div className="hero-meta insp-hero-meta">
                   {isState(status) && <StatusPill state={status} />}
@@ -394,11 +389,8 @@ export function Inspector(props: {
                 Edit
               </button>
             )}
-            <button type="button" className="btn btn--sm btn--ghost" onClick={onClose}>
-              Close
-            </button>
           </div>
-        </header>
+        </div>
       );
       const pages = detail?.pages ?? target.pages;
       const sites = detail?.sites ?? [];
@@ -417,6 +409,7 @@ export function Inspector(props: {
       // drawer to read "5 rows".
       body = (
         <>
+          {hero}
           {/* The counts arrive after the panel does, and snapping from a row
               of dashes to a row of numbers reads as the drawer flinching.
               Keyed on whether they are known, so they cross-fade instead. */}
@@ -682,65 +675,25 @@ export function Inspector(props: {
           </m.div>
         </>
       );
-      void projectSlug;
       break;
     }
   }
 
+  // The one drawer every sheet is (`Drawer`): its head, its focus, Escape, and the foot when there is something to press.
   return (
-    /*
-     * Entering and leaving.
-     *
-     * The panel had a CSS keyframe on the way in and nothing on the way out,
-     * so it slid open and then vanished. A drawer that disappears rather than
-     * closing leaves you unsure whether you dismissed it or it failed.
-     */
-    <m.div
-      className="insp-backdrop"
-      role="presentation"
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={ease}
+    <Drawer
+      open
+      wide
+      title={title}
+      subtitle={subtitle}
+      onClose={onClose}
+      {...(actions ? { footer: <SheetFoot {...(busy ? { note: "Saving…" } : {})} primary={actions} /> } : {})}
     >
-      <m.aside
-        className="insp-panel"
-        role="dialog"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-        initial={{ x: 28, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        exit={{ x: 28, opacity: 0 }}
-        transition={spring}
-      >
-        {head ?? (
-          <header className="insp-head">
-            <div>
-              <div className="insp-kicker">{target.kind}</div>
-              <h2 className="insp-title">{title}</h2>
-              <div className="ops-muted">{subtitle}</div>
-            </div>
-            <button type="button" className="btn btn--sm btn--ghost" onClick={onClose}>
-              Close
-            </button>
-          </header>
-        )}
-        <div className="insp-body">
-          {err && <div className="ops-alert ops-alert--err">{err}</div>}
-          {body}
-        </div>
-        {/* Only when there is something to press. A project saves its status
-            from the control itself now, so a footer here would be an empty
-            bar that says "saving..." somewhere the eye is not. */}
-        {actions && (
-          <footer className="insp-foot">
-            {busy && <span className="ops-busy">saving…</span>}
-            {actions}
-          </footer>
-        )}
-      </m.aside>
-    </m.div>
+      <div className="insp-body">
+        {err && <div className="ops-alert ops-alert--err">{err}</div>}
+        {body}
+      </div>
+    </Drawer>
   );
 }
 

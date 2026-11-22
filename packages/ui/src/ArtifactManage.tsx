@@ -1,6 +1,5 @@
-import { Face, Field, NavIcon, PlacePicker, SheetFoot, WorkingDots, spring, type Place } from "@kos/kit";
+import { Face, Field, NavIcon, PlacePicker, SheetFoot, type Place } from "@kos/kit";
 import { EXPORT_WORDS, KIND_EXPORTS, RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, sheetDataOf, type ExportFormat, type HtmlPage, slugWords, timeWords } from "@kos/shared";
-import { AnimatePresence, m } from "motion/react";
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 
 import { api, type PageSummary, type Project } from "./api.js";
@@ -8,6 +7,7 @@ import type { MenuItem } from "./ArtifactHead.js";
 import { ConfirmButton } from "./kit.js";
 import { Modal } from "./Modal.js";
 import { ProjectMark } from "./ProjectMark.js";
+import { Toast } from "./Toast.js";
 
 /**
  * The owner's own handles on an artifact, wherever it is shown (its viewer's
@@ -230,22 +230,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
 
   const dialogs = (
     <>
-      <AnimatePresence>
-        {exporting && (
-          <m.div
-            key="exporting"
-            className="ops-toast"
-            role="status"
-            initial={{ opacity: 0, y: 10, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.98 }}
-            transition={spring}
-          >
-            <span className="ops-toast-text">{exporting}</span>
-            <WorkingDots />
-          </m.div>
-        )}
-      </AnimatePresence>
+      <Toast note={exporting ? { kind: "info", text: exporting, working: true } : null} />
       <Modal
         open={dialog?.kind === "rename"}
         title="Rename"

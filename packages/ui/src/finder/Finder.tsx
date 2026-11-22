@@ -152,10 +152,13 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   const [leadDir, setLeadDir] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const typed = useRef({ text: "", at: 0 });
+  /** What to choose on arriving somewhere: the folder just come up out of, as Finder does. */
+  const arriving = useRef<string | null>(null);
 
-  // Somewhere else is a fresh start: nothing chosen, nothing open in place, no search.
+  // Somewhere else is a fresh start: nothing open in place, no search, and nothing chosen but what was come out of.
   useEffect(() => {
-    setSel(EMPTY_SELECTION);
+    setSel(arriving.current ? only(arriving.current) : EMPTY_SELECTION);
+    arriving.current = null;
     setExpanded(new Set());
     setEditing(null);
     setQuery("");
@@ -314,6 +317,12 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   };
   /** What is chosen, less KOS's own files, which nothing here may change. */
   const changeable = (paths: string[]): string[] => paths.filter((p) => !byPath.get(p)?.reserved);
+  /** Copies of these, beside them, chosen once made so the next key acts on the copies, as in Finder. */
+  const duplicate = (paths: string[]): void => {
+    void ops.duplicate(paths).then((made) => {
+      if (made.length) setSel({ paths: made, anchor: made[0]!, lead: made[made.length - 1]! });
+    });
+  };
   const trashChosen = (given = sel.paths): void => {
     const paths = changeable(given);
     if (!paths.length) return;
@@ -339,7 +348,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     const kept = entries.some((e) => e.reserved);
     if (!kept) {
       items.push({ label: "Rename", act: () => one && setEditing(one.path), divided: true, disabled: !one, keys: "↩" });
-      items.push({ label: "Duplicate", act: () => void ops.duplicate(paths), keys: "⌘D" });
+      items.push({ label: "Duplicate", act: () => duplicate(paths), keys: "⌘D" });
       items.push({ label: "Move to…", act: () => setMoving(paths) });
     }
     if (filesChosen.length) items.push({ label: filesChosen.length > 1 ? `Download ${filesChosen.length} files` : "Download", act: () => ops.download(filesChosen.map((e) => e.path)) });
@@ -355,6 +364,14 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     const sorts: MenuItem[] = SORT_CHOICES.map((c, i) => ({ label: `Sort by ${c.label}`, act: () => setSort(sortBy(sort, c.value)), checked: sort.key === c.value, keys: sort.key === c.value ? (sort.desc ? "↓" : "↑") : "", divided: i === 0 && views.length > 0 }));
     const acts = (chosen.length ? itemsFor(chosen) : place.kind === "folder" ? folderItems() : []).map((item, i) => (i === 0 ? { ...item, divided: true } : item));
     return [...views, ...sorts, ...acts];
+  };
+  /** The menu for what is chosen, or for the folder when nothing is: a right click, the menu key, Shift+F10. */
+  const keyMenu = (): void => {
+    const rowEl = sel.lead ? [...(main.current?.querySelectorAll<HTMLElement>("[data-path]") ?? [])].find((el) => el.dataset.path === sel.lead) : undefined;
+    const r = (rowEl ?? main.current)?.getBoundingClientRect();
+    const at = r ? { x: r.left + 24, y: rowEl ? r.bottom : r.top + 24 } : { x: 0, y: 0 };
+    if (chosen.length) setMenu({ at, items: itemsFor(chosen), label: `Actions for ${chosen.length === 1 ? chosen[0]!.name : `${chosen.length} items`}` });
+    else if (making) setMenu({ at, items: folderItems(), label: "Folder actions" });
   };
   const menuUnder = (button: HTMLElement, items: MenuItem[], label: string): void => {
     const r = button.getBoundingClientRect();
@@ -485,6 +502,19 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
       else if (leadEntry?.kind === "file") setLooking(true);
       return;
     }
+    // An open sheet (Info, Move to) has Escape and its own keys; ⌘I shuts Info as it opened it.
+    if (infoPath !== null || moving !== null) {
+      if (infoPath !== null && meta && e.key.toLowerCase() === "i") {
+        handled();
+        setInfoPath(null);
+      }
+      return;
+    }
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      handled();
+      keyMenu();
+      return;
+    }
     if (e.key === "Escape") {
       if (looking) setLooking(false);
       else setSel(EMPTY_SELECTION);
@@ -508,7 +538,10 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     }
     if (meta && e.key === "ArrowUp") {
       handled();
-      if (place.kind === "folder" && folder !== root) go({ kind: "folder", path: parentOf(folder) });
+      if (place.kind === "folder" && folder !== root) {
+        arriving.current = folder;
+        go({ kind: "folder", path: parentOf(folder) });
+      }
       return;
     }
     if (meta && !e.shiftKey && e.key.toLowerCase() === "a") {
@@ -524,7 +557,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     if (meta && e.key.toLowerCase() === "d") {
       handled();
       const paths = changeable(sel.paths);
-      if (paths.length) void ops.duplicate(paths);
+      if (paths.length) duplicate(paths);
       return;
     }
     if (meta && e.shiftKey && e.key.toLowerCase() === "n") {
@@ -733,7 +766,14 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
             if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains("finder-list") || (e.target as HTMLElement).classList.contains("finder-gallery")) setSel(EMPTY_SELECTION);
           }}
           onContextMenu={(e: MouseEvent) => {
-            if (!making || (e.target as HTMLElement).closest("[data-path]")) return;
+            if ((e.target as HTMLElement).closest("[data-path]")) return;
+            // The menu key on the list, not a press on its ground: the menu for what is chosen.
+            if (e.button !== 2) {
+              e.preventDefault();
+              keyMenu();
+              return;
+            }
+            if (!making) return;
             e.preventDefault();
             setSel(EMPTY_SELECTION);
             setMenu({ at: { x: e.clientX, y: e.clientY }, items: folderItems(), label: "Folder actions" });
@@ -772,7 +812,18 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
           e.target.value = "";
         }}
       />
-      {menu && <FinderMenu at={menu.at} items={menu.items} label={menu.label} onClose={() => setMenu(null)} />}
+      {menu && (
+        <FinderMenu
+          at={menu.at}
+          items={menu.items}
+          label={menu.label}
+          onClose={() => {
+            setMenu(null);
+            // The keys go back to the list, with the choice they had; an item that opens a sheet takes them from there.
+            main.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       <NewFolderDialog
         suggested={naming}
         onClose={() => setNaming(null)}

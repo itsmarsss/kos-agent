@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, StatusPill, When } from "@kos/kit";
+import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, pageArrive, sheetOpen, StatusPill, When } from "@kos/kit";
 import { momentWords, timeCard } from "@kos/shared";
 
 import {
@@ -21,11 +21,11 @@ import {
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
-import { AnimatePresence, m } from "motion/react";
+import { m } from "motion/react";
 
 import { chatShown, frameOf, hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
-import { targetHref } from "./hashparams.js";
+import { targetHref, useCreateParam } from "./hashparams.js";
 import { CronEditor } from "./CronEditor.js";
 import { scheduleWords } from "./schedule.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
@@ -41,7 +41,7 @@ import { fileMention } from "./finder/model.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
-import { heardDrawnTheme, reconcileTheme, reportDrawnTheme, themeStamp } from "./theme.js";
+import { chooseTheme, heardDrawnTheme, reconcileTheme, reportDrawnTheme, themeStamp } from "./theme.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { ArtifactViewer, ArtifactsPage, chatOf, chatOpen, settleOpenViewers } from "./ArtifactsPage.js";
 import { placeOf } from "./chattree.js";
@@ -55,11 +55,12 @@ import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { Refreshes } from "./refreshes.js";
 import { HostBanner } from "./HostBanner.js";
-import { Toast } from "./Toast.js";
+import { toast, ToastHost, type ToastTone } from "./Toast.js";
+import { KeysSheet } from "./KeysSheet.js";
+import { isLooseKey } from "./shortcuts.js";
 import { useReach } from "./reach.js";
 import { jobTitle, lastRunWords } from "./schedulewords.js";
 
-type Toast = { kind: "ok" | "warn" | "err"; text: string } | null;
 
 export function App(): React.ReactElement {
   const [route, setRoute] = useState<Route>(() =>
@@ -93,7 +94,6 @@ export function App(): React.ReactElement {
   const [busy, setBusy] = useState<string | null>(null);
   /** Pending actions being decided right now. */
   const [deciding, setDeciding] = useState<ReadonlySet<number>>(new Set());
-  const [toast, setToast] = useState<Toast>(null);
   const [activePage, setActivePage] = useState<AnyPagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
@@ -112,9 +112,12 @@ export function App(): React.ReactElement {
   /** A tab asked for from a chip or a button: the window opens on it. */
   const [browserPick, setBrowserPick] = useState<{ tab: string; n: number } | undefined>(undefined);
   const browserDismissed = useRef(false);
+  /** Opened by the owner (a key, a button), so the keys go to it; opened on its own as KOS browses, they stay where they are. */
+  const browserByHand = useRef(false);
   const live = useProgress();
   const openTab = useCallback((tab: string): void => {
     browserDismissed.current = false;
+    browserByHand.current = true;
     setBrowserPick({ tab, n: Date.now() });
     setBrowserOpen(true);
   }, []);
@@ -139,7 +142,12 @@ export function App(): React.ReactElement {
     [approvals],
   );
   useEffect(() => {
-    if ((browsing || handoffs.length > 0) && !browserDismissed.current) setBrowserOpen(true);
+    if ((browsing || handoffs.length > 0) && !browserDismissed.current) {
+      setBrowserOpen((was) => {
+        if (!was) browserByHand.current = false;
+        return true;
+      });
+    }
     if (!browsing && handoffs.length === 0) browserDismissed.current = false;
   }, [browsing, handoffs.length]);
   /** A question typed as `/btw` in a chat, handed to the window to ask. */
@@ -153,6 +161,7 @@ export function App(): React.ReactElement {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "b") {
         e.preventDefault();
         // Read inside the update: this handler is bound once.
+        browserByHand.current = true;
         setBrowserOpen((v) => {
           browserDismissed.current = v;
           return !v;
@@ -184,6 +193,13 @@ export function App(): React.ReactElement {
     const job = crons.find((c) => c.name.toLowerCase() === want || String(c.id) === want);
     if (job) setEditingCron({ job });
   }, [route, crons]);
+  // New schedule from the palette: the Schedule page with `?new` on its address.
+  useCreateParam(() => setEditingCron({}), route.name === "crons");
+  /** The schedule's drawer shut, and its address with it, so the next read of the jobs does not open it again. */
+  const closeCron = (): void => {
+    setEditingCron(null);
+    if (route.name === "crons" && route.job) window.location.hash = hrefFor({ name: "crons" });
+  };
   const [conversations, setConversations] = useState<Conversation[]>([]);
   /** KOS's own look, from the status: every face of KOS and the tab icon use it. */
   const kosLook = useMemo(() => lookOf(KOS_SEED, status?.face ?? {}), [status?.face]);
@@ -213,10 +229,8 @@ export function App(): React.ReactElement {
     link.href = faceDataUrl(kosLook, mood);
   }, [kosLook, status?.pendingApprovals, status?.halted]);
 
-  const flash = (kind: "ok" | "warn" | "err", text: string): void => {
-    setToast({ kind, text });
-    window.setTimeout(() => setToast(null), 3200);
-  };
+  /** A note in the one toast queue: its own id and timer, so the same words twice show twice. */
+  const flash = (kind: ToastTone, text: string): void => void toast({ kind, text });
 
   /**
    * One poll feeds the whole dashboard. Settled rather than all: under
@@ -312,6 +326,26 @@ export function App(): React.ReactElement {
       .catch(() => undefined);
   }, []);
 
+  /** The "?" sheet of every key there is. */
+  const [keysOpen, setKeysOpen] = useState(false);
+  // The page's own keys, pressed with nothing to type into: "?" lists every key there is, "/" goes to the page's search.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented || !isLooseKey(e) || sheetOpen()) return;
+      if (e.key === "?") {
+        e.preventDefault();
+        setKeysOpen(true);
+      } else if (e.key === "/") {
+        const search = document.querySelector<HTMLInputElement>(".ops-page .search-field-input");
+        if (!search) return;
+        e.preventDefault();
+        search.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // One shortcut, and it opens the thing that reaches everything. It used to
   // open a chat with KOS, which Chats already does, so the most reachable key
   // in the app was spent on a second way to do one thing.
@@ -394,7 +428,8 @@ export function App(): React.ReactElement {
         await refresh();
         return;
       }
-      flash("ok", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
+      // A no is said in the quiet tone: the green check is for what was done, not for what was refused.
+      flash(approved ? "ok" : "info", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
@@ -524,7 +559,7 @@ export function App(): React.ReactElement {
     try {
       await api.setKill(!status.halted);
       await refresh();
-      flash("ok", status.halted ? "Resumed" : "Halted");
+      flash(status.halted ? "ok" : "info", status.halted ? "Resumed" : "Halted");
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
     } finally {
@@ -596,6 +631,14 @@ export function App(): React.ReactElement {
       go({ name: "builds", id: agentId });
     },
     sitesBase,
+    quickAsk: () => setAskOpen(true),
+    openBrowser: () => {
+      browserDismissed.current = false;
+      browserByHand.current = true;
+      setBrowserOpen(true);
+    },
+    setTheme: (theme) => void chooseTheme(theme, api.saveTheme).catch((err: unknown) => flash("err", `Not saved to KOS: ${err instanceof Error ? err.message : String(err)}`)),
+    showKeys: () => setKeysOpen(true),
     openTarget: (target) => {
       const href = targetHref(target, (id) => placeOf(id, conversations.find((c) => c.id === id)));
       if (href) {
@@ -605,8 +648,8 @@ export function App(): React.ReactElement {
       // A run or a call: its record, over Runs, as a row there opens it.
       go({ name: "history" });
       const failed = (err: unknown): void => flash("err", err instanceof Error ? err.message : String(err));
-      if (target.kind === "run") void api.run(target.id).then((r) => r && setInspect({ kind: "run", data: r })).catch(failed);
-      else if (target.kind === "call") void api.call(target.id).then((t) => setInspect({ kind: "tool", data: t })).catch(failed);
+      if (target.kind === "run") void api.run(target.id).then((r) => r && openInspect({ kind: "run", data: r }, pageKeyOf({ name: "history" }))).catch(failed);
+      else if (target.kind === "call") void api.call(target.id).then((t) => openInspect({ kind: "tool", data: t }, pageKeyOf({ name: "history" }))).catch(failed);
     },
   };
 
@@ -632,14 +675,44 @@ export function App(): React.ReactElement {
     if (Number.isInteger(id)) void decide(id, approved, remember, code);
   };
 
+  // A drawer belongs to the page it was opened over: leaving the page shuts it.
+  const pageKey = pageKeyOf(route);
+  /** The page the open record belongs to: the one it was opened on, or the one it was opened for (a run from search, over Runs). */
+  const inspectPage = useRef<string | null>(null);
+  const openInspect = (target: InspectTarget, page = pageKey): void => {
+    inspectPage.current = page;
+    setInspect(target);
+  };
+  useEffect(() => {
+    if (inspectPage.current !== null && inspectPage.current !== pageKey) setInspect(null);
+  }, [pageKey]);
+  // Arrived on a page, the keys go with you rather than back to the top of the document: a chat's box, else the page's region.
+  useEffect(() => {
+    let tries = 0;
+    let frame = 0;
+    const land = (): void => {
+      const at = document.activeElement;
+      if (at && at !== document.body && at.isConnected && !at.matches("[data-focus-home]")) return;
+      const box = document.querySelector<HTMLElement>(".ops-page .chats-composer textarea:not(:disabled)");
+      if (box) box.focus({ preventScroll: true });
+      // A chat's box comes with its thread, a moment after the page.
+      else if (chatShown(route) && ++tries < 30) frame = requestAnimationFrame(land);
+      else document.querySelector<HTMLElement>("[data-focus-home]")?.focus({ preventScroll: true });
+    };
+    frame = requestAnimationFrame(land);
+    return () => cancelAnimationFrame(frame);
+  }, [pageKey]);
+  /** What the drawer shows, kept while it shuts so it leaves with what it held. */
+  const lastInspect = useRef<string | null>(null);
   const inspectKey =
     inspect == null
-      ? "none"
+      ? lastInspect.current
       : inspect.kind === "tool"
         ? `tool-${inspect.data.id}`
         : inspect.kind === "run"
           ? `run-${inspect.data.id}`
           : `project-${inspect.data.slug}`;
+  lastInspect.current = inspectKey;
 
   /** A project's threads open inside the project; the rest open in Chats. */
   const openConversation = (id: string): void => {
@@ -699,6 +772,7 @@ export function App(): React.ReactElement {
         onAsk={() => setAskOpen((v) => !v)}
         onBrowser={() => {
           browserDismissed.current = browserOpen;
+          browserByHand.current = true;
           setBrowserOpen((v) => !v);
         }}
         browsing={browsing !== null}
@@ -713,16 +787,13 @@ export function App(): React.ReactElement {
         onCopyWorkspace={() => void copyWorkspace()}
         onToggleKill={() => void toggleKill()}
       />
-      <main className="ops">
+      <main className="ops" tabIndex={-1} data-focus-home>
         <HostBanner reach={reach} />
-        <Toast note={toast} />
-        {/* Wrapped so it unmounts: the panel returned null when closed, which
-            skips the exit animation entirely and makes a drawer vanish rather
-            than close. */}
-        <AnimatePresence>
-          {inspect && (
+        <ToastHost />
+        {/* Keyed on what it shows, and still keyed on it while it shuts, so
+            the drawer leaves with what it held rather than vanishing. */}
           <Inspector
-            key={inspectKey}
+            key={inspectKey ?? "none"}
             target={inspect}
             onClose={() => setInspect(null)}
             onOpenPage={openPage}
@@ -752,28 +823,22 @@ export function App(): React.ReactElement {
             }}
             onDeleteProject={deleteProject}
           />
-          )}
-        </AnimatePresence>
 
         {/* A page arriving. Keyed on the route so switching tabs is a change
-            the eye can follow rather than a swap between two frames. Short
-            and small: this is orientation, not decoration. The page carries
-            its own frame (a reading width and gutter, or the chat's full
-            bleed): on the main element the frame flipped the instant the
-            route changed, so the page still fading out jumped to the next
-            page's margins before it was gone. */}
-        <AnimatePresence mode="wait" initial={false}>
-          <m.div
-            key={pageKeyOf(route)}
-            className={`ops-page ops-page--${frameOf(route)}${route.name === "files" ? " ops-page--files" : route.name === "settings" ? " ops-page--split" : ""}`}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={ease}
-          >
-            {body}
-          </m.div>
-        </AnimatePresence>
+            the eye can follow, but never a frame with no page in it: the old
+            page goes at once and the new one is there from its first frame,
+            settling with the one ease (a fade from most of the way and an
+            8 px rise). Nothing waits on it. The page carries its own frame
+            (a reading width and gutter, or the chat's full bleed). */}
+        <m.div
+          key={pageKeyOf(route)}
+          className={`ops-page ops-page--${frameOf(route)}${route.name === "files" ? " ops-page--files" : route.name === "settings" ? " ops-page--split" : ""}`}
+          initial={pageArrive.initial}
+          animate={pageArrive.animate}
+          transition={ease}
+        >
+          {body}
+        </m.div>
 
         {/* A drawer: a schedule has a name, a cron line, a type and a body
             of actions, which is more than a dialog in the middle of the page
@@ -782,25 +847,23 @@ export function App(): React.ReactElement {
           open={editingCron !== null}
           title={editingCron?.job ? jobTitle(editingCron.job.name) : "New schedule"}
           subtitle={editingCron?.job ? scheduleWords(editingCron.job.schedule) : "Runs on its own, on a schedule you set"}
-          onClose={() => {
-            setEditingCron(null);
-            if (route.name === "crons" && route.job) window.location.hash = hrefFor({ name: "crons" });
-          }}
+          onClose={closeCron}
         >
           {editingCron && (
             <CronEditor
+              onNotice={(text) => flash("ok", text)}
               projects={projects.filter((p) => p.status === "active").map((p) => ({ slug: p.slug, name: p.name }))}
               {...(editingCron.projectSlug ? { defaultProject: editingCron.projectSlug } : {})}
               {...(editingCron.job ? { job: editingCron.job } : {})}
               hooks={status?.hooks === true}
               onDone={() => {
-                setEditingCron(null);
+                closeCron();
                 void refresh();
               }}
-              onCancel={() => setEditingCron(null)}
+              onCancel={closeCron}
               onRunNow={(id) => {
                 const job = crons.find((c) => c.id === id);
-                setEditingCron(null);
+                closeCron();
                 void runCronNow(id, job?.name ?? `cron #${id}`);
               }}
               onToggle={(id, enabled) => {
@@ -833,9 +896,11 @@ export function App(): React.ReactElement {
           onClose={() => setPaletteOpen(false)}
           ctx={paletteContext}
         />
+        <KeysSheet open={keysOpen} onClose={() => setKeysOpen(false)} />
       </main>
       <BrowserWindow
         open={browserOpen}
+        grab={browserByHand.current}
         onClose={() => {
           browserDismissed.current = true;
           setBrowserOpen(false);
@@ -1120,7 +1185,7 @@ export function App(): React.ReactElement {
         conversations={conversations}
         crons={crons}
         onInspect={(project, pages) =>
-          setInspect({ kind: "project", data: project, pages })
+          openInspect({ kind: "project", data: project, pages })
         }
         onCreate={createProject}
       />,
@@ -1135,8 +1200,8 @@ export function App(): React.ReactElement {
         crons={crons}
         conversations={conversations}
         projects={projects}
-        onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
-        onOpenRun={(r) => setInspect({ kind: "run", data: r })}
+        onOpenTool={(t) => openInspect({ kind: "tool", data: t })}
+        onOpenRun={(r) => openInspect({ kind: "run", data: r })}
         onFix={(row) => void startFix(row)}
       />,
     );
@@ -1315,6 +1380,7 @@ export function App(): React.ReactElement {
         onOpenChat={(id) => go({ name: "chats", id })}
         onOpenBrowser={() => {
           browserDismissed.current = false;
+          browserByHand.current = true;
           setBrowserOpen(true);
         }}
         onDismissFailure={(key) => void dismissFailure(key)}
@@ -1332,6 +1398,7 @@ export function App(): React.ReactElement {
   if (route.name === "memory") {
     return shell(
       <MemoryPage
+        onNotice={(text) => flash("ok", text)}
         facts={facts}
         tags={factTags}
         {...(projectNames ? { projectNames } : {})}

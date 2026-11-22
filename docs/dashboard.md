@@ -2,6 +2,16 @@
 
 The sidebar is the map. `⌘K` opens search and commands from anywhere.
 
+## Keys
+
+`?`, with nothing to type into, opens a sheet of every key there is, by
+where it works (`shortcuts.ts`, the one list; a key added to a page goes
+there too). `/` goes to the page's search. Escape shuts the menu or sheet
+on top and nothing else: it never decides anything. A sheet takes the
+focus as it opens, keeps the tab key while it is open and gives the focus
+back to what opened it; arriving on a page the focus goes to a chat's box
+or the page's region, never back to the top of the document.
+
 ## Search and commands
 
 `⌘K` is one box. Nothing typed, it offers the likely actions and the latest
@@ -23,7 +33,10 @@ time, best first across all of them:
 Each row says its kind and, under its name, the words around the match
 with the match marked, two lines at most. A prefix asks that source alone
 and leaves names out; the @ menu's prefixes (`file:`, `chat:` and the rest)
-ask names alone; `>` is actions only. The foot of Everywhere says which
+ask names alone; `>` is actions only. The actions include each page's
+create (New project, New schedule, New claim, which open the page with
+`?new` on its address and its sheet open), the theme, Quick ask, KOS's
+browser and the keys. The foot of Everywhere says which
 sources are still being read, which did not answer in time, or that none
 holds the words. The arrows move, the row under the cursor stays put as
 rows arrive, Return opens it and Escape closes.
@@ -249,6 +262,16 @@ a turn a restart cut, keeps for the hours set there (a day by default) and
 then lapses too. Either way it leaves the Inbox, the prompt for it on
 Discord or iMessage settles as lapsed, and the chat that asked is told
 nothing was done. Each card says when it lapses.
+
+From the keys: a card you went to (Tab) takes Enter as Approve and ⌘⌫ as
+Deny; Escape never denies. Decided, the focus goes to the next card, not
+its Approve, and that card takes no Enter until you go to it yourself, so
+a doubled Enter never approves the next ask unread. Each card arrives and
+leaves with a fade and an 8 px rise; the toast after says how it went, a
+no in the quiet tone, never the green check.
+
+A chat's mode chip goes back to Ask in one press; going into Auto is a
+choice in its menu, which says what Auto does.
 
 An approval is a reference like anything else: `@approval:290` in a chat
 is a chip that opens it here, and the Inbox keeps every approval after it

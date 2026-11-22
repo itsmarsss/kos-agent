@@ -6,7 +6,7 @@ import { kindWord, momentWords, slugWords, timeWords } from "@kos/shared";
 import { api, type CallerInfo, type CronJob, type FactRow, type MemoryChange, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 import { PageHead, PageTabs, tabId } from "./PageHead.js";
-import { useHashParam } from "./hashparams.js";
+import { useCreateParam, useHashParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
 import { scheduleWords } from "./schedule.js";
 import { jobTitle, lastRunWords } from "./schedulewords.js";
@@ -37,6 +37,7 @@ export function MemoryPage({
   conversations = [],
   projectNames,
   onChanged,
+  onNotice,
 }: {
   facts: FactRow[];
   tags: string[];
@@ -45,6 +46,8 @@ export function MemoryPage({
   /** So a log row can name the chat it came from rather than show its id. */
   conversations?: Conversation[];
   onChanged: () => void;
+  /** Says what an action on a claim did, for a toast. */
+  onNotice?: (text: string) => void;
 }): ReactElement {
   const titles = useMemo(() => new Map(conversations.map((c) => [c.id, c.title])), [conversations]);
   const [tab, setTab] = useState<Tab>(() => {
@@ -64,6 +67,10 @@ export function MemoryPage({
   };
   /** The new-claim form, opened from the page head. */
   const [adding, setAdding] = useState(false);
+  useCreateParam(() => {
+    setTab("claims");
+    setAdding(true);
+  });
   // The head's search is the open tab's: the claims', or the log's.
   const [claimsQuery, setClaimsQuery] = useState("");
   const [logQuery, setLogQuery] = useState("");
@@ -107,7 +114,7 @@ export function MemoryPage({
         }
       />
       <div id="mem-panel" role="tabpanel" aria-labelledby={tabId("Memory", tab)} className="mem-panel">
-      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} query={claimsQuery} onQuery={setClaimsQuery} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
+      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} query={claimsQuery} onQuery={setClaimsQuery} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} {...(onNotice ? { onNotice } : {})} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}
       {tab === "log" && <LogTab titles={titles} query={logQuery} {...(projectNames ? { projectNames } : {})} />}
