@@ -171,7 +171,7 @@ export function HistoryPage({
     if (r.kind === "chat") {
       const chat = chatOf(r);
       if (chat) return chat.kind === "orchestrator" ? "KOS" : chat.title || "Untitled chat";
-      return r.ref?.startsWith("project:") ? (projectOf.get(r.ref.slice(8))?.name ?? "A project's chat") : "A chat";
+      return r.ref?.startsWith("project:") ? (projectOf.get(r.ref.slice(8))?.name ?? "A project's chat") : "An archived or deleted chat";
     }
     return RUN_WORDS[r.kind] ?? r.kind;
   };
