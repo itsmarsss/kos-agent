@@ -318,7 +318,7 @@ export function SettingsPage({
   const [found, setFound] = useState<{ label: string; n: number } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   // On a phone the rail is a strip that scrolls sideways: it fades where there is more.
-  const sideFade = useEdgeFade<HTMLDivElement>(".set-rail");
+  const sideFade = useEdgeFade<HTMLDivElement>(".set-rail", "x", data !== null && data !== undefined);
   const paneRef = useRef<HTMLDivElement>(null);
   const paneScroll = useOverlayScroll(paneRef);
   const railRef = useRef<HTMLElement>(null);

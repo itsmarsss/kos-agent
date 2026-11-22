@@ -337,7 +337,7 @@ export function BuildsPage({
 
       {builds && builds.length === 0 && (
         <EmptyState title="Nothing running">
-          KOS starts one when a job is bigger than editing a file, and it
+          KOS starts one when a piece of work is bigger than editing a file, and it
           appears here while it works.
         </EmptyState>
       )}
