@@ -263,6 +263,76 @@ describe("the finder", () => {
     expect(screen.getByText("Word document", { selector: "dd" })).toBeTruthy();
   });
 
+  it("chooses the copy after Cmd+D, so the next Cmd+Delete trashes the copy and not the original", async () => {
+    vi.spyOn(api, "copyFile").mockImplementation(async (from) => {
+      const made = from.replace(/\.md$/, " copy.md");
+      tree["projects/garden"]!.push(d(made));
+      return { path: made };
+    });
+    const trash = vi.spyOn(api, "trashFile").mockResolvedValue({ id: "1-aa", path: "projects/garden/a copy.md", name: "a copy.md", kind: "file", size: 1, trashedAt: 1 });
+    await openGarden();
+    fireEvent.mouseDown(row("projects/garden/a.md"));
+    key("d", { metaKey: true });
+    await waitFor(() => expect(chosen()).toEqual(["projects/garden/a copy.md"]));
+    key("Backspace", { metaKey: true });
+    await waitFor(() => expect(trash).toHaveBeenCalledWith("projects/garden/a copy.md"));
+    expect(trash).not.toHaveBeenCalledWith("projects/garden/a.md");
+  });
+
+  it("opens the chosen file's own menu on the menu key and Shift+F10, and the folder's with nothing chosen", async () => {
+    await openGarden();
+    fireEvent.mouseDown(row("projects/garden/a.md"));
+    key("ContextMenu");
+    expect(screen.getByRole("menu", { name: "Actions for a.md" })).toBeTruthy();
+    const items = screen.getAllByRole("menuitem").map((el) => el.textContent ?? "");
+    for (const word of ["Rename", "Move to", "Move to Trash"]) expect(items.some((t) => t.startsWith(word))).toBe(true);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    key("F10", { shiftKey: true });
+    expect(screen.getByRole("menu", { name: "Actions for a.md" })).toBeTruthy();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    // The menu key's own contextmenu event, on the list rather than a row, is the same menu.
+    fireEvent.contextMenu(main(), { button: 0 });
+    expect(screen.getByRole("menu", { name: "Actions for a.md" })).toBeTruthy();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    key("Escape");
+    key("ContextMenu");
+    expect(screen.getByRole("menu", { name: "Folder actions" })).toBeTruthy();
+  });
+
+  it("gives the keys back to the list, choice kept, when the Actions menu shuts on Escape", async () => {
+    await openGarden();
+    fireEvent.mouseDown(row("projects/garden/b.txt"));
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    expect(screen.getByRole("menu", { name: "Actions" })).toBeTruthy();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(main());
+    expect(chosen()).toEqual(["projects/garden/b.txt"]);
+  });
+
+  it("chooses the folder come up out of on Cmd+Up", async () => {
+    await openGarden();
+    key("ArrowUp", { metaKey: true });
+    await waitFor(() => expect(chosen()).toEqual(["projects/garden"]));
+  });
+
+  it("shuts Info on Escape and on Cmd+I again, leaving the choice behind it alone", async () => {
+    vi.spyOn(api, "fileInfo").mockResolvedValue({ ...d("projects/garden/a.md"), createdAt: 1 });
+    await openGarden();
+    fireEvent.mouseDown(row("projects/garden/a.md"));
+    key("i", { metaKey: true });
+    expect(await screen.findByRole("dialog", { name: "Info" })).toBeTruthy();
+    key("Escape");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Info" })).toBeNull());
+    expect(chosen()).toEqual(["projects/garden/a.md"]);
+    key("i", { metaKey: true });
+    expect(await screen.findByRole("dialog", { name: "Info" })).toBeTruthy();
+    key("i", { metaKey: true });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Info" })).toBeNull());
+    expect(chosen()).toEqual(["projects/garden/a.md"]);
+  });
+
   it("finds by name below the folder", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const search = vi.spyOn(api, "searchFiles").mockResolvedValue({ entries: [d("projects/garden/beds/bed-1.md")], truncated: false });
