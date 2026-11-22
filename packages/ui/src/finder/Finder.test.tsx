@@ -289,6 +289,7 @@ describe("the finder", () => {
       observe(): void {
         this.cb([{ contentRect: { width: 390 } } as ResizeObserverEntry], this as unknown as ResizeObserver);
       }
+      unobserve(): void {}
       disconnect(): void {}
     });
     await openGarden();

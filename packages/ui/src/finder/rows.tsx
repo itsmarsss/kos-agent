@@ -3,6 +3,7 @@ import { useEffect, useRef, type DragEvent, type MouseEvent, type ReactElement }
 import { Tooltip } from "@kos/kit";
 
 import type { DirEntry } from "../api.js";
+import { FitName } from "./names.js";
 
 /** What a row of KOS's own (kos.sqlite, profile.json) says when pointed at. */
 export const RESERVED_TIP = "KOS keeps its own records here, so it can't be renamed, moved or trashed.";
@@ -70,11 +71,15 @@ export function EntryName({ entry, h, className = "finder-name" }: { entry: DirE
         </Tooltip>
       );
     }
-    return (
-      <span className={className} title={entry.name}>
-        {entry.name}
-      </span>
-    );
+    // A tile's name wraps to two lines; a row's is one line, cut in the middle.
+    if (className === "finder-tile-name") {
+      return (
+        <span className={className} title={entry.name}>
+          {entry.name}
+        </span>
+      );
+    }
+    return <FitName name={entry.name} isFile={entry.kind === "file"} className={className} />;
   }
   let settled = false;
   const settle = (name: string | null): void => {
