@@ -5157,9 +5157,9 @@ a.health {
     border-bottom: 1px solid var(--line);
   }
   .list-table--stack tr.ops-row-click > td { display: block; order: 3; padding: 0; border: 0; min-width: 0; }
-  .list-table--stack td[data-stack="title"] { order: 0; flex: 1 1 0; }
-  .list-table--stack td[data-stack="aside"] { order: 1; margin-left: auto; }
-  .list-table--stack td[data-stack="aside"]:empty { display: none; }
+  .list-table--stack tr.ops-row-click > td[data-stack="title"] { order: 0; flex: 1 1 0; }
+  .list-table--stack tr.ops-row-click > td[data-stack="aside"] { order: 1; margin-left: auto; }
+  .list-table--stack tr.ops-row-click > td[data-stack="aside"]:empty { display: none; }
   /* The break between the two lines. */
   .list-table--stack tr.ops-row-click::after { order: 2; flex-basis: 100%; content: ""; }
   .list-table--stack td[data-label]::before {
