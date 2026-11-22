@@ -94,6 +94,13 @@ export function useStickToBottom<T extends HTMLElement>(
     const onTouch = (): void => {
       stick.current = false;
     };
+    // Opening something in the thread (a tool call, a reply's steps) is
+    // reading it: it opens downward where it is. Followed, the box was
+    // snapped to the bottom in steps as it grew, a stutter at each one.
+    const onOpen = (e: MouseEvent): void => {
+      if (e.target instanceof Element && e.target.closest("[aria-expanded]")) stick.current = false;
+    };
+    el.addEventListener("click", onOpen, true);
     el.addEventListener("scroll", onScroll, { passive: true });
     el.addEventListener("wheel", onWheel, { passive: true });
     el.addEventListener("touchmove", onTouch, { passive: true });
@@ -125,6 +132,7 @@ export function useStickToBottom<T extends HTMLElement>(
       el.removeEventListener("scroll", onScroll);
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("touchmove", onTouch);
+      el.removeEventListener("click", onOpen, true);
       observer.disconnect();
       mutations.disconnect();
     };

@@ -2922,7 +2922,8 @@ li:hover .chats-item-when { opacity: 0; }
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  /* 10 between messages (docs/design.md, Chat). */
+  gap: 0.625rem;
   padding: 1rem;
   overflow-y: auto;
   /* The thread owns the scrolling; the page underneath should not move. */
