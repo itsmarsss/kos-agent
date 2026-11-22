@@ -1145,6 +1145,12 @@ select {
   background: var(--accent-dim);
 }
 
+/* A row is a Tab stop that Enter opens (rowkeys.ts); inset, since a table row's outline is clipped by its neighbours. */
+.ops-row-click:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .ops-dense-btn,
 .ops-project-btn {
   appearance: none;
