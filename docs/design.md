@@ -168,11 +168,41 @@ and the dashboard's `styles.css` draw the same things.
 - **Chips.** One choice of a few. Radius 7, `panel-2`, `muted` words; the
   chosen one is `accent` words at 600 on a dim accent tint with an edge
   border. One chip style for every such choice: tabs over a list, a mode, a
-  kind filter.
+  kind filter, a source to browse; the kit's `Chips`, `round` inside
+  something round (the landing's box), as Shape says.
 - **Pill.** A state in a word: 11 / 500 in its tone on a dim tint, a 6 px dot
-  before the word, no border.
-- **Field.** A `bg` well, `line` border, radius 7; its label above it at 11.5
-  / 500 `muted`.
+  before the word, no border. The word and the tone are `STATE_WORDS`'s
+  (`@kos/shared`), drawn by the kit's `StatusPill`: Done, Failed, Running,
+  Needs you, On, Off, Quiet and the rest, in sentence case. A quiet or off
+  thing is never green; a switch that sets a state stands alone, with no
+  pill beside it saying the same.
+- **Field.** A `bg` well, `line` border, radius 7; its label above it at 12
+  / 600 `muted` (the kit's `Field`), the same in Settings as in a sheet. A
+  sample of what goes in ("sk-...") is the box's placeholder, not its hint.
+  A setting that is on or off is a row: its words at the left, the switch at
+  the right (`FieldRow`), never a switch under its label or a tick.
+- **Sheet.** A drawer and a dialog share one head and one foot (the kit's
+  `SheetHead`, `SheetFoot`): the title with a line under it and an × to
+  close; the foot right-aligned, Cancel a secondary button, the one thing the
+  sheet is for last in the accent ("Create" for something new, "Save" for a
+  change, or the action's own word: Move, Ask KOS). Something that destroys
+  sits apart at the far left. A confirm is Cancel, then what it confirms,
+  last, in danger.
+- **Empty.** A list with nothing in it says so (the kit's `EmptyState`): a
+  dashed box with a title on a page, one quiet line in a card or a rail, a
+  row across a table. A search or filter that finds nothing says "No <things>
+  match these words and filters." and offers one Clear filters, on every
+  page. Something asked for that is not there says "No <kind> called
+  “<name>”" with the way back (`NotFound`), never the server's words.
+- **Search.** One box (`SearchField`): the glass at its start, an × once it
+  has words, "Search <what>" as its placeholder, in the page head's search
+  slot on a list page, in the bar on Files.
+- **Group and table heads.** A group of rows is headed at the title's size,
+  600, with its count (`GroupHead`); a table's columns are named small, 600,
+  in capitals, `faint` (`TableHead`), the Files list's too.
+- **Link.** Words in the accent, underlined under the pointer (`.link`); a
+  name in a row of facts may be `.link--quiet`, `muted` until the pointer is
+  on it. A time is words, never a link. KOS's prose keeps its underline (Chat).
 - **Card.** `panel`, `line` border, radius 10. A card that opens something
   shows it under the pointer; a card that does not, does not.
 - **Row with a tile.** A 32 px tile (radius 7) tinted in the row's tone, the
@@ -191,8 +221,11 @@ and the dashboard's `styles.css` draw the same things.
   tools fold into one ⋯ menu.
 - **Approval.** What waits on the owner says so in `warn` (a 45% edge); an
   ask to work in a tab or to read it is the accent. The face, the task in a
-  quiet box, the choices as chips, Deny then Allow, and a countdown bar the
-  width of the card in `faint`.
+  quiet box, the choices as chips, Deny then Allow (on a phone too, one to a
+  row, Deny on top), and a countdown bar the width of the card in `faint`.
+  One size on every surface: the Inbox, Home's Inbox panel and a chat draw
+  the same card, each with its own warn edge and its countdown. A URL on it
+  wraps after a slash, never inside a name.
 
 ## Motion
 
@@ -219,8 +252,28 @@ Discord, the side panel, KOS for Mac, and in what KOS says.
 | blob | a standing helper with a face and a thread of its own | its name, never "agent" |
 | build | coding work KOS runs in a folder | its folder; never "coding agent" |
 | chat | anything else: a chat at the root, a surface's own stream | its title |
+| schedule | what KOS runs on its own, on a timer | "Schedule" everywhere in the dashboard: the page, its tab, New schedule, the editor; never "cron" or "job" in words the owner reads. The cron line and an id are for a tooltip; the words are `scheduleWords` ("Weekdays at 8:00 AM") |
+| Inbox | the one queue of what waits on the owner | Inbox: the nav, Home's panel, the palette; "Approvals" only as the group of asks inside it |
 
 Maintenance, where KOS repairs itself, is a project and goes by Maintenance.
+
+KOS's own schedules each go by one name on every page: Memory: Read,
+Memory: Tidy, Memory: Condense, Backup, Faces, Improve (`SYSTEM_SCHEDULES`
+in `@kos/shared`). In a log or a list of who said what, KOS's replies are
+KOS's and the owner's are You; "agent" is a project chat's kind, never
+KOS's.
+
+A kind as a tag is in sentence case, from one table (`KIND_WORDS`,
+`kindWord`): Project, System, Orchestrator, Blob, Turn, Schedule, Tool, Doc,
+Deck, Login, API key. A thing is named by its name, never its slug ("Plant
+watcher", not plant-watcher; "Reading log", not reading_log); an id or a
+slug is for a tooltip. Every trash says Restore, Delete forever and Empty
+trash. A list of projects is by name, KOS's own last.
+
+When something happened is said one way (`timeWords`): "just now", "5m
+ago", "3h ago", "2d ago", "in 25m"; a clock time is `momentWords`'s ("Tomorrow
+8:00 AM"). A schedule's next run is its clock time, its last run how long
+ago or "Never run".
 An approval says who asks by that name, on the dashboard, in #needs-you, in
 the channel it was asked in and in a DM.
 
