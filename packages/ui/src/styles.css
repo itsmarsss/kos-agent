@@ -6946,8 +6946,8 @@ a.health {
 /* A project's head (ProjectPanel.tsx): left-aligned and on the column's ground, the mark in its colour the one tinted thing. */
 /* How much it holds: four figures in a row, each under its label. */
 .pane-head-mark .hero-mark--sm { width: 36px; height: 36px; border-radius: var(--r-md); }
-/* As many to a row as fit whole: a narrow pane takes two rows rather than cutting "Schedules". */
-.project-stats { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr)); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
+/* Two to a row: a pane is narrow, and four across cut "Schedules" short. */
+.project-stats { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
 .project-stats > li { display: flex; min-width: 0; }
 .project-stats { gap: 1px; background: var(--line); }
 .project-stats > li { background: var(--panel); }
