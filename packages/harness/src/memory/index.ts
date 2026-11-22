@@ -5,7 +5,7 @@ export {
   type SalienceResult,
   type SalienceVerdict,
 } from "./salience.js";
-export { FactsStore, type Fact } from "./facts.js";
+export { FactsStore, type Fact, type MemoryChange } from "./facts.js";
 export { MemoryWriter, type SalienceConfirmer } from "./writer.js";
 export { LlmSalienceConfirmer, parseConfirmerReply } from "./confirmer.js";
 export {

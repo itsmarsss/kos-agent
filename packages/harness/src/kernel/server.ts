@@ -3290,6 +3290,19 @@ export async function handleApiRequest(
     return ok({ name, markdown: text });
   }
 
+  /** What changed in memory, newest first, with who changed it in words: a schedule by its name, a chat by its title. */
+  if (method === "GET" && path === "/api/memory/changes") {
+    const limit = Math.min(200, Math.max(1, Number(queryParams(req.url).get("limit")) || 50));
+    const actorName = (actor: string | null): string | null => {
+      if (!actor) return null;
+      const job = /^cron:(\d+)$/.exec(actor);
+      if (job) return kernel.crons.get(Number(job[1]))?.name ?? actor;
+      const chat = kernel.conversations.get(actor) ?? kernel.conversations.get(actor.split(":")[0]!);
+      return chat?.title ?? actor;
+    };
+    return ok({ changes: kernel.facts.changes(kernel.profile.ownerId, limit).map((c) => ({ ...c, by: actorName(c.actor) })) });
+  }
+
   /** Where a belief came from, and what it replaced. */
   if (method === "GET" && path === "/api/memory/trace") {
     const key = queryParams(req.url).get("key") ?? "";

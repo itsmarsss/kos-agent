@@ -229,6 +229,23 @@ export interface Trace {
   revisions: { action: string; actor: string | null; at: number; detail: string | null }[];
 }
 
+/** One change to what memory believes, for the owner to read back: what it was, what it is, who did it. */
+export interface MemoryChange {
+  id: number;
+  at: number;
+  action: "supersede" | "merge" | "archive";
+  /** Who changed it: a schedule (cron:<id>), a conversation, the owner. */
+  actor: string | null;
+  key: string;
+  scope: string;
+  /** The claim's value after the change; for an archive, the value put away. */
+  value: string;
+  /** What it said before, or what a merge folded in. */
+  was: string | null;
+  /** Why it was archived. */
+  reason: string | null;
+}
+
 /** Where `token` starts a word of `text`: "budget" in "budgets", not "run" in "truncate". */
 function startsWord(text: string, token: string): boolean {
   let at = text.indexOf(token);
@@ -485,6 +502,32 @@ export class FactsStore {
     });
     scored.sort((a, b) => b.rank - a.rank || b.fact.updatedAt - a.fact.updatedAt);
     return scored.slice(0, limit).map((s) => s.fact);
+  }
+
+  /**
+   * What changed in memory, newest first: supersessions, merges and
+   * archives, each with what it was. Additions are the claims themselves;
+   * this is the diff a tidy or a reader made to what was already believed,
+   * so a wrong merge is seen and undone by hand rather than found later.
+   */
+  changes(userId: string, limit = 50): MemoryChange[] {
+    const rows = this.db.prepare(
+      `SELECT r.id, r.action, r.actor, r.at, r.detail, c.key, c.scope, c.value FROM memory_revisions r
+       JOIN memory_claims c ON c.id = r.claim_id
+       WHERE c.user_id = ? AND r.action IN ('supersede', 'merge', 'archive')
+       ORDER BY r.id DESC LIMIT ?`,
+    ).all(userId, limit) as { id: number; action: MemoryChange["action"]; actor: string | null; at: number; detail: string | null; key: string; scope: string; value: string }[];
+    return rows.map((r) => ({
+      id: r.id,
+      at: r.at,
+      action: r.action,
+      actor: r.actor,
+      key: r.key,
+      scope: r.scope,
+      value: r.value,
+      was: r.action === "supersede" ? (r.detail?.replace(/^was: /, "") ?? null) : r.action === "merge" ? (r.detail?.replace(/^absorbed /, "") ?? null) : null,
+      reason: r.action === "archive" ? r.detail : null,
+    }));
   }
 
   /**

@@ -335,3 +335,29 @@ describe("FactsStore recall ranking", () => {
     expect(facts.standing("u1", ["global", "project:garden"]).map((f) => `${f.scope}/${f.key}`)).toEqual(["global/allergy", "project:garden/form", "project:garden/frost"]);
   });
 });
+
+describe("FactsStore changes", () => {
+  it("reads back supersessions, merges and archives, newest first, with what they were", () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-facts-changes-"));
+    const ws = Workspace.open(root);
+    try {
+      const facts = new FactsStore(ws.db);
+      facts.upsert("u1", { key: "city", value: "Toronto", kind: "fact" });
+      facts.upsert("u1", { key: "city", value: "Lisbon", kind: "fact" }, "cron:10");
+      facts.upsert("u1", { key: "home_city", value: "Lisbon, Alfama", kind: "fact" });
+      facts.merge("u1", { key: "city", scope: "global" }, { key: "home_city", scope: "global" }, "cron:10");
+      facts.archive("u1", "city", "global", "owner", "moved again");
+      facts.upsert("u2", { key: "city", value: "Oslo", kind: "fact" });
+      facts.upsert("u2", { key: "city", value: "Bergen", kind: "fact" });
+      expect(facts.changes("u1").map((c) => [c.action, c.key, c.was ?? c.reason])).toEqual([
+        ["archive", "city", "moved again"],
+        ["merge", "city", "global/home_city: Lisbon, Alfama"],
+        ["supersede", "city", "Toronto"],
+      ]);
+      expect(facts.changes("u1", 1)).toHaveLength(1);
+    } finally {
+      ws.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
