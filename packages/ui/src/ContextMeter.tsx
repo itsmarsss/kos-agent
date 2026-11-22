@@ -79,9 +79,9 @@ export function ContextMeter({
   const window = use.window;
   const windowPart =
     window && use.last
-      ? ` Last turn sent ${use.last.inputTokens.toLocaleString()} tokens of a ${short(window)} window.`
+      ? ` The last message sent ${use.last.inputTokens.toLocaleString()} tokens of the ${short(window)} the model can take.`
       : use.last
-        ? ` Last turn sent ${use.last.inputTokens.toLocaleString()} tokens; the window for ${use.last.model} is not known here.`
+        ? ` The last message sent ${use.last.inputTokens.toLocaleString()} tokens; how many ${use.last.model} can take is not known here.`
         : "";
 
   return (
@@ -90,23 +90,24 @@ export function ContextMeter({
       className={`ctx${level}`}
       title={
         // Never "keeping X of Y" with X past Y: past the budget, it says what is over.
-        `${over ? "Over the budget, so the oldest turns are being dropped: " : "Keeping "}` +
+        `How much of this chat KOS rereads with each message. ` +
+        `${over ? "It is past the limit, so the oldest messages are dropping off: " : "Now "}` +
         `${Math.min(historyChars, maxChars).toLocaleString()} of ${maxChars.toLocaleString()} characters ` +
-        `and ${Math.min(exchanges, maxExchanges)} of ${maxExchanges} exchanges.` +
+        `and ${Math.min(exchanges, maxExchanges)} of ${maxExchanges} messages.` +
         `${pictures > 0 ? ` ${pictureWords(pictures)} counted at a fixed allowance each, not by their bytes.` : ""}` +
-        ` Past either, the oldest turns drop off; /compact turns them into a summary instead.${windowPart}`
+        ` Past either, the oldest messages drop off; type /compact to fold them into a summary instead.${windowPart}`
       }
     >
       <span className="ctx-track" aria-hidden="true">
         <span className="ctx-fill" style={{ width: `${(fraction * 100).toFixed(1)}%` }} />
       </span>
       <span className="ctx-text">
-        {over ? "full" : `${Math.round(fraction * 100)}% full`}
+        {over ? "Chat memory full" : `Chat memory ${Math.round(fraction * 100)}% used`}
         <span className="ctx-detail">
           {" · "}
-          {Math.min(exchanges, maxExchanges)}/{maxExchanges} turns
+          {Math.min(exchanges, maxExchanges)} of {maxExchanges} messages
           {pictures > 0 ? ` · ${pictureWords(pictures)}` : ""}
-          {over ? " · trimming" : ""}
+          {over ? " · dropping the oldest" : ""}
         </span>
       </span>
     </div>
