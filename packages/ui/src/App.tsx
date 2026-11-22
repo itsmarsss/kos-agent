@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, StatusPill, When } from "@kos/kit";
-import { momentWords, timeCard } from "@kos/shared";
+import { momentWords, slugWords, timeCard } from "@kos/shared";
 
 import {
   type FailingJob,
@@ -60,6 +60,9 @@ import { useReach } from "./reach.js";
 import { jobTitle, lastRunWords } from "./schedulewords.js";
 
 type Toast = { kind: "ok" | "warn" | "err"; text: string } | null;
+
+/** "3 tables", "1 chat": a count with its noun. */
+const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 export function App(): React.ReactElement {
   const [route, setRoute] = useState<Route>(() =>
@@ -671,8 +674,9 @@ export function App(): React.ReactElement {
       throw err;
     });
     setInspect(null);
-    const kept = gone.trashKept ? `; ${gone.trashKept} in its trash kept in the workspace's trash` : "";
-    flash("ok", `Deleted ${slug}: ${gone.tablesDropped.length} tables, ${gone.pagesRemoved} pages; ${gone.conversationsArchived} chats archived, ${gone.jobsDisabled} jobs off${kept}`);
+    const name = projects.find((p) => p.slug === slug)?.name ?? slugWords(slug);
+    const kept = gone.trashKept ? `; what was in its trash is in the workspace's trash` : "";
+    flash("ok", `Deleted ${name}: ${count(gone.tablesDropped.length, "table")}, ${count(gone.pagesRemoved, "artifact")}; ${count(gone.conversationsArchived, "chat")} archived, ${count(gone.jobsDisabled, "schedule")} off${kept}`);
     if (route.name === "project" && route.slug === slug) go({ name: "chats" });
     await refresh();
   };

@@ -1779,7 +1779,7 @@ export function ChatsPage({
                 <ComposeIcon />
               </IconButton>
             </div>
-            {onCreateProject && <NewProjectDialog open={makingProject} onClose={() => setMakingProject(false)} onCreate={onCreateProject} />}
+            {onCreateProject && <NewProjectDialog open={makingProject} onClose={() => setMakingProject(false)} onCreate={onCreateProject} taken={projects.map((p) => p.name)} />}
 
             {/* One scroll for the whole rail. The projects used to stand still
                 while only the chats under them scrolled, so with ten projects

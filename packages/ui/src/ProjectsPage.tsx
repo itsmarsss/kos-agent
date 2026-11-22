@@ -168,7 +168,7 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
         }
       />
 
-      {onCreate && <NewProjectDialog open={making} onClose={() => setMaking(false)} onCreate={onCreate} />}
+      {onCreate && <NewProjectDialog open={making} onClose={() => setMaking(false)} onCreate={onCreate} taken={projects.map((p) => p.name)} />}
 
       {owned.length === 0 && <EmptyState title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</EmptyState>}
       {query.trim() && groups.length === 0 && <EmptyState query={{ noun: "projects", onClear: () => setQuery("") }} />}
