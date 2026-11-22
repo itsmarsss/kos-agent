@@ -240,18 +240,18 @@ export function Elapsed({ since }: { since: number }): ReactElement {
 }
 
 /**
- * How long an ask has before it lapses on its own, ticking each second:
- * "lapses in 42s", then "lapsing" once its time is up. The approvals and
+ * How long an ask has before it expires on its own, ticking each second:
+ * "expires in 42s", then "expiring" once its time is up. The approvals and
  * session asks of both device chats show it on the card.
  */
-export function Countdown({ until, lead = "lapses in" }: { until: number; lead?: string }): ReactElement {
+export function Countdown({ until, lead = "expires in" }: { until: number; lead?: string }): ReactElement {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
   const left = until - now;
-  return <span className="countdown" data-soon={left < 15_000 || undefined}>{left > 0 ? `${lead} ${formatElapsed(left)}` : "lapsing"}</span>;
+  return <span className="countdown" data-soon={left < 15_000 || undefined}>{left > 0 ? `${lead} ${formatElapsed(left)}` : "expiring"}</span>;
 }
 
 /**
