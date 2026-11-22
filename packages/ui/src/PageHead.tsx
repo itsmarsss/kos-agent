@@ -1,7 +1,7 @@
 import { Count, SearchField } from "@kos/kit";
-import { type ReactElement, type ReactNode } from "react";
+import { useEffect, type ReactElement, type ReactNode } from "react";
 
-import { useEdgeFade } from "./edgefade.js";
+import { showChosen, useEdgeFade } from "./edgefade.js";
 
 /**
  * The top of a page: what it is, then what you can do on it.
@@ -95,6 +95,9 @@ export function PageTabs({
   // A row that runs out of room scrolls sideways, and fades at the edge with more past it.
   const navRef = useEdgeFade<HTMLElement>();
   const listRef = useEdgeFade<HTMLDivElement>();
+  useEffect(() => {
+    showChosen(navRef.current ?? listRef.current, '[aria-current="page"], [aria-selected="true"]');
+  }, [current, navRef, listRef]);
   if (!onChoose) {
     return (
       <nav className="page-tabs" aria-label={label} ref={navRef}>

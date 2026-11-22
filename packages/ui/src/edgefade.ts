@@ -38,3 +38,16 @@ export function useEdgeFade<T extends HTMLElement>(selector?: string, axis: "x" 
   }, [selector, axis, ready]);
   return ref;
 }
+
+/**
+ * Scroll a row that scrolls sideways so its chosen item is in sight, by the
+ * row alone (the page does not move): on a phone a tab chosen past the edge,
+ * by a link or a search, was chosen out of sight.
+ */
+export function showChosen(row: HTMLElement | null, selector: string): void {
+  const on = row?.querySelector<HTMLElement>(selector);
+  if (!row || !on || row.scrollWidth <= row.clientWidth) return;
+  const left = on.offsetLeft - row.offsetLeft;
+  if (left >= row.scrollLeft && left + on.offsetWidth <= row.scrollLeft + row.clientWidth) return;
+  row.scrollLeft = Math.max(0, left - (row.clientWidth - on.offsetWidth) / 2);
+}
