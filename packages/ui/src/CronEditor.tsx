@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { Field, SheetFoot, StatusPill } from "@kos/kit";
 
@@ -7,6 +7,7 @@ import { scriptIn, withScript } from "./cronscript.js";
 import { ConfirmButton } from "./kit.js";
 import { describeCron } from "./schedule.js";
 import { SchedulePicker } from "./SchedulePicker.js";
+import { jobTitle } from "./schedulewords.js";
 import { Select } from "./Select.js";
 import { money, tokens } from "./SpendPanel.js";
 
@@ -120,6 +121,7 @@ export function CronEditor({
   onRunNow,
   onToggle,
   onDelete,
+  onNotice,
   hooks = false,
 }: {
   /** Absent when writing a new one. */
@@ -138,6 +140,8 @@ export function CronEditor({
   onToggle?: (id: number, enabled: boolean) => void;
   /** Remove it, and the thread its runs were written into. */
   onDelete?: (id: number) => void;
+  /** Says it was made or saved, for a toast. */
+  onNotice?: (text: string) => void;
 }): ReactElement {
   const [name, setName] = useState(job?.name ?? "");
   const [schedule, setSchedule] = useState(job?.schedule ?? "0 9 * * *");
@@ -199,11 +203,23 @@ export function CronEditor({
       ? api.updateCron({ id: job.id, ...body })
       : api.createCron(body);
     void call
-      .then(onDone)
+      .then(() => {
+        onNotice?.(`${job ? "Saved" : "Made"} ${jobTitle(name.trim())}`);
+        onDone();
+      })
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : String(err)),
       )
       .finally(() => setSaving(false));
+  };
+  const canSave = !saving && name.trim() !== "";
+  /** Enter in the name, or Cmd/Ctrl+Enter in a box of many lines, saves, as a sheet's form would. */
+  const submitKeys = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing || e.shiftKey || e.altKey) return;
+    const many = e.currentTarget instanceof HTMLTextAreaElement;
+    if (many !== (e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    if (canSave) save();
   };
 
 
@@ -296,6 +312,7 @@ export function CronEditor({
             value={name}
             placeholder="Morning summary"
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={submitKeys}
           />
         </Field>
 
@@ -370,6 +387,7 @@ export function CronEditor({
               value={prompt}
               placeholder="Look at this week's expenses and message me anything unusual."
               onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={submitKeys}
             />
           </Field>
         ) : job?.name === "kos.backup" ? (
@@ -403,6 +421,7 @@ export function CronEditor({
                 value={actions}
                 spellCheck={false}
                 onChange={(e) => setActions(e.target.value)}
+                onKeyDown={submitKeys}
               />
             </Field>
           </>
@@ -423,7 +442,7 @@ export function CronEditor({
              removed. Apart, at the far left. */
           danger={job && onDelete && <ConfirmButton label="Delete" className="btn btn--danger" text={`Delete “${job.name}” and its runs?`} onConfirm={() => onDelete(job.id)} />}
           primary={
-            <button type="button" className="btn btn--primary" disabled={saving || !name.trim()} onClick={save}>
+            <button type="button" className="btn btn--primary" disabled={!canSave} aria-keyshortcuts="Meta+Enter" onClick={save}>
               {saving ? "Saving…" : job ? "Save" : "Create"}
             </button>
           }
