@@ -346,12 +346,13 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
             <input className="kos-input kos-mono" aria-label="Type wipe to confirm" placeholder="wipe" value={typed} autoComplete="off" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
             {hasPassphrase && <SecretField label="Passphrase" name="passphrase" />}
           </div>
-          <div className="secret-vault-acts">
+          {/* A confirm, as every confirm: Cancel, then what it confirms, last at the right. */}
+          <div className="secret-vault-acts secret-confirm-acts">
+            <button type="button" className="btn" onClick={() => setOpen(null)}>
+              Cancel
+            </button>
             <button type="submit" className="btn btn--danger" disabled={typed !== "wipe" || busy}>
               Wipe everything
-            </button>
-            <button type="button" className="btn btn--ghost" onClick={() => setOpen(null)}>
-              Cancel
             </button>
           </div>
         </form>

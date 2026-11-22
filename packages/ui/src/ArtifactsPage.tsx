@@ -1,8 +1,8 @@
-import { Chips, Count, EmptyState, Face, NavIcon, PlusIcon, Skeleton, type ChipOption } from "@kos/kit";
+import { Chips, Count, EmptyState, Face, NavIcon, NotFound, PlusIcon, Skeleton, type ChipOption } from "@kos/kit";
 import { SPAN_COLUMNS, WORKSPACE_SCOPE, type ArtifactKind, type HtmlPage, type WidgetOutline, timeWords } from "@kos/shared";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
-import { api, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
+import { api, HttpError, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
 import { chatIdOf, KIND_WORD, ownerOf, type ArtifactOwner } from "./artifactowner.js";
 import { PageHead } from "./PageHead.js";
 import { Drawer } from "./Drawer.js";
@@ -531,6 +531,8 @@ export function ArtifactViewer({
   const [record, setRecord] = useState<PageSummary>();
   const [page, setPage] = useState<HtmlPage>();
   const [error, setError] = useState<string>();
+  /** There is no artifact by this id: said in words, never as the server's or under a head waiting for it. */
+  const [missing, setMissing] = useState(false);
   const [older, setOlder] = useState(false);
   const [asking, setAsking] = useState(false);
   const [history, setHistory] = useState(false);
@@ -569,7 +571,10 @@ export function ArtifactViewer({
     setPage((was) => (same && was ? was : got.page));
   };
   const load = (): Promise<void> => api.anyPage(id).then(show);
-  const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
+  const failed = (err: unknown): void => {
+    if (err instanceof HttpError && err.status === 404) setMissing(true);
+    else setError(err instanceof Error ? err.message : String(err));
+  };
   /** Whatever the doc has not saved is saved before the frame goes. */
   const settle = (): Promise<void> => frame.current?.settle() ?? Promise.resolve();
   const restore = (version: number): Promise<void> =>
@@ -587,6 +592,7 @@ export function ArtifactViewer({
   // A new artifact in the same viewer (another one picked beside a chat): the one open finishes its editing first.
   useEffect(() => {
     setError(undefined);
+    setMissing(false);
     setCopy(undefined);
     // Presenting was of the one before: it ends, and its audience window closes.
     setPresenter(undefined);
@@ -639,6 +645,14 @@ export function ArtifactViewer({
     setWords("");
     onOpenChat(whose);
   };
+
+  if (missing && !record) {
+    return (
+      <div className="artifact-view">
+        <NotFound what="artifact" name={id} back={{ label: `Back to ${backTo}`, onClick: onBack }} />
+      </div>
+    );
+  }
 
   return (
     <div className="artifact-view">

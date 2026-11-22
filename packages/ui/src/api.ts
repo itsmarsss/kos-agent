@@ -1215,9 +1215,19 @@ export interface SignedUrl {
   expiresAt: number | null;
 }
 
+/** KOS answered with a status that is not success; `status` says which, so a page can tell "not there" (404) from "broken". */
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await kosFetch(path, signal ? { signal } : {});
-  if (!res.ok) throw new Error(await readError(res, path));
+  if (!res.ok) throw new HttpError(res.status, await readError(res, path));
   return (await res.json()) as T;
 }
 

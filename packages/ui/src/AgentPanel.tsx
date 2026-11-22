@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import { Card, Face, lookOf, moodOf, Pill, StatusPill, Tag, When, type Tone } from "@kos/kit";
+import { Card, Face, lookOf, moodOf, NotFound, Pill, StatusPill, Tag, When, type Tone } from "@kos/kit";
 import { momentWords, timeWords } from "@kos/shared";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
@@ -8,6 +8,7 @@ import { scheduleWords } from "./schedule.js";
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
+import { hrefFor } from "./routes.js";
 import { lastRunWords, runDays, WEEK } from "./schedulewords.js";
 
 /**
@@ -110,13 +111,17 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
   if (agent === null) {
     return (
       <aside className="project-panel agent-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
-        <p className="ops-alert ops-alert--err" role="alert">
-          {invalidReason ? `blobs/${name}/blob.md does not read as a blob: ${invalidReason}.` : `There is no blob called ${name}.`}
-        </p>
-        {invalidReason && (
-          <button type="button" className="btn btn--sm" onClick={() => onOpenFile(`blobs/${name}/blob.md`)}>
-            Open the file
-          </button>
+        {invalidReason ? (
+          <>
+            <p className="ops-alert ops-alert--err" role="alert">
+              {`blobs/${name}/blob.md does not read as a blob: ${invalidReason}.`}
+            </p>
+            <button type="button" className="btn btn--sm" onClick={() => onOpenFile(`blobs/${name}/blob.md`)}>
+              Open the file
+            </button>
+          </>
+        ) : (
+          <NotFound what="blob" name={name} back={{ label: "All blobs", href: hrefFor({ name: "blobs" }) }} />
         )}
       </aside>
     );

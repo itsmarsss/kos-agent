@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, overlayScroll, StatusPill, When } from "@kos/kit";
+import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, StatusPill, When } from "@kos/kit";
 import { momentWords, timeCard } from "@kos/shared";
 
 import {
@@ -962,6 +962,10 @@ export function App(): React.ReactElement {
      * thread. The orchestrator is the thread by default.
      */
     const slug = route.slug;
+    // No such project: said in words with the way back, not a rail of chats to start in it.
+    if (projectsRead && !projects.some((p) => p.slug === slug)) {
+      return shell(<NotFound what="project" name={slug} back={{ label: "All projects", href: hrefFor({ name: "projects" }) }} />);
+    }
     return shell(
       <ChatsPage
         conversations={conversations}

@@ -839,7 +839,8 @@ export function SettingsPage({
               <Field group className="set-field"
                 key={key}
                 label={meta.label}
-                hint={meta.hint}
+                // A sample of the key's shape ("sk-...") is the box's placeholder; words about it are its hint.
+                {...(meta.hint && /\s/.test(meta.hint) ? { hint: meta.hint } : {})}
                 badge={
                   meta.masked ? (
                     <>
@@ -851,7 +852,7 @@ export function SettingsPage({
                       )}
                     </>
                   ) : (
-                    <Pill>not set</Pill>
+                    <Pill>Not set</Pill>
                   )
                 }
               >
@@ -861,7 +862,7 @@ export function SettingsPage({
                     type="password"
                     autoComplete="new-password"
                     value={keys[key] ?? ""}
-                    placeholder={meta.masked ? "unchanged" : "not set"}
+                    placeholder={meta.masked ? "Unchanged" : meta.hint && !/\s/.test(meta.hint) ? meta.hint : "Paste it here"}
                     onChange={(e) =>
                       setKeys((k) => ({ ...k, [key]: e.target.value }))
                     }
