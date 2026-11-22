@@ -31,10 +31,15 @@ function withSessions(mode: ChatMode, on: boolean): ChatMode {
 const ICON: Record<ChatModeName, (p: { size?: number }) => ReactElement> = { ask: HandIcon, auto: BoltIcon };
 
 /**
- * The chat's mode in the composer: Ask or Auto, a press (or Shift+Tab in the
- * box) to cycle, and a menu for how long Auto lasts, whether it starts
- * sessions, and what it never covers. Lit in Auto, and beating while a turn
- * runs under it. The harness decides what Auto lets through; this only sets it.
+ * The chat's mode in the composer: Ask or Auto, and a menu for how long Auto
+ * lasts, whether it starts sessions, and what it never covers. Lit in Auto,
+ * and beating while a turn runs under it. The harness decides what Auto lets
+ * through; this only sets it.
+ *
+ * Going into Auto is a choice made in the menu, where it says what it does:
+ * a press on the chip in Ask opens the menu rather than switching, so one
+ * stray tap never lets KOS go ahead unasked. Back to Ask is one press.
+ * Shift+Tab in the box, a chord no one presses by chance, still cycles.
  */
 export function ModeChip({ mode, onChange, running = false, disabled = false }: { mode: ChatMode; onChange: (mode: ChatMode) => void; running?: boolean; disabled?: boolean }): ReactElement {
   const now = useNow(typeof mode.until === "number");
@@ -57,10 +62,14 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
 
   const Icon = ICON[live.mode];
   const span = spanOf(live);
-  const set = (next: ChatMode): void => onChange(next);
+  const set = (next: ChatMode): void => {
+    onChange(next);
+    if (next.mode === "auto" && live.mode === "ask") setOpen(false);
+  };
+  const inAuto = live.mode === "auto";
   return (
     <span ref={chip} className="mode-chip" data-mode={live.mode} data-running={(running && live.mode === "auto") || undefined}>
-      <button type="button" className="mode-chip-main" disabled={disabled} title={modeTip(live, now)} aria-label={`Mode: ${modeLabel(live, now)}. Press to change.`} onClick={() => set(cycled(live))}>
+      <button type="button" className="mode-chip-main" disabled={disabled} title={modeTip(live, now)} aria-label={`Mode: ${modeLabel(live, now)}. ${inAuto ? "Press for Ask." : "Press to choose."}`} aria-haspopup={inAuto ? undefined : "menu"} onClick={() => (inAuto ? set(cycled(live)) : setOpen((o) => !o))}>
         <Icon size={12} />
         <span>{MODE_WORDS[live.mode].label}</span>
         {/* How long Auto has left, which a narrow composer leaves to the tooltip. */}
