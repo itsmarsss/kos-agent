@@ -68,6 +68,7 @@ export function InboxPage({
         }
       />
 
+      {!data && <EmptyState loading />}
       {data && total === 0 && (
         <EmptyState title="Nothing is waiting on you." className="inbox-clear">
           Tool calls that need a yes, memory questions Tidy could not settle, and jobs failing now will show up here.

@@ -3342,7 +3342,6 @@ li:hover .chats-item-when { opacity: 0; }
 .toolcall-caret { color: var(--faint); width: 0.8rem; display: inline-flex; align-items: center; justify-content: center; transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .toolcall-caret.is-open { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .toolcall-caret { transition: none; } }
-.toolcall-name { font-family: var(--mono); color: var(--accent); flex-shrink: 0; }
 .toolcall-summary {
   flex: 1;
   min-width: 0;
@@ -8242,3 +8241,4 @@ img.ov-shape { object-fit: fill; }
 .menu-body .menu-item--hint { display: flex; flex-direction: column; gap: 1px; max-width: 18rem; }
 .menu-body .menu-hint { color: var(--muted); font-size: var(--text-sm); font-weight: 400; white-space: normal; }
 .menu-body .menu-rule { border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
+.chats-loading { width: min(36rem, 100%); }

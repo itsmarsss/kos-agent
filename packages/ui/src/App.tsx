@@ -61,6 +61,9 @@ import { jobTitle, lastRunWords } from "./schedulewords.js";
 
 type Toast = { kind: "ok" | "warn" | "err"; text: string } | null;
 
+/** The poll's feeds a page waits on before it may say it is empty. */
+type Feed = "projects" | "crons" | "activity" | "memory" | "runs" | "conversations";
+
 /** "3 tables", "1 chat": a count with its noun. */
 const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
@@ -78,7 +81,9 @@ export function App(): React.ReactElement {
   const [approvals, setApprovals] = useState<PendingAction[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   /** Whether the manifest has been read yet: before it, no slug can be said to be no project. */
-  const [projectsRead, setProjectsRead] = useState(false);
+  // Which feeds have answered once: a page says it is empty only after its feed has, and shows where its rows will be before.
+  const [read, setRead] = useState<ReadonlySet<Feed>>(() => new Set());
+  const projectsRead = read.has("projects");
   /** Projects by slug, from the manifest, for the Memory page's scope headings. */
   const projectNames = useMemo(() => (projectsRead ? new Map(projects.map((p) => [p.slug, p.name])) : undefined), [projects, projectsRead]);
   const [crons, setCrons] = useState<CronJob[]>([]);
@@ -254,6 +259,19 @@ export function App(): React.ReactElement {
     // A later refresh (decide's, say) has answered already: what this one read is older.
     if (!run.newest()) return;
     const [s, a, p, c, pg, act, mem, r, convos, ag, ib, br] = settled;
+    const answered = (
+      [
+        ["projects", p],
+        ["crons", c],
+        ["activity", act],
+        ["memory", mem],
+        ["runs", r],
+        ["conversations", convos],
+      ] as const
+    )
+      .filter(([, got]) => got.status === "fulfilled")
+      .map(([feed]) => feed);
+    setRead((prev) => (answered.every((f) => prev.has(f)) ? prev : new Set([...prev, ...answered])));
     apply(s, (v) => {
       statusStamp.current = stamp;
       setStatus(v);
@@ -262,10 +280,7 @@ export function App(): React.ReactElement {
     apply(br, (v) => setBrowserTabs(v.tabs));
     apply(a, setApprovals);
     apply(ag, (v) => setAgents(v.builds));
-    apply(p, (v) => {
-      setProjects(v);
-      setProjectsRead(true);
-    });
+    apply(p, setProjects);
     apply(c, setCrons);
     apply(pg, setPages);
     apply(act, (v) => setActivity(v.tools));
@@ -937,6 +952,7 @@ export function App(): React.ReactElement {
       <ChatsPage
         conversations={conversations}
         projects={projects}
+        loading={!read.has("conversations") || !read.has("projects")}
         {...(route.id ? { activeId: route.id } : {})}
         pendingApprovals={pendingIds}
         approvals={approvals}
@@ -975,6 +991,7 @@ export function App(): React.ReactElement {
       <ChatsPage
         conversations={conversations}
         projects={projects}
+        loading={!read.has("conversations") || !read.has("projects")}
         activeId={route.id ?? `project:${slug}`}
         pendingApprovals={pendingIds}
         approvals={approvals}
@@ -1065,6 +1082,7 @@ export function App(): React.ReactElement {
       <ChatsPage
         conversations={conversations}
         projects={projects}
+        loading={!read.has("conversations") || !read.has("projects")}
         activeId={`agent:${name}`}
         pendingApprovals={pendingIds}
         approvals={approvals}
@@ -1120,6 +1138,7 @@ export function App(): React.ReactElement {
     return shell(
       <ProjectsPage
         projects={projects}
+        loading={!read.has("projects")}
         pagesByProject={pagesByProject}
         conversations={conversations}
         crons={crons}
@@ -1135,6 +1154,7 @@ export function App(): React.ReactElement {
     return shell(
       <HistoryPage
         tools={activity}
+        loading={!read.has("activity") || !read.has("runs")}
         runs={runs}
         crons={crons}
         conversations={conversations}
@@ -1174,8 +1194,9 @@ export function App(): React.ReactElement {
       <ListPage
         title="Runs"
         tabs={<RunsTabs current="crons" />}
-        subtitle="What KOS runs on its own. Press one to change it."
+        subtitle="What KOS runs on its own, on a timer. Press one to change it, or New schedule to add one."
         rows={rows}
+        loading={!read.has("crons")}
         rowKey={(c) => c.id}
         empty="Nothing runs on its own yet."
         noun="schedules"
@@ -1331,6 +1352,7 @@ export function App(): React.ReactElement {
     return shell(
       <MemoryPage
         facts={facts}
+        loading={!read.has("memory")}
         tags={factTags}
         {...(projectNames ? { projectNames } : {})}
         conversations={conversations}

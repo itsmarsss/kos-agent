@@ -129,6 +129,8 @@ export interface ChatsPageProps {
   /** Manifest projects, so the rail shows a project even before it has an orchestrator conversation. */
   projects: Project[];
   activeId?: string;
+  /** The chats have not been read yet: a chat's address shows where its thread will be, not the landing. */
+  loading?: boolean;
   /** Pending-action ids still awaiting a decision. */
   pendingApprovals: Set<string>;
   /**
@@ -233,6 +235,7 @@ export function ChatsPage({
   conversations,
   projects,
   activeId,
+  loading = false,
   pendingApprovals,
   approvals,
   deciding,
@@ -2083,7 +2086,14 @@ export function ChatsPage({
               }
             }
           />
-          {!active && (project || agent) ? (
+          {!active && loading && (activeId || project || agent) ? (
+            <>
+              <div className="chats-view-path">{listToggle}</div>
+              <div className="chats-placeholder">
+                <EmptyState loading className="chats-loading" />
+              </div>
+            </>
+          ) : !active && (project || agent) ? (
             /* Inside a project there is no landing: the thread is the
                orchestrator's by default, and it is being stood up if it is not
                there yet. Inside an agent, likewise its own thread. */

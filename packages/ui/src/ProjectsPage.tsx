@@ -29,6 +29,8 @@ export interface ProjectsPageProps {
   onInspect: (project: Project, pages: PageSummary[]) => void;
   /** An empty project of the owner's own, with nothing in it until they or KOS put something there. */
   onCreate?: (input: { name: string; type: string }) => Promise<void>;
+  /** The projects have not been read yet: where the cards will be, never "No projects yet". */
+  loading?: boolean;
 }
 
 /** Active first: dormant and archived are things you look up, not scan. */
@@ -69,7 +71,7 @@ function useFailingJobs(): Map<number, string> {
   return failing;
 }
 
-export function ProjectsPage({ projects, pagesByProject, conversations, crons, onInspect, onCreate }: ProjectsPageProps): ReactElement {
+export function ProjectsPage({ projects, pagesByProject, conversations, crons, onInspect, onCreate, loading = false }: ProjectsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [making, setMaking] = useState(false);
   const failing = useFailingJobs();
@@ -170,7 +172,7 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
 
       {onCreate && <NewProjectDialog open={making} onClose={() => setMaking(false)} onCreate={onCreate} taken={projects.map((p) => p.name)} />}
 
-      {owned.length === 0 && <EmptyState title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</EmptyState>}
+      {owned.length === 0 && <EmptyState loading={loading} title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</EmptyState>}
       {query.trim() && groups.length === 0 && <EmptyState query={{ noun: "projects", onClear: () => setQuery("") }} />}
 
       {groups.map(([status, items]) => (
