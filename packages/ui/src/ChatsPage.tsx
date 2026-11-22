@@ -12,7 +12,7 @@ import {
 import { AnimatePresence, m } from "motion/react";
 import { cycled, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
 import { isModeKey, ModeChip } from "@kos/kit";
-import { ArchiveIcon, type BlockActions, Field, MessageTime, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, type BlockActions, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
 import { PendingAsk } from "./PendingAsk.js";
@@ -1589,12 +1589,7 @@ export function ChatsPage({
                     : "Not in the manifest"}
                 </span>
               </div>
-              <input
-                className="chats-search"
-                value={query}
-                placeholder="Search chats"
-                onChange={(e) => setQuery(e.target.value)}
-              />
+              <SearchField className="chats-find" noun="chats" value={query} onChange={setQuery} />
             </div>
             <div className="chats-pinned">
               {projectOrchestrator ? (
@@ -1645,11 +1640,13 @@ export function ChatsPage({
             <ul className="chats-flat">
               {shownAgents.map((c) => renderChat(c))}
               {shownAgents.length === 0 && (
-                <li><EmptyState variant="inline" className="chats-empty">
-                  {q
-                    ? "Nothing matches."
-                    : "No chats yet. The orchestrator starts them as work comes up, or start one with +."}
-                </EmptyState></li>
+                <li>
+                  {q ? (
+                    <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} />
+                  ) : (
+                    <EmptyState variant="inline" className="chats-empty">No chats yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
+                  )}
+                </li>
               )}
             </ul>
             {/* The project's schedule, under its agents: a job that works this
@@ -1765,27 +1762,7 @@ export function ChatsPage({
         ) : (
           <aside className="chats-list chats-list--root">
             <div className="chats-list-head chats-list-head--root">
-              <label className="chats-find">
-                <SearchIcon />
-                <input
-                  className="chats-search"
-                  value={query}
-                  placeholder={showArchived ? "Search archived" : "Search chats"}
-                  aria-label={showArchived ? "Search archived chats" : "Search chats"}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape" && query) {
-                      e.stopPropagation();
-                      setQuery("");
-                    }
-                  }}
-                />
-                {query && (
-                  <button type="button" className="chats-find-clear" aria-label="Clear search" onClick={() => setQuery("")}>
-                    <CloseIcon size={12} title="" />
-                  </button>
-                )}
-              </label>
+              <SearchField className="chats-find" noun={showArchived ? "archived chats" : "chats"} value={query} onChange={setQuery} />
               {/* New chat opens the landing, where you choose a chat, a project,
                   or hand it to KOS, rather than dropping into an empty thread.
                   A square beside the search rather than a bar of its own: it
@@ -1818,7 +1795,7 @@ export function ChatsPage({
                   </div>
                   <ul className="chats-flat">
                     {shownArchived.map((c) => renderChat(c))}
-                    {shownArchived.length === 0 && <li><EmptyState variant="inline" className="chats-empty">{q ? "Nothing matches." : "Nothing archived."}</EmptyState></li>}
+                    {shownArchived.length === 0 && <li>{q ? <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} /> : <EmptyState variant="inline" className="chats-empty">Nothing archived.</EmptyState>}</li>}
                   </ul>
                 </section>
               ) : (
@@ -2032,7 +2009,7 @@ export function ChatsPage({
                   )}
 
                   {q && !shownKos && shownSurfaces.length === 0 && shownProjects.length === 0 && scheduled.length === 0 && filtered.length === 0 && (
-                    <EmptyState variant="inline" className="chats-empty">Nothing matches.</EmptyState>
+                    <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} />
                   )}
                 </>
               )}

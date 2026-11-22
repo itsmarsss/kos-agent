@@ -2798,17 +2798,6 @@ li:hover .chats-item-when { opacity: 0; }
 .chats-list ul { list-style: none; margin: 0; padding: 0.2rem 0; flex: 1; overflow-y: auto; }
 .chats-list-head { padding: 0.6rem; border-bottom: 1px solid var(--line); }
 
-.chats-search {
-  width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-md);
-  padding: 0.4rem 0.6rem;
-}
-.chats-search:focus { outline: none; border-color: var(--accent); }
 
 .chats-item {
   position: relative;
@@ -2880,7 +2869,7 @@ li:hover .chats-item-when { opacity: 0; }
   white-space: nowrap;
 }
 .chats-item-tools { font-family: var(--mono); }
-.chats-empty { padding: 1rem 0.6rem; font-size: var(--text-md); }
+.chats-empty { padding: 1rem 0.6rem; }
 
 /* Part of the page, not a card on it. */
 .chats-view {
@@ -3965,7 +3954,7 @@ li:hover .chats-item-when { opacity: 0; }
 /* Everywhere's last line: what is still being read, or that nothing else holds it. */
 .pal-group-note { margin-left: 0.5rem; color: var(--faint); font-weight: 500; letter-spacing: 0; text-transform: none; }
 .pal-note { margin: 0; padding: 0.4rem 1.1rem; color: var(--faint); font-size: var(--text-sm); }
-.pal-empty { padding: 1.25rem 1.1rem; font-size: var(--text-md); }
+.pal-empty { padding: 1.25rem 1.1rem; }
 .pal-foot {
   display: flex;
   flex-wrap: wrap;
@@ -6695,7 +6684,7 @@ a.health {
   line-height: 1;
 }
 .chats-group-add:hover { background: var(--panel-2); color: var(--text); }
-.chats-group-empty { padding: 0 0.5rem 0.5rem; font-size: var(--text-sm); line-height: 1.45; }
+.chats-group-empty { padding: 0 0.5rem 0.5rem; }
 
 /* Projects: one row each, opening the project's own page. */
 .chats-list ul.chats-projects {
@@ -7115,7 +7104,7 @@ a.panel-row:hover .panel-row-main { color: var(--accent); }
 /* One control. An input, a search box, a textarea and a select button are the
    same box everywhere: one height, one edge, one radius, one focus ring, KOS
    Device's field (docs/design.md, Controls). */
-.kos-input, .chats-search, .sel-button {
+.kos-input, .sel-button {
   box-sizing: border-box;
   height: 2.25rem;
   padding: 0 0.65rem;
@@ -7129,9 +7118,9 @@ a.panel-row:hover .panel-row-main { color: var(--accent); }
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem; line-height: 1.45; resize: vertical; }
-.kos-input::placeholder, .chats-search::placeholder { color: var(--faint); }
-.kos-input:hover:not(:disabled):not(:focus), .chats-search:hover:not(:focus), .sel-button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--bg); color: var(--text); }
-.kos-input:focus, .chats-search:focus, .sel-button:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.kos-input::placeholder { color: var(--faint); }
+.kos-input:hover:not(:disabled):not(:focus), .sel-button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--bg); color: var(--text); }
+.kos-input:focus, .sel-button:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .kos-input:disabled, .sel-button:disabled { opacity: 0.6; cursor: default; }
 .kos-mono, .kos-input.kos-mono { font-family: var(--mono); font-size: var(--text-base); }
 .kos-input--num { height: 2.25rem; }
@@ -7185,23 +7174,9 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
    one shape: a lead the same width in every section (a face, a glyph, a
    project's mark, a thread's dot), the name, and what it is doing. */
 .chats-list-head--root { flex-direction: row; align-items: center; gap: 0.35rem; border-bottom: 0; padding: 0.55rem 0 0.35rem; }
-.chats-find { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
-.chats-find > svg { position: absolute; left: 0.6rem; color: var(--faint); pointer-events: none; }
-.chats-find .chats-search { padding-left: 1.85rem; padding-right: 1.7rem; }
-.chats-find-clear {
-  position: absolute;
-  right: 0.3rem;
-  width: 1.35rem;
-  height: 1.35rem;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--faint);
-  cursor: pointer;
-}
-.chats-find-clear:hover { color: var(--text); background: var(--panel-2); }
+/* The rail's search, the kit's SearchField, as tall as a page's. */
+.chats-find { flex: 1; min-width: 0; }
+.chats-find .search-field-input { height: var(--control-h); }
 .icon-btn.chats-compose {
   /* As tall as the search beside it. */
   width: 2.25rem;
