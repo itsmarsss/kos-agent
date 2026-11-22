@@ -16,6 +16,9 @@ import { requireServices } from "../modules/loader.js";
 import { maintains } from "./fence.js";
 import { reachOf } from "./sql.js";
 
+/** A scope already qualified by its kind: a project's, a caller's, an agent's own. */
+const QUALIFIED = /^(project|caller|agent):./;
+
 /** The most a claim may say; what needs more is a page. */
 const CLAIM_MAX = 600;
 
@@ -191,7 +194,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     {
       name: "memory.remember",
       description:
-        "Record something worth knowing later, for yourself and for every other conversation. Use it for durable things: decisions made, constraints, how the owner wants something done, where something lives. Not for what is already in this conversation. Re-using a key updates that entry rather than adding a second one.",
+        "Record something worth knowing later, for yourself and for every other conversation. Use it for durable things: decisions made, constraints, how the owner wants something done, where something lives. Not for what is already in this conversation, a one-off event once it is done, or a test. Re-using a key updates that entry rather than adding a second one; when a thing changes, update its key rather than writing a new key that says the old one is wrong.",
       inputSchema: {
         type: "object",
         properties: {
@@ -209,7 +212,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
           pinned: {
             type: "boolean",
             description:
-              "put it in every conversation's context without needing a match. Reserve for the few things that always apply.",
+              "put it in every conversation's context in its scope without needing a match. Reserve for the few things that always apply; never an event, a deadline or a detail a message can name when it needs it.",
           },
           scope: {
             type: "string",
@@ -461,7 +464,16 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     { tags: ["memory"] },
   );
 
-  const scopeArg = (raw: unknown): string => (typeof raw === "string" && raw.trim() ? (raw.trim() === "global" ? GLOBAL_SCOPE : raw.trim().startsWith("project:") || raw.trim().startsWith("caller:") ? raw.trim() : projectScope(raw.trim())) : GLOBAL_SCOPE);
+  /**
+   * A scope as memory.review gave it, or a bare project slug. Review lists
+   * an agent's own claims as agent:<name>, which this read as a project
+   * slug, so a pair it listed could never be merged or archived.
+   */
+  const scopeArg = (raw: unknown): string => {
+    const scope = typeof raw === "string" ? raw.trim() : "";
+    if (!scope || scope === GLOBAL_SCOPE) return GLOBAL_SCOPE;
+    return QUALIFIED.test(scope) ? scope : projectScope(scope);
+  };
   const brief = (f: { key: string; scope: string; kind: string; value: string; trust: string; createdAt: number; lastUsedAt: number | null; useCount: number }) => ({
     key: f.key, scope: f.scope, kind: f.kind, value: f.value, trust: f.trust,
     since: new Date(f.createdAt).toISOString().slice(0, 10),
