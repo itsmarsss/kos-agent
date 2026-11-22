@@ -160,6 +160,72 @@ describe("the design tokens", () => {
   });
 });
 
+/** The web sheets every page of the dashboard is drawn with. */
+const WEB_SHEETS = { "styles.css": STYLESHEETS.dashboard, "kit.css": KIT, "page.css": read("../../kit/src/page.css") };
+
+/** Each declaration of a property in a sheet, with its line, comments set aside. */
+function declarations(css: string, property: string): { line: number; value: string }[] {
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
+  return [...bare.matchAll(new RegExp(`(?:^|[;{\\s])${property}:\\s*([^;}]+)`, "g"))].map((m) => ({ line: bare.slice(0, m.index).split("\n").length, value: m[1]!.trim() }));
+}
+
+/** A corner is a token, a capsule (999px), a circle or other share of the box, none, or its parent's. */
+const cornerOk = (value: string): boolean => value.split(/\s+/).every((v) => /^var\(--r-(xs|sm|md|lg)\)$/.test(v) || /^(0|999px|inherit|\d+(\.\d+)?%)$/.test(v));
+
+/** A list's items split at its commas, not those inside a function's brackets. */
+function topLevel(value: string): string[] {
+  const parts = [""];
+  let depth = 0;
+  for (const c of value) {
+    depth += c === "(" ? 1 : c === ")" ? -1 : 0;
+    if (c === "," && depth === 0) parts.push("");
+    else parts[parts.length - 1] += c;
+  }
+  return parts;
+}
+
+/** A shadow that floats is --float; a ring (no offset, no blur) or an inset line is a border drawn another way. */
+function shadowOk(value: string): boolean {
+  if (value === "none") return true;
+  return topLevel(value).every((part) => {
+    const p = part.trim();
+    if (p === "var(--float)" || p.startsWith("inset ")) return true;
+    // x, y and blur all nothing: a ring, its spread the line's width.
+    return p.split(/\s+/).slice(0, 3).every((n) => /^0(px)?$/.test(n));
+  });
+}
+
+describe("the web sheets keep to the tokens", () => {
+  for (const [sheet, css] of Object.entries(WEB_SHEETS)) {
+    it(`${sheet} rounds corners only by the --r-* steps or a capsule`, () => {
+      const off = declarations(css, "border(?:-(?:top|bottom)-(?:left|right))?-radius").filter((d) => !cornerOk(d.value));
+      expect(off.map((d) => `line ${d.line}: ${d.value}`)).toEqual([]);
+    });
+
+    it(`${sheet} sets type at 400, 500, 600 or 700 only`, () => {
+      const off = declarations(css, "font-weight").filter((d) => !/^(400|500|600|700|inherit|normal|var\(--title-weight\))$/.test(d.value));
+      expect(off.map((d) => `line ${d.line}: ${d.value}`)).toEqual([]);
+    });
+
+    it(`${sheet} casts only the floating shadow`, () => {
+      const off = declarations(css, "box-shadow").filter((d) => !shadowOk(d.value));
+      expect(off.map((d) => `line ${d.line}: ${d.value}`)).toEqual([]);
+    });
+  }
+
+  it("draws a button at one of two heights, the control tokens", () => {
+    const dashboard = STYLESHEETS.dashboard;
+    expect(/\.btn \{[^}]*height: var\(--control-h\);/.exec(dashboard), ".btn").not.toBeNull();
+    expect(/\.btn--sm \{[^}]*height: var\(--control-h-sm\);/.exec(dashboard), ".btn--sm").not.toBeNull();
+    const heights = [...dashboard.matchAll(/\.btn[\w-]*[^{]*\{[^}]*\bheight:\s*([^;}]+)/g)].map((m) => m[1]!.trim());
+    expect(heights.filter((h) => !/^var\(--control-h(-sm)?\)$|^auto$/.test(h))).toEqual([]);
+  });
+
+  it("has no second set of corners beside --r-*", () => {
+    for (const css of Object.values(STYLESHEETS)) expect(css).not.toMatch(/--radius\s*:/);
+  });
+});
+
 /** WCAG's contrast ratio between two `#rrggbb` colours. */
 function contrast(a: string, b: string): number {
   const lum = (hex: string): number => {

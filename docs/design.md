@@ -93,10 +93,13 @@ One ladder of sizes, in points: 10.5, 11, 12, 12.5, 13, 15, 17, 22.
 | button | 12.5, 600 |
 | body | 13, 400, line height 1.45 |
 | title (a window's, a card's head) | 15, 600 |
-| heading (a sheet's) | 17, 600 |
-| page heading | 22, 600, -0.02em |
+| heading (a sheet's, a workspace's head) | 17, 700 |
+| page heading | 22, 700, -0.02em |
 
-Weights are 400, 500, 600 and 700, nothing between.
+Weights are 400, 500, 600 and 700, nothing between. The two headings take
+their weight from `--title-weight` (700) on the web, so a sheet, a chat's head
+and a page's title agree; a card's or a panel's title stays at 600.
+`design.test.ts` fails on any other weight in the web sheets.
 
 The dashboard is a full window read at arm's length, so its body sits one
 step up the ladder (`--text-md`, 14 at the default density) and its density
@@ -109,7 +112,10 @@ Both web surfaces declare the dashboard's steps as `--text-xs` to
 Radii: 4 (code, a keycap), 7 (a control: button, field, chip, menu row),
 10 (a card, a menu, a popover), 14 (a sheet, the composer, a message
 bubble), and the capsule (pill, switch, a button inside something round).
-Corners are continuous on the Mac.
+Corners are continuous on the Mac. On the web they are only the tokens
+(`--r-xs`, `--r-sm`, `--r-md`, `--r-lg`), a capsule (999px) or a share of
+the box (50%); `design.test.ts` fails on a literal corner, and there is no
+second set beside them.
 
 Two rules for a shape inside a shape:
 
@@ -132,7 +138,9 @@ Steps of 2: 2, 4, 6, 8, 10, 12, 14, 16, 20, 24.
 ## Elevation
 
 Borders, not shadows, for everything that sits on the page. What floats has
-one shadow, `0 12px 32px rgba(0,0,0,0.45)`, and a `line-strong` border. Focus
+one shadow, `0 12px 32px rgba(0,0,0,0.45)` (`--float` on the web, the only
+drop shadow the sheets may cast; a ring or an inset line is a border drawn
+another way), and a `line-strong` border. Focus
 is a 2 px accent outline 1 px out, or on a field its border turns accent with a
 3 px ring at 20%.
 
@@ -141,7 +149,11 @@ is a 2 px accent outline 1 px out, or on a field its border turns accent with a
 The reference is KOS for Mac's `Controls.swift`; the extension's `kos.css`
 and the dashboard's `styles.css` draw the same things.
 
-- **Button.** Four kinds. Primary: `accent`, `accent-lit` under the pointer,
+- **Button.** Two heights: `--control-h` (36) and, for a small one in a
+  row or a bar, `--control-h-sm` (30); nothing else. The same action is the
+  same kind everywhere: Run now and Set rates are secondary, Delete forever
+  and Empty trash danger, Cancel secondary, the one action a sheet is for
+  primary and last. Four kinds. Primary: `accent`, `accent-lit` under the pointer,
   `on-accent` words. Secondary: `panel-2` with a `line` border; under the
   pointer the border goes `line-strong`. Ghost: no fill, `muted` words,
   `panel-2` under the pointer. Danger: `danger` words on a 10% fill with a 25%
