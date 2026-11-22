@@ -1,7 +1,8 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { errorWords, momentWords, stepLine, timeWords } from "@kos/shared";
-import { CloseIcon, EmptyState, Face, GroupHead, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
+import { CloseIcon, ease, EmptyState, Face, GroupHead, IconButton, moodOf, RefChip, rise, StatusDot, type Tone } from "@kos/kit";
+import { AnimatePresence, m } from "motion/react";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -140,14 +141,16 @@ export function Panel({
             decisions === 0 && <EmptyState variant="inline">Nothing is waiting on you.</EmptyState>
           ) : (
             <ul className="panel-list ask-list">
+              <AnimatePresence mode="popLayout" initial={false}>
               {rows.slice(0, limit).map((a) => (
-                <li key={a.id} className="panel-approval">
+                <m.li key={a.id} layout="position" variants={rise} initial="hidden" animate="show" exit="exit" transition={ease} className="panel-approval">
                   {/* Decided here rather than somewhere else: this panel
                       exists because something is waiting, and sending the
                       owner elsewhere to answer defeats it. */}
                   <PendingAsk ask={a} deciding={deciding} onDecide={onDecide} />
-                </li>
+                </m.li>
               ))}
+              </AnimatePresence>
             </ul>
           )}
         </div>

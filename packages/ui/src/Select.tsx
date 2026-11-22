@@ -11,7 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { ChevronDown, ease, useDismiss } from "@kos/kit";
+import { ChevronDown, ease, float, useDismiss } from "@kos/kit";
 import { fitInside, place, type Placement } from "./popover.js";
 
 /**
@@ -139,10 +139,12 @@ export function Select({
                 ...(at.bottom !== undefined ? { bottom: at.bottom } : {}),
                 minWidth: at.minWidth,
                 maxHeight: at.maxHeight,
+                transformOrigin: at.top !== undefined ? "top left" : "bottom left",
               }}
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
+              variants={float}
+              initial="hidden"
+              animate="show"
+              exit="hidden"
               transition={ease}
               tabIndex={-1}
               // Focused on mount so the keys work without a second click.

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Sidebar } from "./Sidebar.js";
@@ -42,9 +42,11 @@ describe("the sidebar", () => {
 
   it("says what each More item does, Halt apart from the rest", () => {
     show({ name: "chats" }, 0);
+    fireEvent.click(screen.getByText("More…"));
     expect(screen.getByText("Save a copy of the workspace you can roll back to")).toBeTruthy();
-    const halt = screen.getByRole("button", { name: /Halt KOS/ });
-    expect(halt.previousElementSibling?.tagName).toBe("HR");
+    const halt = screen.getByRole("menuitem", { name: /Halt KOS/ });
+    expect(halt.classList.contains("is-divided")).toBe(true);
+    expect(halt.classList.contains("is-danger")).toBe(true);
   });
 
   it("says KOS cannot be reached once it stops answering, whatever the last status said", () => {

@@ -34,13 +34,19 @@ function Composer({ start, told }: { start: ChatMode; told: (m: ChatMode) => voi
 }
 
 describe("ModeChip", () => {
-  it("names the mode and what it does, and a press cycles it", () => {
+  it("goes into Auto only by a choice in its menu, and back to Ask in one press", () => {
     const told = vi.fn();
     render(<Composer start={{ mode: "ask" }} told={told} />);
     const main = screen.getByRole("button", { name: /Mode: Ask/ });
     expect(main.getAttribute("title")).toMatch(/^Ask: KOS asks you before anything risky in this chat\. Shift\+Tab/);
+    // One tap in Ask opens the menu, which says what Auto does; it does not switch.
     fireEvent.click(main);
+    expect(told).not.toHaveBeenCalled();
+    const menu = screen.getByRole("menu");
+    expect(menu.textContent).toContain("Goes ahead without asking");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^Auto/ }));
     expect(told).toHaveBeenLastCalledWith({ mode: "auto" });
+    expect(screen.queryByRole("menu")).toBeNull();
     expect(screen.getByRole("button", { name: /Mode: Auto/ }).getAttribute("title")).toMatch(/^Auto: KOS goes ahead without asking/);
     fireEvent.click(screen.getByRole("button", { name: /Mode: Auto/ }));
     expect(told).toHaveBeenLastCalledWith({ mode: "ask" });

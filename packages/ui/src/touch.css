@@ -47,7 +47,8 @@
   [role="tab"],
   [role^="menuitem"],
   [role="option"],
-  .menu-body > :is(button, a),
+  .kos-menu-row,
+  .mode-chip button,
   .sel-option,
   .sel-button,
   .side-link,
@@ -65,8 +66,13 @@
     min-height: var(--tap);
   }
   .sel-option,
-  .menu-body > :is(button, a) {
+  .kos-menu-row {
     align-items: center;
+  }
+  /* The mode chip under a finger: both its halves a finger's width too. */
+  .mode-chip button {
+    min-width: var(--tap);
+    justify-content: center;
   }
 
   /* A mark too small to grow without breaking its line (a switch, a bare ×,
@@ -104,7 +110,7 @@
   }
 
   /* A sheet ends above the keyboard on screen (watchKeyboard in touch.ts), so its foot and the field typed into both show. */
-  :is(.drawer-backdrop, .insp-backdrop, .sheet-backdrop, .modal-wrap, .pal-wrap) {
+  :is(.drawer-backdrop, .sheet-backdrop, .modal-wrap, .pal-wrap) {
     bottom: var(--kb-inset, 0px);
   }
 
@@ -149,9 +155,8 @@
   }
 
   /* A keyboard's shortcuts mean nothing to a finger. */
-  .finder-menu-keys,
+  .kos-menu-keys,
   .side kbd,
-  .chats-kbd,
   .pal-foot {
     display: none;
   }

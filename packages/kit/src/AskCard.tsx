@@ -13,8 +13,9 @@ import { useSteadyPress } from "./useSteadyPress.js";
  * An approval, as every web surface asks it: what KOS wants to do, where,
  * each action it takes with its keys as keycaps, why it asks, then the
  * arguments folded under Details, and Deny, the remembered yes and Approve,
- * one height, under it all. Focused, Enter approves and Escape or
- * ⌘⌫ denies. The dashboard's Inbox, Home, chat and builds and KOS for
+ * one height, under it all. Focused, Enter approves and ⌘⌫ denies;
+ * Escape never decides (it means back off everywhere else). The
+ * dashboard's Inbox, Home, chat and builds and KOS for
  * Chrome's side panel all draw this one (docs/components.md). An ask for a
  * one-time code has a masked box for it above the buttons: Approve sends
  * what is typed there with the yes, read from the field as it goes and
@@ -55,18 +56,30 @@ export const ASK_SETTLE_MS = 500;
 /** How long the line saying a press was let go stays. */
 const HELD_CUE_MS = 1600;
 
+/** Marks a card the focus was handed to, not one the owner went to: its Enter is not a yes. */
+const HANDED = "handed";
+
 /**
- * Where the focus goes once a decided card has gone: the next ask's Approve,
+ * Where the focus goes once a decided card has gone: the next ask itself,
  * else whatever the surface marked as next (`data-after-ask`, the chat's
  * composer), so a keyboard does not fall back to the top of the page. Left
  * alone when something else has the focus already.
+ *
+ * The card, never its Approve: Enter pressed twice must not approve the
+ * next ask unread. A handed card takes no Enter until the owner has gone to
+ * it themselves (Tab to its buttons, or away and back).
  */
 function handFocusOn(): void {
   requestAnimationFrame(() => {
     const held = document.activeElement;
     if (held && held !== document.body && held.isConnected) return;
-    const next = document.querySelector<HTMLElement>(".kos-ask .kos-ask-actions .btn--primary:not(:disabled)") ?? document.querySelector<HTMLElement>("[data-after-ask]");
-    next?.focus({ preventScroll: true });
+    const card = document.querySelector<HTMLElement>(".kos-ask");
+    if (card) {
+      card.dataset[HANDED] = "1";
+      card.focus({ preventScroll: true });
+      return;
+    }
+    document.querySelector<HTMLElement>("[data-after-ask]")?.focus({ preventScroll: true });
   });
 }
 
@@ -87,10 +100,10 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
   // A card just arrived, just moved or just changed is not decided by a press meant for what was there.
   const steady = useSteadyPress(box, ASK_SETTLE_MS, `${tool}\n${JSON.stringify(view)}`);
   // A press let go because the card had just moved, said so for a moment beside the buttons.
-  const [held, setHeld] = useState(false);
+  const [held, setHeld] = useState<string | null>(null);
   useEffect(() => {
     if (!held) return;
-    const later = setTimeout(() => setHeld(false), HELD_CUE_MS);
+    const later = setTimeout(() => setHeld(null), HELD_CUE_MS);
     return () => clearTimeout(later);
   }, [held]);
   // An ask for a one-time code: its box, and whether what is typed there is one (never what it is).
@@ -102,7 +115,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
     // One decision per card: a second press, or a key held down, sends nothing more.
     if (busy || pressed) return;
     if (!steady()) {
-      setHeld(true);
+      setHeld("This card just moved. Press again.");
       return;
     }
     const code = asksCode && which === "yes" && codeForm.current ? (readSecretValues(codeForm.current)["code"] ?? "") : undefined;
@@ -130,15 +143,21 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
    * The card's keys, heard only on the card itself, never on a button or
    * field inside it, and never as a key held down. Enter approves only when
    * the focus came by the keyboard (:focus-visible), so a click on the card
-   * and a stray Enter is not a yes.
+   * and a stray Enter is not a yes, and only on a card the owner went to: one
+   * the focus was handed to after the last was decided says so instead.
+   * Escape is not a no: it passes on, as it does everywhere.
    */
   const onKeyDown = (e: KeyboardEvent<HTMLElement>): void => {
     if (busy || e.repeat || e.target !== e.currentTarget) return;
     if (e.key === "Enter") {
       if (tooLong || !keyboardFocused(e.currentTarget)) return;
       e.preventDefault();
+      if (e.currentTarget.dataset[HANDED]) {
+        setHeld("The next ask. Read it, then Tab to decide.");
+        return;
+      }
       decide("yes");
-    } else if (e.key === "Escape" || (e.key === "Backspace" && (e.metaKey || e.ctrlKey))) {
+    } else if (e.key === "Backspace" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       e.stopPropagation();
       decide("no");
@@ -163,8 +182,15 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       className={`kos-ask${bare ? " kos-ask--bare" : ""}`}
       tabIndex={0}
       aria-label={`${asker ?? "KOS"} asks: ${view.title}`}
-      aria-keyshortcuts="Enter Escape Meta+Backspace"
+      aria-keyshortcuts="Enter Meta+Backspace"
       onKeyDown={onKeyDown}
+      onBlur={(e) => {
+        // Gone to on purpose from here on: Tab to a button, or away and back.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) delete e.currentTarget.dataset[HANDED];
+      }}
+      onFocus={(e) => {
+        if (e.target !== e.currentTarget) delete e.currentTarget.dataset[HANDED];
+      }}
     >
       <div className="kos-ask-head">
         {/* Who asks, in a line: a long chat title is cut, and whole in its tooltip. */}
@@ -226,11 +252,11 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
         {!always && !noRemember && view.alwaysNote && <span className="kos-ask-note">{view.alwaysNote}</span>}
         {held && (
           <span className="kos-ask-held" role="status">
-            This card just moved. Press again.
+            {held}
           </span>
         )}
         {extra}
-        <button type="button" className="btn" disabled={busy} title="Deny (Esc)" onClick={() => decide("no")}>
+        <button type="button" className="btn" disabled={busy} title="Deny (⌘⌫)" onClick={() => decide("no")}>
           {working("no", labels?.no ?? "Deny")}
         </button>
         {always && (

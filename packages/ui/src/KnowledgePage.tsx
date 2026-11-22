@@ -38,6 +38,8 @@ export interface KnowledgePageProps {
   /** Not read yet: a skeleton where the claims will be, never "Nothing remembered yet." */
   loading?: boolean;
   onChanged: () => void;
+  /** Says what an action did (Pinned, Forgot), for a toast. */
+  onNotice?: (text: string) => void;
 }
 
 /** The new-claim form, for its sheet's Create. */
@@ -142,9 +144,30 @@ const FORGET_TEXT = "KOS stops knowing this in every chat. It cannot be undone."
 /**
  * A claim's row is one stop for Tab: its words open it, and the arrow keys
  * walk on to Pin, Edit and Forget and back, so a list of forty claims is
- * forty stops rather than a hundred and sixty.
+ * forty stops rather than a hundred and sixty. On the row itself, a letter
+ * does the action at once: P pins or unpins, E edits, and Delete asks to
+ * forget it (the same confirm as the row's ×, so one key never forgets).
  */
-function roveRow(e: KeyboardEvent<HTMLLIElement>): void {
+export interface ClaimRowActions {
+  pin: () => void;
+  edit: () => void;
+}
+
+export function claimRowKeys(e: KeyboardEvent<HTMLLIElement>, act: ClaimRowActions): void {
+  const onRow = e.target instanceof HTMLElement && e.target.classList.contains("know-open");
+  if (onRow && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const key = e.key.toLowerCase();
+    if (key === "p" || key === "e") {
+      e.preventDefault();
+      (key === "p" ? act.pin : act.edit)();
+      return;
+    }
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      e.currentTarget.querySelector<HTMLButtonElement>(".know-acts .confirm-wrap button")?.click();
+      return;
+    }
+  }
   if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
   const stops = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
   const at = stops.indexOf(document.activeElement as HTMLButtonElement);
@@ -173,7 +196,7 @@ function splitTags(text: string): string[] {
     .filter(Boolean);
 }
 
-export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: setQuery, projectNames, loading = false, onChanged }: KnowledgePageProps): ReactElement {
+export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: setQuery, projectNames, loading = false, onChanged, onNotice }: KnowledgePageProps): ReactElement {
   const kindsRef = useEdgeFade<HTMLDivElement>(".chips");
   const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);
@@ -206,12 +229,14 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
     void api.pinMemory(f.key, !f.pinned).then(() => {
       setOpen(null);
       onChanged();
+      onNotice?.(f.pinned ? `Unpinned ${f.key}` : `Pinned ${f.key}`);
     });
   };
   const forget = (f: FactRow): void => {
     void api.deleteMemory(f.key).then(() => {
       setOpen(null);
       onChanged();
+      onNotice?.(`Forgot ${f.key}`);
     });
   };
 
@@ -379,8 +404,8 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
             />
             <ul className="know-list">
               {shown.map((f) => (
-                <li key={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={roveRow}>
-                  <button type="button" className="know-open" aria-keyshortcuts="ArrowRight" onClick={() => setOpen(f)}>
+                <li key={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={(e) => claimRowKeys(e, { pin: () => togglePin(f), edit: () => startEdit(f) })}>
+                  <button type="button" className="know-open" aria-keyshortcuts="ArrowRight P E Delete" onClick={() => setOpen(f)}>
                     <span className="know-text">
                       {f.pinned && (
                         <span className="know-pin">

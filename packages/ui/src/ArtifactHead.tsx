@@ -1,5 +1,5 @@
 import { timeWords } from "@kos/shared";
-import { ChevronLeft, ChevronRight, IconButton, MoreIcon, Tag, arrive, ease, useDismiss } from "@kos/kit";
+import { ChevronLeft, ChevronRight, IconButton, MoreIcon, Tag, ease, float, useDismiss } from "@kos/kit";
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement, type ReactNode, type Ref } from "react";
 
@@ -244,7 +244,7 @@ export function ArtifactMenu({ about, items, label = "More", className }: { abou
       </IconButton>
       <AnimatePresence>
         {open && (
-          <m.div className="chats-menu artifact-view-menu" style={place} variants={arrive} initial="hidden" animate="show" exit="hidden" transition={ease} onKeyDown={keys}>
+          <m.div className="kos-menu artifact-view-menu" style={place} variants={float} initial="hidden" animate="show" exit="hidden" transition={ease} onKeyDown={keys}>
             {about && (
               <p className="artifact-view-about" id={aboutId}>
                 {about}
@@ -252,13 +252,13 @@ export function ArtifactMenu({ about, items, label = "More", className }: { abou
             )}
             <div role="menu" aria-label={label} ref={list} {...(about ? { "aria-describedby": aboutId } : {})}>
               {items.map((item) => {
-                const cls = [item.narrow && "artifact-view-narrow", item.desk && "artifact-view-desk", item.divided && "is-divided", item.danger && "is-danger"].filter(Boolean).join(" ") || undefined;
+                const cls = ["kos-menu-row", item.narrow && "artifact-view-narrow", item.desk && "artifact-view-desk", item.divided && "is-divided", item.danger && "is-danger"].filter(Boolean).join(" ");
                 const act = (): void => {
                   close(false);
                   item.act();
                 };
                 return item.confirm ? (
-                  <ConfirmButton key={item.label} role="menuitem" className={cls ?? ""} label={item.label} text={item.confirm} onConfirm={act} />
+                  <ConfirmButton key={item.label} role="menuitem" className={cls} label={item.label} text={item.confirm} onConfirm={act} />
                 ) : (
                   <button
                     key={item.label}

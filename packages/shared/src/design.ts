@@ -111,5 +111,13 @@ export const SPRING = { stiffness: 420, damping: 38, mass: 0.9 } as const;
 /** Fades and small slides. */
 export const EASE = { duration: 0.18, curve: [0.32, 0.72, 0, 1] } as const;
 
+/**
+ * What answers the pointer, the same on every control: lighter under it in
+ * `hover`, a touch smaller pressed (`press`, to `scale`). The web sheets
+ * declare them as --hover and --press; KOS for Mac as `Theme.hover`, `Theme.press`.
+ */
+export const HOVER = "140ms ease-out";
+export const PRESS = { transition: "80ms ease-out", scale: 0.97 } as const;
+
 /** What floats over the page casts this, and nothing else casts a shadow. */
 export const FLOAT_SHADOW = "0 12px 32px rgba(0, 0, 0, 0.45)";

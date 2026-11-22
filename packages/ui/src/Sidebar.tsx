@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type Mood, NavIcon, useDismiss, useKosLook } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type Mood, Menu, NavIcon, useDismiss, useKosLook } from "@kos/kit";
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
@@ -89,8 +89,7 @@ export function Sidebar({
   /** Where a finger came down on the drawer: a swipe back toward the edge shuts it, as a phone's drawers do. */
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDetailsElement>(null);
-  useDismiss(moreOpen, () => setMoreOpen(false), { inside: [moreRef] });
+  const moreRef = useRef<HTMLButtonElement>(null);
   // Going somewhere closes the drawer; a route change is the signal.
   useEffect(() => setOpen(false), [route]);
   // Escape closes the drawer; its backdrop takes the press away.
@@ -196,37 +195,36 @@ export function Sidebar({
             <NavIcon name="settings" />
             <span className="side-label">Settings</span>
           </a>
-          {/* Controlled rather than left to the element: a native details
-              stays open over whatever it just opened, and when you click
-              elsewhere. */}
-          <details
-            className="menu side-more"
+          <button
+            type="button"
             ref={moreRef}
-            open={moreOpen}
-            onToggle={(e) => setMoreOpen(e.currentTarget.open)}
-            onClick={(e) => {
-              const target = e.target as HTMLElement;
-              if (target.closest("button, a")) setMoreOpen(false);
-            }}
+            className="side-link side-more"
+            title="More"
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((v) => !v)}
           >
-            <summary className="side-link" title="More">
-              <NavIcon name="more" />
-              <span className="side-label">More…</span>
-            </summary>
-            <div className="menu-body">
-              {MORE_ITEMS.map((item) => (
-                <button key={item.label} type="button" className="menu-item--hint" onClick={actions[item.action]}>
-                  <span>{item.label}</span>
-                  <small className="menu-hint">{item.hint}</small>
-                </button>
-              ))}
-              <hr className="menu-rule" />
-              <button type="button" className="is-danger menu-item--hint" onClick={onToggleKill}>
-                <span>{status?.halted ? "Resume KOS" : "Halt KOS"}</span>
-                <small className="menu-hint">{status?.halted ? "Let schedules and chats run again" : "Stop every schedule and chat at once, until you resume"}</small>
-              </button>
-            </div>
-          </details>
+            <NavIcon name="more" />
+            <span className="side-label">More…</span>
+          </button>
+          <Menu
+            open={moreOpen}
+            onClose={() => setMoreOpen(false)}
+            anchor={moreRef}
+            label="More"
+            side={railed ? "right" : "above"}
+            align={railed ? "end" : "start"}
+            items={[
+              ...MORE_ITEMS.map((item) => ({ label: item.label, hint: item.hint, act: actions[item.action] })),
+              {
+                label: status?.halted ? "Resume KOS" : "Halt KOS",
+                hint: status?.halted ? "Let schedules and chats run again" : "Stop every schedule and chat at once, until you resume",
+                act: onToggleKill,
+                danger: true,
+                divided: true,
+              },
+            ]}
+          />
           {/* Three states, in the order that matters: stopped, broken, fine.
               The old bar said "Running" regardless, so a job that had been
               failing for two days sat behind a green dot. */}

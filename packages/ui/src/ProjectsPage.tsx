@@ -7,6 +7,7 @@ import { api, type Conversation, type CronJob, type PageSummary, type Project } 
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { PageHead } from "./PageHead.js";
 import { markLetter, markStyle } from "./ProjectMark.js";
+import { useCreateParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -74,6 +75,7 @@ function useFailingJobs(): Map<number, string> {
 export function ProjectsPage({ projects, pagesByProject, conversations, crons, onInspect, onCreate, loading = false }: ProjectsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [making, setMaking] = useState(false);
+  useCreateParam(() => setMaking(true), Boolean(onCreate));
   const failing = useFailingJobs();
 
   const threadsOf = (slug: string): Conversation[] => conversations.filter((c) => c.projectSlug === slug && !c.archived);

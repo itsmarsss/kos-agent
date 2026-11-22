@@ -1,6 +1,8 @@
 import { useEffect, useRef, type ReactElement } from "react";
 
-import { EmptyState, GroupHead, StepPicture, Tag, When } from "@kos/kit";
+import { AnimatePresence, m } from "motion/react";
+
+import { ease, EmptyState, GroupHead, rise, StepPicture, Tag, When } from "@kos/kit";
 
 import { api, type FailingJob, type InboxData } from "./api.js";
 import { InboxDecided } from "./InboxDecided.js";
@@ -80,8 +82,11 @@ export function InboxPage({
           <GroupHead title="Approvals" count={approvals.length} />
           <PictureGallery>
           <ul className="panel-list ask-list">
+            {/* Each ask arrives with a fade and an 8 px rise and leaves the same way; the one it leaves goes out of
+                the flow at once (popLayout), so the next moves up without waiting on it. */}
+            <AnimatePresence mode="popLayout" initial={false}>
             {approvals.map((a) => (
-              <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`inbox-approval${a.id === highlight ? " is-highlit" : ""}`}>
+              <m.li key={a.id} layout="position" variants={rise} initial="hidden" animate="show" exit="exit" transition={ease} ref={a.id === highlight ? highlit : undefined} className={`inbox-approval${a.id === highlight ? " is-highlit" : ""}`}>
                 <PendingAsk
                   ask={a}
                   deciding={deciding}
@@ -110,8 +115,9 @@ export function InboxPage({
                 >
                   {a.picture && <Signed url={`/api/approvals/${a.id}/picture`}>{(src) => <StepPicture src={src} alt="The page this would act on" caption={a.title ?? a.summary ?? a.tool} />}</Signed>}
                 </PendingAsk>
-              </li>
+              </m.li>
             ))}
+            </AnimatePresence>
           </ul>
           </PictureGallery>
         </section>
