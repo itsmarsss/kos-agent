@@ -684,7 +684,6 @@ export function Inspector(props: {
     <Drawer
       open
       wide
-      className="insp-panel"
       title={title}
       subtitle={subtitle}
       onClose={onClose}
