@@ -105,6 +105,12 @@
     opacity: 1;
   }
 
+  /* A setting's words, cut at two lines with a hover to say there is more, are whole. */
+  .set-field--row .set-hint {
+    display: block;
+    -webkit-line-clamp: unset;
+  }
+
   /* A keyboard's shortcuts mean nothing to a finger. */
   .finder-menu-keys,
   .side kbd,
@@ -135,6 +141,17 @@
    do: at the bottom it sat over what is pinned there, Files' path, a sheet's
    Save, the composer. */
 @media (max-width: 860px) {
+  /* A settings card's Save stays at the window's foot while the card is longer than it. */
+  .set-card {
+    /* Clipped round its corners without being a scroller of its own, which would hold the foot. */
+    overflow: clip;
+  }
+  .set-card > .sheet-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background: var(--panel);
+  }
   .ops-toast {
     top: calc(3.25rem + 0.5rem + env(safe-area-inset-top, 0px));
     bottom: auto;
