@@ -7784,6 +7784,8 @@ button.finder-crumb:hover { background: color-mix(in srgb, var(--text) 7%, trans
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  /* all: unset took the one hover's ease with it. */
+  transition: color var(--hover);
 }
 button.finder-col-label { cursor: pointer; }
 button.finder-col-label:hover { color: var(--text); }
@@ -8117,10 +8119,10 @@ img.ov-shape { object-fit: fill; }
 .token-gate__title { margin: 0; font-size: 1.25rem; }
 
 /* The "?" sheet (KeysSheet.tsx): each place a label over its keys, the keys as keycaps at the left. */
-.keys-sheet { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem 1.5rem; }
+.keys-sheet { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem 1.5rem; }
 .keys-group h3 { margin: 0 0 0.4rem; }
 .keys-group dl { margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
-.keys-row { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 0.6rem; align-items: baseline; font-size: var(--text-base); }
-.keys-row dt { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.keys-row { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: 0.6rem; align-items: baseline; font-size: var(--text-base); }
+.keys-row dt { display: flex; gap: 0.25rem; white-space: nowrap; }
 .keys-row dd { margin: 0; color: var(--muted); }
 .keys-row kbd { padding: 0.05rem 0.35rem; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--panel-2); color: var(--text); font-family: inherit; font-size: var(--text-sm); }
