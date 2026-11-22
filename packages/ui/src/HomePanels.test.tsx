@@ -206,7 +206,7 @@ describe("the charts", () => {
     }));
     expect(screen.getByText("Garden")).toBeTruthy();
     expect(screen.queryByText("Old")).toBeNull();
-    expect(screen.getByText("2 threads · 1 job · 1 working")).toBeTruthy();
+    expect(screen.getByText("2 chats · 1 schedule · 1 working")).toBeTruthy();
     expect(screen.getByText("not connected")).toBeTruthy();
     expect(screen.getByText("1 working")).toBeTruthy();
     screen.getByText("mail").closest("g")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
