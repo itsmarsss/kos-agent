@@ -403,13 +403,14 @@ export class FactsStore {
    * `limit` bounds the whole list, and the preferences keep half of it.
    * Pins came first and took every place: agents pin freely, and fifteen
    * pins left none of the owner's six preferences in any turn. Pins are read
-   * in the scopes in play too, the owner's own first: a project's pin is that
-   * project's, not every chat's, and a guest's work is told none of the
-   * owner's. One claim per key, the narrower scope's.
+   * in the scopes in play too, the owner's own first, then the chat's own
+   * project's: a project's pin is that project's, not every chat's, and a
+   * guest's work is told none of the owner's. One claim per key, the
+   * narrower scope's.
    */
   standing(userId: string, scopes: ClaimScope[], limit = 8): Fact[] {
     const here = onePerKey(this.all(userId, scopes));
-    const pinned = here.filter((f) => f.pinned).sort((a, b) => Number(b.trust === "owner") - Number(a.trust === "owner"));
+    const pinned = here.filter((f) => f.pinned).sort((a, b) => Number(b.trust === "owner") - Number(a.trust === "owner") || Number(b.scope !== GLOBAL_SCOPE) - Number(a.scope !== GLOBAL_SCOPE));
     const prefs = here.filter((f) => f.kind === "preference" && !f.pinned && f.trust === "owner");
     const pins = Math.min(pinned.length, Math.max(limit - Math.min(prefs.length, Math.ceil(limit / 2)), 0));
     return [...pinned.slice(0, pins), ...prefs].slice(0, limit);

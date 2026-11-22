@@ -333,6 +333,10 @@ describe("FactsStore recall ranking", () => {
     facts.upsert("u1", { key: "allergy", value: "Peanuts.", kind: "fact", pinned: true, trust: "owner" });
     expect(facts.standing("u1", ["global"]).map((f) => `${f.scope}/${f.key}`)).toEqual(["global/allergy", "global/form"]);
     expect(facts.standing("u1", ["global", "project:garden"]).map((f) => `${f.scope}/${f.key}`)).toEqual(["global/allergy", "project:garden/form", "project:garden/frost"]);
+    // The chat's own project's pins before the global ones an agent left, however new those are.
+    clock = 5000;
+    facts.upsert("u1", { key: "flight", value: "Flight on the 23rd.", kind: "fact", pinned: true, trust: "agent" });
+    expect(facts.standing("u1", ["global", "project:garden"]).map((f) => f.key)).toEqual(["allergy", "form", "frost", "flight"]);
   });
 });
 
