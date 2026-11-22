@@ -130,3 +130,13 @@
     white-space: nowrap;
   }
 }
+
+/* On a phone a note comes in under the bar at the top, as the phone's own
+   do: at the bottom it sat over what is pinned there, Files' path, a sheet's
+   Save, the composer. */
+@media (max-width: 860px) {
+  .ops-toast {
+    top: calc(3.25rem + 0.5rem + env(safe-area-inset-top, 0px));
+    bottom: auto;
+  }
+}

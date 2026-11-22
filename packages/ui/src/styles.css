@@ -8114,6 +8114,8 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
    its columns giving way by rank (finder/columns.tsx). */
 @container finder (max-width: 640px) {
   .finder-toolbar { padding: 0.4rem 0.45rem; gap: 0.4rem; }
+  /* The folder's name a step down on a phone, so the folders before it keep their names rather than a mark each. */
+  .ops-page--full > .finder :is(.finder-title-words, .finder-crumb.is-here) { font-size: var(--text-lg); }
   .finder-tools-wide { display: none; }
   .finder-tools-narrow { display: contents; }
   .finder-search { display: none; }
