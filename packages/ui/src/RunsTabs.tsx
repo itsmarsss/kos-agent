@@ -18,6 +18,17 @@ const TABS: { route: Route; label: string }[] = [
   { route: { name: "builds" }, label: "Builds" },
 ];
 
+/**
+ * What each tab holds, as its page's line under the title: one sentence per
+ * tab, each naming the other two, so a newcomer on any of them learns where
+ * the schedules and the record are.
+ */
+export const RUNS_SUBTITLE: Readonly<Record<"history" | "crons" | "builds", string>> = {
+  history: "Everything KOS did, newest first: each message's steps and each schedule's runs. Schedules and Builds are the tabs beside this.",
+  crons: "What KOS runs on its own, on a timer you set. New schedule adds one; press one to change it. What each run did is under History.",
+  builds: "Coding work KOS does in a folder of its own; any command outside that folder asks you first. What it did is under History.",
+};
+
 export function RunsTabs({ current }: { current: Route["name"] }): ReactElement {
   return <PageTabs label="Runs" current={current} tabs={TABS.map((t) => ({ id: t.route.name, label: t.label, href: hrefFor(t.route) }))} />;
 }

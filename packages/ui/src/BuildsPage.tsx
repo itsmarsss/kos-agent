@@ -6,7 +6,7 @@ import { Chips, EmptyState, listItem, Pill, type Tone, SheetFoot } from "@kos/ki
 import { AgentTerminal } from "./AgentTerminal.js";
 import { Drawer } from "./Drawer.js";
 import { PageHead } from "./PageHead.js";
-import { RunsTabs } from "./RunsTabs.js";
+import { RUNS_SUBTITLE, RunsTabs } from "./RunsTabs.js";
 import { api, type BuildRecord } from "./api.js";
 
 /**
@@ -232,7 +232,7 @@ export function BuildsPage({
       <PageHead
         title="Runs"
         tabs={<RunsTabs current="builds" />}
-        subtitle="Coding work running inside the workspace. Each is confined to its own folder, and every shell command comes back to you."
+        subtitle={RUNS_SUBTITLE.builds}
         actions={
           /* Starting one was only possible by asking KOS to, which is a long
              way round when you already know the folder and the job. */
