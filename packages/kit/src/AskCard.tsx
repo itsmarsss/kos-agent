@@ -40,8 +40,6 @@ export interface AskCardProps {
   labels?: { yes: string; no: string };
   /** No remembered yes, whatever the view offers: an ask that is its own each time. */
   noRemember?: boolean;
-  /** Smaller type and buttons, for a dense list. */
-  compact?: boolean;
   /** No box of its own, for a card drawn inside another (a tool call, a list's row). */
   bare?: boolean;
   /** A quiet line at the foot: when it was asked, a way to its chat. */
@@ -72,7 +70,7 @@ function handFocusOn(): void {
   });
 }
 
-export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false, onDecide, labels, noRemember = false, compact = false, bare = false, meta, extra, children }: AskCardProps): ReactElement {
+export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false, onDecide, labels, noRemember = false, bare = false, meta, extra, children }: AskCardProps): ReactElement {
   const [pressed, setPressed] = useState<"yes" | "always" | "no" | null>(null);
   useEffect(() => {
     if (!busy) setPressed(null);
@@ -149,7 +147,6 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
   // Too big for this surface to have been sent whole: no yes here, only a no and the way to the dashboard.
   const tooLong = view.tooLong === true;
   const always = noRemember || tooLong ? undefined : view.always;
-  const size = compact ? " btn--sm" : "";
   const working = (which: "yes" | "always" | "no", words: string): ReactNode =>
     busy && pressed === which ? (
       <>
@@ -163,7 +160,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
   return (
     <section
       ref={box}
-      className={`kos-ask${compact ? " kos-ask--compact" : ""}${bare ? " kos-ask--bare" : ""}`}
+      className={`kos-ask${bare ? " kos-ask--bare" : ""}`}
       tabIndex={0}
       aria-label={`${asker ?? "KOS"} asks: ${view.title}`}
       aria-keyshortcuts="Enter Escape Meta+Backspace"
@@ -231,11 +228,11 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           </span>
         )}
         {extra}
-        <button type="button" className={`btn${size}`} disabled={busy} title="Deny (Esc)" onClick={() => decide("no")}>
+        <button type="button" className="btn" disabled={busy} title="Deny (Esc)" onClick={() => decide("no")}>
           {working("no", labels?.no ?? "Deny")}
         </button>
         {always && (
-          <button type="button" className={`btn${size}`} disabled={busy} onClick={() => decide("always")}>
+          <button type="button" className="btn" disabled={busy} onClick={() => decide("always")}>
             {busy && pressed === "always" ? (
               working("always", always)
             ) : (
@@ -246,7 +243,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           </button>
         )}
         {!tooLong && (
-          <button type="button" className={`btn btn--primary${size}`} disabled={busy || (asksCode && !codeReady)} title="Approve (Enter)" onClick={() => decide("yes")}>
+          <button type="button" className="btn btn--primary" disabled={busy || (asksCode && !codeReady)} title="Approve (Enter)" onClick={() => decide("yes")}>
             {working("yes", labels?.yes ?? "Approve")}
           </button>
         )}

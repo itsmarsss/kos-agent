@@ -80,7 +80,7 @@ export function InboxPage({
             Approvals <Count n={approvals.length} />
           </h2>
           <PictureGallery>
-          <ul className="panel-list inbox-box">
+          <ul className="panel-list ask-list">
             {approvals.map((a) => (
               <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`inbox-approval${a.id === highlight ? " is-highlit" : ""}`}>
                 <PendingAsk

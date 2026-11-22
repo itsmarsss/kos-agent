@@ -97,7 +97,7 @@ describe("an ask's card", () => {
         onFixFailure={() => {}}
       />,
     );
-    expect(cardShown().classList.contains("kos-ask--compact")).toBe(true);
+    expect(cardShown().classList.contains("kos-ask--bare")).toBe(false);
   });
 
   it("is a build terminal's", async () => {

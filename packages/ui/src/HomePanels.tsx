@@ -134,13 +134,13 @@ export function Panel({
           {rows.length === 0 ? (
             decisions === 0 && <Empty inline>Nothing is waiting on you.</Empty>
           ) : (
-            <ul className="panel-list">
+            <ul className="panel-list ask-list">
               {rows.slice(0, limit).map((a) => (
                 <li key={a.id} className="panel-approval">
                   {/* Decided here rather than somewhere else: this panel
                       exists because something is waiting, and sending the
                       owner elsewhere to answer defeats it. */}
-                  <PendingAsk ask={a} deciding={deciding} onDecide={onDecide} compact bare />
+                  <PendingAsk ask={a} deciding={deciding} onDecide={onDecide} />
                 </li>
               ))}
             </ul>

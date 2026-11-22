@@ -50,7 +50,6 @@ export function PendingAsk({
   ask,
   deciding,
   onDecide,
-  compact,
   bare,
   meta,
   extra,
@@ -59,7 +58,6 @@ export function PendingAsk({
   ask: PendingAction;
   deciding: ReadonlySet<number>;
   onDecide: (id: number, approved: boolean, remember?: boolean, code?: string) => void;
-  compact?: boolean;
   bare?: boolean;
   meta?: ReactNode;
   extra?: ReactNode;
@@ -101,7 +99,6 @@ export function PendingAsk({
         onDecide={(approved, remember, code) => (request && approved ? setAdding(true) : code !== undefined ? onDecide(ask.id, approved, false, code) : remember ? onDecide(ask.id, approved, true) : onDecide(ask.id, approved))}
         {...(handoff ? { labels: { yes: "Done", no: "Can't" }, noRemember: true } : {})}
         {...(request ? { labels: { yes: "Add it", no: "Not now" }, noRemember: true } : {})}
-        {...(compact ? { compact } : {})}
         {...(bare ? { bare } : {})}
         meta={meta}
         extra={extra}
