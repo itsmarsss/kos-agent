@@ -887,7 +887,7 @@ export function SettingsPage({
              changed away from. */
           <Section
             title="Models"
-            blurb="Who answers, which model, and how hard it thinks."
+            blurb="Which model KOS thinks with. The model chip under a chat's box opens this page."
             {...saveBar(
               "models",
               how.engine !== savedHow.engine ||
@@ -911,24 +911,24 @@ export function SettingsPage({
             <div className="set-group">
               <h2>Who does the thinking</h2>
               <p className="hint">
-                A turn can go to the model provider, which bills API credits,
-                or through the Claude Agent SDK, which is what builds
-                already use and spends a Claude Code subscription instead.
+                A chat can go to a model provider with your API key, billed by
+                use, or through Claude Code signed in on this computer, which
+                uses that subscription instead.
               </p>
               <Field group className="set-field"
                 label="Chat engine"
-                hint="Either way the only tools are KOS's own, inside the same workspace jail, and risky ones still ask you first. The SDK path needs a signed-in Claude Code on this machine, or an Anthropic key."
+                hint="Either way KOS works only inside its own folder, and anything risky still asks you first. Claude Code needs to be signed in on this computer, or an Anthropic key under Providers."
               >
                 <Select
                   className="set-select"
                   label="Chat engine"
                   value={how.engine}
                   options={[
-                    { value: "api", label: "Model provider", hint: "API credits" },
+                    { value: "api", label: "Model provider", hint: "your API key, billed by use" },
                     {
                       value: "sdk",
-                      label: "Claude Agent SDK",
-                      hint: "Claude Code subscription",
+                      label: "Claude Code",
+                      hint: "your Claude subscription",
                     },
                   ]}
                   onChange={(v) =>
@@ -941,8 +941,9 @@ export function SettingsPage({
             <div className="set-group">
               <h2>Which model answers</h2>
               <p className="hint">
-                Applied on the next turn, no restart. Blank keeps the default.
-                Ignored while the Claude Agent SDK is answering, which picks
+                Three models, each for its own work. A change applies from the
+                next message, no restart. Left blank, each uses its
+                provider's usual model. While Claude Code answers, it picks
                 its own.
               </p>
               <ModelSettings
@@ -959,11 +960,11 @@ export function SettingsPage({
             <div className="set-group">
               <h2>Builds</h2>
               <p className="hint">
-                Which model does the building when KOS hands work to a build.
+                The model that writes code when KOS starts a build.
               </p>
               <Field group className="set-field"
                 label="Build model"
-                hint="A build is many turns and each is a model call, so this is the biggest lever on how long one takes. Sonnet is markedly faster than Opus for scaffolding work."
+                hint="A build talks to its model many times, so this decides most of how long one takes. Sonnet is much faster than Opus for setting a project up."
               >
                 <Select
                   className="set-select"
@@ -971,8 +972,8 @@ export function SettingsPage({
                   value={buildModel}
                   options={[
                     { value: "", label: "Claude Code default" },
-                    { value: "sonnet", label: "Sonnet — faster" },
-                    { value: "opus", label: "Opus — more capable" },
+                    { value: "sonnet", label: "Sonnet", hint: "faster" },
+                    { value: "opus", label: "Opus", hint: "more capable" },
                     { value: "fable", label: "Fable" },
                   ]}
                   onChange={setBuildModel}
@@ -1012,19 +1013,19 @@ export function SettingsPage({
               </p>
               <FieldRow
                 label="Extract memory in the background"
-                hint="Off by default. On, a cheap model reads new conversation in batches and proposes claims; what it writes is attributed to it, cites its sources, and shows in Memory. Run it once from the Memory page first and see what it does."
+                hint="Off at first. On, the cheap model reads new chat now and then and notes what seems worth remembering, with where it heard it. Its notes show in Memory, marked as its own. Try it once from the Memory page first."
               >
                 <Switch label="Extract memory in the background" on={how.memoryExtraction} onChange={(on) => setHow({ ...how, memoryExtraction: on })} />
               </FieldRow>
               <FieldRow
                 label="Try to fix failures on its own"
-                hint="On the first failure of a schedule, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same schedule do not start another attempt. Everything it does there still asks you before anything risky."
+                hint="The first time a schedule fails, KOS opens a chat, works out why, and fixes it if it safely can. It tries once per schedule, and still asks you before anything risky."
               >
                 <Switch label="Try to fix failures on its own" on={how.autoFix} onChange={(on) => setHow({ ...how, autoFix: on })} />
               </FieldRow>
               <FieldRow
                 label="Set big results aside once read"
-                hint="A page, a PDF or a long listing stays whole for the turn it came in and the next; after that the chat keeps a short outline and KOS reads the rest back with context.recall when it needs it, so later messages stay quick. Off, every result is sent whole with every message."
+                hint="A web page, a PDF or a long list stays whole for two messages. After that the chat keeps a short outline and KOS looks the rest up again when it needs it, so later messages stay quick and cheap. Off, all of it is sent with every message."
               >
                 <Switch label="Set big results aside once read" on={how.smartContext} onChange={(on) => setHow({ ...how, smartContext: on })} />
               </FieldRow>
@@ -1033,14 +1034,14 @@ export function SettingsPage({
             <div className="set-group">
               <h2>How hard it tries</h2>
               <p className="hint">
-                A step is one round-trip to the model, roughly one thought and
-                one tool call. Past the limit a turn stops and says it got stuck
-                rather than running on.
+                A step is one thought and one action, such as reading a file.
+                At the limit KOS stops and tells you it got stuck, rather than
+                going on.
               </p>
               <div className="set-grid">
                 <Limit
                   label="Steps in a turn"
-                  hint={`What one message gets, on either engine. Default ${defaults.maxSteps}.`}
+                  hint={`How many steps KOS may take to answer one message. Usually ${defaults.maxSteps}.`}
                   value={how.maxSteps}
                   range={limits.maxSteps}
                   // Screen steps left at four times these follow them; set to anything else, the owner's number is
@@ -1048,8 +1049,8 @@ export function SettingsPage({
                   onChange={(maxSteps) => setHow({ ...how, maxSteps, screenSteps: how.screenSteps === 4 * how.maxSteps ? 4 * maxSteps : how.screenSteps })}
                 />
                 <Limit
-                  label="Screen steps in a turn"
-                  hint={`Your own message working a screen on the Claude Agent SDK carries on in fresh queries, each with the steps above, up to this many in all. Other turns stop at the steps above. Four times the steps above unless set.`}
+                  label="Steps on a screen, for one message"
+                  hint={`Clicking through a website or an app takes many steps, so a message of yours that works a screen may take this many in all. Usually four times the steps above.`}
                   // Never shown under the steps above, which the host holds it to; typed, any number in range is taken.
                   value={Math.max(how.screenSteps, how.maxSteps)}
                   range={limits.screenSteps}
@@ -1057,7 +1058,7 @@ export function SettingsPage({
                 />
                 <Limit
                   label="Steps in a fix attempt"
-                  hint={`Diagnosing a failure is mostly reading, so it is worth more than a normal turn. Default ${defaults.fixSteps}.`}
+                  hint={`Working out why something failed is mostly reading, so it gets more steps than a message. Usually ${defaults.fixSteps}.`}
                   value={how.fixSteps}
                   range={limits.fixSteps}
                   onChange={(fixSteps) => setHow({ ...how, fixSteps })}
@@ -1074,7 +1075,7 @@ export function SettingsPage({
               <div className="set-grid">
                 <Limit
                   label="Check in on its own, every N minutes"
-                  hint={`KOS wakes up on its own, looks at what has changed, and messages you only if something needs you. Nothing to say means it says nothing. Zero is off, which is the default: this is the one setting that spends money on a timer rather than because you asked.`}
+                  hint={`KOS looks at what has changed every so often, and messages you only if something needs you. 0 is off, the usual: this is the one setting that spends money on a timer rather than because you asked.`}
                   value={how.heartbeatMinutes}
                   range={limits.heartbeatMinutes}
                   onChange={(heartbeatMinutes) =>
@@ -1082,8 +1083,8 @@ export function SettingsPage({
                   }
                 />
                 <Limit
-                  label="Memory extraction: read every N characters of new conversation"
-                  hint="A cheap model reads what was said since it last looked and proposes what to remember, each proposal citing the messages it came from. Default 6000, about a page and a half."
+                  label="Read new chat for memory after this many characters"
+                  hint="With memory in the background on, the cheap model reads once this much new chat has piled up. Usually 6000, about a page and a half."
                   value={how.extractEveryChars}
                   range={limits.extractEveryChars}
                   onChange={(extractEveryChars) =>
@@ -1092,7 +1093,7 @@ export function SettingsPage({
                 />
                 <Limit
                   label="Settle a memory question alone when at least N% sure"
-                  hint={`The tidy job says what it would do about a contradiction or a promotion and how sure it is. At or above this it does that and Memory records it as KOS's; below, the question comes to the Inbox with the lean in front of you. 100 settles only what it is certain of. Default ${defaults.memoryDecideAbove}.`}
+                  hint={`When two things KOS remembers disagree, it says what it would do and how sure it is. At least this sure, it does it and Memory says so; less sure, it asks you in the Inbox. 100 means only when certain. Usually ${defaults.memoryDecideAbove}.`}
                   value={how.memoryDecideAbove}
                   range={limits.memoryDecideAbove}
                   onChange={(memoryDecideAbove) =>
@@ -1101,7 +1102,7 @@ export function SettingsPage({
                 />
                 <Limit
                   label="Schedules that ask KOS, per hour"
-                  hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
+                  hint={`Schedules that ask KOS to think, not ones that run fixed steps. 0 stops them all. Usually ${defaults.selfPromptsPerHour}.`}
                   value={how.selfPromptsPerHour}
                   range={limits.selfPromptsPerHour}
                   onChange={(selfPromptsPerHour) =>
@@ -1110,7 +1111,7 @@ export function SettingsPage({
                 />
                 <Limit
                   label="Minutes to wait for your approval"
-                  hint={`A turn suspended on a risky call holds its conversation until you decide. After this it treats the silence as a refusal. Default ${defaults.approvalMinutes}.`}
+                  hint={`A chat waiting on your yes holds still until you answer. After this long, no answer counts as no. Usually ${defaults.approvalMinutes}.`}
                   value={how.approvalMinutes}
                   range={limits.approvalMinutes}
                   onChange={(approvalMinutes) =>
@@ -1119,7 +1120,7 @@ export function SettingsPage({
                 />
                 <Limit
                   label="Hours an unanswered ask keeps"
-                  hint={`An ask nobody is waiting on, from a scheduled job or a turn a restart cut, lapses after this: it leaves the Inbox, its prompts on Discord or iMessage settle, and the chat is told nothing was done. Default ${defaults.approvalExpiryHours}.`}
+                  hint={`An ask nobody is waiting on, such as one from a schedule, expires after this: it leaves the Inbox and the chat is told nothing was done. Usually ${defaults.approvalExpiryHours}.`}
                   value={how.approvalExpiryHours}
                   range={limits.approvalExpiryHours}
                   onChange={(approvalExpiryHours) =>
@@ -1127,22 +1128,22 @@ export function SettingsPage({
                   }
                 />
                 <Limit
-                  label="Minutes a coding agent may run"
-                  hint={`Stopped at this regardless of what it is doing. Default ${defaults.agentMinutes}.`}
+                  label="Minutes a build may run"
+                  hint={`A build is stopped at this, whatever it is doing. Usually ${defaults.agentMinutes}.`}
                   value={how.agentMinutes}
                   range={limits.agentMinutes}
                   onChange={(agentMinutes) => setHow({ ...how, agentMinutes })}
                 />
                 <Limit
-                  label="Turns a coding agent may take"
-                  hint={`The other end of the same leash, counted in steps rather than time. Default ${defaults.agentTurns}.`}
+                  label="Steps a build may take"
+                  hint={`The same limit, counted in steps rather than time. Usually ${defaults.agentTurns}.`}
                   value={how.agentTurns}
                   range={limits.agentTurns}
                   onChange={(agentTurns) => setHow({ ...how, agentTurns })}
                 />
                 <Limit
-                  label="Minutes of silence before an agent looks stuck"
-                  hint={`Only changes what the Builds page says about it; nothing is stopped. Default ${defaults.stallMinutes}.`}
+                  label="Minutes of quiet before a build looks stuck"
+                  hint={`Only what the Builds page says about it; nothing is stopped. Usually ${defaults.stallMinutes}.`}
                   value={how.stallMinutes}
                   range={limits.stallMinutes}
                   onChange={(stallMinutes) => setHow({ ...how, stallMinutes })}
@@ -1208,7 +1209,7 @@ export function SettingsPage({
         {active === "conversation" && (
           <Section
             title="Conversation"
-            blurb="How much of a chat is carried into the next turn. Past these, the oldest exchanges fall off the front; /compact turns them into a summary instead. Set any of them to 0 to stop trimming on that count, at the cost of a history that grows without bound and is re-sent every turn."
+            blurb="How much of a chat KOS rereads with each new message. Past these limits the oldest messages drop off; type /compact in a chat to fold them into a short summary instead. 0 means no limit, but then a long chat gets slower and costs more with every message."
             {...saveBar(
               "conversation",
               retention.maxChars !== String(data.retention.maxChars) ||
@@ -1231,18 +1232,18 @@ export function SettingsPage({
             )}
           >
             <FieldRow
-              label="Trim old exchanges"
-              hint="When on, the oldest exchanges fall off the front once a chat passes the budgets below, and the chat says so when it happens. Off keeps everything: the whole history is re-sent every turn, so it gets slower and costs more as it grows."
+              label="Drop old messages"
+              hint="On, the oldest messages drop off once a chat passes the limits below, and the chat says so. Off keeps everything, so a long chat gets slower and costs more as it grows."
             >
-              <Switch label="Trim old exchanges" on={retention.autoTrim !== "off"} onChange={(on) => setRetention((r) => ({
+              <Switch label="Drop old messages" on={retention.autoTrim !== "off"} onChange={(on) => setRetention((r) => ({
                       ...r,
                       autoTrim: on ? "on" : "off",
                     }))
                   } />
             </FieldRow>
             <Field group className="set-field"
-              label="History budget"
-              hint={`Characters of a conversation kept. 0 for no limit. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}
+              label="Chat length KOS rereads, in characters"
+              hint={`About 3,000 characters is a page. 0 for no limit. Usually ${data.retentionDefaults.maxChars.toLocaleString()}.`}
             >
               <input
                 className="kos-input"
@@ -1254,8 +1255,8 @@ export function SettingsPage({
               />
             </Field>
             <Field group className="set-field"
-              label="Exchanges kept"
-              hint={`Hard ceiling regardless of size. 0 for no limit. Default ${data.retentionDefaults.maxExchanges}.`}
+              label="Messages KOS rereads"
+              hint={`Each message and its answer count as one, however short. 0 for no limit. Usually ${data.retentionDefaults.maxExchanges}.`}
             >
               <input
                 className="kos-input"
@@ -1267,8 +1268,8 @@ export function SettingsPage({
               />
             </Field>
             <Field group className="set-field"
-              label="Tool result cap"
-              hint={`A single result longer than this is truncated rather than dropped. 0 for no limit. Default ${data.retentionDefaults.maxToolResultChars.toLocaleString()}.`}
+              label="Longest single result, in characters"
+              hint={`A file, a page or a list KOS read that is longer than this is cut short to fit, not dropped. 0 for no limit. Usually ${data.retentionDefaults.maxToolResultChars.toLocaleString()}.`}
             >
               <input
                 className="kos-input"
@@ -1283,9 +1284,8 @@ export function SettingsPage({
               />
             </Field>
             <p className="set-note">
-              Changes apply to the next trim, not retroactively: shrinking the
-              budget does not reach back and delete what a conversation already
-              has.
+              A change applies from the next message. Lowering a limit does not
+              delete anything a chat already has.
             </p>
           </Section>
         )}
@@ -1610,7 +1610,7 @@ export function SettingsPage({
           </Section>
         )}
         {active === "permissions" && (
-          <Section title="Permissions" blurb="Each rule is a decision you made at a prompt with Always. The same shape stops asking; a new shape still does. Revoke one and it asks again.">
+          <Section title="Permissions" blurb="Each rule is an Always you pressed on an ask. KOS does that same thing again without asking, such as reading from one of the sites KOS may reach; anything different still asks. Revoke one and it asks again.">
             <Field group className="set-field" label="Secrets" hint="Logins, cards and keys KOS may fill in without seeing them, where each may be used, and when it asks.">
               <a className="btn btn--sm" href={hrefFor({ name: "secrets" })}>
                 Open Secrets

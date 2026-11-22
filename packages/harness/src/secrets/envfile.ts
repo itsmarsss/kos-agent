@@ -88,8 +88,8 @@ export const WRITABLE_SETTINGS: Record<
     group: "network",
   },
   KOS_ALLOWED_HOSTS: {
-    label: "Hosts the agent reads without asking",
-    hint: "Listing a host is the permission: a read from one of these runs at once. A read from any other host asks you first, and a remembered yes stands for that host. Writing to any host asks.",
+    label: "Sites KOS may reach",
+    hint: "KOS reads from these sites without asking. Any other site asks you first, and Always on that ask adds it here. Sending anything to a site always asks.",
     group: "access",
   },
 };
