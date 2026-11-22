@@ -933,6 +933,7 @@ export function App(): React.ReactElement {
         conversations={conversations}
         projects={projects}
         {...(route.id ? { activeId: route.id } : {})}
+        composing={route.compose === true}
         pendingApprovals={pendingIds}
         approvals={approvals}
         deciding={deciding}
