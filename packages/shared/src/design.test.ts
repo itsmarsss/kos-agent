@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { GAITS } from "./blobmotion.js";
-import { COLOURS, FLOAT_SHADOW, HOVER, isDrawnTheme, isThemeMode, LIGHT_COLOURS, PRESS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TYPE, type ColourToken } from "./design.js";
+import { COLOURS, FLOAT_SHADOW, HOVER, isDrawnTheme, isThemeMode, LIGHT_COLOURS, PRESS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TOUCH, TYPE, type ColourToken } from "./design.js";
 import { KOS_SEED, drawingOf, lookOf } from "./face.js";
 
 /**
@@ -168,7 +168,8 @@ describe("the design tokens", () => {
 });
 
 /** The web sheets every page of the dashboard is drawn with. */
-const WEB_SHEETS = { "styles.css": STYLESHEETS.dashboard, "kit.css": KIT, "page.css": read("../../kit/src/page.css") };
+const TOUCH_SHEET = read("../../ui/src/touch.css");
+const WEB_SHEETS = { "styles.css": STYLESHEETS.dashboard, "touch.css": TOUCH_SHEET, "kit.css": KIT, "page.css": read("../../kit/src/page.css") };
 
 /** Each declaration of a property in a sheet, with its line, comments set aside. */
 function declarations(css: string, property: string): { line: number; value: string }[] {
@@ -226,6 +227,18 @@ describe("the web sheets keep to the tokens", () => {
     expect(/\.btn--sm \{[^}]*height: var\(--control-h-sm\);/.exec(dashboard), ".btn--sm").not.toBeNull();
     const heights = [...dashboard.matchAll(/\.btn[\w-]*[^{]*\{[^}]*\bheight:\s*([^;}]+)/g)].map((m) => m[1]!.trim());
     expect(heights.filter((h) => !/^var\(--control-h(-sm)?\)$|^auto$/.test(h))).toEqual([]);
+  });
+
+  it("gives a finger its floor: every target --tap, every field --tap-text, under a coarse pointer", () => {
+    const all = roots(STYLESHEETS.dashboard).join("\n");
+    expect(declared(all, "tap"), "--tap").toBe(`${TOUCH.target}px`);
+    expect(declared(all, "tap-text"), "--tap-text").toBe(`${TOUCH.fieldText}px`);
+    const coarse = /@media \(pointer: coarse\) \{([\s\S]*?)\n\}/.exec(TOUCH_SHEET)?.[1] ?? "";
+    // Both button heights become a finger's, so no button is drawn smaller.
+    expect(coarse).toMatch(/--control-h:\s*var\(--tap\);/);
+    expect(coarse).toMatch(/--control-h-sm:\s*var\(--tap\);/);
+    for (const piece of [".icon-btn", ".chips button", '[role="tab"]', '[role^="menuitem"]', '[role="option"]', ".switch", ".finder"]) expect(coarse, piece).toContain(piece);
+    expect(coarse).toMatch(/textarea,[\s\S]*font-size: max\(var\(--tap-text\), 1em\) !important;/);
   });
 
   it("has no second set of corners beside --r-*", () => {

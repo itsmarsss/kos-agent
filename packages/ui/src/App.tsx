@@ -998,6 +998,7 @@ export function App(): React.ReactElement {
         conversations={conversations}
         projects={projects}
         {...(route.id ? { activeId: route.id } : {})}
+        composing={route.compose === true}
         pendingApprovals={pendingIds}
         approvals={approvals}
         deciding={deciding}
@@ -1235,6 +1236,7 @@ export function App(): React.ReactElement {
         title="Runs"
         tabs={<RunsTabs current="crons" />}
         subtitle="What KOS runs on its own. Press one to change it."
+        stackOnPhone
         rows={rows}
         rowKey={(c) => c.id}
         empty="Nothing runs on its own yet."
@@ -1268,6 +1270,7 @@ export function App(): React.ReactElement {
           {
             key: "name",
             header: "Name",
+            stack: "title",
             searchText: (c) => `${jobTitle(c.name)} ${c.name} ${c.schedule} ${c.type}`,
             render: (c) => (
               <span className="sched-name">
@@ -1290,6 +1293,7 @@ export function App(): React.ReactElement {
           {
             key: "next",
             header: "Next",
+            stackLabel: true,
             width: "9rem",
             searchText: () => "",
             render: (c) =>
@@ -1304,6 +1308,7 @@ export function App(): React.ReactElement {
           {
             key: "last",
             header: "Last run",
+            stackLabel: true,
             width: "10rem",
             searchText: () => "",
             // Words, not a link: the thread its runs are written into opens from the row's own button.
@@ -1312,6 +1317,7 @@ export function App(): React.ReactElement {
           {
             key: "project",
             header: "Project",
+            stackLabel: true,
             width: "10rem",
             searchText: (c) => projectName(c.projectSlug) ?? "",
             render: (c) =>
@@ -1328,6 +1334,7 @@ export function App(): React.ReactElement {
             // its schedule, which for a nightly job is a day per attempt.
             key: "run",
             header: "",
+            stack: "aside",
             width: "8rem",
             render: (c) => (
               <span className="sched-acts">

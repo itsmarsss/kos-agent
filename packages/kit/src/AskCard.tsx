@@ -461,10 +461,21 @@ function parsed(args: string | Record<string, unknown>): { value: unknown; json:
  * name, a list numbered, a long string cut with Show all, inside a box that
  * scrolls rather than running off the card; and Copy JSON.
  */
+/** About how long the details take to open, the spring settling. */
+const DETAILS_OPEN_MS = 320;
+
 export function AskDetails({ tool, args }: { tool: string; args: string | Record<string, unknown> }): ReactElement {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const scroll = useOverlayScroll<HTMLDivElement>();
+  const box = useRef<HTMLDivElement>(null);
+  // Opened, the details push the card's choices down, on a phone under the
+  // composer: once they have opened, the choices are brought back in sight.
+  useEffect(() => {
+    if (!open) return undefined;
+    const t = setTimeout(() => box.current?.closest(".kos-ask")?.querySelector(".kos-ask-actions")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }), DETAILS_OPEN_MS);
+    return () => clearTimeout(t);
+  }, [open]);
   const { value, json } = parsed(args);
   useEffect(() => {
     if (!copied) return undefined;
@@ -475,7 +486,7 @@ export function AskDetails({ tool, args }: { tool: string; args: string | Record
     void navigator.clipboard?.writeText(json).then(() => setCopied(true), () => undefined);
   };
   return (
-    <div className="ask-details">
+    <div className="ask-details" ref={box}>
       <button type="button" className="ask-details-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         {open ? <ChevronDown size={12} title="" /> : <ChevronRight size={12} title="" />}
         Details

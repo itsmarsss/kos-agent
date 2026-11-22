@@ -13,7 +13,8 @@ export type Route =
   | { name: "crons"; job?: string }
   | { name: "memory" }
   | { name: "history" }
-  | { name: "chats"; id?: string }
+  /** `compose`: the landing, to start a new chat; on a phone, where the list is the page until a chat is open, it is shown in the list's place. */
+  | { name: "chats"; id?: string; compose?: true }
   | { name: "files"; path?: string }
   | { name: "settings"; section?: string }
   /** The vault: what KOS may fill in without seeing it. */
@@ -85,6 +86,7 @@ export function parseRoute(hash: string): Route {
   if (blob?.[1]) return { name: "blobs", blob: decodeURIComponent(blob[1]) };
   const file = path.match(/^\/files\/(.+)$/);
   if (file?.[1]) return { name: "files", path: decodeURIComponent(file[1]) };
+  if (path === "/chats/new") return { name: "chats", compose: true };
   const chat = path.match(/^\/chats\/([^/]+)$/);
   if (chat?.[1]) return { name: "chats", id: decodeURIComponent(chat[1]) };
   // The label is what a reader sees, so it is what they type or bookmark.
@@ -125,7 +127,7 @@ export function hrefFor(route: Route): string {
         ? `#/project/${encodeURIComponent(route.slug)}/${encodeURIComponent(route.id)}`
         : `#/project/${encodeURIComponent(route.slug)}`;
     case "chats":
-      return route.id ? `#/chats/${encodeURIComponent(route.id)}` : "#/chats";
+      return route.id ? `#/chats/${encodeURIComponent(route.id)}` : route.compose ? "#/chats/new" : "#/chats";
     case "files":
       return route.path ? `#/files/${encodeURIComponent(route.path)}` : "#/files";
     case "blobs":

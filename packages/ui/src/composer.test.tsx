@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@t
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useAttachments } from "./Attachments.js";
-import { backInComposer, detectSecret, luhn, unsentHome, withoutSecret } from "./composer.js";
+import { backInComposer, composerKeyDown, detectSecret, grownHeight, luhn, unsentHome, withoutSecret } from "./composer.js";
 import { SecretOffer } from "./SecretOffer.js";
 
 describe("a send that failed", () => {
@@ -21,6 +21,39 @@ describe("a send that failed", () => {
     expect(result.current.files).toEqual([photo]);
     act(() => result.current.restore([{ ...photo, name: "other.png" }]));
     expect(result.current.files).toEqual([photo]);
+  });
+});
+
+describe("the composer's keys", () => {
+  const press = (init: { shiftKey?: boolean; isComposing?: boolean }, newline: boolean): { sent: boolean; kept: boolean } => {
+    let sent = false;
+    let kept = true;
+    const event = { key: "Enter", shiftKey: init.shiftKey ?? false, nativeEvent: { isComposing: init.isComposing ?? false }, preventDefault: () => (kept = false) };
+    composerKeyDown(event as never, () => (sent = true), newline);
+    return { sent, kept };
+  };
+
+  it("sends on Return and starts a line on Shift+Return, under a pointer", () => {
+    expect(press({}, false)).toEqual({ sent: true, kept: false });
+    expect(press({ shiftKey: true }, false)).toEqual({ sent: false, kept: true });
+    expect(press({ isComposing: true }, false)).toEqual({ sent: false, kept: true });
+  });
+
+  it("starts a line on Return under a finger, the Send button sending", () => {
+    expect(press({}, true)).toEqual({ sent: false, kept: true });
+  });
+});
+
+describe("the composer's height", () => {
+  it("is a whole number of lines, so it grows by one line each time", () => {
+    // 21 px lines, 14 px of padding: a content height a fraction over or under is the same rows.
+    expect(grownHeight(35.4, 21, 14, 12)).toEqual({ height: 35, scrolls: false });
+    expect(grownHeight(55.6, 21, 14, 12)).toEqual({ height: 56, scrolls: false });
+    expect(grownHeight(77, 21, 14, 12)).toEqual({ height: 77, scrolls: false });
+  });
+
+  it("stops at its ceiling and scrolls past it", () => {
+    expect(grownHeight(21 * 20 + 14, 21, 14, 12)).toEqual({ height: 21 * 12 + 14, scrolls: true });
   });
 });
 

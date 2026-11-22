@@ -90,6 +90,12 @@ describe("parseRoute", () => {
     expect(parseRoute("#/project")).toEqual({ name: "home" });
   });
 
+  it("names the landing New chat asks for, which a phone shows in the list's place", () => {
+    expect(parseRoute("#/chats/new")).toEqual({ name: "chats", compose: true });
+    expect(hrefFor({ name: "chats", compose: true })).toBe("#/chats/new");
+    expect(chatShown({ name: "chats", compose: true })).toBeUndefined();
+  });
+
   it("keeps ids and paths through a round trip", () => {
     expect(parseRoute(hrefFor({ name: "chats", id: "primary:owner" }))).toEqual({
       name: "chats",

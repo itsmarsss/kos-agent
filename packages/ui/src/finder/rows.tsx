@@ -1,4 +1,4 @@
-import { useEffect, useRef, type DragEvent, type MouseEvent, type ReactElement } from "react";
+import { useEffect, useRef, type DragEvent, type MouseEvent, type PointerEvent, type ReactElement } from "react";
 
 import { Tooltip } from "@kos/kit";
 
@@ -25,7 +25,8 @@ export interface RowHandlers {
   dragged?: ReadonlySet<string>;
   press: (e: MouseEvent, entry: DirEntry) => void;
   open: (entry: DirEntry) => void;
-  menu: (e: MouseEvent, entry: DirEntry) => void;
+  /** Ask for the row's menu, at a point in the window. */
+  menu: (at: { x: number; y: number }, entry: DirEntry) => void;
   /** The new name, or null to leave it as it was. */
   renamed: (entry: DirEntry, name: string | null) => void;
   drag: (entry: DirEntry) => { draggable: boolean; onDragStart: (e: DragEvent) => void; onDragEnd: () => void };
@@ -37,7 +38,22 @@ export interface RowHandlers {
 export const stateClass = (entry: DirEntry, h: RowHandlers): string =>
   `${h.selected.has(entry.path) ? " is-selected" : ""}${h.lead === entry.path ? " is-lead" : ""}${h.over === entry.path ? " is-drop" : ""}${h.dragged?.has(entry.path) ? " is-dragged" : ""}`;
 
-/** The pointer on a row: press selects, a second press opens, the other button asks for the menu. */
+/** How long a finger rests on a row before it asks for the menu, as a long press does in Files on a phone. */
+export const LONG_PRESS_MS = 500;
+/** How far, in px, a finger may drift and still be pressing rather than scrolling. */
+const DRIFT = 10;
+
+/** The finger on a row, if one is: one at a time, so one for the page. */
+let finger: { x: number; y: number; timer: number; held: boolean } | null = null;
+const lift = (): void => {
+  if (finger) window.clearTimeout(finger.timer);
+};
+
+/**
+ * The pointer on a row: press selects, a second press opens, the other
+ * button asks for the menu. A finger has neither a double press nor another
+ * button, so a tap opens and a long press asks for the menu.
+ */
 export function rowProps(entry: DirEntry, h: RowHandlers): {
   "aria-selected": boolean;
   "data-path": string;
@@ -45,6 +61,11 @@ export function rowProps(entry: DirEntry, h: RowHandlers): {
   onMouseDown: (e: MouseEvent) => void;
   onDoubleClick: () => void;
   onContextMenu: (e: MouseEvent) => void;
+  onPointerDown: (e: PointerEvent) => void;
+  onPointerMove: (e: PointerEvent) => void;
+  onPointerUp: () => void;
+  onPointerCancel: () => void;
+  onClick: () => void;
 } {
   return {
     "aria-selected": h.selected.has(entry.path),
@@ -54,7 +75,46 @@ export function rowProps(entry: DirEntry, h: RowHandlers): {
       if (e.button === 0) h.press(e, entry);
     },
     onDoubleClick: () => h.open(entry),
-    onContextMenu: (e) => h.menu(e, entry),
+    onContextMenu: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // A long press already asked; Android asks again with this when the finger stays.
+      if (finger?.held) return;
+      h.menu({ x: e.clientX, y: e.clientY }, entry);
+    },
+    onPointerDown: (e) => {
+      lift();
+      if (e.pointerType !== "touch") {
+        finger = null;
+        return;
+      }
+      const at = { x: e.clientX, y: e.clientY };
+      finger = {
+        ...at,
+        held: false,
+        timer: window.setTimeout(() => {
+          if (!finger) return;
+          finger.held = true;
+          h.menu(at, entry);
+        }, LONG_PRESS_MS),
+      };
+    },
+    onPointerMove: (e) => {
+      if (finger && !finger.held && Math.hypot(e.clientX - finger.x, e.clientY - finger.y) > DRIFT) {
+        lift();
+        finger = null;
+      }
+    },
+    onPointerUp: lift,
+    onPointerCancel: () => {
+      lift();
+      finger = null;
+    },
+    onClick: () => {
+      const tapped = finger !== null && !finger.held;
+      finger = null;
+      if (tapped && h.editing !== entry.path) h.open(entry);
+    },
   };
 }
 
