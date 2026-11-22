@@ -8,6 +8,18 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 /** Where the focus goes when what opened a sheet has gone: the page's own region, marked by the app. */
 const HOME = "[data-focus-home]";
 
+/**
+ * What had the focus before the element that has it now. A field that
+ * autofocuses as a sheet mounts takes the focus before the sheet's effect
+ * runs, so "what opened it" is the element that focus came from.
+ */
+let cameFrom: HTMLElement | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener("focusin", (e) => {
+    cameFrom = e.relatedTarget instanceof HTMLElement ? e.relatedTarget : null;
+  }, true);
+}
+
 /** The tab stops inside `box`, in order, leaving out what is hidden or inert. */
 export function tabStops(box: HTMLElement | null): HTMLElement[] {
   return [...(box?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((el) => !el.closest("[hidden], [inert]"));
@@ -48,8 +60,9 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean
   useEffect(() => {
     if (!active) return;
     const layer = openLayer(() => ref.current);
-    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const box = (): HTMLElement | null => ref.current;
+    const now = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const before = now && box()?.contains(now) ? (cameFrom && !box()?.contains(cameFrom) ? cameFrom : null) : now;
     // After the content has had its own say (autoFocus runs as it mounts).
     const enter = requestAnimationFrame(() => {
       const el = box();

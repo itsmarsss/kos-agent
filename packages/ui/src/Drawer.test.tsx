@@ -46,3 +46,31 @@ describe.each(["drawer", "modal"] as const)("the %s's focus", (sheet) => {
     expect(document.activeElement).toBe(opener);
   });
 });
+
+function Autofocused(): ReactElement {
+  const [open, setOpen] = useState(false);
+  return (
+    <main data-focus-home tabIndex={-1}>
+      <button type="button" onClick={() => setOpen(true)}>
+        New
+      </button>
+      <Drawer open={open} title="New" onClose={() => setOpen(false)}>
+        <input aria-label="Name" autoFocus />
+      </Drawer>
+    </main>
+  );
+}
+
+describe("a sheet whose field takes the focus as it mounts", () => {
+  it("still gives the focus back to what opened it", async () => {
+    render(<Autofocused />);
+    const opener = screen.getByRole("button", { name: "New" });
+    opener.focus();
+    fireEvent.click(opener);
+    await frame();
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Name" }));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    await frame();
+    expect(document.activeElement).toBe(opener);
+  });
+});
