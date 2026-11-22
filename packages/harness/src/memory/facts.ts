@@ -1,4 +1,5 @@
 import type { Db } from "../store/db.js";
+import { lengthNorm, onePerKey, rarity, standingWeight } from "./rank.js";
 import type { CandidateFact, FactKind } from "./salience.js";
 
 export type ClaimScope = string;
@@ -155,6 +156,7 @@ const MAX_TOKENS = 12;
 export function stem(token: string): string {
   if (token.length < 5) return token;
   if (token.endsWith("ies")) return `${token.slice(0, -3)}y`;
+  if (token.endsWith("oes")) return token.slice(0, -2);
   if (token.endsWith("sses") || token.endsWith("shes") || token.endsWith("ches")) {
     return token.slice(0, -2);
   }
@@ -165,7 +167,9 @@ export function stem(token: string): string {
 export function tokenize(text: string): string[] {
   const raw = text.toLowerCase().match(/[a-z0-9][a-z0-9'_-]*/g) ?? [];
   const seen = new Set<string>();
-  for (const token of raw) {
+  for (const word of raw) {
+    // A possessive names the thing: "sister's" asks about the sister.
+    const token = word.endsWith("'s") ? word.slice(0, -2) : word;
     if (token.length < MIN_TOKEN_LENGTH) continue;
     if (STOPWORDS.has(token)) continue;
     seen.add(token);
@@ -223,6 +227,32 @@ export interface Trace {
   /** What it replaced, newest first. */
   before: Fact[];
   revisions: { action: string; actor: string | null; at: number; detail: string | null }[];
+}
+
+/** Where `token` starts a word of `text`: "budget" in "budgets", not "run" in "truncate". */
+function startsWord(text: string, token: string): boolean {
+  let at = text.indexOf(token);
+  while (at >= 0) {
+    if (at === 0 || !/[a-z0-9]/.test(text[at - 1]!)) return true;
+    at = text.indexOf(token, at + 1);
+  }
+  return false;
+}
+
+/**
+ * What one token is worth on one claim before its rarity: 2 on the key, 1
+ * on a word of the value. The same word in another number is the same word
+ * ("tomatoes" names tomato_varieties). A key is one compound identifier, so
+ * a token may sit inside it ("zone" in timezone); a value is prose, where
+ * only a word's start is the word.
+ */
+function tokenHit(fact: Fact, token: string): number {
+  const key = fact.key.toLowerCase();
+  const value = fact.value.toLowerCase();
+  const root = stem(token);
+  if (key.includes(token) || key.includes(root)) return 2;
+  if (startsWord(value, token) || startsWord(value, root)) return 1;
+  return 0;
 }
 
 /** Structured claims: the cheap, exact tier of memory, consulted every turn. */
@@ -351,14 +381,21 @@ export class FactsStore {
    * of its words and planned chicken. Only the owner's own preferences
    * stand, those whose evidence is the owner's words: one an agent wrote down
    * or a tool produced would otherwise go into every prompt unasked, and
-   * waits to be matched like any other claim. `limit` bounds the whole list.
-   * Pinned entries stand everywhere, unless `within` keeps them to `scopes`
-   * as well: a guest's work is told none of the owner's own.
+   * waits to be matched like any other claim.
+   *
+   * `limit` bounds the whole list, and the preferences keep half of it.
+   * Pins came first and took every place: agents pin freely, and fifteen
+   * pins left none of the owner's six preferences in any turn. Pins are read
+   * in the scopes in play too, the owner's own first: a project's pin is that
+   * project's, not every chat's, and a guest's work is told none of the
+   * owner's. One claim per key, the narrower scope's.
    */
-  standing(userId: string, scopes: ClaimScope[], limit = 8, options: { within?: boolean } = {}): Fact[] {
-    const pinned = options.within ? this.pinned(userId, scopes) : this.pinned(userId);
-    const prefs = this.all(userId, scopes).filter((f) => f.kind === "preference" && !f.pinned && f.trust === "owner");
-    return [...pinned, ...prefs].slice(0, limit);
+  standing(userId: string, scopes: ClaimScope[], limit = 8): Fact[] {
+    const here = onePerKey(this.all(userId, scopes));
+    const pinned = here.filter((f) => f.pinned).sort((a, b) => Number(b.trust === "owner") - Number(a.trust === "owner"));
+    const prefs = here.filter((f) => f.kind === "preference" && !f.pinned && f.trust === "owner");
+    const pins = Math.min(pinned.length, Math.max(limit - Math.min(prefs.length, Math.ceil(limit / 2)), 0));
+    return [...pinned.slice(0, pins), ...prefs].slice(0, limit);
   }
 
   setPinned(userId: string, key: string, pinned: boolean, scope?: ClaimScope): Fact | undefined {
@@ -413,41 +450,40 @@ export class FactsStore {
    *
    * The query is a whole user message, so it is tokenized rather than matched
    * as one substring. Claims are per-user and small, so scoring in code buys
-   * better ranking than SQL can express here.
+   * better ranking than SQL can express here. A blank query lists by recency;
+   * words that are all scaffolding ("can you do that again") match nothing,
+   * where they used to bring the newest claims along unasked.
+   *
+   * A word counts by how rare it is among the claims searched (see rank.ts):
+   * the floor is a match on words that pick a claim out. What clears it is
+   * ordered by match, then by how fresh, trusted and sure each claim is.
    */
   search(userId: string, query: string, limit = 20, options: ClaimQuery = {}): Fact[] {
-    const tokens = tokenize(query);
     const wanted = options.tags?.filter(Boolean) ?? [];
     const sources = options.sources;
     const all = this.all(userId, options.scopes) // already ordered by updated_at DESC
       .filter((f) => (!wanted.length || f.tags.some((t) => wanted.includes(t))) && (!sources || (f.source !== null && sources.includes(f.source))));
-    if (tokens.length === 0) return all.slice(0, limit);
+    if (!query.trim()) return all.slice(0, limit);
+    const tokens = tokenize(query);
+    if (tokens.length === 0) return [];
     const needle = query.trim().toLowerCase();
     const floor = options.minScore ?? 0;
-    const scored: { fact: Fact; score: number }[] = [];
-    for (const fact of all) {
-      const key = fact.key.toLowerCase();
-      const value = fact.value.toLowerCase();
-      let score = 0;
-      for (const token of tokens) {
-        // A hit on the key is a stronger signal than one buried in the value.
-        if (key.includes(token)) score += 2;
-        else if (value.includes(token)) score += 1;
-        else {
-          // The same word in a different number is still the same word, and
-          // worth slightly less only because it is a looser match.
-          const root = stem(token);
-          if (root === token) continue;
-          if (key.includes(root)) score += 1.5;
-          else if (value.includes(root)) score += 0.5;
-        }
-      }
+    // Each token's hit on each claim, then how many claims it hit, for its weight.
+    const hits = all.map((fact) => tokens.map((token) => tokenHit(fact, token)));
+    const holding = tokens.map((_, t) => hits.filter((h) => h[t]! > 0).length);
+    const now = this.now();
+    const meanValue = all.reduce((n, f) => n + f.value.length, 0) / Math.max(1, all.length);
+    const scored: { fact: Fact; score: number; rank: number }[] = [];
+    all.forEach((fact, i) => {
+      // A long value holds more words by length alone; its value hits count for less (see rank.ts).
+      const norm = lengthNorm(fact.value.length, meanValue);
+      let score = hits[i]!.reduce((sum, hit, t) => sum + (hit === 2 ? hit : hit * norm) * rarity(holding[t]!, all.length), 0);
       // Whole-phrase containment stays the strongest signal when it happens.
       // A phrase is more than one word; one word already scored above.
-      if (tokens.length > 1 && needle && (key.includes(needle) || value.includes(needle))) score += 5;
-      if (score > 0 && score >= floor) scored.push({ fact, score });
-    }
-    scored.sort((a, b) => b.score - a.score || b.fact.updatedAt - a.fact.updatedAt);
+      if (tokens.length > 1 && needle && (fact.key.toLowerCase().includes(needle) || fact.value.toLowerCase().includes(needle))) score += 5;
+      if (score > 0 && score >= floor) scored.push({ fact, score, rank: score * standingWeight(fact, now) });
+    });
+    scored.sort((a, b) => b.rank - a.rank || b.fact.updatedAt - a.fact.updatedAt);
     return scored.slice(0, limit).map((s) => s.fact);
   }
 

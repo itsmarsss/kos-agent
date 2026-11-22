@@ -50,7 +50,7 @@ describe("FactsStore", () => {
     facts.upsert("u1", { key: "plan", value: "The plan is to move in May.", kind: "fact" });
     expect(facts.all("u1", [])).toEqual([]);
     expect(facts.pinned("u1", [])).toEqual([]);
-    expect(facts.standing("u1", [], 8, { within: true })).toEqual([]);
+    expect(facts.standing("u1", [], 8)).toEqual([]);
     expect(facts.search("u1", "what is the plan", 10, { scopes: [] })).toEqual([]);
     expect(facts.search("u1", "", 10, { scopes: [] })).toEqual([]);
     // No list at all is still every scope.
@@ -261,5 +261,77 @@ describe("FactsStore.search keyword recall", () => {
     const hits = facts.search("u1", "timezone");
     expect(hits).toHaveLength(1);
     expect(hits[0]?.value).toBe("America/New_York");
+  });
+});
+
+describe("FactsStore recall ranking", () => {
+  let root: string;
+  let ws: Workspace;
+  let facts: FactsStore;
+  let clock: number;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-facts-rank-"));
+    ws = Workspace.open(root);
+    clock = 1000;
+    facts = new FactsStore(ws.db, () => clock);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("matches nothing on scaffolding words, and lists by recency only for a blank query", () => {
+    facts.upsert("u1", { key: "gym_schedule", value: "Lifts Monday at 7.", kind: "fact" });
+    expect(facts.search("u1", "can you do that again", 10)).toEqual([]);
+    expect(facts.search("u1", "", 10).map((f) => f.key)).toEqual(["gym_schedule"]);
+  });
+
+  it("lets a word most claims share fall below the floor, and a rare one clear it", () => {
+    for (const n of ["one", "two", "three", "four", "five"]) {
+      facts.upsert("u1", { key: `job_note_${n}`, value: `A note about the ${n} scheduled run.`, kind: "fact", trust: "agent" });
+    }
+    facts.upsert("u1", { key: "employer", value: "Works at Northwind.", kind: "fact" });
+    expect(facts.search("u1", "is the job enabled", 10, { minScore: 2 })).toEqual([]);
+    expect(facts.search("u1", "who is my employer", 10, { minScore: 2 }).map((f) => f.key)).toEqual(["employer"]);
+  });
+
+  it("matches a value's word by its start, not a fragment inside another word", () => {
+    facts.upsert("u1", { key: "note", value: "Truncate the export to a page.", kind: "fact" });
+    expect(facts.search("u1", "run it")).toEqual([]);
+    expect(facts.search("u1", "truncate")).toHaveLength(1);
+  });
+
+  it("finds a key from a possessive or an -oes plural", () => {
+    facts.upsert("u1", { key: "sister", value: "Nadia, a nurse.", kind: "fact" });
+    facts.upsert("u1", { key: "tomato_varieties", value: "Sungold and San Marzano.", kind: "fact" });
+    expect(facts.search("u1", "what's my sister's name", 10, { minScore: 2 }).map((f) => f.key)).toEqual(["sister"]);
+    expect(facts.search("u1", "move the tomatoes outside", 10, { minScore: 2 }).map((f) => f.key)).toEqual(["tomato_varieties"]);
+  });
+
+  it("puts the fresher of two equal matches first", () => {
+    facts.upsert("u1", { key: "address_old", value: "Lived on Elm Street.", kind: "fact" });
+    clock = 1000 + 300 * 86_400_000;
+    facts.upsert("u1", { key: "address_now", value: "Lives on Oak Street.", kind: "fact" });
+    expect(facts.search("u1", "street address")[0]?.key).toBe("address_now");
+  });
+
+  it("keeps half the standing room for the owner's preferences, however many pins", () => {
+    for (let i = 0; i < 10; i++) facts.upsert("u1", { key: `pin_${i}`, value: `Pinned note ${i}.`, kind: "fact", trust: "agent", pinned: true });
+    facts.upsert("u1", { key: "diet", value: "Vegetarian.", kind: "preference", trust: "owner" });
+    facts.upsert("u1", { key: "units", value: "Metric.", kind: "preference", trust: "owner" });
+    const standing = facts.standing("u1", ["global"], 8);
+    expect(standing).toHaveLength(8);
+    expect(standing.map((f) => f.key)).toEqual(expect.arrayContaining(["diet", "units"]));
+  });
+
+  it("reads pins only in the scopes in play, the owner's first, one per key", () => {
+    facts.upsert("u1", { key: "frost", value: "Frost in May.", kind: "fact", scope: "project:garden", pinned: true, trust: "agent" });
+    facts.upsert("u1", { key: "form", value: "Form due Friday.", kind: "fact", pinned: true, trust: "agent" });
+    facts.upsert("u1", { key: "form", value: "Form due Friday, signed.", kind: "fact", scope: "project:garden", pinned: true, trust: "agent" });
+    facts.upsert("u1", { key: "allergy", value: "Peanuts.", kind: "fact", pinned: true, trust: "owner" });
+    expect(facts.standing("u1", ["global"]).map((f) => `${f.scope}/${f.key}`)).toEqual(["global/allergy", "global/form"]);
+    expect(facts.standing("u1", ["global", "project:garden"]).map((f) => `${f.scope}/${f.key}`)).toEqual(["global/allergy", "project:garden/form", "project:garden/frost"]);
   });
 });

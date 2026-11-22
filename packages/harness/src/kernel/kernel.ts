@@ -1328,7 +1328,7 @@ export class Kernel {
         // conversation should know without having to match them, so they
         // bypass retrieval.
         const standing = guestScopes
-          ? this.facts.standing(userId, guestScopes, STANDING_LIMIT, { within: true })
+          ? this.facts.standing(userId, guestScopes, STANDING_LIMIT)
           : this.facts.standing(userId, [GLOBAL_SCOPE, ...(conversation?.projectSlug ? [projectScope(conversation.projectSlug)] : []), ...(own ? [own] : [])], STANDING_LIMIT);
         recall.facts = withStanding(standing, recall.facts);
         this.noteRecall(sessionId, conversation?.projectSlug ?? null, recall);
