@@ -140,6 +140,13 @@ describe("the file preview", () => {
     expect(document.querySelector(".preview-pre")?.textContent).toBe('{"a":1,"b":[2]}');
   });
 
+  it("says a file that is not there in words, never the host's path or ENOENT", async () => {
+    vi.spyOn(api, "file").mockRejectedValue(new Error("ENOENT: no such file or directory, open '/Users/me/kos-workspace/notes/missing-file.md'"));
+    render(<FilePreview path="notes/missing-file.md" siblings={[]} onStep={() => {}} onClose={() => {}} />);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("There is no file or folder called “missing-file.md”.");
+  });
+
   it("shows nothing when no file is open", () => {
     render(<FilePreview path={null} onClose={() => {}} />);
     expect(screen.queryByRole("dialog")).toBeNull();

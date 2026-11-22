@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
 import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, IconButton, Markdown, spring } from "@kos/kit";
-import { bytesWords, timeWords } from "@kos/shared";
+import { bytesWords, errorWords, timeWords } from "@kos/shared";
 
 import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -234,8 +234,8 @@ export function RawBody({ path }: { path: string }): ReactElement {
   const { raw, error } = useRawText(path, true);
   if (error) {
     return (
-      <p className="ops-alert ops-alert--err preview-hint" role="alert">
-        {error}
+      <p className="ops-alert ops-alert--err preview-hint" role="alert" title={error}>
+        {errorWords(error)}
       </p>
     );
   }
@@ -421,8 +421,8 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
               </header>
               <div className={`preview-body${image ? " preview-body--image" : ""}${office && !raw ? " preview-body--office" : ""}`}>
                 {error && (
-                  <p className="ops-alert ops-alert--err preview-hint" role="alert">
-                    {error}
+                  <p className="ops-alert ops-alert--err preview-hint" role="alert" title={error}>
+                    {errorWords(error)}
                   </p>
                 )}
                 {!shown && !error && <p className="hint preview-hint">Loading…</p>}
