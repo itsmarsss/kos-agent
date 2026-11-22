@@ -67,16 +67,20 @@ exactly what came along.
 
 - **What stands**: pinned claims and your own preferences in the scopes in
   play, up to eight, with half kept for your preferences however many pins
-  there are. Pinning a claim puts it in every conversation of its scope: a
-  global pin everywhere, a project's pin in that project.
-- **What matches**: a word counts by how rare it is among the claims, so a
-  word most claims share ("job", "project") does not bring them all along,
-  and a message of only "can you do that again" matches nothing. Among the
+  there are; your own pins always stand. Pinning a claim puts it in every
+  conversation of its scope: a global pin everywhere, a project's pin in
+  that project, an agent's in that agent's chats.
+- **What matches**: a word of a claim's key always matches it ("sister"
+  finds sister and sister_birthday); a word in a value counts by how rare it
+  is among the claims, so a word most notes share does not bring them all
+  along, and a message of only "can you do that again" matches nothing. Among the
   matches, a claim stated recently, by you, ranks first. One answer per key,
-  the narrower scope's, within about 3000 characters.
+  your word over anyone else's, then the narrower scope's, within about 3000
+  characters.
 
 Both engines log what you said and what KOS answered, so the Read job and
-recall by meaning see every chat.
+recall by meaning see every chat. A guest's words, and work another chat or
+a schedule passed on, are not logged as yours.
 
 ## Callers
 
