@@ -25,6 +25,7 @@ import { AgentPanel } from "./AgentPanel.js";
 import { ConfirmButton } from "./kit.js";
 import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
+import { railRowKeys, railSearchKeys } from "./railkeys.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 import { ArtifactRail, ArtifactStrip, type RailOwner, useArtifactTitles, useOwnedArtifacts } from "./ArtifactRail.js";
@@ -1573,7 +1574,7 @@ export function ChatsPage({
         {project ? (
           /* The project's own rail: its orchestrator above, its agents below,
              and nothing from outside it. Back is the way out. */
-          <aside className="chats-list chats-list--project">
+          <aside className="chats-list chats-list--project" onKeyDown={railRowKeys}>
             <div className="chats-list-head">
               <button type="button" className="chats-back" onClick={project.onBack}>
                 <ChevronLeft size={14} />
@@ -1589,7 +1590,7 @@ export function ChatsPage({
                     : "Not in the manifest"}
                 </span>
               </div>
-              <SearchField className="chats-find" noun="chats" value={query} onChange={setQuery} />
+              <SearchField className="chats-find" noun="chats" value={query} onChange={setQuery} onKeyDown={railSearchKeys} />
             </div>
             <div className="chats-pinned">
               {projectOrchestrator ? (
@@ -1714,7 +1715,7 @@ export function ChatsPage({
         ) : agent ? (
           /* The agent's own rail: its thread above, the chats it runs inside
              projects below. Back is the way out. */
-          <aside className="chats-list chats-list--project">
+          <aside className="chats-list chats-list--project" onKeyDown={railRowKeys}>
             <div className="chats-list-head">
               <button type="button" className="chats-back" onClick={agent.onBack}>
                 <ChevronLeft size={14} />
@@ -1760,9 +1761,9 @@ export function ChatsPage({
             </div>
           </aside>
         ) : (
-          <aside className="chats-list chats-list--root">
+          <aside className="chats-list chats-list--root" onKeyDown={railRowKeys}>
             <div className="chats-list-head chats-list-head--root">
-              <SearchField className="chats-find" noun={showArchived ? "archived chats" : "chats"} value={query} onChange={setQuery} />
+              <SearchField className="chats-find" noun={showArchived ? "archived chats" : "chats"} value={query} onChange={setQuery} onKeyDown={railSearchKeys} />
               {/* New chat opens the landing, where you choose a chat, a project,
                   or hand it to KOS, rather than dropping into an empty thread.
                   A square beside the search rather than a bar of its own: it
@@ -1928,6 +1929,7 @@ export function ChatsPage({
                                     className={`chats-item ${p.thread?.id === activeId ? "is-active" : ""}`}
                                     href={hrefFor({ name: "project", slug: p.slug })}
                                     title={p.type}
+                                    aria-label={p.name}
                                     onClick={(e) => {
                                       e.preventDefault();
                                       onOpenProject(p.slug);
