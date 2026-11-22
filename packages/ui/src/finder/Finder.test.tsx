@@ -262,6 +262,20 @@ describe("the finder", () => {
     expect(screen.queryByRole("dialog", { name: "Quick Look: c.txt" })).toBeNull();
   });
 
+  it("names a folder before making it at the workspace's top level, which cannot be renamed after", async () => {
+    const make = vi.spyOn(api, "makeDir").mockResolvedValue({ path: "garden" });
+    render(<Finder path="." />);
+    await screen.findByText("kos.sqlite");
+    key("n", { shiftKey: true, metaKey: true });
+    const dialog = await screen.findByRole("dialog", { name: "New folder" });
+    expect(make).not.toHaveBeenCalled();
+    const field = within(dialog).getByRole("textbox") as HTMLInputElement;
+    expect(field.value).toBe("untitled folder");
+    fireEvent.change(field, { target: { value: "garden" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(make).toHaveBeenCalledWith("garden"));
+  });
+
   it("marks KOS's own files and offers nothing that would change them", async () => {
     const trash = vi.spyOn(api, "trashFile");
     render(<Finder path="." />);

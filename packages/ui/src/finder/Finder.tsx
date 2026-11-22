@@ -17,6 +17,7 @@ import { ListView, type ListRow } from "./ListView.js";
 import { FinderMenu, type MenuItem } from "./Menu.js";
 import { EMPTY_SELECTION, clickSelect, freeName, kindOf, moveLead, nameOf, only, parentOf, rememberView, sortBy, sortEntries, trail, typeSelect, viewFor, within, type FinderView, type Selection, type Sort } from "./model.js";
 import { MoveDialog } from "./MoveDialog.js";
+import { NewFolderDialog } from "./NewFolderDialog.js";
 import { useFinderOps } from "./ops.js";
 import { Crumbs, pathWords, type Crumb } from "./Crumbs.js";
 import { PathBar } from "./PathBar.js";
@@ -296,8 +297,15 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
 
   /* Doing things to what is chosen. */
 
+  /** The name the new-folder dialog offers, while it is open: at the workspace's top level a folder is named before it is made. */
+  const [naming, setNaming] = useState<string | null>(null);
   const startNewFolder = async (): Promise<void> => {
-    const made = await ops.newFolder(here, freeName((entriesOf(here) ?? []).map((e) => e.name), "untitled folder"));
+    const name = freeName((entriesOf(here) ?? []).map((e) => e.name), "untitled folder");
+    if (here === ".") {
+      setNaming(name);
+      return;
+    }
+    const made = await ops.newFolder(here, name);
     if (made) {
       if (view === "list" && here !== folder) setExpanded((x) => new Set(x).add(here));
       setSel(only(made));
@@ -764,6 +772,14 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
         }}
       />
       {menu && <FinderMenu at={menu.at} items={menu.items} label={menu.label} onClose={() => setMenu(null)} />}
+      <NewFolderDialog
+        suggested={naming}
+        onClose={() => setNaming(null)}
+        onMake={(name) => {
+          setNaming(null);
+          void ops.newFolder(here, name).then((made) => made && setSel(only(made)));
+        }}
+      />
       <MoveDialog
         paths={moving}
         projects={projects}
