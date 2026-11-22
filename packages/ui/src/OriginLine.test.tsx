@@ -15,7 +15,7 @@ describe("where a message came from, in words", () => {
 
   it("names a guest, a schedule with its page, and the chat that sent it", () => {
     expect(originWords({ via: "discord", room: { kind: "channel", name: "leetcode" }, from: { kind: "guest", name: "Ana" } })).toEqual({ text: "Ana, a guest in #leetcode on Discord", room: "#leetcode" });
-    expect(originWords({ via: "schedule", from: { kind: "schedule", name: "Daily board", id: "18" } })).toEqual({ text: "schedule · Daily board", href: "#/schedule/18" });
+    expect(originWords({ via: "schedule", from: { kind: "schedule", name: "Daily board", id: "18" } })).toEqual({ text: "Schedule · Daily board", href: "#/schedule/18" });
     expect(originWords({ via: "dispatch", from: { kind: "chat", name: "Workout Tracker", id: "project:workout_tracker" } })).toEqual({ text: "sent by Workout Tracker", href: "#/chats/project%3Aworkout_tracker" });
   });
 
