@@ -100,12 +100,12 @@ describe("the columns that fit", () => {
     expect(at(0)).toEqual(["modified", "size", "kind"]);
   });
 
-  it("gives a panel beside a chat its narrower widths: Size at 300 and 380, every column at 520", () => {
+  it("gives a panel beside a chat its narrower widths: Size alone in a narrow one, Date and then Kind as it widens", () => {
     const keys = (room: number): string[] => fitColumns(room, PANEL_COLUMNS, readWidths(PANEL_WIDTHS_KEY, PANEL_COLUMNS));
-    expect(keys(300 - 14)).toEqual(["size"]);
-    expect(keys(380 - 14)).toEqual(["size"]);
-    expect(keys(440 - 14)).toEqual(["modified", "size"]);
-    expect(keys(520 - 14)).toEqual(["modified", "size", "kind"]);
+    expect(keys(270)).toEqual(["size"]);
+    expect(keys(360)).toEqual(["size"]);
+    expect(keys(420)).toEqual(["modified", "size"]);
+    expect(keys(500)).toEqual(["modified", "size", "kind"]);
   });
 
   it("lets a column grow only as far as Name and the other shown columns leave it", () => {
