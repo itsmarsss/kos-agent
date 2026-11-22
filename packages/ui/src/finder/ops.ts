@@ -33,6 +33,8 @@ export interface FinderOps {
   /** How far through a batch of uploads, while one runs. */
   uploading: { done: number; total: number } | null;
   notice: Notice | null;
+  /** Say what was done elsewhere (the trash's Restore), as the notice every op uses. */
+  say: (text: string) => void;
   dismiss: () => void;
 }
 
@@ -139,6 +141,7 @@ export function useFinderOps({ onChanged, send = (file, dir) => api.uploadFile(d
     },
     uploading,
     notice,
+    say: (text) => say(text),
     dismiss: () => setNotice(null),
   };
 }

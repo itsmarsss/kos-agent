@@ -639,7 +639,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   const crumbs: Crumb[] = trail(folder, root, rootName).map((s, i, all) => (i === all.length - 1 ? { key: s.path, name: s.name, here: true } : { key: s.path, name: s.name, go: () => go({ kind: "folder", path: s.path }), drop: dropInto(s.path), over: over === s.path }));
 
   const body = (): ReactElement => {
-    if (place.kind === "trash") return <TrashView key={trashTick} rootName={rootName} onChanged={() => folders.reload()} onError={setErrorNote} onCount={setTrashCount} />;
+    if (place.kind === "trash") return <TrashView key={trashTick} rootName={rootName} onChanged={() => folders.reload()} onDone={ops.say} onError={setErrorNote} onCount={setTrashCount} />;
     if (view === "gallery" && !found && place.kind === "folder") return <GalleryView entries={ordered} h={h} empty={empty} reading={reading} />;
     if (view === "columns" && !found && place.kind === "folder") {
       return (

@@ -1,9 +1,9 @@
 import { Face, Field, NavIcon, PlacePicker, SheetFoot, WorkingDots, spring, type Place } from "@kos/kit";
-import { EXPORT_WORDS, KIND_EXPORTS, RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, sheetDataOf, type ExportFormat, type HtmlPage, slugWords, timeWords } from "@kos/shared";
+import { checkName, EXPORT_WORDS, KIND_EXPORTS, RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, sheetDataOf, type ExportFormat, type HtmlPage, slugWords, timeWords } from "@kos/shared";
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 
-import { api, type PageSummary, type Project } from "./api.js";
+import { api, fieldErrorOf, type PageSummary, type Project } from "./api.js";
 import type { MenuItem } from "./ArtifactHead.js";
 import { ConfirmButton } from "./kit.js";
 import { Modal } from "./Modal.js";
@@ -84,7 +84,7 @@ export function emptyWords(n: number, hidden = 0): string {
   return `Delete ${what} in the trash for good${unseen}? Every version goes with ${one ? "it" : "them"}. This cannot be undone.`;
 }
 
-type Dialog = { kind: "rename"; record: PageSummary; title: string; description: string } | { kind: "move"; record: PageSummary; choice?: string };
+type Dialog = { kind: "rename"; record: PageSummary; title: string; description: string; refused?: string } | { kind: "move"; record: PageSummary; choice?: string };
 
 /** A sheet's tabs by name, read from its document when the view has it; none when it cannot be read. */
 export function sheetTabs(page: HtmlPage | undefined): string[] {
@@ -133,6 +133,13 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
   const [busy, setBusy] = useState(false);
   /** The export being made, said while the server draws or prints it: a PDF can take a few seconds. */
   const [exporting, setExporting] = useState<string>();
+  /** What was just done that has nowhere else to say so (a restore), for a moment. */
+  const [said, setSaid] = useState<string>();
+  useEffect(() => {
+    if (!said) return;
+    const t = window.setTimeout(() => setSaid(undefined), 3200);
+    return () => window.clearTimeout(t);
+  }, [said]);
   const [blobs, setBlobs] = useState<string[]>([]);
   const moving = dialog?.kind === "move";
   // The living blobs, read when the picker opens: one made since the page loaded is offered too.
@@ -156,6 +163,9 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
       if (change.op === "trash" || change.op === "restore" || change.op === "delete") trashChanged();
       onChanged(change);
     } catch (err) {
+      // A title refused goes under the title, where the owner is typing it.
+      const onTitle = fieldErrorOf(err, "name");
+      if (onTitle) return setDialog((d) => (d?.kind === "rename" ? { ...d, refused: onTitle } : d));
       onError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
@@ -163,7 +173,13 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
   };
   const did = (op: Exclude<ArtifactChange["op"], "delete">, work: Promise<PageSummary>): Promise<ArtifactChange> => work.then((record) => ({ op, record }));
 
-  const restore = (record: PageSummary): void => void run(() => did("restore", api.restoreArtifact(record.id)));
+  const restore = (record: PageSummary): void =>
+    void run(() =>
+      did("restore", api.restoreArtifact(record.id)).then((change) => {
+        setSaid(`Restored “${record.title}”`);
+        return change;
+      }),
+    );
   const remove = (record: PageSummary): void => void run(() => api.deleteArtifact(record.id).then(() => ({ op: "delete", id: record.id })));
   const empty = (records: PageSummary[]): void => {
     if (busy || records.length === 0) return;
@@ -228,6 +244,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
     ...blobs.map((name): Destination => ({ id: `blob:${name}`, to: { blob: name }, name: slugWords(name), group: "blob", mark: <Face seed={name} size={20} /> })),
   ];
 
+  const titleError = dialog?.kind === "rename" ? (dialog.refused ?? checkName(dialog.title, { noun: "artifact", max: RENAME_TITLE_MAX })?.message ?? null) : null;
   const dialogs = (
     <>
       <AnimatePresence>
@@ -245,6 +262,11 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
             <WorkingDots />
           </m.div>
         )}
+        {said && !exporting && (
+          <m.div key="said" className="ops-toast" role="status" initial={{ opacity: 0, y: 10, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.98 }} transition={spring}>
+            <span className="ops-toast-text">{said}</span>
+          </m.div>
+        )}
       </AnimatePresence>
       <Modal
         open={dialog?.kind === "rename"}
@@ -256,7 +278,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
             <SheetFoot
               onCancel={() => setDialog(null)}
               primary={
-                <button type="submit" form={RENAME_FORM} className="btn btn--primary" disabled={busy || !dialog.title.trim()}>
+                <button type="submit" form={RENAME_FORM} className="btn btn--primary" disabled={busy || titleError !== null}>
                   Save
                 </button>
               }
@@ -271,7 +293,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
             onSubmit={(e) => {
               e.preventDefault();
               const title = dialog.title.trim();
-              if (!title) return;
+              if (titleError) return;
               const { record } = dialog;
               // Only what changed: an older widget page has no description to send.
               const description = dialog.description.trim();
@@ -280,8 +302,8 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
               void run(() => did("rename", api.renameArtifact(record.id, change)));
             }}
           >
-            <Field label="Title">
-              <input className="kos-input" value={dialog.title} autoFocus maxLength={RENAME_TITLE_MAX} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, title: e.target.value })} />
+            <Field label="Title" error={titleError}>
+              <input className="kos-input" value={dialog.title} autoFocus aria-invalid={titleError !== null} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ kind: "rename", record: dialog.record, description: dialog.description, title: e.target.value })} />
             </Field>
             {dialog.record.kind === "html" && (
               <Field label="Description" hint="One sentence: what it is for.">

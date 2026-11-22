@@ -15,7 +15,7 @@ import { dateWords, parentOf } from "./model.js";
  * and Delete forever, as every trash has them; Empty trash asks once, in a
  * dialog that says it cannot be undone. Nothing leaves the trash any other way.
  */
-export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged: () => void; onError: (text: string) => void; onCount: (n: number) => void; rootName: string }): ReactElement {
+export function TrashView({ onChanged, onDone, onError, onCount, rootName }: { onChanged: () => void; onDone?: (text: string) => void; onError: (text: string) => void; onCount: (n: number) => void; rootName: string }): ReactElement {
   const [items, setItems] = useState<TrashedFile[] | null>(null);
   useEffect(() => onCount(items?.length ?? 0), [items, onCount]);
   const [asking, setAsking] = useState(false);
@@ -28,11 +28,12 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
       .catch((err: unknown) => onError(err instanceof Error ? err.message : String(err)));
   };
   useEffect(read, []);
-  const act = (work: Promise<unknown>): void => {
+  const act = (work: Promise<unknown>, done?: string): void => {
     void work
       .then(() => {
         read();
         onChanged();
+        if (done) onDone?.(done);
       })
       .catch((err: unknown) => onError(err instanceof Error ? err.message : String(err)));
   };
@@ -85,7 +86,7 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
                 </span>
               )}
               <span role="gridcell" className="finder-col finder-col--acts">
-                <button type="button" className="btn btn--sm" onClick={() => act(api.restoreFile(item.id))}>
+                <button type="button" className="btn btn--sm" onClick={() => act(api.restoreFile(item.id), `Restored ${item.name} to ${parentOf(item.path) === "." ? rootName : parentOf(item.path)}`)}>
                   Restore
                 </button>
                 <ConfirmButton label="Delete forever" text={`Delete ${item.name} for good? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => act(api.emptyFileTrash([item.id]))} />
