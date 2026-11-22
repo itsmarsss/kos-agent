@@ -134,6 +134,9 @@ function Group({ title, shown = true, blurb, children }: { title: string; shown?
   );
 }
 
+/** A decision's kind as its tag says it, in sentence case. */
+const DECISION_KIND: Record<ReviewItem["kind"], string> = { contradiction: "Disagreement", promotion: "Everywhere?", other: "Unsettled" };
+
 /** What the question is, in the owner's terms rather than memory's. */
 const HEADLINE: Record<ReviewItem["kind"], string> = {
   contradiction: "These claims disagree",
@@ -212,7 +215,7 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
   return (
     <div className="mem-decision">
       <div className="mem-decision-head">
-        <Tag>{item.kind}</Tag>
+        <Tag>{DECISION_KIND[item.kind]}</Tag>
         <strong>{HEADLINE[item.kind]}</strong>
       </div>
       {lean ? (
@@ -354,7 +357,7 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
           <ul className="mem-settled">
             {(allSettled ? recent : recent.slice(0, SETTLED_FIRST)).map((item) => (
               <li key={item.id} className="mem-settled-row" title={item.keys.join(" vs ")}>
-                <Tag>{item.kind}</Tag>
+                <Tag>{DECISION_KIND[item.kind]}</Tag>
                 <span className="mem-settled-keys">
                   {item.keys.map((k, i) => {
                     const slash = k.lastIndexOf("/");
