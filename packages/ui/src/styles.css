@@ -8127,10 +8127,10 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .finder-disclose svg { transition: transform 140ms ease; }
 .finder-disclose.is-open svg { transform: rotate(90deg); }
 /* The name fills its room (names.tsx cuts it to fit, in the middle); a
-   search's folder sits at the right, never more than half. */
+   search's folder sits at the right, in under two fifths of it. */
 .finder-name-wrap { display: flex; align-items: baseline; gap: 0.6rem; min-width: 0; flex: 1; }
 .finder-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.finder-where { flex: 0 1 auto; max-width: 50%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: var(--text-sm); }
+.finder-where { flex: 0 1 auto; max-width: 38%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: var(--text-sm); }
 .finder-rename {
   flex: 1;
   min-width: 6rem;
