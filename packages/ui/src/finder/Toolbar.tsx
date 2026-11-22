@@ -49,7 +49,7 @@ const VIEW_CHOICES: Record<FinderView, [FinderView, ReactNode, string]> = {
 export const SORT_CHOICES: { value: SortKey; label: string }[] = [
   { value: "name", label: "Name" },
   { value: "kind", label: "Kind" },
-  { value: "modified", label: "Date Modified" },
+  { value: "modified", label: "Date modified" },
   { value: "size", label: "Size" },
 ];
 

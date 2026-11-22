@@ -93,10 +93,10 @@ describe("managing an artifact from its viewer", () => {
     fireEvent.click(await menuItem("Move to…"));
     const dialog = await screen.findByRole("dialog", { name: "Move “Q4 brief”" });
     const picker = within(dialog).getByRole("radiogroup", { name: "Move to" });
-    await within(picker).findByRole("radio", { name: /noter/ });
-    expect(within(picker).getAllByRole("radio").map((r) => r.querySelector(".artifact-move-name")?.textContent)).toEqual(["Workspace", "Garden", "Household budget", "noter"]);
+    await within(picker).findByRole("radio", { name: /Noter/ });
+    expect(within(picker).getAllByRole("radio").map((r) => r.querySelector(".place-name")?.textContent)).toEqual(["Workspace", "Garden", "Household budget", "Noter"]);
     // The projects and the blobs each a group under its name.
-    expect(within(within(picker).getByRole("group", { name: "Blobs" })).getAllByRole("radio").map((r) => r.textContent)).toEqual(["noter"]);
+    expect(within(within(picker).getByRole("group", { name: "Blobs" })).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Noter"]);
     expect(within(picker).getByRole("group", { name: "Projects" })).toBeTruthy();
     const here = within(picker).getByRole("radio", { name: /Household budget/ }) as HTMLButtonElement;
     expect(here.disabled).toBe(true);
@@ -104,8 +104,8 @@ describe("managing an artifact from its viewer", () => {
     const move = within(dialog).getByRole("button", { name: "Move" }) as HTMLButtonElement;
     expect(move.disabled).toBe(true);
     fireEvent.click(within(picker).getByRole("radio", { name: "Workspace" }));
-    fireEvent.click(within(picker).getByRole("radio", { name: /noter/ }));
-    expect(within(picker).getByRole("radio", { name: /noter/ }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(picker).getByRole("radio", { name: /Noter/ }));
+    expect(within(picker).getByRole("radio", { name: /Noter/ }).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(move);
     await waitFor(() => expect(moved).toHaveBeenCalledWith("brief", { blob: "noter" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -116,7 +116,7 @@ describe("managing an artifact from its viewer", () => {
     vi.spyOn(api, "agents").mockResolvedValue({ agents: [{ name: "noter" } as AgentInfo], invalid: [] });
     fireEvent.click(await menuItem("Move to…"));
     const picker = within(await screen.findByRole("dialog", { name: "Move “Q4 brief”" })).getByRole("radiogroup", { name: "Move to" });
-    await within(picker).findByRole("radio", { name: /noter/ });
+    await within(picker).findByRole("radio", { name: /Noter/ });
     const radio = (name: RegExp): HTMLElement => within(picker).getByRole("radio", { name });
     const stops = (): string[] => within(picker).getAllByRole("radio").filter((r) => r.tabIndex === 0).map((r) => r.textContent ?? "");
     expect(stops()).toEqual(["Workspace"]);
@@ -126,11 +126,11 @@ describe("managing an artifact from its viewer", () => {
     expect(radio(/Garden/).getAttribute("aria-checked")).toBe("true");
     // Where it is now is passed over.
     fireEvent.keyDown(picker, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(radio(/noter/));
+    expect(document.activeElement).toBe(radio(/Noter/));
     fireEvent.keyDown(picker, { key: "ArrowDown" });
     expect(document.activeElement).toBe(radio(/Workspace/));
     fireEvent.keyDown(picker, { key: "End" });
-    expect(document.activeElement).toBe(radio(/noter/));
+    expect(document.activeElement).toBe(radio(/Noter/));
     fireEvent.keyDown(picker, { key: "ArrowUp" });
     expect(document.activeElement).toBe(radio(/Garden/));
     expect(stops()).toEqual([expect.stringContaining("Garden")]);
@@ -145,9 +145,9 @@ describe("managing an artifact from its viewer", () => {
     fireEvent.click(await within(dialog).findByRole("radio", { name: /blob3/ }));
     const move = within(dialog).getByRole("button", { name: "Move" }) as HTMLButtonElement;
     expect(move.disabled).toBe(false);
-    fireEvent.change(within(dialog).getByLabelText("Find a place"), { target: { value: "garden" } });
+    fireEvent.change(within(dialog).getByLabelText("Search places"), { target: { value: "garden" } });
     await waitFor(() => expect(move.disabled).toBe(true));
-    fireEvent.change(within(dialog).getByLabelText("Find a place"), { target: { value: "" } });
+    fireEvent.change(within(dialog).getByLabelText("Search places"), { target: { value: "" } });
     expect(within(dialog).getByRole("radio", { name: /blob3/ }).getAttribute("aria-checked")).toBe("false");
   });
 

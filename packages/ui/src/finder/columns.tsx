@@ -41,20 +41,20 @@ export const COLUMN_MAX = 480;
 export const KEY_STEP = 8;
 
 export const LIST_COLUMNS: readonly ColumnSpec[] = [
-  { key: "modified", label: "Date Modified", width: 184, min: 96, rank: 2 },
+  { key: "modified", label: "Date modified", width: 184, min: 96, rank: 2 },
   { key: "size", label: "Size", width: 88, min: 56, rank: 3 },
   { key: "kind", label: "Kind", width: 152, min: 72, rank: 1 },
 ];
 
 /** A panel beside a chat starts narrower: a short date, a short kind. */
 export const PANEL_COLUMNS: readonly ColumnSpec[] = [
-  { key: "modified", label: "Date Modified", width: 140, min: 96, rank: 2 },
+  { key: "modified", label: "Date modified", width: 140, min: 96, rank: 2 },
   { key: "size", label: "Size", width: 80, min: 56, rank: 3 },
   { key: "kind", label: "Kind", width: 108, min: 72, rank: 1 },
 ];
 
 export const TRASH_COLUMNS: readonly ColumnSpec[] = [
-  { key: "trashed", label: "Date Trashed", width: 184, min: 96, rank: 1 },
+  { key: "trashed", label: "Date trashed", width: 184, min: 96, rank: 1 },
   { key: "size", label: "Size", width: 88, min: 56, rank: 2 },
 ];
 

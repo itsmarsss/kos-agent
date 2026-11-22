@@ -143,4 +143,14 @@ describe("PlacePicker", () => {
     fireEvent.click(screen.getByRole("radio", { name: /Plant watcher/ }));
     expect(onChoose).toHaveBeenCalledWith("b:plant-watcher");
   });
+
+  it("walks the places it offers by the arrows, and searches a long list", () => {
+    const onChoose = vi.fn();
+    const many: Place[] = Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, name: `Place ${i}`, group: "project" }));
+    render(<PlacePicker places={many} current="p0" value="p1" onChoose={onChoose} />);
+    fireEvent.keyDown(screen.getByRole("radiogroup"), { key: "ArrowDown" });
+    expect(onChoose).toHaveBeenLastCalledWith("p2");
+    fireEvent.change(screen.getByPlaceholderText("Search places"), { target: { value: "Place 9" } });
+    expect(screen.getAllByRole("radio").map((r) => r.textContent)).toEqual(["Place 9"]);
+  });
 });

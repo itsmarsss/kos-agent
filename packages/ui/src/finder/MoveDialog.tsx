@@ -1,11 +1,14 @@
 import { useEffect, useState, type ReactElement } from "react";
 
-import { Tooltip } from "@kos/kit";
+import { Face, Field, NavIcon, PlacePicker, SheetFoot, type Place } from "@kos/kit";
+import { slugWords } from "@kos/shared";
 
 import type { Project } from "../api.js";
 import { Modal } from "../Modal.js";
 import { ProjectMark } from "../ProjectMark.js";
 import { nameOf, parentOf, within } from "./model.js";
+
+const FORM = "file-move-form";
 
 /** A folder the dialog offers: not a hidden one (.kos), not inside what is moving. */
 function offerable(folder: string, moving: string[]): boolean {
@@ -13,19 +16,25 @@ function offerable(folder: string, moving: string[]): boolean {
   return !moving.some((p) => within(folder, p));
 }
 
-/** A folder as the owner knows it: the workspace, a project by its name, else its path. */
-function folderLabel(folder: string, projects: Project[]): { project?: Project; words: string } {
-  if (folder === ".") return { words: "Workspace" };
+/**
+ * A folder as a place: the workspace, a project or a blob by its name (its
+ * own folder), or a folder by its name with where it is under it, a project's
+ * path said by the project's name. Never a slug.
+ */
+export function placeOf(folder: string, projects: readonly Project[]): Place {
+  if (folder === ".") return { id: ".", name: "Workspace", group: "workspace", mark: <span className="tile artifact-move-ws" aria-hidden="true"><NavIcon name="files" /></span> };
   const [top, slug, ...rest] = folder.split("/");
   const project = top === "projects" && slug ? projects.find((p) => p.slug === slug) : undefined;
-  if (!project) return { words: folder };
-  return { project, words: [project.name, ...rest].join(" / ") };
+  if (project && rest.length === 0) return { id: folder, name: project.name, group: "project", mark: <ProjectMark slug={project.slug} name={project.name} colour={project.colour} /> };
+  if (top === "blobs" && slug && rest.length === 0) return { id: folder, name: slugWords(slug), group: "blob", mark: <Face seed={slug} size={20} /> };
+  const where = project ? [project.name, ...rest.slice(0, -1)] : folder.split("/").slice(0, -1);
+  return { id: folder, name: nameOf(folder), group: "folder", ...(where.length ? { detail: `in ${where.join(" / ")}` } : { detail: "in Workspace" }) };
 }
 
 /**
- * Move to…: the way to move without a drag (a phone, a keyboard): a folder
- * typed or picked from the places nearby, projects by their names, the
- * folder the items are in marked and not offered.
+ * Move to…: the way to move without a drag (a phone, a keyboard): the kit's
+ * place picker, as an artifact's Move has it, the folder the items are in
+ * marked and not offered, and a path for a folder further in.
  */
 export function MoveDialog({ paths, folders, projects, onMove, onClose }: { paths: string[] | null; folders: string[]; projects: Project[]; onMove: (dir: string) => void; onClose: () => void }): ReactElement {
   const [dir, setDir] = useState("");
@@ -33,46 +42,41 @@ export function MoveDialog({ paths, folders, projects, onMove, onClose }: { path
   const moving = paths ?? [];
   const parents = new Set(moving.map(parentOf));
   const current = parents.size === 1 ? [...parents][0] : undefined;
-  const offered = [...new Set(folders)].filter((f) => offerable(f, moving));
+  const places = [...new Set(folders)]
+    .filter((f) => offerable(f, moving))
+    .map((f) => placeOf(f, projects))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const target = dir.trim().replace(/^\/+|\/+$/g, "");
   const title = paths && paths.length === 1 ? `Move ${nameOf(paths[0]!)}` : `Move ${paths?.length ?? 0} items`;
   return (
-    <Modal open={paths !== null} size="sm" title={title} onClose={onClose}>
+    <Modal
+      open={paths !== null}
+      size="sm"
+      title={title}
+      onClose={onClose}
+      footer={
+        <SheetFoot
+          onCancel={onClose}
+          primary={
+            <button type="submit" form={FORM} className="btn btn--primary" disabled={target === "" || target === current}>
+              Move
+            </button>
+          }
+        />
+      }
+    >
       <form
+        id={FORM}
         className="file-dialog"
         onSubmit={(e) => {
           e.preventDefault();
-          onMove(dir.trim().replace(/^\/+|\/+$/g, "") || ".");
+          if (target) onMove(target);
         }}
       >
-        <label className="file-dialog-label">
-          Into folder
-          <input className="kos-input ops-mono" value={dir} autoFocus placeholder="projects/garden/notes" onChange={(e) => setDir(e.target.value)} />
-        </label>
-        {offered.length > 0 && (
-          <div className="file-dialog-folders">
-            {offered.map((f) => {
-              const here = f === current;
-              const { project, words } = folderLabel(f, projects);
-              return (
-                <button key={f} type="button" className="file-dialog-folder" aria-pressed={dir === f} disabled={here} onClick={() => setDir(f)}>
-                  {project && <ProjectMark slug={project.slug} name={project.name} colour={project.colour} />}
-                  <Tooltip tip={f === "." ? "The workspace's top folder" : f}>
-                    <span className="file-dialog-folder-name">{words}</span>
-                  </Tooltip>
-                  {here && <span className="file-dialog-folder-here">here now</span>}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        <div className="file-dialog-actions">
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn--primary" disabled={dir.trim() !== "" && dir.trim().replace(/^\/+|\/+$/g, "") === current}>
-            Move
-          </button>
-        </div>
+        <PlacePicker places={places} {...(current !== undefined ? { current } : {})} value={places.some((p) => p.id === target) ? target : null} onChoose={(id) => setDir(id ?? "")} />
+        <Field label="Or a folder by its path" hint="Further in than those above: projects/garden/notes.">
+          <input className="kos-input ops-mono" value={places.some((p) => p.id === target) ? "" : dir} onChange={(e) => setDir(e.target.value)} />
+        </Field>
       </form>
     </Modal>
   );

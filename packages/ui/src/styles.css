@@ -2867,31 +2867,6 @@ li:hover .chats-item-when { opacity: 0; }
 
 .file-dialog { display: flex; flex-direction: column; gap: 0.75rem; min-width: min(26rem, 80vw); }
 .file-dialog p { margin: 0; }
-.file-dialog-label { display: flex; flex-direction: column; gap: 0.3rem; font-size: var(--text-sm); color: var(--muted); }
-.file-dialog-folders { display: flex; flex-wrap: wrap; gap: 0.35rem; max-height: 10rem; overflow: auto; }
-.file-dialog-folder {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  max-width: 100%;
-  min-width: 0;
-  font: inherit;
-  font-size: var(--text-sm);
-  padding: 0.15rem 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel-2);
-  color: var(--muted);
-  cursor: pointer;
-}
-.file-dialog-folder:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
-.file-dialog-folder[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
-.file-dialog-folder:disabled { cursor: default; opacity: 0.7; }
-.file-dialog-folder .project-mark { width: 14px; height: 14px; font-size: 8.5px; border-radius: var(--r-xs); flex: none; }
-.file-dialog-folder-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-dialog-folder-here { flex: none; color: var(--muted); font-size: var(--text-xs); }
-
-.file-dialog-actions { display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end; }
 
 .chats-item-top .status-dot { margin-right: -0.1rem; }
 /* A button that opens the chat KOS is already in for something. */
@@ -7598,10 +7573,6 @@ html.has-presenter { overflow: hidden; }
 /* A dialog's foot: what it does in words at the start, then Cancel, then the one to press. */
 .artifact-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 .artifact-dialog-note { margin-right: auto; color: var(--faint); font-size: var(--text-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-move { display: flex; flex-direction: column; gap: 8px; }
-.artifact-move-group-list { display: flex; flex-direction: column; gap: 2px; }
-.artifact-move-group { padding: 8px 9px 3px; }
-.artifact-move-option > svg:last-child { flex: none; color: var(--accent); }
 /* New artifact (NewArtifact.tsx): the four kinds as tiles, chosen as a radio group. */
 .new-artifact-kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .new-artifact-kind { all: unset; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel-2); cursor: pointer; transition: border-color 140ms ease-out, background 140ms ease-out, transform 80ms ease-out; }
@@ -7623,28 +7594,8 @@ html.has-presenter { overflow: hidden; }
   .new-artifact-kind, .artifact-card, .artifact-thumb img { transition: none; }
   .new-artifact-kind:active, .artifact-card:active { transform: none; }
 }
-.artifact-move-list { display: flex; flex-direction: column; gap: 2px; max-height: min(20rem, 50vh); overflow-y: auto; padding: 3px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); }
-.artifact-move-option {
-  all: unset;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 9px;
-  border-radius: var(--r-sm);
-  color: var(--text);
-  font-size: var(--text-base);
-  cursor: pointer;
-  transition: background 140ms ease-out;
-}
-.artifact-move-option:hover:not(:disabled) { background: var(--panel-2); }
-.artifact-move-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
-.artifact-move-option.is-on { background: var(--accent-dim); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
-.artifact-move-option:disabled { cursor: default; color: var(--muted); }
-.artifact-move-option .project-mark, .artifact-move-ws { width: 20px; height: 20px; font-size: 10.5px; border-radius: var(--r-xs); flex: none; }
+.artifact-move-ws { display: grid; place-items: center; border-radius: var(--r-xs); }
 .artifact-move-ws svg { width: 12px; height: 12px; }
-.artifact-move-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-move-here { color: var(--faint); font-size: var(--text-sm); }
 /* In the trash: said once, over the artifact, with the way back. */
 .artifact-trashed { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem 0.8rem; flex-wrap: wrap; border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 8%, transparent); }
 
@@ -7743,7 +7694,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .trash-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .trash-row-text .artifact-card-meta { margin-top: 0; padding-top: 0; }
 .trash-row-acts { flex: none; display: flex; align-items: center; gap: 6px; }
-.trash-row-acts .trash-delete { color: var(--danger); }
 /* Empty trash: the danger's words with no fill until the pointer is on it, beside the head's Back. */
 
 @media (max-width: 560px) {
@@ -8032,9 +7982,12 @@ button.finder-crumb:hover { background: color-mix(in srgb, var(--text) 7%, trans
   padding: 0 0.6rem;
   overflow: hidden;
   white-space: nowrap;
-  color: var(--muted);
-  font-size: var(--text-sm);
-  font-weight: 500;
+  /* The one table head (the kit's TableHead): small, quiet, in capitals. */
+  color: var(--faint);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 button.finder-col-label { cursor: pointer; }
 button.finder-col-label:hover { color: var(--text); }
