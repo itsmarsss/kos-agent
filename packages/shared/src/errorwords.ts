@@ -27,7 +27,7 @@ const RULES: readonly [RegExp, (m: RegExpExecArray) => string][] = [
   [/invalid cron|not a valid cron/i, () => "That isn't a schedule KOS can read."],
   [/ETIMEDOUT|timed out|timeout/i, () => "It took too long and was stopped."],
   [/ECONNREFUSED|ENOTFOUND|fetch failed|EAI_AGAIN/i, () => "KOS couldn't reach it."],
-  [/not on the allow(ed)? ?(list|hosts)/i, () => "That site isn't on the sites KOS may reach."],
+  [/not on the allow(ed)? ?(list|hosts)|not one of the sites KOS may reach/i, () => "That site is not one of the sites KOS may reach."],
   [/^denied\b|denied by (you|the owner)|refused by the owner/i, () => "You said no to it."],
 ];
 

@@ -156,7 +156,7 @@ export function askRisk(reason: string | null | undefined): string | undefined {
     .replace(/^risky tool$/i, "")
     .trim();
   if (!said) return undefined;
-  // A host name keeps its own case: "example.com is not on the allowed hosts", never "Example.com".
+  // A host name keeps its own case: "example.com is not one of the sites KOS may reach", never "Example.com".
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\s|$)/.test(said) ? said : upperFirst(said);
 }
 
@@ -185,7 +185,7 @@ export function alwaysWords(scope: string | null, names?: ActionNames): string {
     case "file":
       return `Always allow on ${what}`;
     case "host":
-      return `Always allow for ${what}`;
+      return `Always allow on ${what}`;
     case "cmd":
       return `Always allow ${what}`;
     case "table":
