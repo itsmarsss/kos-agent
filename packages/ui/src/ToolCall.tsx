@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactElement } from "react";
 
 import { AnimatePresence, m, useReducedMotion } from "motion/react";
 
-import { outcomeOf, pathsIn, stepMechanics, waitWords } from "@kos/shared";
-import { ChevronRight, inPlace, Pill, spring, StepPicture, StepTime, type Tone } from "@kos/kit";
+import { outcomeOf, pathsIn, STATE_WORDS, stepMechanics, waitWords, type State } from "@kos/shared";
+import { ChevronRight, inPlace, spring, StatusPill, StepPicture, StepTime } from "@kos/kit";
 
 import { api, type ChatEvent, type PendingAction } from "./api.js";
 import { ArtifactStep, writtenArtifact } from "./ArtifactStep.js";
@@ -54,20 +54,20 @@ type Step = Extract<ChatEvent, { kind: "tool" }>;
  * What a finished call says of itself, from how it ended and never from a
  * hope: a call held for the owner reads as what they decided, or as still
  * held, and never as "ok" or "approved" unless it ran. KOS.md: a held call
- * must never look like it ran. A plain "ok" is for a call that ran unasked;
- * anything else is a Pill in its meaning's tone.
+ * must never look like it ran. Each is a state in STATE_WORDS, drawn as its
+ * pill, a call that ran unasked (Done) as much as one that failed.
  */
-export function callState(event: Step, awaitingApproval: boolean): { word: string; tone?: Tone } {
+export function callState(event: Step, awaitingApproval: boolean): State {
   const outcome = event.outcome ?? outcomeOf(event.result);
-  if (outcome === "denied") return { word: "denied", tone: "danger" };
-  if (outcome === "lapsed") return { word: "lapsed", tone: "muted" };
-  if (outcome === "not run") return { word: "not run", tone: "muted" };
-  if (event.isError) return { word: "failed", tone: "danger" };
-  if (awaitingApproval) return { word: "needs you", tone: "warn" };
-  if (outcome === "approved") return { word: "approved", tone: "muted" };
+  if (outcome === "denied") return "denied";
+  if (outcome === "lapsed") return "expired";
+  if (outcome === "not run") return "skipped";
+  if (event.isError) return "failed";
+  if (awaitingApproval) return "waiting";
+  if (outcome === "approved") return "approved";
   // Queued, and no decision on it seen yet: held, not done.
-  if (event.pendingId !== undefined) return { word: "held", tone: "warn" };
-  return { word: "ok" };
+  if (event.pendingId !== undefined) return "held";
+  return "ok";
 }
 
 /**
@@ -124,7 +124,7 @@ export function ToolCall({
 
   return (
     <div
-      className={`toolcall${state?.tone === "danger" ? " is-error" : ""}${queued && awaitingApproval ? " is-queued" : ""}`}
+      className={`toolcall${state && STATE_WORDS[state].tone === "danger" ? " is-error" : ""}${queued && awaitingApproval ? " is-queued" : ""}`}
     >
       <button
         type="button"
@@ -141,7 +141,7 @@ export function ToolCall({
         </span>
         <span className="toolcall-state">
           <StepTime running={running} startedAt={event.startedAt} ms={event.ms} />
-          {!state ? "…" : state.tone ? <Pill tone={state.tone}>{state.word}</Pill> : state.word}
+          {!state ? "…" : <StatusPill state={state} />}
         </span>
       </button>
       {event.waitedMs !== undefined && event.waitedMs >= 1_000 && <p className="toolcall-waited">{waitWords(event.waitedMs)}</p>}

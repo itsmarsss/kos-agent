@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import { Card, Face, lookOf, moodOf, Pill, Tag, type Tone } from "@kos/kit";
+import { Card, Face, lookOf, moodOf, Pill, StatusPill, Tag, When, type Tone } from "@kos/kit";
 import { momentWords, timeWords } from "@kos/shared";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo } from "./api.js";
-import { describeCron } from "./schedule.js";
+import { scheduleWords } from "./schedule.js";
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
-import { WEEK, runDays } from "./schedulewords.js";
+import { lastRunWords, runDays, WEEK } from "./schedulewords.js";
 
 /**
  * The column beside a blob's thread: who it is, how it is doing,
@@ -37,7 +37,8 @@ export interface AgentPanelProps {
 const POLL_MS = 5000;
 
 /** How each state reads as a pill. */
-const HERO_TONE = { working: "accent", "needs-you": "warn", error: "danger", asleep: "muted", idle: "ok" } as const satisfies Record<string, Tone>;
+// Quiet is muted, as STATE_WORDS has it: idle is not how something went.
+const HERO_TONE = { working: "accent", "needs-you": "warn", error: "danger", asleep: "muted", idle: "muted" } as const satisfies Record<string, Tone>;
 
 /** How the agent is doing, in a line, with a tone for the dot beside it. */
 export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "needs-you" | "error" | "asleep" | "idle"; text: string } {
@@ -45,9 +46,9 @@ export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "nee
   if (t?.activity === "working") return { tone: "working", text: "Working now" };
   if (t?.activity === "needs-you") return { tone: "needs-you", text: "Waiting on you" };
   if (t?.activity === "error") return { tone: "error", text: `Last turn failed${t.lastError ? `: ${t.lastError}` : ""}` };
-  if (paused) return { tone: "asleep", text: "Asleep, its schedule is paused" };
+  if (paused) return { tone: "asleep", text: "Asleep, its schedule is off" };
   if (t?.lastSaid) return { tone: "idle", text: `Quiet, last spoke ${timeWords(t.updatedAt)}` };
-  return { tone: "idle", text: "Quiet, nothing said yet" };
+  return { tone: "idle", text: "Quiet" };
 }
 
 /** What each blob's panel last showed, so opening it again does not pass through "Loading…". */
@@ -140,11 +141,12 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
         </button>
       </header>
 
-      <Card title="Schedule" pill={agent.job ? <Pill tone={paused ? "warn" : "ok"}>{paused ? "paused" : "on"}</Pill> : undefined}>
+      <Card title="Schedule" pill={agent.job ? <StatusPill state={paused ? "off" : "on"} /> : undefined}>
         {agent.job ? (
           <>
-            <p className="agent-when">{describeCron(agent.job.schedule) ?? agent.job.schedule}</p>
-            <code className="agent-cron">{agent.job.schedule}</code>
+            <p className="agent-when" title={agent.job.schedule}>
+              {scheduleWords(agent.job.schedule)}
+            </p>
             {days && (
               <div className="agent-week" aria-label="Days it runs">
                 {WEEK.map((d, i) => (
@@ -157,19 +159,17 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
             <ul className="agent-kv">
               <li>
                 <span>Next run</span>
-                <b>{agent.job.nextRunAt ? timeWords(agent.job.nextRunAt) : paused ? "when resumed" : "on its schedule"}</b>
-                {agent.job.nextRunAt && <span>{momentWords(agent.job.nextRunAt)}</span>}
+                <b>{agent.job.nextRunAt ? momentWords(agent.job.nextRunAt) : paused ? "When it is on" : "On its schedule"}</b>
               </li>
               <li>
                 <span>Last run</span>
-                <b>{agent.job.lastRunAt ? timeWords(agent.job.lastRunAt) : "not yet"}</b>
-                {agent.job.lastRunAt && <span>{momentWords(agent.job.lastRunAt)}</span>}
+                <b>{agent.job.lastRunAt ? <When at={agent.job.lastRunAt} /> : lastRunWords(null)}</b>
               </li>
             </ul>
             <div className="agent-acts">
               <button
                 type="button"
-                className="btn btn--sm btn--primary"
+                className="btn btn--sm"
                 disabled={busy}
                 title="Run its scheduled prompt now, in its thread"
                 onClick={() => void run(() => api.runAgent(agent.name).then(() => undefined), `${title} is running`)}

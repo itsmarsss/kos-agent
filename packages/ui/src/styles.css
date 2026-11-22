@@ -7060,7 +7060,6 @@ button.project-stat:focus-visible { outline: 2px solid var(--accent); outline-of
 .hero h2 { margin: 0.5rem 0 0; font-size: var(--text-lg); font-weight: 600; line-height: 1.2; }
 .hero-desc { margin: 0; color: var(--muted); font-size: var(--text-base); max-width: 30ch; }
 .agent-when { margin: 0; font-size: var(--text-md); font-weight: 600; }
-.agent-cron { font-family: var(--mono); font-size: var(--text-xs); color: var(--faint); }
 .agent-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.25rem; margin-top: 0.15rem; }
 .agent-week span { text-align: center; font-size: var(--text-xs); padding: 0.3rem 0; border-radius: var(--r-sm); background: var(--panel-2); color: var(--faint); }
 .agent-week span.is-on { background: var(--tint-dim); color: var(--tint); font-weight: 600; }

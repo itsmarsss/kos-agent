@@ -22,6 +22,7 @@ export const STATE_WORDS = {
   dormant: { word: "Dormant", tone: "muted" },
   done: { word: "Finished", tone: "muted" },
   archived: { word: "Archived", tone: "muted" },
+  held: { word: "Held", tone: "warn" },
   approved: { word: "Approved", tone: "ok" },
   denied: { word: "Denied", tone: "danger" },
   expired: { word: "Lapsed", tone: "muted" },

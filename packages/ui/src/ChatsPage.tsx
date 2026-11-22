@@ -10,7 +10,7 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { cycled, runningTail, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { cycled, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
 import { isModeKey, ModeChip } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, MessageTime, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
@@ -91,6 +91,8 @@ import { hrefFor } from "./routes.js";
 import { useHashParam } from "./hashparams.js";
 import { fileMention } from "./finder/model.js";
 import { backInComposer, composerKeyDown, unsentHome, useAutoGrow, useStickToBottom } from "./composer.js";
+import { scheduleWords } from "./schedule.js";
+import { jobTitle } from "./schedulewords.js";
 
 /**
  * The chats page: a list that stays usable at fifty conversations, and the
@@ -1699,9 +1701,9 @@ export function ChatsPage({
                     <li key={c.id}>
                       <button type="button" className="chats-item chats-job" onClick={() => onEditCron(c)} title="Edit this schedule">
                         <span className="chats-item-top">
-                          <StatusDot state={c.running ? "working" : c.enabled ? "read" : "error"} label={c.running ? "running" : c.enabled ? "on" : "off"} />
-                          <span className="chats-item-title">{c.name}</span>
-                          <span className="chats-item-when ops-mono">{c.schedule}</span>
+                          <StatusDot state={c.running ? "working" : c.enabled ? "on" : "off"} label={STATE_WORDS[c.running ? "running" : c.enabled ? "on" : "off"].word} />
+                          <span className="chats-item-title">{jobTitle(c.name)}</span>
+                          <span className="chats-item-when" title={c.schedule}>{scheduleWords(c.schedule)}</span>
                         </span>
                       </button>
                     </li>
