@@ -1714,6 +1714,11 @@ select {
   --control-h: 2.25rem;
   /* A control in the bar under a head (filters, menus, a small button). */
   --control-h-sm: 1.875rem;
+  /* A finger's floor (TOUCH in design.ts): what touch.css grows every target
+     and field to under a coarse pointer. In px: a fingertip does not scale
+     with the density setting. */
+  --tap: 44px;
+  --tap-text: 16px;
   /* A heading's weight: a page's (22), a workspace's head (18) and a sheet's.
      A card's or a panel's title is 600 (docs/design.md, Type). */
   --title-weight: 700;
@@ -8110,10 +8115,6 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 }
 @container finder (max-width: 360px) {
   .finder-status { display: none; }
-}
-/* A finger needs taller rows than a pointer. */
-@media (pointer: coarse) {
-  .finder { --finder-row: 2.4rem; }
 }
 
 /* The finder inside a project's card: the card is its frame, so it draws none

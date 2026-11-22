@@ -1,0 +1,105 @@
+/*
+ * A finger (docs/design.md, Touch). Loaded after styles.css, so one block
+ * says how every control changes under a coarse pointer rather than each
+ * page saying it again, or forgetting to.
+ *
+ * - Every target is at least --tap (44 px) square: a button by its own
+ *   tokens, a row or a tab by its height, a small mark by a hit area round it.
+ * - Every field's words are at least --tap-text (16 px): under that, iOS
+ *   zooms the page in on focus and leaves it zoomed.
+ * - Nothing waits on a hover a finger cannot make: what the pointer would
+ *   reveal is shown, and the keyboard's shortcuts are not offered.
+ */
+
+@media (pointer: coarse) {
+  /* Buttons are drawn at two heights (design.test.ts); under a finger both are a finger's. */
+  :root {
+    --control-h: var(--tap);
+    --control-h-sm: var(--tap);
+  }
+
+  .icon-btn:not(.icon-btn--bare) {
+    width: var(--tap);
+    height: var(--tap);
+  }
+
+  /* Rows, tabs and menu rows: their height, with what they hold centred in it. */
+  .chips button,
+  .page-tab,
+  [role="tab"],
+  [role^="menuitem"],
+  [role="option"],
+  .menu-body > :is(button, a),
+  .sel-option,
+  .sel-button,
+  .side-link,
+  .chats-item,
+  .drawer-row,
+  .set-rail-item,
+  .pal-item {
+    box-sizing: border-box;
+    min-height: var(--tap);
+  }
+  .sel-option,
+  .menu-body > :is(button, a) {
+    align-items: center;
+  }
+
+  /* A mark too small to grow without breaking its line (a switch, a bare ×,
+     a disclosure chevron) keeps its look and takes a finger's area round it. */
+  :is(.switch, .icon-btn--bare, button.finder-disclose) {
+    position: relative;
+  }
+  :is(.switch, .icon-btn--bare, button.finder-disclose)::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--tap));
+    height: max(100%, var(--tap));
+    transform: translate(-50%, -50%);
+    content: "";
+  }
+
+  .finder {
+    --finder-row: var(--tap);
+  }
+
+  /* A sheet ends above the keyboard on screen (watchKeyboard in touch.ts), so its foot and the field typed into both show. */
+  :is(.drawer-backdrop, .insp-backdrop, .sheet-backdrop, .modal-wrap, .pal-wrap) {
+    bottom: var(--kb-inset, 0px);
+  }
+
+  /*
+   * The one !important in the sheets: a floor under every field, whatever
+   * its own rule says. A page's rule for its field is always more specific
+   * than one rule for all of them, and a single field left at 13 px is a
+   * page that zooms in and stays zoomed.
+   */
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]),
+  textarea,
+  select {
+    font-size: max(var(--tap-text), 1em) !important;
+  }
+}
+
+@media (hover: none) {
+  /* What the pointer reveals on a row or a message is always there. */
+  .chats-more,
+  .acts {
+    opacity: 1;
+  }
+  .chats-row > .chats-item {
+    padding-right: calc(var(--tap) + 0.25rem);
+  }
+  li:hover .chats-item-when {
+    opacity: 1;
+  }
+
+  /* A keyboard's shortcuts mean nothing to a finger. */
+  .finder-menu-keys,
+  .side kbd,
+  .chats-kbd,
+  .pal-foot {
+    display: none;
+  }
+}
