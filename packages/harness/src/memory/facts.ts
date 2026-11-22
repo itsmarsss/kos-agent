@@ -257,17 +257,17 @@ function startsWord(text: string, token: string): boolean {
 }
 
 /**
- * What one token is worth on one claim before its rarity: 2 on the key, 1
- * on a word of the value. The same word in another number is the same word
- * ("tomatoes" names tomato_varieties). A key is one compound identifier, so
- * a token may sit inside it ("zone" in timezone); a value is prose, where
- * only a word's start is the word.
+ * What one token is worth on one claim before its rarity: 2 when it is one
+ * of the key's words, 1 on a word of the value. The same word in another
+ * number is the same word ("tomatoes" names tomato_varieties). A key's
+ * words are whole: matched inside them, "list" found http_allowlist and
+ * "run" every key with "runs" in it. A value is prose, where a word's start
+ * is the word ("budget" in "budgets").
  */
 function tokenHit(fact: Fact, token: string): number {
-  const key = fact.key.toLowerCase();
-  const value = fact.value.toLowerCase();
   const root = stem(token);
-  if (key.includes(token) || key.includes(root)) return 2;
+  if (fact.key.toLowerCase().split(/[^a-z0-9]+/).some((word) => word === token || stem(word) === root)) return 2;
+  const value = fact.value.toLowerCase();
   if (startsWord(value, token) || startsWord(value, root)) return 1;
   return 0;
 }
@@ -400,7 +400,8 @@ export class FactsStore {
    * or a tool produced would otherwise go into every prompt unasked, and
    * waits to be matched like any other claim.
    *
-   * `limit` bounds the whole list, and the preferences keep half of it.
+   * `limit` bounds the whole list. The owner's own pins always stand; other
+   * pins share what is left after the preferences keep half of it.
    * Pins came first and took every place: agents pin freely, and fifteen
    * pins left none of the owner's six preferences in any turn. Pins are read
    * in the scopes in play too, the owner's own first, then the chat's own
@@ -409,11 +410,17 @@ export class FactsStore {
    * narrower scope's.
    */
   standing(userId: string, scopes: ClaimScope[], limit = 8): Fact[] {
-    const here = onePerKey(this.all(userId, scopes));
-    const pinned = here.filter((f) => f.pinned).sort((a, b) => Number(b.trust === "owner") - Number(a.trust === "owner") || Number(b.scope !== GLOBAL_SCOPE) - Number(a.scope !== GLOBAL_SCOPE));
-    const prefs = here.filter((f) => f.kind === "preference" && !f.pinned && f.trust === "owner");
-    const pins = Math.min(pinned.length, Math.max(limit - Math.min(prefs.length, Math.ceil(limit / 2)), 0));
-    return [...pinned.slice(0, pins), ...prefs].slice(0, limit);
+    const here = this.all(userId, scopes);
+    // One per key within pins and within preferences, each apart: an unpinned
+    // claim under a pin's key must not take the pin's place.
+    const pinned = onePerKey(here.filter((f) => f.pinned)).sort((a, b) => Number(b.scope !== GLOBAL_SCOPE) - Number(a.scope !== GLOBAL_SCOPE));
+    const prefs = onePerKey(here.filter((f) => f.kind === "preference" && !f.pinned && f.trust === "owner"));
+    // The owner's own pins always stand; the rest share what the preferences leave.
+    const ownerPins = pinned.filter((f) => f.trust === "owner");
+    const otherPins = pinned.filter((f) => f.trust !== "owner");
+    const room = Math.max(limit - ownerPins.length - Math.min(prefs.length, Math.ceil(limit / 2)), 0);
+    const chosen = onePerKey([...ownerPins, ...otherPins.slice(0, room), ...prefs]);
+    return chosen.slice(0, limit);
   }
 
   setPinned(userId: string, key: string, pinned: boolean, scope?: ClaimScope): Fact | undefined {
@@ -495,11 +502,25 @@ export class FactsStore {
     all.forEach((fact, i) => {
       // A long value holds more words by length alone; its value hits count for less (see rank.ts).
       const norm = lengthNorm(fact.value.length, meanValue);
-      let score = hits[i]!.reduce((sum, hit, t) => sum + (hit === 2 ? hit : hit * norm) * rarity(holding[t]!, all.length), 0);
+      // The floor: a key hit is a whole 2 however many keys share the word, so
+      // "sister" finds sister and sister_birthday both; a value hit counts by
+      // its rarity, which is what keeps page-long notes out. The order: every
+      // hit by its rarity, so the claim the word picks out comes first.
+      let score = 0;
+      let rank = 0;
+      hits[i]!.forEach((hit, t) => {
+        if (hit === 0) return;
+        const weight = rarity(holding[t]!, all.length);
+        score += hit === 2 ? 2 : hit * norm * weight;
+        rank += (hit === 2 ? 2 : hit * norm) * weight;
+      });
       // Whole-phrase containment stays the strongest signal when it happens.
       // A phrase is more than one word; one word already scored above.
-      if (tokens.length > 1 && needle && (fact.key.toLowerCase().includes(needle) || fact.value.toLowerCase().includes(needle))) score += 5;
-      if (score > 0 && score >= floor) scored.push({ fact, score, rank: score * standingWeight(fact, now) });
+      if (tokens.length > 1 && needle && (fact.key.toLowerCase().includes(needle) || fact.value.toLowerCase().includes(needle))) {
+        score += 5;
+        rank += 5;
+      }
+      if (score > 0 && score >= floor) scored.push({ fact, score, rank: rank * standingWeight(fact, now) });
     });
     scored.sort((a, b) => b.rank - a.rank || b.fact.updatedAt - a.fact.updatedAt);
     return scored.slice(0, limit).map((s) => s.fact);

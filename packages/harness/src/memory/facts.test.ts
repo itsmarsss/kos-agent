@@ -85,7 +85,9 @@ describe("FactsStore", () => {
   it("searches keys and values", () => {
     facts.upsert("u1", { key: "timezone", value: "UTC", kind: "fact" });
     facts.upsert("u1", { key: "city", value: "Tokyo", kind: "fact" });
-    expect(facts.search("u1", "zone").map((f) => f.key)).toEqual(["timezone"]);
+    expect(facts.search("u1", "timezone").map((f) => f.key)).toEqual(["timezone"]);
+    // A key's words are whole: a fragment inside one is not that word.
+    expect(facts.search("u1", "zone")).toEqual([]);
     expect(facts.search("u1", "Tokyo").map((f) => f.key)).toEqual(["city"]);
   });
 
@@ -288,9 +290,9 @@ describe("FactsStore recall ranking", () => {
     expect(facts.search("u1", "", 10).map((f) => f.key)).toEqual(["gym_schedule"]);
   });
 
-  it("lets a word most claims share fall below the floor, and a rare one clear it", () => {
+  it("lets a value word most claims share fall below the floor, and a rare one clear it", () => {
     for (const n of ["one", "two", "three", "four", "five"]) {
-      facts.upsert("u1", { key: `job_note_${n}`, value: `A note about the ${n} scheduled run.`, kind: "fact", trust: "agent" });
+      facts.upsert("u1", { key: `note_${n}`, value: `A note about the ${n} scheduled job and its enabled run.`, kind: "fact", trust: "agent" });
     }
     facts.upsert("u1", { key: "employer", value: "Works at Northwind.", kind: "fact" });
     expect(facts.search("u1", "is the job enabled", 10, { minScore: 2 })).toEqual([]);
@@ -359,6 +361,58 @@ describe("FactsStore changes", () => {
         ["supersede", "city", "Toronto"],
       ]);
       expect(facts.changes("u1", 1)).toHaveLength(1);
+    } finally {
+      ws.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("FactsStore owner's word over another's", () => {
+  it("never lets an unpinned or lower-trust claim under the same key shadow the owner's pin or preference", () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-facts-shadow-"));
+    const ws = Workspace.open(root);
+    try {
+      const facts = new FactsStore(ws.db);
+      facts.upsert("u1", { key: "diet", value: "Vegetarian.", kind: "fact", pinned: true, trust: "owner" });
+      facts.upsert("u1", { key: "diet", value: "Tried a meat dish once.", kind: "fact", scope: "project:food", trust: "agent" });
+      facts.upsert("u1", { key: "units", value: "Metric.", kind: "preference", trust: "owner" });
+      facts.upsert("u1", { key: "units", value: "Cups are fine here.", kind: "preference", scope: "agent:baker", trust: "agent", pinned: true });
+      const standing = facts.standing("u1", ["global", "project:food", "agent:baker"]);
+      expect(standing.map((f) => `${f.scope}/${f.key}`)).toEqual(["global/diet", "global/units"]);
+    } finally {
+      ws.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("stands every owner pin, past the room other pins share", () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-facts-ownerpins-"));
+    const ws = Workspace.open(root);
+    try {
+      const facts = new FactsStore(ws.db);
+      for (let i = 0; i < 6; i++) facts.upsert("u1", { key: `own_${i}`, value: `Owner pin ${i}.`, kind: "fact", pinned: true, trust: "owner" });
+      for (let i = 0; i < 4; i++) facts.upsert("u1", { key: `agent_${i}`, value: `Agent pin ${i}.`, kind: "fact", pinned: true, trust: "agent" });
+      facts.upsert("u1", { key: "diet", value: "Vegetarian.", kind: "preference", trust: "owner" });
+      const keys = facts.standing("u1", ["global"], 8).map((f) => f.key);
+      expect(keys.filter((k) => k.startsWith("own_"))).toHaveLength(6);
+      expect(keys).toContain("diet");
+      expect(keys.filter((k) => k.startsWith("agent_"))).toHaveLength(1);
+    } finally {
+      ws.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("finds every key a word is in, however many hold it", () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-facts-keyfloor-"));
+    const ws = Workspace.open(root);
+    try {
+      const facts = new FactsStore(ws.db);
+      facts.upsert("u1", { key: "sister", value: "Nadia, a nurse.", kind: "fact" });
+      facts.upsert("u1", { key: "sister_birthday", value: "4 June.", kind: "fact" });
+      facts.upsert("u1", { key: "employer", value: "Northwind.", kind: "fact" });
+      expect(facts.search("u1", "tell me about my sister", 10, { minScore: 2 }).map((f) => f.key).sort()).toEqual(["sister", "sister_birthday"]);
     } finally {
       ws.close();
       rmSync(root, { recursive: true, force: true });

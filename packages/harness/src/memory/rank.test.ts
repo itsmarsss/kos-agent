@@ -38,7 +38,9 @@ describe("rank", () => {
     expect(owner).toBeGreaterThan(agent);
   });
 
-  it("answers a key once, from the narrower scope, else the newer", () => {
+  it("answers a key once: the owner's word, then the narrower scope, else the newer", () => {
+    const owner = onePerKey([claim("diet", { scope: "global", trust: "owner" }), claim("diet", { scope: "project:food", trust: "agent", updatedAt: 9 })]);
+    expect(owner.map((c) => c.scope)).toEqual(["global"]);
     const kept = onePerKey([
       claim("form", { scope: "global", updatedAt: 5 }),
       claim("city", { updatedAt: 1 }),

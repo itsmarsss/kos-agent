@@ -62,14 +62,18 @@ const specific = (scope: string): number => (scope === "global" ? 0 : 1);
 /**
  * One claim per key. The same key in two scopes in play is one question
  * with two answers, and both went to the model (the same pinned claim
- * twice, once global and once an agent's). The narrower scope answers;
- * between equals, the one stated last. Order is otherwise kept.
+ * twice, once global and once an agent's). The owner's word answers over
+ * anyone else's, whatever its scope; then the narrower scope; between
+ * equals, the one stated last. Order is otherwise kept.
  */
-export function onePerKey<T extends Pick<Fact, "key" | "scope" | "updatedAt">>(claims: T[]): T[] {
+export function onePerKey<T extends Pick<Fact, "key" | "scope" | "updatedAt" | "trust">>(claims: T[]): T[] {
+  const owner = (c: T): number => (c.trust === "owner" ? 1 : 0);
+  const better = (c: T, held: T): boolean =>
+    owner(c) !== owner(held) ? owner(c) > owner(held) : specific(c.scope) !== specific(held.scope) ? specific(c.scope) > specific(held.scope) : c.updatedAt > held.updatedAt;
   const best = new Map<string, T>();
   for (const c of claims) {
     const held = best.get(c.key);
-    if (!held || specific(c.scope) > specific(held.scope) || (specific(c.scope) === specific(held.scope) && c.updatedAt > held.updatedAt)) best.set(c.key, c);
+    if (!held || better(c, held)) best.set(c.key, c);
   }
   return claims.filter((c) => best.get(c.key) === c);
 }
