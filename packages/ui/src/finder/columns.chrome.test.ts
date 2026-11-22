@@ -9,9 +9,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  * The Finder's columns in a real Chrome, with the dashboard's own sheets:
  * a fit measures what a cell draws, narrower as well as wider; a Finder
  * too narrow for every column hides them by rank; a long name is cut in
- * the middle to what is drawn; and a drag moves the grid on the list while
- * the pointer is down, keeping the width when it is let go. Skipped
- * without Chrome.
+ * the middle to what is drawn; a deep tree leaves its names room; and a
+ * drag moves the grid on the list while the pointer is down, keeping the
+ * width when it is let go. Skipped without Chrome.
  */
 
 const CHROME = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium"].find((p) => existsSync(p));
@@ -31,8 +31,9 @@ window.mount = (width, names) => {
   const box = document.getElementById("root");
   box.style.width = width + "px";
   root = createRoot(box);
-  const rows = names.map((name) => ({ entry: { name, path: name, kind: "file", size: 10, modifiedAt: 1 }, depth: 0 }));
-  root.render(h("div", { className: "finder" }, h("div", { className: "finder-main" }, h(ListView, { rows, sort: { key: "name", desc: false }, onSort: noop, h: handlers, empty: "Empty" }))));
+  // A name, or a [name, depth, kind] for a row of a folder opened in place.
+  const rows = names.map((n) => (typeof n === "string" ? [n, 0, "file"] : n)).map(([name, depth, kind], i) => ({ entry: { name, path: i + "/" + name, kind, size: 10, modifiedAt: 1 }, depth, ...(kind === "dir" ? { open: true } : {}) }));
+  root.render(h("div", { className: "finder" }, h("div", { className: "finder-main" }, h(ListView, { rows, sort: { key: "name", desc: false }, onSort: noop, onToggle: noop, h: handlers, empty: "Empty" }))));
 };
 `;
 
@@ -59,7 +60,7 @@ describe.skipIf(!CHROME)("the Finder's columns in a real Chrome", () => {
   /** Whether every cell of a column draws all it holds. */
   const fits = (key: string): Promise<boolean> => value(`[...document.querySelectorAll('.finder-row [data-col="${key}"]')].every((c) => c.scrollWidth <= c.clientWidth)`);
   const centre = (label: string): Promise<{ x: number; y: number }> => value(`(() => { const r = document.querySelector('[aria-label="Resize ${label}"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
-  const mount = async (width: number, names: string[], kept?: Record<string, number>): Promise<void> => {
+  const mount = async (width: number, names: (string | [string, number, "file" | "dir"])[], kept?: Record<string, number>): Promise<void> => {
     await value(`localStorage.${kept ? `setItem("kos.finder.columns", ${JSON.stringify(JSON.stringify(kept))})` : `removeItem("kos.finder.columns")`}; mount(${width}, ${JSON.stringify(names)}); new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);
   };
 
@@ -162,6 +163,32 @@ describe.skipIf(!CHROME)("the Finder's columns in a real Chrome", () => {
     expect(name.text.length).toBeLessThan(long.length);
     expect(name.title).toBe(long);
     expect(name.fits).toBe(true);
+  });
+
+  it("steps a deep tree in no further than a quarter of Name, each level still apart, each name eight characters and its extension", async () => {
+    const tree: [string, number, "file" | "dir"][] = [
+      ["Taxes_and_Household_Records", 0, "dir"],
+      ["Federal_Returns_by_Year", 1, "dir"],
+      ["Tax_Year_2025_Working_Folder", 2, "dir"],
+      ["Supporting_Documents_Scanned", 3, "dir"],
+      ["Charitable_Donation_Receipts", 4, "dir"],
+      ["Quarterly_Estimated_Payments", 5, "dir"],
+      ["Tax_Return_2025_Final_Draft_Signed_Copy.md", 6, "file"],
+    ];
+    for (const width of [300, 380]) {
+      await mount(width, tree);
+      await pause(50);
+      const rows = await value<{ indent: number; column: number; text: string; name: string }[]>(`[...document.querySelectorAll('.finder-row .finder-col--name')].map((c) => { const n = c.querySelector('.finder-name'); return { indent: parseFloat(getComputedStyle(c).paddingLeft), column: c.getBoundingClientRect().width, text: n.querySelector('[aria-hidden]')?.textContent ?? n.textContent, name: n.title }; })`);
+      const base = rows[0]!.indent;
+      for (const [i, row] of rows.entries()) {
+        if (i) expect(row.indent - rows[i - 1]!.indent).toBeGreaterThanOrEqual(3);
+        expect(row.indent - base).toBeLessThanOrEqual(row.column * 0.25 + 0.5);
+        const ext = row.name.endsWith(".md") ? ".md" : "";
+        // Eight characters, the ellipsis, the extension.
+        expect(row.text.length).toBeGreaterThanOrEqual(8 + 1 + ext.length);
+        expect(row.text.endsWith(ext)).toBe(true);
+      }
+    }
   });
 
   it("moves the grid while the pointer is down and keeps the width once it is let go", async () => {

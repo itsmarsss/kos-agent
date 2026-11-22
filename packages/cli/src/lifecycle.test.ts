@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { BootBox, StillStartingError, backoffMs, portClaim, restartArgs, retryableLogin, startSurface, stopWithin, whenUp } from "./lifecycle.js";
+import { BootBox, HOST_WAIT_MS, StillStartingError, awaitNewHost, backoffMs, launchdStep, portClaim, restartArgs, retryableLogin, startSurface, stopWithin, whenUp, type HostSeen } from "./lifecycle.js";
 
 describe("portClaim", () => {
   let claimed: Server | undefined;
@@ -122,5 +122,58 @@ describe("restartArgs", () => {
       "0",
     ]);
     expect(restartArgs("/m.js", { rootDir: "/w", host: "::1", port: 1, requireDiscord: true })).toContain("--discord");
+  });
+});
+
+describe("a restart under launchd", () => {
+  const WS = "/Users/owner/kos-workspace";
+  /** A clock that moves only when the wait sleeps, and a port that answers as `answers` says at each moment. */
+  const host = (answers: (at: number) => HostSeen | undefined) => {
+    let at = 0;
+    const probed: number[] = [];
+    return {
+      probed,
+      run: (before: number | undefined, timeoutMs = HOST_WAIT_MS) =>
+        awaitNewHost({
+          probe: async () => (probed.push(at), answers(at)),
+          workspace: WS,
+          before,
+          timeoutMs,
+          now: () => at,
+          sleep: async (ms) => void (at += ms),
+        }),
+    };
+  };
+
+  it("is a restart once this workspace's host answers under a new pid, however long a cold boot takes within the wait", async () => {
+    // The old host still answers for 2 s, nothing while the new one boots, then it does at 40 s: past the 15 s the wait once was.
+    const h = host((at) => (at < 2_000 ? { pid: 100, workspace: WS } : at < 40_000 ? undefined : { pid: 200, workspace: WS }));
+    expect(await h.run(100)).toEqual({ ok: true, pid: 200 });
+    expect(h.probed.at(-1)).toBe(40_000);
+  });
+
+  it("is not a restart while only the old host answers, and says so", async () => {
+    expect(await host(() => ({ pid: 100, workspace: WS })).run(100, 5_000)).toEqual({ ok: false, why: "only the host from before answered (pid 100)" });
+  });
+
+  it("is not a restart when another workspace's host holds the port, or nothing answers", async () => {
+    expect(await host(() => ({ pid: 300, workspace: "/tmp/scratch" })).run(100, 5_000)).toEqual({ ok: false, why: "another workspace's host answered (pid 300, /tmp/scratch)" });
+    const silent = host(() => undefined);
+    expect(await silent.run(100, 5_000)).toEqual({ ok: false, why: "nothing answered" });
+    // Bounded: it probes until the wait is out, and once more at the end.
+    expect(silent.probed.at(-1)).toBe(5_000);
+  });
+
+  it("takes any pid of this workspace's when nothing ran before", async () => {
+    expect(await host(() => ({ pid: 100, workspace: WS })).run(undefined)).toEqual({ ok: true, pid: 100 });
+  });
+
+  it("starts the host unless launchd already brought one back under a new pid", () => {
+    expect(launchdStep(undefined, 100)).toBe("kickstart");
+    // Still the old one: stop could not end it, and kickstart -k does.
+    expect(launchdStep(100, 100)).toBe("kickstart");
+    // KeepAlive relaunched it: kickstart -k would kill it mid-boot.
+    expect(launchdStep(200, 100)).toBe("wait");
+    expect(launchdStep(undefined, undefined)).toBe("kickstart");
   });
 });
