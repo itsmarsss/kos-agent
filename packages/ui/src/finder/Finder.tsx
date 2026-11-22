@@ -11,7 +11,7 @@ import { FilePreview } from "../FilePreview.js";
 import { ColumnsView, type Column } from "./ColumnsView.js";
 import { FileFacts } from "./FileFacts.js";
 import { GalleryView } from "./GalleryView.js";
-import { LIST_WIDTHS_KEY, PANEL_WIDTHS_KEY } from "./columns.js";
+import { FILES_LAYOUT, PANEL_LAYOUT } from "./columns.js";
 import { ListView, type ListRow } from "./ListView.js";
 import { FinderMenu, type MenuItem } from "./Menu.js";
 import { EMPTY_SELECTION, clickSelect, freeName, kindOf, moveLead, nameOf, only, parentOf, rememberView, sortEntries, trail, typeSelect, viewFor, within, type FinderView, type Selection, type Sort } from "./model.js";
@@ -608,7 +608,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     return (
       <ListView
         rows={listRows}
-        widthsKey={sidebar ? LIST_WIDTHS_KEY : PANEL_WIDTHS_KEY}
+        layout={sidebar ? FILES_LAYOUT : PANEL_LAYOUT}
         sort={sort}
         onSort={setSort}
         h={h}
