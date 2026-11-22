@@ -27,6 +27,9 @@ const EXT_KIND: Record<string, string> = {
   zip: "ZIP archive", tar: "Tar archive", gz: "Gzip archive", tgz: "Gzip archive", db: "Database", sqlite: "SQLite database",
 };
 
+/** A new sort by `key`: the same key turns it round; dates and sizes start newest and largest. */
+export const sortBy = (sort: Sort, key: SortKey): Sort => ({ key, desc: sort.key === key ? !sort.desc : key === "modified" || key === "size" });
+
 export function extOf(name: string): string {
   const dot = name.lastIndexOf(".");
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";

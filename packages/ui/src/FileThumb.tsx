@@ -96,7 +96,8 @@ export function Thumb({ path, name, edge = 256, iconSize = 30, version }: { path
   return (
     <div className={`files-thumb${url && !failed ? " has-picture" : ""}${url && !previewable(name) && !isSvgPath(name) ? " is-document" : ""}`} ref={box}>
       {url && !failed ? (
-        <img src={url} alt={name} loading="lazy" draggable={false} />
+        // Bytes that do not decode (a file named .png that is not one) fall back to the kind's mark.
+        <img src={url} alt={name} loading="lazy" draggable={false} onError={() => setFailed(true)} />
       ) : (
         <FileIcon name={name} kind="file" size={iconSize} />
       )}

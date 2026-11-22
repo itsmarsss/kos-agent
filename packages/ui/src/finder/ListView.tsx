@@ -1,13 +1,13 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 
 import { ChevronRight, Skeleton } from "@kos/kit";
 import { bytesWords } from "@kos/shared";
 
 import type { DirEntry } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
-import { LIST_COLUMNS, LIST_WIDTHS_KEY, useColumns } from "./columns.js";
-import { dateWords, kindOf, parentOf, type Sort, type SortKey } from "./model.js";
-import { EntryName, rowProps, type RowHandlers } from "./rows.js";
+import { FILES_LAYOUT, useColumns, type ColumnLayout } from "./columns.js";
+import { dateWords, kindOf, parentOf, sortBy, type Sort, type SortKey } from "./model.js";
+import { EntryName, rowProps, stateClass, type RowHandlers } from "./rows.js";
 
 /**
  * The list: a row per thing, sortable by any column, a folder opening in
@@ -26,27 +26,25 @@ export interface ListRow {
   match?: string;
 }
 
-const COLUMNS: { key: SortKey; label: string }[] = [
-  { key: "name", label: "Name" },
-  { key: "modified", label: "Date Modified" },
-  { key: "size", label: "Size" },
-  { key: "kind", label: "Kind" },
-];
+const LABELS: Record<SortKey, string> = { name: "Name", modified: "Date Modified", size: "Size", kind: "Kind" };
 
 /** The rows drawn while a folder is read: a few names of a few lengths, as a folder has. */
 const READING_WIDTHS = ["42%", "30%", "55%", "36%", "48%", "26%"];
 
-export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = false, widthsKey = LIST_WIDTHS_KEY }: { rows: ListRow[]; sort: Sort; onSort: (sort: Sort) => void; onToggle?: (entry: DirEntry) => void; h: RowHandlers; empty: string; /** The folder is still being read: rows in its shape, not words. */ reading?: boolean; /** Where the columns' widths are kept: one place a Finder is drawn's apart from another's. */ widthsKey?: string }): ReactElement {
-  const cols = useColumns(widthsKey, LIST_COLUMNS);
+export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = false, layout = FILES_LAYOUT }: { rows: ListRow[]; sort: Sort; onSort: (sort: Sort) => void; onToggle?: (entry: DirEntry) => void; h: RowHandlers; empty: ReactNode; /** The folder is still being read: rows in its shape, not words. */ reading?: boolean; /** Its columns and where their widths are kept: one place a Finder is drawn's apart from another's. */ layout?: ColumnLayout }): ReactElement {
+  const cols = useColumns(layout);
+  const keys: SortKey[] = ["name", ...(cols.shown as SortKey[])];
+  const cell = (key: SortKey, entry: DirEntry): ReactNode =>
+    key === "modified" ? dateWords(entry.modifiedAt) : key === "size" ? (entry.kind === "file" ? bytesWords(entry.size) : "--") : kindOf(entry);
   return (
     <div className="finder-list" role="grid" aria-multiselectable="true" aria-label="Files" aria-rowcount={rows.length} style={cols.style}>
       <div className="finder-list-head" role="row" ref={cols.headRef}>
-        {COLUMNS.map((c) => (
-          <div key={c.key} role="columnheader" data-head={c.key} className={`finder-col finder-col--${c.key}`} aria-sort={sort.key === c.key ? (sort.desc ? "descending" : "ascending") : "none"}>
-            {cols.divider(c.key)}
-            <button type="button" className="finder-col-label" data-col={c.key} onClick={() => onSort({ key: c.key, desc: sort.key === c.key ? !sort.desc : c.key === "modified" || c.key === "size" })}>
-              {c.label}
-              {sort.key === c.key && <span className={`finder-sort${sort.desc ? " is-desc" : ""}`} aria-hidden="true" />}
+        {keys.map((key) => (
+          <div key={key} role="columnheader" data-head={key} className={`finder-col finder-col--${key}`} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : "none"}>
+            {cols.divider(key)}
+            <button type="button" className="finder-col-label" data-col={key} onClick={() => onSort(sortBy(sort, key))}>
+              {LABELS[key]}
+              {sort.key === key && <span className={`finder-sort${sort.desc ? " is-desc" : ""}`} aria-hidden="true" />}
             </button>
           </div>
         ))}
@@ -59,18 +57,18 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
             ))}
           </div>
         ) : (
-          <p className="finder-empty">{empty}</p>
+          <div className="finder-empty">{empty}</div>
         ))}
       {rows.map(({ entry, depth, open, where, match }) => (
         <div
           key={entry.path}
           role="row"
-          className={`finder-row${h.selected.has(entry.path) ? " is-selected" : ""}${h.lead === entry.path ? " is-lead" : ""}${h.over === entry.path ? " is-drop" : ""}`}
+          className={`finder-row${stateClass(entry, h)}`}
           {...rowProps(entry, h)}
           {...h.drag(entry)}
           {...(entry.kind === "dir" ? h.drop(entry.path) : {})}
         >
-          <span role="gridcell" className="finder-col finder-col--name" style={{ paddingLeft: `calc(${depth} * 1.15rem + 0.35rem)` }}>
+          <span role="gridcell" className="finder-col finder-col--name" style={{ paddingLeft: `calc(${depth} * var(--finder-indent) + 0.35rem)` }}>
             {entry.kind === "dir" && onToggle && where === undefined ? (
               <button
                 type="button"
@@ -93,15 +91,11 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
               {(where !== undefined || match) && <span className="finder-where">{match ?? (where === "." ? "Workspace" : where ?? parentOf(entry.path))}</span>}
             </span>
           </span>
-          <span role="gridcell" className="finder-col finder-col--modified" data-col="modified">
-            {dateWords(entry.modifiedAt)}
-          </span>
-          <span role="gridcell" className="finder-col finder-col--size" data-col="size">
-            {entry.kind === "file" ? bytesWords(entry.size) : "--"}
-          </span>
-          <span role="gridcell" className="finder-col finder-col--kind" data-col="kind">
-            {kindOf(entry)}
-          </span>
+          {keys.slice(1).map((key) => (
+            <span key={key} role="gridcell" className={`finder-col finder-col--${key}`} data-col={key}>
+              {cell(key, entry)}
+            </span>
+          ))}
         </div>
       ))}
     </div>

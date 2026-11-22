@@ -5,7 +5,7 @@ import { ChevronRight } from "@kos/kit";
 import type { DirEntry } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { FileFacts } from "./FileFacts.js";
-import { EntryName, rowProps, type RowHandlers } from "./rows.js";
+import { EntryName, rowProps, stateClass, type RowHandlers } from "./rows.js";
 
 /**
  * Columns: the path as panes side by side, each folder's contents beside the
@@ -37,7 +37,7 @@ export function ColumnsView({ columns, preview, rootName, h, actions }: { column
             <div
               key={entry.path}
               role="option"
-              className={`finder-crow${h.selected.has(entry.path) ? " is-selected" : ""}${col.chosen === entry.path ? " is-chosen" : ""}${h.lead === entry.path ? " is-lead" : ""}${h.over === entry.path ? " is-drop" : ""}`}
+              className={`finder-crow${stateClass(entry, h)}${col.chosen === entry.path ? " is-chosen" : ""}`}
               {...rowProps(entry, h)}
               {...h.drag(entry)}
               {...(entry.kind === "dir" ? h.drop(entry.path) : {})}

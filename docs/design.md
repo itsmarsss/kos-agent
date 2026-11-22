@@ -168,6 +168,15 @@ and the dashboard's `styles.css` draw the same things.
 - **Menu.** `panel`, `line-strong` border, radius 10, 3 px padding, the
   floating shadow; rows radius 7, `panel-2` under the pointer, the current
   one on a dim accent tint.
+- **File list.** Finder's: rows 28 (38 under a finger), zebra at 2.5%, 5%
+  under the pointer, the chosen row the accent at 26% while the list has the
+  keys and grey when it does not; a row being dragged at 45%. A name is one
+  line, cut in the middle with its extension kept, the whole name its
+  tooltip; never clipped. Columns after Name hide by rank as the list
+  narrows (Kind, then Date, then Size) rather than crowd it. A path is cut
+  from the left, the outer folders giving way first. The bar is one row at
+  any width; narrow, by the Finder's own width and not the window's, its
+  tools fold into one ⋯ menu.
 - **Approval.** What waits on the owner says so in `warn` (a 45% edge); an
   ask to work in a tab or to read it is the accent. The face, the task in a
   quiet box, the choices as chips, Deny then Allow, and a countdown bar the

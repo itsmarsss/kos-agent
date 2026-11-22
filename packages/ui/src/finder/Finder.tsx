@@ -1,26 +1,29 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactElement } from "react";
 
-import { NavIcon } from "@kos/kit";
+import { NavIcon, useOverlayScroll } from "@kos/kit";
 
 import { Toast } from "../Toast.js";
 import { api, type Attachment, type DirEntry, type FileSearch, type Project } from "../api.js";
 import { Drawer } from "../Drawer.js";
 import { ProjectMark } from "../ProjectMark.js";
 import { Select } from "../Select.js";
+import { FileIcon } from "../FileIcon.js";
 import { FilePreview } from "../FilePreview.js";
 import { ColumnsView, type Column } from "./ColumnsView.js";
 import { FileFacts } from "./FileFacts.js";
 import { GalleryView } from "./GalleryView.js";
-import { LIST_WIDTHS_KEY, PANEL_WIDTHS_KEY } from "./columns.js";
+import { FILES_LAYOUT, PANEL_LAYOUT } from "./columns.js";
 import { ListView, type ListRow } from "./ListView.js";
 import { FinderMenu, type MenuItem } from "./Menu.js";
-import { EMPTY_SELECTION, clickSelect, freeName, kindOf, moveLead, nameOf, only, parentOf, rememberView, sortEntries, trail, typeSelect, viewFor, within, type FinderView, type Selection, type Sort } from "./model.js";
+import { EMPTY_SELECTION, clickSelect, freeName, kindOf, moveLead, nameOf, only, parentOf, rememberView, sortBy, sortEntries, trail, typeSelect, viewFor, within, type FinderView, type Selection, type Sort } from "./model.js";
 import { MoveDialog } from "./MoveDialog.js";
 import { useFinderOps } from "./ops.js";
+import { Crumbs, pathWords, type Crumb } from "./Crumbs.js";
 import { PathBar } from "./PathBar.js";
+import { reveal } from "./reveal.js";
 import type { RowHandlers } from "./rows.js";
 import { Sidebar, samePlace, type Place } from "./Sidebar.js";
-import { Toolbar } from "./Toolbar.js";
+import { SORT_CHOICES, Toolbar } from "./Toolbar.js";
 import { TrashView } from "./TrashView.js";
 import { useFolders } from "./useFolders.js";
 
@@ -63,6 +66,7 @@ const SORT_KEY = "kos.finder.sort";
 /** Below this the finder is one column: no sidebar, no columns view, the preview a sheet. */
 const NARROW_PX = 640;
 const TYPE_RESET_MS = 900;
+const VIEW_WORDS: Record<FinderView, string> = { list: "as List", columns: "as Columns", gallery: "as Icons" };
 
 function readSort(): Sort {
   try {
@@ -103,6 +107,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
 
   const frame = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLDivElement>(null);
+  const mainScroll = useOverlayScroll(main);
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
     const el = frame.current;
@@ -132,6 +137,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   const [infoPath, setInfoPath] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[]; label: string } | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  const [dragged, setDragged] = useState<ReadonlySet<string>>(new Set());
   const [moving, setMoving] = useState<string[] | null>(null);
   const [query, setQuery] = useState("");
   const [contents, setContents] = useState(false);
@@ -274,7 +280,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   useEffect(() => {
     if (!sel.lead) return;
     const lead = sel.lead;
-    [...(main.current?.querySelectorAll<HTMLElement>("[data-path]") ?? [])].find((el) => el.dataset.path === lead)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    const row = [...(main.current?.querySelectorAll<HTMLElement>("[data-path]") ?? [])].find((el) => el.dataset.path === lead);
+    if (row) reveal(row);
   }, [sel.lead]);
 
   const ops = useFinderOps({
@@ -334,6 +341,17 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     if (!kept) items.push({ label: "Move to Trash", act: () => trashChosen(paths), danger: true, divided: true, keys: "⌘⌫" });
     return items;
   };
+  /** The narrow bar's menu: how it is shown and sorted, then what the wide bar's buttons and Actions do. */
+  const moreItems = (): MenuItem[] => {
+    const views: MenuItem[] = place.kind === "folder" && !found ? (narrow ? (["list", "gallery"] as const) : (["list", "columns", "gallery"] as const)).map((v) => ({ label: VIEW_WORDS[v], act: () => pickView(v), checked: view === v })) : [];
+    const sorts: MenuItem[] = SORT_CHOICES.map((c, i) => ({ label: `Sort by ${c.label}`, act: () => setSort(sortBy(sort, c.value)), checked: sort.key === c.value, keys: sort.key === c.value ? (sort.desc ? "↓" : "↑") : "", divided: i === 0 && views.length > 0 }));
+    const acts = (chosen.length ? itemsFor(chosen) : place.kind === "folder" ? folderItems() : []).map((item, i) => (i === 0 ? { ...item, divided: true } : item));
+    return [...views, ...sorts, ...acts];
+  };
+  const menuUnder = (button: HTMLElement, items: MenuItem[], label: string): void => {
+    const r = button.getBoundingClientRect();
+    setMenu({ at: { x: r.right, y: r.bottom + 4 }, items, label });
+  };
   const folderItems = (): MenuItem[] => [
     { label: "New Folder", act: () => void startNewFolder(), keys: "⇧⌘N" },
     { label: "Upload Files…", act: () => picker.current?.click() },
@@ -372,6 +390,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     lead: sel.lead,
     editing,
     over,
+    dragged,
     press: (e, entry) => {
       if (editing) return;
       main.current?.focus({ preventScroll: true });
@@ -409,10 +428,12 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
         e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ token: dragging, paths }));
         e.dataTransfer.setData("text/plain", paths.join("\n"));
         e.dataTransfer.effectAllowed = "move";
+        setDragged(new Set(paths));
       },
       // After the drop, if there was one: a later drop of the same data is no longer ours.
       onDragEnd: () => {
         dragging = null;
+        setDragged(new Set());
       },
     }),
     drop: dropInto,
@@ -569,7 +590,18 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   const loading = place.kind === "folder" && !found && !folders.get(folder).entries && !folders.get(folder).error;
   const folderError = place.kind === "folder" ? folders.get(folder).error : undefined;
   const title = found ? `Searching “${query.trim()}”` : place.kind === "recents" ? "Recents" : place.kind === "trash" ? "Trash" : folder === root ? rootName : nameOf(folder);
-  const empty = found ? (found.entries.length ? "" : `Nothing ${contents ? "holds" : "is named"} “${query.trim()}” here.`) : place.kind === "recents" ? "Nothing has changed lately." : folderError ?? "This folder is empty.";
+  const emptyWords = found ? (found.entries.length ? "" : `Nothing ${contents ? "holds" : "is named"} “${query.trim()}” here.`) : place.kind === "recents" ? "Nothing has changed lately." : folderError ?? "This folder is empty.";
+  /** An empty folder says how things get in; anything else just says what it found. */
+  const empty =
+    place.kind === "folder" && !found && !folderError ? (
+      <>
+        <FileIcon name="" kind="dir" size={30} />
+        <span>{emptyWords}</span>
+        <span className="finder-empty-hint">Drop files here, or use Upload.</span>
+      </>
+    ) : (
+      emptyWords
+    );
   /** Still reading what to list: rows in its shape stand in for it. */
   const reading = !found && ((place.kind === "recents" && recents === null) || loading);
   const count = place.kind === "folder" && !found ? (entriesOf(folder)?.length ?? 0) : ordered.length;
@@ -577,6 +609,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   const making = place.kind === "folder";
   const lookPath = looking && lead?.kind === "file" ? lead.path : null;
   const sidebarShown = sidebar && !narrow;
+  const crumbs: Crumb[] = trail(folder, root, rootName).map((s, i, all) => (i === all.length - 1 ? { key: s.path, name: s.name, here: true } : { key: s.path, name: s.name, go: () => go({ kind: "folder", path: s.path }), drop: dropInto(s.path), over: over === s.path }));
 
   const body = (): ReactElement => {
     if (place.kind === "trash") return <TrashView key={trashTick} rootName={rootName} onChanged={() => folders.reload()} onError={setErrorNote} onCount={setTrashCount} />;
@@ -608,7 +641,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     return (
       <ListView
         rows={listRows}
-        widthsKey={sidebar ? LIST_WIDTHS_KEY : PANEL_WIDTHS_KEY}
+        layout={sidebar ? FILES_LAYOUT : PANEL_LAYOUT}
         sort={sort}
         onSort={setSort}
         h={h}
@@ -648,14 +681,16 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
               ]}
               onChange={(v) => go(v === "recents" ? { kind: "recents" } : v === "trash" ? { kind: "trash" } : { kind: "folder", path: v.slice(2) })}
             />
+          ) : place.kind === "folder" && !found ? (
+            <Crumbs items={crumbs} label="Where you are" className="finder-where-crumbs" title={pathWords(crumbs.map((c) => c.name))} />
           ) : (
-            title
+            <span className="finder-title-words">{title}</span>
           )
         }
         {...(step(-1) ? { back: step(-1) } : {})}
         {...(step(1) ? { forward: step(1) } : {})}
         {...(place.kind === "folder" ? { view } : {})}
-        sortable={place.kind !== "trash"}
+        sortMenu={place.kind === "folder" && !found && view !== "list"}
         views={narrow ? ["list", "gallery"] : ["list", "columns", "gallery"]}
         onView={pickView}
         sort={sort}
@@ -670,17 +705,15 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
         {...(place.kind !== "trash" ? { onInfo: () => setInfoPath(lead?.path ?? here) } : {})}
         {...(place.kind !== "trash"
           ? {
-              onActions: (button: HTMLElement) => {
-                const r = button.getBoundingClientRect();
-                setMenu({ at: { x: r.left, y: r.bottom + 4 }, items: chosen.length ? itemsFor(chosen) : folderItems(), label: "Actions" });
-              },
+              onActions: (button: HTMLElement) => menuUnder(button, chosen.length ? itemsFor(chosen) : folderItems(), "Actions"),
+              onMore: (button: HTMLElement) => menuUnder(button, moreItems(), "More"),
             }
           : {})}
       />
       <div className="finder-body">
         {sidebarShown && <Sidebar place={place} go={go} top={top} projects={projects} drop={dropInto} over={over} dropOnTrash={dropOnTrash} trashOver={over === "#trash"} />}
         <div
-          ref={main}
+          ref={mainScroll}
           className={`finder-main${over === here && place.kind === "folder" ? " is-drop" : ""}`}
           tabIndex={0}
           aria-label={`${title}, ${status}`}
@@ -702,10 +735,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
       </div>
       {place.kind === "trash" ? (
         <div className="finder-pathbar">
-          <span className="finder-path finder-path-leaf">
-            <NavIcon name="trash" />
-            Trash
-          </span>
+          <Crumbs items={[{ key: "trash", name: "Trash", icon: <NavIcon name="trash" />, here: true }]} label="Path" className="finder-path" title="Trash" />
           <span className="finder-status">{`${trashCount} item${trashCount === 1 ? "" : "s"}`}</span>
         </div>
       ) : (

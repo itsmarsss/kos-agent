@@ -8,9 +8,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 /**
  * The Finder's columns in a real Chrome, with the dashboard's own sheets:
  * a fit measures what a cell draws, narrower as well as wider; a Finder
- * narrower than the kept widths narrows the other columns before Name goes
- * under its least; and a drag moves the grid on the list while the pointer
- * is down, keeping the width when it is let go. Skipped without Chrome.
+ * too narrow for every column hides them by rank; a long name is cut in
+ * the middle to what is drawn; and a drag moves the grid on the list while
+ * the pointer is down, keeping the width when it is let go. Skipped
+ * without Chrome.
  */
 
 const CHROME = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium"].find((p) => existsSync(p));
@@ -130,25 +131,37 @@ describe.skipIf(!CHROME)("the Finder's columns in a real Chrome", () => {
     expect(await fits("kind")).toBe(true);
   });
 
-  it("narrows the other columns before Name in a Finder too narrow for the kept widths", async () => {
-    await mount(1000, ["a.md"], { modified: 400, size: 300, kind: 300 });
-    const [name, modified, size, kind] = await drawn();
-    expect(name).toBeGreaterThanOrEqual(176);
-    expect(modified! + size! + kind!).toBeLessThan(1000);
-    expect(await value<boolean>(`(() => { const l = document.querySelector('.finder-list'); return l.scrollWidth <= l.clientWidth; })()`)).toBe(true);
-    // Just above the width where the list turns to one column: Name at its least, the others sharing the rest, none under theirs.
-    await mount(660, ["a.md"], { modified: 400, size: 300, kind: 300 });
-    const narrow = await drawn();
-    expect(narrow[0]).toBe(176);
-    expect(narrow[1]).toBeGreaterThanOrEqual(96);
-    expect(narrow[2]).toBeGreaterThanOrEqual(56);
-    expect(narrow[3]).toBeGreaterThanOrEqual(72);
-    expect(await value<boolean>(`(() => { const l = document.querySelector('.finder-list'); return l.scrollWidth <= l.clientWidth; })()`)).toBe(true);
-    // What a divider says it can reach is what the room allows, not the most any column may be.
+  it("hides Kind, then Date, then Size as the Finder narrows, never overlapping, and brings them back", async () => {
+    const heads = (): Promise<string[]> => value(`[...document.querySelectorAll('.finder-list-head [role=columnheader]')].map((c) => c.dataset.head)`);
+    const level = (): Promise<boolean> => value(`(() => { const l = document.querySelector('.finder-list'); return l.scrollWidth <= l.clientWidth; })()`);
+    for (const [width, shown] of [
+      [1000, ["name", "modified", "size", "kind"]],
+      [500, ["name", "modified", "size"]],
+      [300, ["name", "size"]],
+      [180, ["name"]],
+      [1000, ["name", "modified", "size", "kind"]],
+    ] as const) {
+      await mount(width, ["a.md"]);
+      expect(await heads()).toEqual(shown);
+      expect(await level()).toBe(true);
+      expect((await drawn())[0]).toBeGreaterThanOrEqual(Math.min(160, width - 12));
+    }
+    // What a divider says it can reach is what Name and the others leave it, not the most any column may be.
     await mount(1000, ["a.md"]);
     const max = Number(await value<string>(`document.querySelector('[aria-label="Resize Kind"]').getAttribute("aria-valuemax")`));
     const [nameNow, , , kindNow] = await drawn();
-    expect(max).toBe(Math.min(480, kindNow! + nameNow! - 176));
+    expect(max).toBe(Math.min(480, kindNow! + nameNow! - 160));
+  });
+
+  it("cuts a long name in the middle, keeping its extension, and the whole name in its tooltip", async () => {
+    const long = "Early_Careers_-_Software_Engineer_Intern_Application.pdf";
+    await mount(300, [long]);
+    await pause(50);
+    const name = await value<{ text: string; title: string; fits: boolean }>(`(() => { const n = document.querySelector('.finder-row .finder-name'); return { text: n.querySelector('[aria-hidden]')?.textContent ?? n.textContent, title: n.title, fits: n.scrollWidth <= n.clientWidth }; })()`);
+    expect(name.text).toMatch(/^Early_.+….+\.pdf$/);
+    expect(name.text.length).toBeLessThan(long.length);
+    expect(name.title).toBe(long);
+    expect(name.fits).toBe(true);
   });
 
   it("moves the grid while the pointer is down and keeps the width once it is let go", async () => {
