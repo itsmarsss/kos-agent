@@ -159,7 +159,7 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked, onAskFaile
       footer={
         <SheetFoot
           onCancel={close}
-          note={`Goes to ${owner === WORKSPACE ? "KOS" : `${ownerName}'s chat`}`}
+          note={owner === WORKSPACE ? "KOS makes it in a chat of its own" : `KOS makes it in ${ownerName}'s chat`}
           primary={
             <button type="submit" form={FORM} className="btn btn--primary" disabled={!words.trim() || sending} aria-busy={sending || undefined}>
               {sending ? "Asking…" : "Ask KOS"}
@@ -210,7 +210,7 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked, onAskFaile
         <Field label="Owner">
           <Select className="new-artifact-owner" label="Owner" value={owner} options={owners} onChange={setOwner} />
         </Field>
-        <Field label="What should it be?">
+        <Field label="Describe it" hint="In your own words, as you would ask KOS in a chat.">
           <textarea
             className="kos-input"
             rows={3}

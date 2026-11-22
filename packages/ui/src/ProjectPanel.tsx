@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import { hexOfHsl, hueOfHex, isState, kindWord } from "@kos/shared";
+import { hexOfHsl, hueOfHex, isState, kindWord, slugWords } from "@kos/shared";
 import { Card, EmptyState, lookOf, PaneHead, StatusPill } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
@@ -199,14 +199,14 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
 
       <Card className="project-panel-section" title="Tables" count={tables.length}>
         {tables.length === 0 ? (
-          <EmptyState variant="inline">No tables yet.</EmptyState>
+          <EmptyState variant="inline">No tables yet. KOS makes one when it keeps data for this project, such as a list of books.</EmptyState>
         ) : (
           <ul className="insp-rows">
             {tables.map((t) => (
               <li key={t.name}>
-                <span className="ops-mono">{t.name}</span>
+                <span title={t.name}>{slugWords(t.name.startsWith(`${project.slug}_`) ? t.name.slice(project.slug.length + 1) : t.name)}</span>
                 <span className="insp-meta">
-                  {t.rows < 0 ? "unreadable" : `${t.rows.toLocaleString()} ${t.rows === 1 ? "row" : "rows"}`}
+                  {t.rows < 0 ? "can't be read" : `${t.rows.toLocaleString()} ${t.rows === 1 ? "row" : "rows"}`}
                 </span>
               </li>
             ))}
@@ -231,7 +231,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
                 ) : (
                   <span>{site.name}</span>
                 )}
-                <span className="insp-meta">{site.hasIndex ? "live" : "no index.html"}</span>
+                <span className="insp-meta">{site.hasIndex ? "Live" : "Not live yet"}</span>
               </li>
             ))}
           </ul>

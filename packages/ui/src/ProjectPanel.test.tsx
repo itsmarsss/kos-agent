@@ -78,7 +78,7 @@ describe("the project panel", () => {
     const h = open();
     await screen.findByText("Kitchen redo");
     expect(await screen.findByText("plan.md")).toBeTruthy();
-    expect(screen.getByText("items")).toBeTruthy();
+    expect(screen.getByText("Items")).toBeTruthy();
     expect(screen.getByText("5 rows")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Kitchen board"));
@@ -92,7 +92,7 @@ describe("the project panel", () => {
     await screen.findByText("Kitchen redo");
     expect(await screen.findByText("This folder is empty.")).toBeTruthy();
     expect(screen.getByText(/No artifacts yet/)).toBeTruthy();
-    expect(screen.getByText("No tables yet.")).toBeTruthy();
+    expect(screen.getByText(/^No tables yet\./)).toBeTruthy();
     expect(screen.queryByText("Sites")).toBeNull();
   });
 
