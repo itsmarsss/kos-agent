@@ -163,3 +163,26 @@ export function TableGroup({ title, count, columns }: { title: ReactNode; count?
     </tr>
   );
 }
+
+/**
+ * The head of a pane beside a chat, a project's or a blob's alike: its mark
+ * (a project's tile, a blob's face), its name over its kind, its state at the
+ * right, what it is for under them, then whatever the pane adds (how much it
+ * holds, its buttons).
+ */
+export function PaneHead({ mark, title, sub, pill, desc, children }: { mark: ReactNode; title: string; sub?: ReactNode; pill?: ReactNode; desc?: ReactNode; children?: ReactNode }): ReactElement {
+  return (
+    <header className="pane-head">
+      <div className="pane-head-top">
+        <span className="pane-head-mark">{mark}</span>
+        <div className="pane-head-titles">
+          <h2>{title}</h2>
+          {sub && <span className="pane-head-sub">{sub}</span>}
+        </div>
+        {pill}
+      </div>
+      {desc && <p className="pane-head-desc">{desc}</p>}
+      {children}
+    </header>
+  );
+}

@@ -28,6 +28,8 @@ export function useEdgeFade<T extends HTMLElement>(selector?: string, axis: "x" 
     const seen = new ResizeObserver(mark);
     seen.observe(el);
     if (axis === "y" && el.firstElementChild) seen.observe(el.firstElementChild);
+    // A row's own box keeps its width while what is in it grows (a face loading, a count arriving): watch the items too.
+    if (axis === "x") for (const item of el.children) seen.observe(item);
     return () => {
       el.removeEventListener("scroll", mark);
       seen.disconnect();

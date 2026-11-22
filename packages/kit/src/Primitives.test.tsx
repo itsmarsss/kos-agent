@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EmptyState, noMatchWords } from "./EmptyState.js";
 import { StatusPill } from "./kit.js";
-import { GroupHead, ListHead, NotFound, SearchField, TableGroup, TableHead } from "./PageParts.js";
+import { GroupHead, ListHead, NotFound, PaneHead, SearchField, TableGroup, TableHead } from "./PageParts.js";
 import { PlacePicker, type Place } from "./PlacePicker.js";
 import { SheetFoot, SheetHead } from "./Sheet.js";
 import { When } from "./When.js";
@@ -152,5 +152,15 @@ describe("PlacePicker", () => {
     expect(onChoose).toHaveBeenLastCalledWith("p2");
     fireEvent.change(screen.getByPlaceholderText("Search places"), { target: { value: "Place 9" } });
     expect(screen.getAllByRole("radio").map((r) => r.textContent)).toEqual(["Place 9"]);
+  });
+});
+
+describe("PaneHead", () => {
+  it("heads a project's pane and a blob's alike: mark, name over kind, state, what it is for", () => {
+    const { container } = render(<PaneHead mark={<span>R</span>} title="Reading log" sub="Project" pill={<StatusPill state="active" />} desc="Books, read and to read." />);
+    expect(container.querySelector(".pane-head h2")?.textContent).toBe("Reading log");
+    expect(container.querySelector(".pane-head-sub")?.textContent).toBe("Project");
+    expect(container.querySelector(".pane-head-top .pill")?.textContent).toBe("Active");
+    expect(container.querySelector(".pane-head-desc")?.textContent).toBe("Books, read and to read.");
   });
 });

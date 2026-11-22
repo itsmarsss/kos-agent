@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import { Card, Face, lookOf, moodOf, NotFound, Pill, StatusPill, Tag, When, type Tone } from "@kos/kit";
-import { momentWords, timeWords } from "@kos/shared";
+import { Card, Face, lookOf, moodOf, NotFound, PaneHead, StatusPill, Tag, When } from "@kos/kit";
+import { momentWords, timeWords, type State } from "@kos/shared";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo } from "./api.js";
@@ -38,8 +38,8 @@ export interface AgentPanelProps {
 const POLL_MS = 5000;
 
 /** How each state reads as a pill. */
-// Quiet is muted, as STATE_WORDS has it: idle is not how something went.
-const HERO_TONE = { working: "accent", "needs-you": "warn", error: "danger", asleep: "muted", idle: "muted" } as const satisfies Record<string, Tone>;
+/** How the blob is doing, as the state its pill draws. */
+const HERO_STATE = { working: "running", "needs-you": "waiting", error: "failed", asleep: "off", idle: "idle" } as const satisfies Record<string, State>;
 
 /** How the agent is doing, in a line, with a tone for the dot beside it. */
 export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "needs-you" | "error" | "asleep" | "idle"; text: string } {
@@ -135,16 +135,20 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
 
   return (
     <aside className="project-panel agent-panel" {...(modal ? { role: "dialog", "aria-modal": true } : {})} aria-label={`${title}, the blob`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
-      {/* Who it is: its face on a glow of its own colour, and how it is doing. */}
-      <header className="hero">
-        <Face seed={agent.name} look={agent.face ?? {}} size={72} mood={moodOf(agent.thread?.activity, { paused })} />
-        <h2>{title}</h2>
-        <p className="hero-desc">{agent.description}</p>
-        <Pill tone={HERO_TONE[state.tone]}>{state.text}</Pill>
-        <button type="button" className="btn btn--sm" title="Its folder on the Files page" onClick={() => onOpenFile(agent.folder)}>
-          Open in Files
-        </button>
-      </header>
+      {/* Who it is, as a project's pane says it: its face, its name, how it is doing, what it is for. */}
+      <PaneHead
+        mark={<Face seed={agent.name} look={agent.face ?? {}} size={36} mood={moodOf(agent.thread?.activity, { paused })} />}
+        title={title}
+        sub={state.text}
+        pill={<StatusPill state={HERO_STATE[state.tone]} />}
+        desc={agent.description}
+      >
+        <div className="project-head-acts">
+          <button type="button" className="btn btn--sm" title="Its folder on the Files page" onClick={() => onOpenFile(agent.folder)}>
+            Open in Files
+          </button>
+        </div>
+      </PaneHead>
 
       <Card title="Schedule" pill={agent.job ? <StatusPill state={paused ? "off" : "on"} /> : undefined}>
         {agent.job ? (

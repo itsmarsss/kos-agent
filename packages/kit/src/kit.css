@@ -316,6 +316,16 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .table-head th.is-end { text-align: right; }
 .table-group > th { padding: 0.85rem 0.75rem 0.35rem; text-align: left; font-weight: 600; }
 
+/* —— a pane's head beside a chat (PaneHead): mark, name over kind, state, what it is for —— */
+.pane-head { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 2px; }
+.pane-head-top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.pane-head-mark { display: inline-flex; flex: none; }
+.pane-head-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pane-head-titles h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.pane-head-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-head-top .pill { flex: none; }
+.pane-head-desc { margin: 0; color: var(--muted); font-size: var(--text-base); line-height: 1.45; }
+
 /* —— a search box (SearchField): the glass, the words, a clear —— */
 .search-field { position: relative; display: flex; align-items: center; min-width: 0; }
 .search-field > svg { position: absolute; left: 0.6rem; width: 14px; height: 14px; color: var(--faint); pointer-events: none; }

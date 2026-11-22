@@ -1,6 +1,6 @@
 import { m } from "motion/react";
 import { marksOfLetters } from "@kos/shared";
-import { CloseIcon, ease, EmptyState, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, Switch, Tag, useOverlayScroll } from "@kos/kit";
+import { CloseIcon, ease, EmptyState, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, SheetFoot, Switch, Tag, useOverlayScroll } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -12,6 +12,7 @@ import type { FaceLook } from "./api.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { PageHead } from "./PageHead.js";
+import { useEdgeFade } from "./edgefade.js";
 import { FieldRow } from "./kit.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
@@ -246,24 +247,17 @@ function Section({
       <div className="set-card">
         <div className="set-card-body">{children}</div>
         {onSave && (
-          <footer className="set-card-foot">
-            <button
-              type="button"
-              className="btn btn--primary"
-              disabled={saving || canSave === false}
-              onClick={onSave}
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-            {extra}
-            {saved && (
-              <span
-                className={`set-saved ${saved === "Not saved yet" ? "is-unsaved" : ""}`}
-              >
-                {saved}
-              </span>
-            )}
-          </footer>
+          <SheetFoot
+            note={saved && <span className={`set-saved ${saved === "Not saved yet" ? "is-unsaved" : ""}`}>{saved}</span>}
+            primary={
+              <>
+                {extra}
+                <button type="button" className="btn btn--primary" disabled={saving || canSave === false} onClick={onSave}>
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </>
+            }
+          />
         )}
       </div>
     </section>
@@ -323,6 +317,8 @@ export function SettingsPage({
   const [picked, setPicked] = useState(0);
   const [found, setFound] = useState<{ label: string; n: number } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // On a phone the rail is a strip that scrolls sideways: it fades where there is more.
+  const sideFade = useEdgeFade<HTMLDivElement>(".set-rail");
   const paneRef = useRef<HTMLDivElement>(null);
   const paneScroll = useOverlayScroll(paneRef);
   const railRef = useRef<HTMLElement>(null);
@@ -678,7 +674,7 @@ export function SettingsPage({
 
   return (
     <div className="settings-page">
-      <div className="set-side">
+      <div className="set-side" ref={sideFade}>
         <div className="set-search">
           <SearchField
             inputRef={searchRef}
