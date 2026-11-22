@@ -1647,7 +1647,7 @@ export function ChatsPage({
                   {q ? (
                     <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} />
                   ) : (
-                    <EmptyState variant="inline" className="chats-empty">No chats yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
+                    <EmptyState variant="inline" loading={loading} className="chats-empty">No chats yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
                   )}
                 </li>
               )}
@@ -1709,7 +1709,7 @@ export function ChatsPage({
                     </li>
                   ))}
                 {crons.every((c) => c.projectSlug !== project.slug) && (
-                  <li><EmptyState variant="inline" className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</EmptyState></li>
+                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -1757,7 +1757,7 @@ export function ChatsPage({
                     named for the project it is in: that is what tells them apart. */}
                 {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
                 {agentInstances.length === 0 && (
-                  <li><EmptyState variant="inline" className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</EmptyState></li>
+                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -1878,7 +1878,7 @@ export function ChatsPage({
                       }
                     >
                       {ownProjects === 0 ? (
-                        <EmptyState variant="inline" className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</EmptyState>
+                        <EmptyState variant="inline" loading={loading} className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</EmptyState>
                       ) : (
                         /* A row is the project. It opens as its own page, with
                            its orchestrator and agents; nothing unfolds here. */
@@ -2004,7 +2004,7 @@ export function ChatsPage({
                       <ul className="chats-flat">
                         {filtered.map((c) => renderChat(c))}
                         {filtered.length === 0 && (
-                          <li><EmptyState variant="inline" className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</EmptyState></li>
+                          <li><EmptyState variant="inline" loading={loading} className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</EmptyState></li>
                         )}
                       </ul>
                     </RailGroup>
