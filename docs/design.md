@@ -142,7 +142,9 @@ one shadow, `0 12px 32px rgba(0,0,0,0.45)` (`--float` on the web, the only
 drop shadow the sheets may cast; a ring or an inset line is a border drawn
 another way), and a `line-strong` border. Focus
 is a 2 px accent outline 1 px out, or on a field its border turns accent with a
-3 px ring at 20%.
+3 px ring at 20%; a row inside something that scrolls draws it inside its edge
+(-2 px) so the scroll does not clip it. Nothing that takes the focus is left
+without a ring.
 
 ## Controls
 
@@ -234,7 +236,16 @@ and the dashboard's `styles.css` draw the same things.
   `.interpolatingSpring(mass: 0.9, stiffness: 420, damping: 38)`).
 - **One ease** for fades and small slides: 180 ms, cubic-bezier(0.32, 0.72,
   0, 1).
-- Hover 140 ms ease-out; press 80 ms to 0.97.
+- Hover 140 ms ease-out; press 80 ms to 0.97 (`HOVER`, `PRESS` in design.ts,
+  `--hover`, `--press`, `--press-scale` on the web). `kit.css` gives every
+  control these and the one focus ring at no weight (`:where`), so a control
+  with nothing of its own still answers; a row that spans its list answers
+  with its fill and does not shrink.
+- A page arrives there from its first frame: the one it replaces goes at
+  once, the new one settles from a fade most of the way in and an 8 px rise
+  (`pageArrive`), so a switch never shows an empty frame. An approval arrives
+  and leaves with a fade and an 8 px rise (`rise`), the ones under it moving
+  up at once.
 - Content arrives with a fade and an 8 px rise; something that floats (a
   menu, a popover, a sheet) with a fade and a scale from 0.98.
 - Nothing waits on an animation to finish; reduced motion turns them off.

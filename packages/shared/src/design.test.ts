@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { GAITS } from "./blobmotion.js";
-import { COLOURS, FLOAT_SHADOW, isDrawnTheme, isThemeMode, LIGHT_COLOURS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TYPE, type ColourToken } from "./design.js";
+import { COLOURS, FLOAT_SHADOW, HOVER, isDrawnTheme, isThemeMode, LIGHT_COLOURS, PRESS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TYPE, type ColourToken } from "./design.js";
 import { KOS_SEED, drawingOf, lookOf } from "./face.js";
 
 /**
@@ -76,6 +76,13 @@ describe("the design tokens", () => {
         expect(new RegExp(`--r-${size}:\\s*(\\d+(?:\\.\\d+)?)px`).exec(all)?.[1], `${surface} --r-${size}`).toBe(String(px));
       }
       expect(declared(all, "float"), `${surface} --float`).toBe(FLOAT_SHADOW);
+    });
+
+    it(`are the ${surface}'s one hover and one press`, () => {
+      const all = roots(css).join("\n");
+      expect(declared(all, "hover"), `${surface} --hover`).toBe(HOVER);
+      expect(declared(all, "press"), `${surface} --press`).toBe(PRESS.transition);
+      expect(declared(all, "press-scale"), `${surface} --press-scale`).toBe(String(PRESS.scale));
     });
 
     it(`are the ${surface}'s type scale, which the kit's pieces are set in`, () => {
