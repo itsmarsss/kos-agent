@@ -614,7 +614,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   /** Still reading what to list: rows in its shape stand in for it. */
   const reading = !found && ((place.kind === "recents" && recents === null) || loading);
   const count = place.kind === "folder" && !found ? (entriesOf(folder)?.length ?? 0) : ordered.length;
-  const status = `${sel.paths.length ? `${sel.paths.length} of ` : ""}${count} item${count === 1 ? "" : "s"}${found?.truncated ? ", search stopped early" : ""}`;
+  // Nothing counted while reading: "0 items" said the folder was empty before it had been read.
+  const status = reading ? "" : `${sel.paths.length ? `${sel.paths.length} of ` : ""}${count} item${count === 1 ? "" : "s"}${found?.truncated ? ", search stopped early" : ""}`;
   const making = place.kind === "folder";
   const lookPath = looking && lead?.kind === "file" ? lead.path : null;
   const sidebarShown = sidebar && !narrow;
