@@ -1,4 +1,4 @@
-import { slugWords, timeWords } from "@kos/shared";
+import { kindWord, slugWords, timeWords } from "@kos/shared";
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { Chips, CloseIcon, Count, EditIcon, EmptyState, Field, GroupHead, IconButton, PinIcon, SheetFoot, Tag, UnpinIcon } from "@kos/kit";
@@ -35,6 +35,8 @@ export interface KnowledgePageProps {
   onQuery: (query: string) => void;
   /** Projects by slug from the manifest, so a project's claims are headed by its name; absent until it is read. */
   projectNames?: ReadonlyMap<string, string>;
+  /** Not read yet: a skeleton where the claims will be, never "Nothing remembered yet." */
+  loading?: boolean;
   onChanged: () => void;
   /** Says what an action did (Pinned, Forgot), for a toast. */
   onNotice?: (text: string) => void;
@@ -61,7 +63,7 @@ export function sourceWord(source: string | null | undefined): string | null {
 export function describeScope(scope: string | undefined): string {
   if (!scope || scope === "global") return "everywhere";
   if (scope.startsWith("project:")) return `project ${scope.slice("project:".length)}`;
-  if (scope.startsWith("caller:")) return `caller ${scope.slice("caller:".length)}`;
+  if (scope.startsWith("caller:")) return `the app ${scope.slice("caller:".length)}`;
   return scope;
 }
 
@@ -71,7 +73,7 @@ export function describeSource(source: string | null | undefined): string {
   if (source === "dashboard") return "you, here";
   if (source === "chat") return "a chat";
   if (source.startsWith("cron:")) return "a schedule";
-  if (source.startsWith("caller:")) return `the ${source.slice("caller:".length)} caller`;
+  if (source.startsWith("caller:")) return `the app ${source.slice("caller:".length)}`;
   if (source.startsWith("project:")) return `the ${source.slice("project:".length)} orchestrator`;
   return source.replace(/:owner$/, "");
 }
@@ -99,7 +101,7 @@ function placeOf(scope: string, names: ReadonlyMap<string, string> | undefined):
     const name = names.get(slug);
     return name ? { title: name, kind: "Project", rank: 1, project: slug } : { title: slug, kind: "No such project", rank: 1, unknown: true };
   }
-  if (scope.startsWith("caller:")) return { title: scope.slice("caller:".length), kind: "Caller", rank: 3 };
+  if (scope.startsWith("caller:")) return { title: scope.slice("caller:".length), kind: "Other app", rank: 3 };
   // A bare project slug, as some writers keep it: the project by its name.
   const named = names?.get(scope);
   if (named) return { title: named, kind: "Project", rank: 1, project: scope };
@@ -194,7 +196,7 @@ function splitTags(text: string): string[] {
     .filter(Boolean);
 }
 
-export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: setQuery, projectNames, onChanged, onNotice }: KnowledgePageProps): ReactElement {
+export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: setQuery, projectNames, loading = false, onChanged, onNotice }: KnowledgePageProps): ReactElement {
   const kindsRef = useEdgeFade<HTMLDivElement>(".chips");
   const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);
@@ -356,8 +358,8 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
             void save();
           }}
         >
-          <Field label="Key" required hint="A short name to find it by, such as deploy_target.">
-            <input className="kos-input kos-mono" autoFocus value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
+          <Field label="Name" required hint="A short name KOS finds it by, such as home city. Saying it again under the same name updates it.">
+            <input className="kos-input" autoFocus placeholder="Home city" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
           </Field>
           <Field label="What to remember" required>
             <input className="kos-input" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
@@ -368,7 +370,8 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
         </form>
       </Modal>
 
-      {facts.length === 0 && (
+      {loading && facts.length === 0 && <EmptyState loading className="know-empty" />}
+      {!loading && facts.length === 0 && (
         <EmptyState title="Nothing remembered yet." className="know-empty">
           KOS keeps what you tell it and what its agents work out, for every chat to read. Pin what should be in every conversation.{" "}
           <button type="button" className="link" onClick={() => onAdding(true)}>
@@ -412,22 +415,22 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
                       <span className="know-value">{f.value}</span>
                     </span>
                     <span className="know-meta">
-                      <code className="know-key">{f.key}</code>
+                      <span className="know-key" title={f.key}>{slugWords(f.key)}</span>
                       {sourceWord(f.source) && <span className="know-from">from {sourceWord(f.source)}</span>}
-                      {f.kind !== "fact" && <Tag>{f.kind}</Tag>}
+                      {f.kind !== "fact" && <Tag>{kindWord(f.kind)}</Tag>}
                       {(f.tags ?? []).length > 0 && <span className="know-tags">{f.tags!.join(", ")}</span>}
                       {f.updatedAt ? <span className="know-when">{timeWords(f.updatedAt)}</span> : null}
                     </span>
                   </button>
                   <span className="know-acts">
-                    <IconButton tabIndex={-1} label={f.pinned ? `Unpin ${f.key}` : `Pin ${f.key}`} title={f.pinned ? "Unpin" : "Pin to every conversation"} onClick={() => togglePin(f)}>
+                    <IconButton tabIndex={-1} label={f.pinned ? `Unpin ${slugWords(f.key)}` : `Pin ${slugWords(f.key)}`} title={f.pinned ? "Unpin" : "Pin to every conversation"} onClick={() => togglePin(f)}>
                       {f.pinned ? <UnpinIcon size={14} title="" /> : <PinIcon size={14} title="" />}
                     </IconButton>
-                    <IconButton tabIndex={-1} label={`Edit ${f.key}`} title="Edit" onClick={() => startEdit(f)}>
+                    <IconButton tabIndex={-1} label={`Edit ${slugWords(f.key)}`} title="Edit" onClick={() => startEdit(f)}>
                       <EditIcon size={14} title="" />
                     </IconButton>
                     <ConfirmButton
-                      label={`Forget ${f.key}`}
+                      label={`Forget ${slugWords(f.key)}`}
                       title="Forget"
                       tabIndex={-1}
                       icon={<CloseIcon size={14} title="" />}
@@ -461,8 +464,8 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
 
       <Drawer
         open={open !== null}
-        title={open?.key ?? ""}
-        {...(open ? { subtitle: [open.kind, describeScope(open.scope), open.updatedAt ? `updated ${timeWords(open.updatedAt)}` : null].filter(Boolean).join(" · ") } : {})}
+        title={open ? slugWords(open.key) : ""}
+        {...(open ? { subtitle: [kindWord(open.kind), describeScope(open.scope), open.updatedAt ? `updated ${timeWords(open.updatedAt)}` : null].filter(Boolean).join(" · ") } : {})}
         onClose={() => {
           setOpen(null);
           setEdit(null);
@@ -498,9 +501,9 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
         {open && edit && (
           <div className="know-detail">
             <label className="kos-field">
-              <span className="kos-field-label">Key</span>
-              <input className="kos-input kos-mono" value={edit.key} onChange={(e) => setEdit({ ...edit, key: e.target.value })} />
-              <span className="hint">What the agent looks it up by. Changing it writes the entry under the new name and forgets the old one.</span>
+              <span className="kos-field-label">Name</span>
+              <input className="kos-input" value={edit.key} onChange={(e) => setEdit({ ...edit, key: e.target.value })} />
+              <span className="hint">What KOS finds it by. Changing it keeps it under the new name and forgets the old one.</span>
             </label>
             <label className="kos-field">
               <span className="kos-field-label">Value</span>
@@ -530,10 +533,10 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
             {/* The whole of it: the row shows one line. */}
             <p className="know-detail-value">{open.value}</p>
             <dl className="know-detail-rows">
-              <dt>Key</dt>
-              <dd className="kos-mono">{open.key}</dd>
+              <dt>Name</dt>
+              <dd title={open.key}>{slugWords(open.key)}</dd>
               <dt>Kind</dt>
-              <dd>{open.kind}</dd>
+              <dd>{kindWord(open.kind)}</dd>
               <dt>Tags</dt>
               <dd>
                 {(open.tags ?? []).length ? (

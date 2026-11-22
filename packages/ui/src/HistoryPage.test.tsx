@@ -1,7 +1,17 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { AuditRecord, RunRecord } from "./api.js";
-import { dayLabel, merge, runKind } from "./HistoryPage.js";
+import { dayLabel, HistoryPage, merge, runKind } from "./HistoryPage.js";
+
+beforeAll(() => {
+  // jsdom has no ResizeObserver; the page's search box and scrollbar watch their size with one.
+  vi.stubGlobal("ResizeObserver", class { observe(): void {} unobserve(): void {} disconnect(): void {} });
+  window.matchMedia ??= (() => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined })) as unknown as typeof window.matchMedia;
+});
+
+afterEach(cleanup);
 
 const DAY = 86_400_000;
 
@@ -84,8 +94,40 @@ describe("day labels", () => {
 
 describe("run kinds", () => {
   it("names a run's kind as the owner would, never the table's word", () => {
-    expect(runKind("chat")).toBe("Turn");
+    expect(runKind("chat")).toBe("Chat");
     expect(runKind("cron")).toBe("Schedule");
     expect(runKind("memory.facts")).toBe("Memory");
+  });
+});
+
+describe("the Runs rows", () => {
+  it("say a step by what it did and to what, never its tool's name, an id or its arguments", () => {
+    const at = Date.now();
+    render(
+      <HistoryPage
+        tools={[
+          { id: 1, tool: "files.ls", args: JSON.stringify({ path: "notes" }), result: "", isError: false, createdAt: at },
+          { id: 2, tool: "secrets.write", args: JSON.stringify({ handle: "visa-ending-4242-d6xh", kind: "card", fields: ["number"] }), result: "", isError: false, createdAt: at - 1 },
+          { id: 3, tool: "artifact.trash", args: JSON.stringify({ id: "reading-shelf" }), result: "", isError: false, createdAt: at - 2 },
+        ]}
+        runs={[{ id: 9, kind: "chat", ref: "c1", status: "error", error: "tool error: ENOENT: no such file or directory, open '/Users/me/ws/notes/missing-file.md'", startedAt: at - 3 } as never]}
+        crons={[]}
+        onOpenTool={() => {}}
+        onOpenRun={() => {}}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(screen.getByText("List files")).toBeTruthy();
+    expect(screen.getByText("Save a secret")).toBeTruthy();
+    expect(screen.getByText("Move an artifact to the trash")).toBeTruthy();
+    expect(text).toContain("There is no file or folder called “missing-file.md”.");
+    for (const leak of ["files.ls", "secrets.write", "handle=", "reading-shelf", "/Users/", "ENOENT"]) expect(text).not.toContain(leak);
+  });
+
+  it("show where the rows will be while they are read, never Nothing has happened yet", () => {
+    render(<HistoryPage loading tools={[]} runs={[]} crons={[]} onOpenTool={() => {}} onOpenRun={() => {}} />);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Nothing has happened yet.");
+    expect(document.body.textContent).not.toContain("0 of 0");
   });
 });

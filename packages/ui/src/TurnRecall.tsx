@@ -195,7 +195,7 @@ export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | n
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => (open ? close() : setOpenAt(recalled.at))}
-        title="What the last turn was given from memory"
+        title="What KOS remembered for your last message: things it knows about you and notes from past chats. Press to see them."
         aria-label={`Memory: ${counts}`}
       >
         <MemoryGlyph />

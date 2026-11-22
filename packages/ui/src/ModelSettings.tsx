@@ -6,8 +6,9 @@ import { Select } from "./Select.js";
 /**
  * Which model answers, how hard it thinks, and how much it may write.
  *
- * The task classes the router dispatches on: reasoning is every real turn,
- * cheap is the salience pass that decides what to remember, and screen work is
+ * The task classes the router dispatches on, named for the owner: the model
+ * for thinking is every real turn, the cheap model the salience pass that
+ * decides what to remember, and the screen model is
  * the looking and clicking a turn hands on once it has chosen what to do there.
  * The model list is fetched from the provider rather than kept here, since a
  * hard-coded list is how the OpenAI route sat on gpt-4o long after better
@@ -17,9 +18,9 @@ import { Select } from "./Select.js";
 type TaskKey = "reasoning" | "cheap" | "screen";
 
 const TASKS: Array<{ key: TaskKey; label: string; hint: string }> = [
-  { key: "reasoning", label: "Reasoning", hint: "every chat turn and schedule" },
-  { key: "cheap", label: "Cheap", hint: "deciding what is worth remembering" },
-  { key: "screen", label: "Screen work", hint: "the clicks and looks on a computer or in Chrome; the reasoning model unless you choose another" },
+  { key: "reasoning", label: "The model for thinking", hint: "answers every chat and runs every schedule" },
+  { key: "cheap", label: "The cheap model", hint: "small tasks, like deciding what is worth remembering" },
+  { key: "screen", label: "The screen model", hint: "clicks and looks on a computer or in Chrome; the thinking model unless you pick another" },
 ];
 
 export function ModelSettings({
@@ -93,7 +94,7 @@ export function ModelSettings({
       .saveModelSettings(saved)
       .then(() => {
         setStored(saved);
-        setStatus("Saved. Takes effect on the next turn.");
+        setStatus("Saved. Used from the next message.");
       })
       .catch((err: unknown) =>
         setStatus(err instanceof Error ? err.message : String(err)),
@@ -128,8 +129,8 @@ export function ModelSettings({
                 label="Provider"
                 value={setting.provider ?? ""}
                 options={[
-                  { value: "", label: `current (${route?.provider ?? "default"})` },
-                  ...providers.map((p) => ({ value: p, label: p === "custom" ? "custom endpoint" : p })),
+                  { value: "", label: route?.provider ? `As now (${route.provider})` : "The usual one" },
+                  ...providers.map((p) => ({ value: p, label: p === "custom" ? "your own server" : p })),
                 ]}
                 onChange={(provider) => update(key, { provider: provider || undefined })}
               />
@@ -140,7 +141,7 @@ export function ModelSettings({
               <input
                 className="kos-input"
                 list={`models-${key}`}
-                placeholder={active ?? "provider default"}
+                placeholder={active ? `${active}, as now` : "The provider's usual model"}
                 value={setting.model ?? ""}
                 onChange={(e) => update(key, { model: e.target.value })}
               />
@@ -159,7 +160,7 @@ export function ModelSettings({
                   label="Thinking level"
                   value={setting.effort ?? ""}
                   options={[
-                    { value: "", label: "default" },
+                    { value: "", label: "Usual" },
                     ...efforts.map((e) => ({ value: e, label: e })),
                   ]}
                   onChange={(effort) => update(key, { effort })}
@@ -173,7 +174,7 @@ export function ModelSettings({
                   type="number"
                   min={256}
                   step={256}
-                  placeholder="default"
+                  placeholder="Usual"
                   value={setting.maxTokens ?? ""}
                   onChange={(e) =>
                     update(key, {
@@ -188,7 +189,7 @@ export function ModelSettings({
                 rather than only written. */}
             {route && (
               <div className="settings-now">
-                now: <code>{route.provider}</code> <code>{route.model}</code>
+                In use now: <code>{route.provider}</code> <code>{route.model}</code>
                 {route.effort ? ` · ${route.effort} thinking` : ""}
                 {route.maxTokens ? ` · ${route.maxTokens} tokens` : ""}
               </div>
@@ -199,14 +200,16 @@ export function ModelSettings({
 
       {listError && (
         <p className="hint">
-          Could not list models from the provider ({listError}). Type a model id
+          The provider would not list its models, so type the model's name
           instead.
         </p>
       )}
 
+      <details className="settings-more">
+        <summary>Advanced: your own model server, and a classifier</summary>
       <section className="settings-group">
         <div className="settings-group-head">
-          <strong>Your own endpoint</strong>
+          <strong>Your own model server</strong>
           <span className="hint">any OpenAI-compatible server: your model, a local one, a gateway</span>
         </div>
         <label className="kos-field">
@@ -219,8 +222,8 @@ export function ModelSettings({
           />
         </label>
         <p className="hint">
-          Saved on its own, takes effect at once. A key, if the server wants one, goes in .env as KOS_SECRET_CUSTOM.
-          Then pick "custom endpoint" as a provider above and type the model id it serves.
+          Saved on its own and used at once. If the server needs a key, set it under Providers.
+          Then pick "your own server" as a provider above and type the name of the model it serves.
         </p>
         <div className="settings-actions">
           <button
@@ -248,7 +251,7 @@ export function ModelSettings({
       <section className="settings-group">
         <div className="settings-group-head">
           <strong>Classifier</strong>
-          <span className="hint">a model that answers "which of these" with a confidence, such as Jev; the cheap route stands in without one</span>
+          <span className="hint">a small model that sorts a message into kinds, and says how sure it is; without one, the cheap model does it</span>
         </div>
         <label className="kos-field">
           <span className="kos-field-label">Endpoint URL</span>
@@ -260,7 +263,7 @@ export function ModelSettings({
           />
         </label>
         <p className="hint">
-          It is sent the question, the text and the labels as JSON and answers with a label and a confidence. A key, if it wants one, goes in .env as KOS_SECRET_CLASSIFIER. Used before the memory confirm, so a message that is plainly passing never costs a chat completion.
+          KOS asks it first whether a message is worth remembering, so a passing remark never costs a call to the thinking model. If it needs a key, set it under Providers.
         </p>
         <div className="settings-actions">
           <button
@@ -273,7 +276,7 @@ export function ModelSettings({
                 .then((r) => {
                   setClassifierSaved(r.classifier?.url ?? "");
                   setClassifierUrl(r.classifier?.url ?? "");
-                  setClassifierStatus(r.classifier ? "Classifier saved." : "Back to the cheap route.");
+                  setClassifierStatus(r.classifier ? "Classifier saved." : "The cheap model sorts messages again.");
                 })
                 .catch((err: unknown) => setClassifierStatus(err instanceof Error ? err.message : String(err)));
             }}
@@ -283,6 +286,7 @@ export function ModelSettings({
           {classifierStatus && <span className="hint">{classifierStatus}</span>}
         </div>
       </section>
+      </details>
 
       <div className="settings-actions">
         {!onReady && (

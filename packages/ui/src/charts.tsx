@@ -186,8 +186,8 @@ function projectTone(node: ProjectNode | undefined): Tone {
 function projectState(node: ProjectNode | undefined): string {
   if (!node) return "nothing yet";
   const parts = [
-    `${node.threads} ${node.threads === 1 ? "thread" : "threads"}`,
-    ...(node.jobs ? [`${node.jobs} ${node.jobs === 1 ? "job" : "jobs"}`] : []),
+    `${node.threads} ${node.threads === 1 ? "chat" : "chats"}`,
+    ...(node.jobs ? [`${node.jobs} ${node.jobs === 1 ? "schedule" : "schedules"}`] : []),
     ...(node.needsYou ? [`${node.needsYou} waiting on you`] : node.working ? [`${node.working} working`] : []),
   ];
   return parts.join(" · ");

@@ -93,7 +93,10 @@ describe("the project drawer", () => {
       ],
     });
     await waitFor(() => expect(sections()).toContain("Recent"));
-    expect(screen.getByText("files.write")).toBeTruthy();
+    // By what it did and to what; the tool's name is only the row's tooltip.
+    expect(screen.getByText("Write a file")).toBeTruthy();
+    expect(screen.getByText("projects/kitchen_redo/notes.md")).toBeTruthy();
+    expect(screen.queryByText("files.write")).toBeNull();
     expect(screen.getByText("1h ago")).toBeTruthy();
   });
 
@@ -142,5 +145,34 @@ describe("the project drawer", () => {
     // cost the owner the drawer.
     expect(screen.getByText("Kitchen redo")).toBeTruthy();
     expect(screen.getByText("Everything for the kitchen.")).toBeTruthy();
+  });
+});
+
+describe("a failed step's drawer", () => {
+  it("leads with what went wrong in words, keeps the machinery under Details, and says Fix opens a chat", () => {
+    vi.spyOn(api, "call").mockRejectedValue(new Error("offline"));
+    const onFix = vi.fn();
+    render(
+      <Inspector
+        target={{
+          kind: "tool",
+          data: { id: 7, tool: "files.read", args: '{"path":"notes/missing-file.md"}', result: "tool error: ENOENT: no such file or directory, open '/Users/me/kos-workspace/notes/missing-file.md'", isError: true, riskTier: "safe", userId: "owner", createdAt: Date.now() },
+        }}
+        onFix={onFix}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText("Read a file")).toBeTruthy();
+    expect(screen.getByText("There is no file or folder called “missing-file.md”.")).toBeTruthy();
+    expect(screen.queryByText(/Tool call #7/)).toBeNull();
+    const details = document.querySelector("details.insp-details")!;
+    expect(details.hasAttribute("open")).toBe(false);
+    // The raw words, the arguments and the risk are in the fold, not the headline.
+    expect(details.textContent).toContain("ENOENT");
+    expect(details.textContent).toContain("files.read");
+    const lead = document.querySelector(".insp-lead")!.textContent ?? "";
+    expect(lead).not.toMatch(/ENOENT|\/Users\//);
+    const fix = screen.getByRole("button", { name: "Fix in a chat" });
+    expect(fix.getAttribute("title")).toMatch(/Opens a chat/);
   });
 });

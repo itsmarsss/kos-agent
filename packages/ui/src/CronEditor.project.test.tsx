@@ -1,10 +1,52 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { api, FieldError } from "./api.js";
 import { CronEditor, spendWords } from "./CronEditor.js";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe("a new schedule's checks", () => {
+  const show = (): HTMLButtonElement => {
+    vi.spyOn(api, "skills").mockResolvedValue({ skills: [] } as unknown as Awaited<ReturnType<typeof api.skills>>);
+    render(<CronEditor taken={["Morning brief"]} onDone={() => {}} onCancel={() => {}} />);
+    return screen.getByRole("button", { name: "Create" }) as HTMLButtonElement;
+  };
+  const named = (value: string): void => void fireEvent.change(screen.getByPlaceholderText("Morning summary"), { target: { value } });
+
+  it("says a taken name on its field and holds Create", () => {
+    const create = show();
+    named("morning brief");
+    expect(screen.getByRole("alert").textContent).toBe("There is already a schedule called “Morning brief”. Pick another name.");
+    expect(create.disabled).toBe(true);
+  });
+
+  it("holds Create on a line that is no schedule, saying why under When", () => {
+    const create = show();
+    named("Garden check");
+    fireEvent.change(screen.getByPlaceholderText(/Look at this week/), { target: { value: "Check the beds." } });
+    expect(create.disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Advanced: write the line" }));
+    fireEvent.change(screen.getByLabelText("The cron line"), { target: { value: "0 99 * * *" } });
+    expect(screen.getByRole("alert").textContent).toBe("The hour must be 0 to 23, *, or a range such as 0-2.");
+    expect(create.disabled).toBe(true);
+  });
+
+  it("saves on Enter, and puts the server's refusal of the name on its field", async () => {
+    const create = show();
+    const made = vi.spyOn(api, "createCron").mockRejectedValue(new FieldError("There is already a schedule called “Garden check”. Pick another name.", "name", "taken"));
+    named("Garden check");
+    fireEvent.change(screen.getByPlaceholderText(/Look at this week/), { target: { value: "Check the beds." } });
+    fireEvent.submit(create.form!);
+    await waitFor(() => expect(made).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("already a schedule called “Garden check”"));
+    expect(create.disabled).toBe(true);
+  });
+});
 
 /**
  * A job belongs to a project the way an agent does. The editor says whose
@@ -49,7 +91,7 @@ describe("a job that runs a script", () => {
       />,
     );
     expect(screen.getByText("Script")).toBeTruthy();
-    expect(screen.getByText("Tool calls")).toBeTruthy();
+    expect(screen.getByText("Steps")).toBeTruthy();
   });
 });
 

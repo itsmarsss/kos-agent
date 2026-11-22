@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentInfo, HomeData } from "./api.js";
@@ -151,8 +151,8 @@ describe("the charts", () => {
     cleanup();
     const hour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
     show("pulse", data({ pulse: [{ hour, calls: 4, errors: 1 }] }));
-    expect(screen.getByText("4 tool calls, 1 failed")).toBeTruthy();
-    expect(screen.getByTitle(/4 calls, 1 failed/)).toBeTruthy();
+    expect(screen.getByText("4 steps, 1 failed")).toBeTruthy();
+    expect(screen.getByTitle(/4 steps, 1 failed/)).toBeTruthy();
     expect(document.querySelectorAll(".chart-col")).toHaveLength(24);
   });
 
@@ -165,6 +165,21 @@ describe("the charts", () => {
     expect(screen.queryByText("Fix")).toBeNull();
     expect(screen.getByText("Open").getAttribute("title")).toBe("KOS is on it");
     expect(screen.getByRole("img", { name: "working" })).toBeTruthy();
+  });
+
+  it("never says everything is working beside steps that failed, and says what each figure counts", () => {
+    const hour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+    const onGo = vi.fn();
+    show("failures", data({ health: { ok: true, failing: [], recent: { total: 20, errors: 0, rate: 0 } }, pulse: [{ hour, calls: 28, errors: 4 }] }), onGo);
+    expect(screen.queryByText("Everything is working.")).toBeNull();
+    expect(screen.getByText("Nothing is failing now.")).toBeTruthy();
+    expect(screen.getByText(/Chats and schedules: 0 of the last 20 failed/)).toBeTruthy();
+    expect(screen.getByText("Steps in the last day: 4 of 28 failed.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "See them in Runs" }));
+    expect(onGo).toHaveBeenCalledWith("history");
+    cleanup();
+    show("failures", data({ health: { ok: true, failing: [], recent: { total: 20, errors: 0, rate: 0 } }, pulse: [{ hour, calls: 28, errors: 0 }] }));
+    expect(screen.getByText("Everything is working.")).toBeTruthy();
   });
 
   it("puts every recent run on the strip, coloured by how it went", () => {
@@ -191,7 +206,7 @@ describe("the charts", () => {
     }));
     expect(screen.getByText("Garden")).toBeTruthy();
     expect(screen.queryByText("Old")).toBeNull();
-    expect(screen.getByText("2 threads · 1 job · 1 working")).toBeTruthy();
+    expect(screen.getByText("2 chats · 1 schedule · 1 working")).toBeTruthy();
     expect(screen.getByText("not connected")).toBeTruthy();
     expect(screen.getByText("1 working")).toBeTruthy();
     screen.getByText("mail").closest("g")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

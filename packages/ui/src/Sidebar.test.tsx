@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Sidebar } from "./Sidebar.js";
@@ -37,12 +37,21 @@ describe("the sidebar", () => {
   it("says plainly when KOS is halted, and which model answers", () => {
     show({ name: "chats" }, 0, true);
     expect(screen.getByText("Halted")).toBeTruthy();
-    expect(screen.getByText("gpt-5.5")).toBeTruthy();
+    expect(screen.getByText("Thinks with gpt-5.5")).toBeTruthy();
+  });
+
+  it("says what each More item does, Halt apart from the rest", () => {
+    show({ name: "chats" }, 0);
+    fireEvent.click(screen.getByText("More…"));
+    expect(screen.getByText("Save a copy of the workspace you can roll back to")).toBeTruthy();
+    const halt = screen.getByRole("menuitem", { name: /Halt KOS/ });
+    expect(halt.classList.contains("is-divided")).toBe(true);
+    expect(halt.classList.contains("is-danger")).toBe(true);
   });
 
   it("says KOS cannot be reached once it stops answering, whatever the last status said", () => {
     show({ name: "chats" }, 0, false, true);
     expect(screen.getByText("Can't reach KOS")).toBeTruthy();
-    expect(screen.queryByText("Running")).toBeNull();
+    expect(screen.queryByText("All working")).toBeNull();
   });
 });

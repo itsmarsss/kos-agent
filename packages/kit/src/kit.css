@@ -35,6 +35,8 @@
 .kos-menu-row.is-divided::before { content: ""; position: absolute; left: 6px; right: 6px; top: -3px; border-top: 1px solid var(--line); }
 .kos-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kos-menu-tick { flex: none; display: grid; place-items: center; width: 14px; color: var(--accent); }
+.kos-menu-label--hint { display: grid; gap: 2px; white-space: normal; padding-block: 2px; }
+.kos-menu-hint { color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
 .kos-menu-keys { flex: none; margin-left: 12px; color: var(--faint); font-family: inherit; font-size: var(--text-sm); }
 .kos-menu .confirm-wrap { display: contents; }
 
@@ -614,6 +616,9 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 }
 @keyframes kos-skeleton { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+/* A list being read: its rows' skeletons where the empty box would be. */
+.list-loading { display: grid; gap: 8px; margin: 0; }
+p.list-loading { padding: 4px 0; }
 
 /* What an ask would do, under the model's words for it: on the row, wrapped, never cut. */
 /* —— a step's picture (StepPicture): small under its step, larger on a press —— */

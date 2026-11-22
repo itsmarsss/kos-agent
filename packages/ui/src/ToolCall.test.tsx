@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ToolCall } from "./ToolCall.js";
+import { headline, ToolCall } from "./ToolCall.js";
 
 afterEach(cleanup);
 
@@ -16,6 +16,23 @@ describe("a tool call's summary", () => {
     expect(container.querySelector(".toolcall-head")?.getAttribute("aria-expanded")).toBe("false");
     // Plain words stay plain.
     expect(screen.getByText(/Read/)).toBeTruthy();
+  });
+});
+
+describe("a step's line", () => {
+  it("says what the step did, never the tool's name, which stays its tooltip and its first fold line", () => {
+    const { container } = render(<ToolCall event={{ kind: "tool", name: "files.ls", summary: "List notes", args: { path: "notes" }, result: "ok" }} />);
+    const head = container.querySelector<HTMLButtonElement>(".toolcall-head")!;
+    expect(head.textContent).toContain("List notes");
+    expect(head.textContent).not.toContain("files.ls");
+    expect(container.querySelector(".toolcall-summary")?.getAttribute("title")).toBe("files.ls");
+    fireEvent.click(head);
+    expect(container.querySelector(".toolcall-body")?.textContent).toContain("files.ls");
+  });
+
+  it("puts the tool's words where the summary is only its name and arguments", () => {
+    expect(headline({ name: "secrets.write", summary: "secrets.write: handle=visa-ending-4242-d6xh, kind=card", args: { handle: "visa-ending-4242-d6xh" } })).toBe("Save a secret");
+    expect(headline({ name: "weird.thing", summary: "", args: { path: "a.txt" } })).toBe("Weird thing: a.txt");
   });
 });
 

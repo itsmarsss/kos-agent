@@ -47,7 +47,7 @@ describe("approving", () => {
   it("releases a waiting turn and does nothing else", async () => {
     const { d, log } = deps(pending(), true);
     const r = await new Decisions(d).approve(5, undefined, { surface: "dashboard" });
-    expect(r).toEqual({ ok: true, message: "Approved @approval:5. files.rm is running." });
+    expect(r).toEqual({ ok: true, message: "Approved @approval:5. Delete a file: running now." });
     expect(log).toEqual(["approve:5:owner"]);
   });
 

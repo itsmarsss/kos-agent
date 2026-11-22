@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
-import { hexOfHsl, hueOfHex, isState, kindWord, momentWords, STATE_WORDS, stateOfRun, summarizeAction } from "@kos/shared";
+import { errorWords, formatDuration, hexOfHsl, hueOfHex, isState, kindWord, momentWords, STATE_WORDS, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
 import { Card, ease, Field, lookOf, SheetFoot, StatusPill, Tag, When } from "@kos/kit";
 
 import type {
@@ -168,23 +168,27 @@ export function Inspector(props: {
   switch (target.kind) {
     case "tool": {
       const t = call && call.id === target.data.id ? call : target.data;
-      title = t.tool;
-      subtitle = `Tool call #${t.id} · ${t.isError ? "error" : "ok"}`;
-      // What happened, then what it was asked, then who and when. The
-      // metadata was above the result, so the thing you opened the drawer to
-      // read was the last thing on it.
+      const line = stepLine(t.tool, t.args);
+      title = line.title;
+      subtitle = `Step · ${t.isError ? "Failed" : "Done"}`;
+      // What happened, in words, then when; the tool, its arguments and the
+      // raw result are the machinery, there for the curious under Details.
       body = (
         <>
-          <p className="insp-lead">{summarizeAction(t.tool, t.args)}</p>
-          <Block label="Result" text={t.result || (call ? "—" : "…")} />
-          <Block label="Args" text={prettyJson(t.args)} />
-          <Facts
-            rows={[
-              ["When", momentWords(t.createdAt)],
-              ["Risk", t.riskTier ?? "—"],
-              ["User", t.userId ?? "—"],
-            ]}
-          />
+          <p className={`insp-lead${t.isError ? " insp-lead--bad" : ""}`}>{t.isError ? errorWords(t.result) : (line.detail ?? summarizeAction(t.tool, t.args))}</p>
+          {!t.isError && <Block label="What it returned" text={t.result || (call ? "Nothing" : "…")} />}
+          <Facts rows={[["When", momentWords(t.createdAt)]]} />
+          <Details>
+            <Facts
+              rows={[
+                ["Tool", t.tool],
+                ["Checked as", t.riskTier ?? "—"],
+                ["Asked by", t.userId === "owner" ? "You" : (t.userId ?? "—")],
+              ]}
+            />
+            {t.isError && <Block label="What it said" text={t.result || "—"} />}
+            <Block label="What it was given" text={prettyJson(t.args)} />
+          </Details>
         </>
       );
       actions =
@@ -193,6 +197,7 @@ export function Inspector(props: {
             type="button"
             className="btn btn--primary"
             disabled={busy}
+            title="Opens a chat where KOS looks into this and tries to fix it"
             onClick={() => {
               props.onFix?.({
                 label: t.tool,
@@ -203,7 +208,7 @@ export function Inspector(props: {
               onClose();
             }}
           >
-            Fix this
+            Fix in a chat
           </button>
         ) : null;
       break;
@@ -217,13 +222,13 @@ export function Inspector(props: {
       // drawer was opened. It used to be last, under four rows of timing.
       body = (
         <>
-          {r.error && <p className="insp-lead insp-lead--bad">{r.error}</p>}
+          {r.error && <p className="insp-lead insp-lead--bad">{errorWords(r.error)}</p>}
           <div className="insp-cols">
             <div className="insp-main">
               {r.error ? (
-                <Section title="What it said">
+                <Details>
                   <pre className="insp-pre">{r.error}</pre>
-                </Section>
+                </Details>
               ) : (
                 <p className="ops-muted">This run finished without an error.</p>
               )}
@@ -235,12 +240,15 @@ export function Inspector(props: {
                       <span className="insp-meta">{job.type === "self_prompt" ? "Asks KOS" : "Runs its steps"}</span>
                       <StatusPill state={job.enabled ? "on" : "off"} />
                     </li>
-                    {(job.actions ?? []).map((a, i) => (
-                      <li key={i}>
-                        <span className="ops-mono">{a.tool}</span>
-                        <span className="insp-meta">{JSON.stringify(a.args)}</span>
-                      </li>
-                    ))}
+                    {(job.actions ?? []).map((a, i) => {
+                      const step = stepLine(a.tool, a.args);
+                      return (
+                        <li key={i} title={a.tool}>
+                          <span>{step.title}</span>
+                          {step.detail && <span className="insp-meta">{step.detail}</span>}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </Section>
               )}
@@ -260,14 +268,8 @@ export function Inspector(props: {
                   </div>
                   <div>
                     <dt>Took</dt>
-                    <dd>{r.durationMs != null ? `${r.durationMs} ms` : "—"}</dd>
+                    <dd>{r.durationMs != null ? formatDuration(r.durationMs) : "—"}</dd>
                   </div>
-                  {r.ref && (
-                    <div>
-                      <dt>Ref</dt>
-                      <dd className="ops-mono">{r.ref}</dd>
-                    </div>
-                  )}
                 </dl>
               </Section>
             </aside>
@@ -280,6 +282,7 @@ export function Inspector(props: {
             type="button"
             className="btn btn--primary"
             disabled={busy}
+            title="Opens a chat where KOS looks into this and tries to fix it"
             onClick={() => {
               props.onFix?.({
                 label: job?.name ?? `${r.kind} run`,
@@ -290,7 +293,7 @@ export function Inspector(props: {
               onClose();
             }}
           >
-            Fix this
+            Fix in a chat
           </button>
         ) : null;
       break;
@@ -548,11 +551,9 @@ export function Inspector(props: {
                   <ul className="insp-rows insp-rows--stacked">
                     {detail.activity.map((a) => (
                       <li key={a.id}>
-                        <span className="insp-act">
-                          <span className="ops-mono">{a.tool}</span>
-                          <span className="insp-meta">
-                            {summarizeAction(a.tool, a.args)}
-                          </span>
+                        <span className="insp-act" title={a.tool}>
+                          <span>{stepLine(a.tool, a.args).title}</span>
+                          {stepLine(a.tool, a.args).detail && <span className="insp-meta">{stepLine(a.tool, a.args).detail}</span>}
                         </span>
                         <span className="insp-meta">
                           {a.isError ? "Failed · " : ""}
@@ -592,7 +593,7 @@ export function Inspector(props: {
                 <dl className="insp-about">
                   <div>
                     <dt>Type</dt>
-                    <dd>{p.type}</dd>
+                    <dd>{kindWord(p.type)}</dd>
                   </div>
                   <div>
                     <dt>Module</dt>
@@ -717,6 +718,16 @@ function Section(props: { title: string; children: React.ReactNode }): React.Rea
     <Card title={props.title} className="insp-section">
       {props.children}
     </Card>
+  );
+}
+
+/** The machinery behind what the drawer says: folded, for the curious. */
+function Details({ children }: { children: React.ReactNode }): React.ReactElement {
+  return (
+    <details className="settings-more insp-details">
+      <summary>Details</summary>
+      {children}
+    </details>
   );
 }
 

@@ -16,6 +16,8 @@ export interface MenuItem {
   disabled?: boolean;
   /** The keys that do the same, said at the right. */
   keys?: string;
+  /** A line under the label saying what it does, for an item whose name does not say it alone. */
+  hint?: string;
   /** One of a set of choices (the view, the sort): ticked when it is the one in force. */
   checked?: boolean;
 }
@@ -164,7 +166,14 @@ function MenuBox({ onClose, label, anchor, at, side, align, items, children, cla
           }}
         >
           {ticks && <span className="kos-menu-tick">{item.checked && <CheckIcon size={13} title="" />}</span>}
-          <span className="kos-menu-label">{item.label}</span>
+          {item.hint ? (
+            <span className="kos-menu-label kos-menu-label--hint">
+              <span>{item.label}</span>
+              <small className="kos-menu-hint">{item.hint}</small>
+            </span>
+          ) : (
+            <span className="kos-menu-label">{item.label}</span>
+          )}
           {item.keys && <kbd className="kos-menu-keys">{item.keys}</kbd>}
         </button>
       ))}

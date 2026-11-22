@@ -1,3 +1,5 @@
+import { assertName } from "@kos/shared";
+
 import type { Db } from "../store/db.js";
 import { assertIdentifier, projectTable, slugify } from "./identifiers.js";
 
@@ -106,7 +108,9 @@ export class ProjectManifest {
         );
       }
     }
-    const slug = this.uniqueSlug(slugify(input.name));
+    // The one name check: a taken name in any case, too long, or no name at all is refused in words, never the store's UNIQUE constraint.
+    const name = assertName(input.name, { noun: "project", taken: this.names() });
+    const slug = this.uniqueSlug(slugify(name));
     assertIdentifier(slug, "project slug");
     const ts = this.now();
     const status: ProjectStatus = input.status ?? "active";
@@ -116,7 +120,7 @@ export class ProjectManifest {
          VALUES (@name, @slug, @type, @status, @description, @module, @madeIn, @ts, @ts)`,
       )
       .run({
-        name: input.name,
+        name,
         slug,
         type: input.type,
         status,
@@ -126,6 +130,11 @@ export class ProjectManifest {
         ts,
       });
     return this.get(slug) ?? this.byId(Number(info.lastInsertRowid));
+  }
+
+  /** Every project's name, for the name check. */
+  private names(): string[] {
+    return (this.db.prepare(`SELECT name FROM manifest`).all() as { name: string }[]).map((r) => r.name);
   }
 
   /** All instances of a given module (blueprint). */
@@ -176,12 +185,9 @@ export class ProjectManifest {
   update(slug: string, patch: { name?: string; description?: string | null; type?: string }): Project {
     const current = this.get(slug);
     if (!current) throw new Error(`no project called ${slug}`);
-    const name = patch.name === undefined ? current.name : patch.name.trim();
-    if (!name) throw new Error("a project needs a name");
+    const name = patch.name === undefined ? current.name : assertName(patch.name, { noun: "project", taken: this.names().filter((n) => n !== current.name) });
     const type = patch.type === undefined ? current.type : patch.type.trim() || current.type;
     const description = patch.description === undefined ? current.description : (patch.description?.trim() ?? null) || null;
-    const taken = this.db.prepare(`SELECT slug FROM manifest WHERE name = ? AND slug != ?`).get(name, slug) as { slug: string } | undefined;
-    if (taken) throw new Error(`another project is called ${name}`);
     this.db
       .prepare(`UPDATE manifest SET name = ?, type = ?, description = ?, last_touched_at = ? WHERE slug = ?`)
       .run(name, type, description, this.now(), slug);

@@ -65,7 +65,7 @@ describe("the quick question window", () => {
     const context = (): string => document.querySelector(".quickask-context")?.textContent ?? "";
     expect(context()).toBe("about Main, without adding to it");
     fireEvent.click(screen.getByRole("button", { name: "Detach" }));
-    expect(context()).toBe("a plain question to KOS, not about Main");
+    expect(context()).toBe("a question on its own, not about Main");
 
     fireEvent.change(screen.getByPlaceholderText("Ask KOS…"), { target: { value: "what is 2+2" } });
     fireEvent.submit(screen.getByPlaceholderText("Ask KOS…").closest("form")!);
@@ -88,7 +88,7 @@ describe("the quick question window", () => {
 
   it("asks a plain question when no chat is open", () => {
     open({ contextId: undefined, contextTitle: undefined });
-    expect(screen.getByText(/plain question to KOS/)).toBeTruthy();
+    expect(screen.getByText("a question on its own, not about any chat")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Go to chat" })).toBeNull();
   });
 });

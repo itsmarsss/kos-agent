@@ -40,10 +40,10 @@ describe("PageStore management", () => {
     // A title alone keeps the description, and an empty description clears it.
     expect(pages.rename("plan", { title: "Plan B" }).description).toBe("What happens in spring.");
     expect(pages.rename("plan", { description: "" }).description).toBeUndefined();
-    expect(() => pages.rename("plan", { title: " " })).toThrow(/title is required/);
+    expect(() => pages.rename("plan", { title: " " })).toThrow(/Give the artifact a name/);
     // Trimmed, then held to a name and a sentence.
     expect(pages.rename("plan", { title: ` ${"t".repeat(120)} ` }).title).toHaveLength(120);
-    expect(() => pages.rename("plan", { title: "t".repeat(121) })).toThrow(/at most 120/);
+    expect(() => pages.rename("plan", { title: "t".repeat(121) })).toThrow(/Keep it to 120 characters/);
     expect(pages.rename("plan", { description: ` ${"d".repeat(280)} ` }).description).toHaveLength(280);
     expect(() => pages.rename("plan", { description: "d".repeat(281) })).toThrow(/at most 280/);
     expect(pages.record("plan")?.description).toHaveLength(280);

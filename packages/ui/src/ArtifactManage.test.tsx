@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { api, dispositionName, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
+import { api, dispositionName, FieldError, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
 import { emptyWords } from "./ArtifactManage.js";
 import { ArtifactViewer, ArtifactsPage } from "./ArtifactsPage.js";
 import { ArtifactOpen, ArtifactStep } from "./ArtifactStep.js";
@@ -64,6 +64,22 @@ describe("managing an artifact from its viewer", () => {
     await waitFor(() => expect(renamed).toHaveBeenCalledWith("brief", { title: "Q4 decisions", description: "Each decision, with why." }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("heading", { name: "Q4 decisions" })).toBeTruthy();
+  });
+
+  it("says a title too long under the field, keeps Save off, and puts the server's refusal there too", async () => {
+    openViewer(BRIEF);
+    const renamed = vi.spyOn(api, "renameArtifact").mockRejectedValue(new FieldError("Keep it to 120 characters; this is 121.", "name", "too_long"));
+    fireEvent.click(await menuItem("Rename…"));
+    const dialog = await screen.findByRole("dialog", { name: "Rename" });
+    const title = within(dialog).getByLabelText(/^Title/) as HTMLInputElement;
+    fireEvent.change(title, { target: { value: "x".repeat(121) } });
+    expect(within(dialog).getByRole("alert").textContent).toBe("Keep it to 120 characters; this is 121.");
+    expect((within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(title, { target: { value: "Q4 plan" } });
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    fireEvent.submit(title.closest("form")!);
+    await waitFor(() => expect(renamed).toHaveBeenCalled());
+    expect((await within(dialog).findByRole("alert")).closest("[data-field]")?.getAttribute("data-field")).toBe("Title");
   });
 
   it("renames an older widget page by its title alone, with no description to send", async () => {
@@ -193,6 +209,7 @@ describe("managing an artifact from its viewer", () => {
     fireEvent.click(within(box).getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(restored).toHaveBeenCalledWith("old"));
     await waitFor(() => expect(screen.queryByText(/This artifact is in the trash/)).toBeNull());
+    expect(screen.getByRole("status").textContent).toBe("Restored “Old memo”");
     expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
   });
 });

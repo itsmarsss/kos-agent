@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { exprOf, recast, scheduleWords, shapeOf } from "./schedule.js";
+import { cronProblem, exprOf, KINDS, recast, scheduleWords, shapeOf } from "./schedule.js";
 
 describe("a schedule as a shape", () => {
   it("reads the shapes the picker writes, and writes them back the same", () => {
@@ -63,5 +63,30 @@ describe("scheduleWords", () => {
     expect(scheduleWords("0 8 * * 1-5", "en-US")).toBe("Weekdays at 8:00 AM");
     expect(scheduleWords("7 3 1,15 2 *")).toBe("On a custom schedule");
     expect(scheduleWords(null)).toBe("When asked");
+  });
+});
+
+describe("the schedule builder's check of a line", () => {
+  it("takes every line the builder writes, and the usual hand-written ones", () => {
+    for (const k of KINDS) expect(cronProblem(exprOf(recast({ kind: "daily", time: "08:30" }, k.kind))), k.kind).toBeNull();
+    for (const line of ["0 9 * * *", "*/15 * * * *", "0 9-17 * * 1-5", "0 0 1,15 * *", "30 6 * jan-mar mon", "0 */2 * * 0,6", "0 0 * * 7"]) {
+      expect(cronProblem(line), line).toBeNull();
+    }
+  });
+
+  it("names the part that is wrong, with the numbers it takes", () => {
+    expect(cronProblem("0 99 * * *")).toBe("The hour must be 0 to 23, *, or a range such as 0-2.");
+    expect(cronProblem("60 9 * * *")).toMatch(/^The minute must be 0 to 59/);
+    expect(cronProblem("0 9 32 * *")).toMatch(/^The day of the month must be 1 to 31/);
+    expect(cronProblem("0 9 * 13 *")).toMatch(/^The month must be 1 to 12/);
+    expect(cronProblem("0 9 * * 8")).toMatch(/^The day of the week must be 0 to 7/);
+    expect(cronProblem("*/0 * * * *")).toMatch(/^The minute/);
+    expect(cronProblem("0 9-x * * *")).toMatch(/^The hour/);
+  });
+
+  it("says how many parts a line has when it has not five, and asks for a time when empty", () => {
+    expect(cronProblem("0 9 * *")).toBe("A schedule line has five parts: minute, hour, day of the month, month, day of the week. This has 4.");
+    expect(cronProblem("whenever")).toMatch(/This has 1\.$/);
+    expect(cronProblem("  ")).toBe("Pick when it runs.");
   });
 });

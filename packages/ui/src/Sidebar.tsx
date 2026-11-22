@@ -18,6 +18,16 @@ import { swipedShut } from "./touch.js";
  * On a phone the column is a drawer behind a menu button in a slim bar, the
  * way every chat product does it.
  */
+type MoreAction = "refresh" | "snapshot" | "open" | "copy";
+
+/** The More menu's everyday items, each with a line saying what it does; Halt stands apart below them. */
+const MORE_ITEMS: { action: MoreAction; label: string; hint: string }[] = [
+  { action: "refresh", label: "Refresh", hint: "Read everything on this page again" },
+  { action: "snapshot", label: "Snapshot now", hint: "Save a copy of the workspace you can roll back to" },
+  { action: "open", label: "Open workspace folder", hint: "Show KOS's folder in Finder" },
+  { action: "copy", label: "Copy workspace path", hint: "Copy where KOS's folder is" },
+];
+
 export function Sidebar({
   route,
   status,
@@ -88,7 +98,8 @@ export function Sidebar({
   const failing = status?.unhealthy ?? 0;
   // A status read before KOS stopped answering says nothing about now.
   const healthClass = down ? "health--bad" : status?.halted ? "health--halted" : failing > 0 ? "health--bad" : "health--ok";
-  const healthText = down ? "Can't reach KOS" : status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "Running";
+  const healthText = down ? "Can't reach KOS" : status?.halted ? "Halted" : failing > 0 ? `${failing} failing` : "All working";
+  const actions: Record<MoreAction, () => void> = { refresh: onRefresh, snapshot: onSnapshot, open: onOpenWorkspace, copy: onCopyWorkspace };
   const model = status?.routes?.["reasoning"];
 
   return (
@@ -151,7 +162,7 @@ export function Sidebar({
           ))}
         </nav>
         <div className="side-foot">
-          <button type="button" className="side-link side-search" onClick={onSearch} title="Search">
+          <button type="button" className="side-link side-search" onClick={onSearch} title="Search chats, projects, files and memory, or run a command">
             <NavIcon name="search" />
             <span className="side-label">Search</span>
             <kbd>⌘K</kbd>
@@ -160,7 +171,7 @@ export function Sidebar({
             type="button"
             className="side-link side-search"
             onClick={onAsk}
-            title="Quick ask about the open chat"
+            title="A quick question about the open chat, without adding to it"
           >
             <NavIcon name="ask" />
             <span className="side-label">Quick ask</span>
@@ -204,11 +215,14 @@ export function Sidebar({
             side={railed ? "right" : "above"}
             align={railed ? "end" : "start"}
             items={[
-              { label: "Refresh", act: onRefresh },
-              { label: "Snapshot now", act: onSnapshot },
-              { label: "Open workspace folder", act: onOpenWorkspace },
-              { label: "Copy workspace path", act: onCopyWorkspace },
-              { label: status?.halted ? "Resume KOS" : "Halt KOS", act: onToggleKill, danger: true, divided: true },
+              ...MORE_ITEMS.map((item) => ({ label: item.label, hint: item.hint, act: actions[item.action] })),
+              {
+                label: status?.halted ? "Resume KOS" : "Halt KOS",
+                hint: status?.halted ? "Let schedules and chats run again" : "Stop every schedule and chat at once, until you resume",
+                act: onToggleKill,
+                danger: true,
+                divided: true,
+              },
             ]}
           />
           {/* Three states, in the order that matters: stopped, broken, fine.
@@ -224,8 +238,8 @@ export function Sidebar({
               {busy ? `${busy}…` : healthText}
               {/* Its line is kept before the status comes, so the block does not grow under the pointer as it loads. */}
               {model ? (
-                <span className="side-model" title={`${model.provider} · reasoning turns`}>
-                  {model.model}
+                <span className="side-model" title={`The model for thinking, from ${model.provider}. Change it in Settings, Models.`}>
+                  Thinks with {model.model}
                 </span>
               ) : (
                 <span className="side-model" aria-hidden="true">

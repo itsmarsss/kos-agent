@@ -48,7 +48,7 @@ describe("KnowledgePage", () => {
         onChanged={() => undefined}
       />,
     );
-    expect(screen.getAllByText("monthly_budget")).toHaveLength(1);
+    expect(screen.getAllByText("Monthly budget")).toHaveLength(1);
   });
 
   it("still shows every tag on the entry itself", () => {
@@ -116,9 +116,9 @@ describe("the claims list", () => {
     render(<Claims facts={facts} tags={["budget"]} onChanged={() => undefined} />);
     const kind = screen.getByRole("group", { name: "Kind" });
     fireEvent.click(within(kind).getByRole("button", { name: /Preferences/ }));
-    expect([...document.querySelectorAll(".know-key")].map((k) => k.textContent)).toEqual(["p1"]);
+    expect([...document.querySelectorAll(".know-key")].map((k) => k.getAttribute("title"))).toEqual(["p1"]);
     fireEvent.click(within(kind).getByRole("button", { name: /Pinned/ }));
-    expect([...document.querySelectorAll(".know-key")].map((k) => k.textContent)).toEqual(["f1"]);
+    expect([...document.querySelectorAll(".know-key")].map((k) => k.getAttribute("title"))).toEqual(["f1"]);
     fireEvent.change(screen.getByRole("searchbox", { name: "Search claims" }), { target: { value: "nothing like it" } });
     expect(screen.getByText("No claims match these words and filters.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
@@ -129,19 +129,19 @@ describe("the claims list", () => {
     const pin = vi.spyOn(api, "pinMemory").mockResolvedValue(fact({ pinned: true }));
     const changed = vi.fn();
     render(<Claims facts={[fact()]} tags={[]} onChanged={changed} />);
-    fireEvent.click(screen.getByRole("button", { name: "Pin monthly_budget" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pin Monthly budget" }));
     expect(pin).toHaveBeenCalledWith("monthly_budget", true);
     await waitFor(() => expect(changed).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: "Edit monthly_budget" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Monthly budget" }));
     expect((screen.getByDisplayValue("1200 a month") as HTMLTextAreaElement).tagName).toBe("TEXTAREA");
   });
 
   it("is one Tab stop a row, its actions on the arrow keys", () => {
     render(<Claims facts={[fact()]} tags={[]} onChanged={() => undefined} />);
     const open = document.querySelector<HTMLButtonElement>(".know-open")!;
-    const pin = screen.getByRole("button", { name: "Pin monthly_budget" });
-    const edit = screen.getByRole("button", { name: "Edit monthly_budget" });
-    const forget = screen.getByRole("button", { name: "Forget monthly_budget" });
+    const pin = screen.getByRole("button", { name: "Pin Monthly budget" });
+    const edit = screen.getByRole("button", { name: "Edit Monthly budget" });
+    const forget = screen.getByRole("button", { name: "Forget Monthly budget" });
     expect([pin, edit, forget].map((b) => b.tabIndex)).toEqual([-1, -1, -1]);
     open.focus();
     fireEvent.keyDown(open, { key: "ArrowRight" });
@@ -175,7 +175,7 @@ describe("the claims list", () => {
     const pin = vi.spyOn(api, "pinMemory").mockResolvedValue(fact({ pinned: true }));
     pin.mockClear();
     render(<Claims facts={[fact()]} tags={[]} onChanged={() => undefined} />);
-    const edit = screen.getByRole("button", { name: "Edit monthly_budget" });
+    const edit = screen.getByRole("button", { name: "Edit Monthly budget" });
     fireEvent.keyDown(edit, { key: "p" });
     expect(pin).not.toHaveBeenCalled();
   });
@@ -190,7 +190,7 @@ describe("the claims list", () => {
     const forget = vi.spyOn(api, "deleteMemory").mockResolvedValue({ key: "monthly_budget", removed: true });
     const changed = vi.fn();
     render(<Claims facts={[fact()]} tags={[]} onChanged={changed} />);
-    const button = screen.getByRole("button", { name: "Forget monthly_budget" });
+    const button = screen.getByRole("button", { name: "Forget Monthly budget" });
     fireEvent.click(button);
     expect(forget).not.toHaveBeenCalled();
     // The row's actions stay drawn while it asks.
@@ -207,7 +207,7 @@ describe("the claims list", () => {
     const list = screen.getByRole("listbox");
     expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Any tag", "budget", "travel"]);
     fireEvent.click(within(list).getByRole("option", { name: "travel" }));
-    expect([...document.querySelectorAll(".know-key")].map((k) => k.textContent)).toEqual(["b"]);
+    expect([...document.querySelectorAll(".know-key")].map((k) => k.getAttribute("title"))).toEqual(["b"]);
     expect(document.getElementById(screen.getByRole("button", { name: "Tag" }).getAttribute("aria-describedby")!)?.textContent).toBe("travel");
   });
 
@@ -215,11 +215,17 @@ describe("the claims list", () => {
     render(<Claims facts={[]} tags={[]} onChanged={() => undefined} />);
     expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add a claim" }));
-    expect(screen.getByRole("textbox", { name: /^Key/ })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: /^Name/ })).toBeTruthy();
     // The new claim is a sheet like every other: Cancel at its foot.
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("textbox", { name: /^Key/ })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: /^Name/ })).toBeNull());
     expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();
+  });
+
+  it("draws where the claims will be while they are read, not that memory is empty", () => {
+    render(<Claims facts={[]} tags={[]} loading onChanged={() => undefined} />);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeTruthy();
+    expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
   });
 
   it("says on the row who wrote a claim", () => {

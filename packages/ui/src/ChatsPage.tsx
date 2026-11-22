@@ -10,7 +10,7 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { cycled, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { cycled, kindWord, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
 import { isModeKey, Menu, ModeChip } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
@@ -130,6 +130,8 @@ export interface ChatsPageProps {
   /** Manifest projects, so the rail shows a project even before it has an orchestrator conversation. */
   projects: Project[];
   activeId?: string;
+  /** The chats have not been read yet: a chat's address shows where its thread will be, not the landing. */
+  loading?: boolean;
   /** The landing was asked for (New chat): on a phone it takes the list's place, as an open chat does. */
   composing?: boolean;
   /** Pending-action ids still awaiting a decision. */
@@ -236,6 +238,7 @@ export function ChatsPage({
   conversations,
   projects,
   activeId,
+  loading = false,
   composing = false,
   pendingApprovals,
   approvals,
@@ -1550,9 +1553,9 @@ export function ChatsPage({
                 <span className="chats-project-sub">
                   {projectRecord
                     ? projectRecord.description
-                      ? `${projectRecord.type} · ${projectRecord.description}`
-                      : projectRecord.type
-                    : "Not in the manifest"}
+                      ? `${kindWord(projectRecord.type)} · ${projectRecord.description}`
+                      : kindWord(projectRecord.type)
+                    : "Not in the project list"}
                 </span>
               </div>
               <SearchField className="chats-find" noun="chats" value={query} onChange={setQuery} onKeyDown={railSearchKeys} />
@@ -1573,7 +1576,7 @@ export function ChatsPage({
                       <ThreadDot live={progress[projectOrchestrator.id]} chat={projectOrchestrator} waiting={waitingOn.has(projectOrchestrator.id)} />
                       <QueuedMark n={projectOrchestrator.queued} />
                     </span>
-                    <span className="chats-root-sub">Plans the work and runs the agents</span>
+                    <span className="chats-root-sub">Plans the project's work and hands it to its chats</span>
                   </span>
                 </a>
               ) : (
@@ -1610,7 +1613,7 @@ export function ChatsPage({
                   {q ? (
                     <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} />
                   ) : (
-                    <EmptyState variant="inline" className="chats-empty">No chats yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
+                    <EmptyState variant="inline" loading={loading} className="chats-empty">No chats yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
                   )}
                 </li>
               )}
@@ -1672,7 +1675,7 @@ export function ChatsPage({
                     </li>
                   ))}
                 {crons.every((c) => c.projectSlug !== project.slug) && (
-                  <li><EmptyState variant="inline" className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</EmptyState></li>
+                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -1720,7 +1723,7 @@ export function ChatsPage({
                     named for the project it is in: that is what tells them apart. */}
                 {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
                 {agentInstances.length === 0 && (
-                  <li><EmptyState variant="inline" className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</EmptyState></li>
+                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -1745,7 +1748,7 @@ export function ChatsPage({
                 <ComposeIcon />
               </IconButton>
             </div>
-            {onCreateProject && <NewProjectDialog open={makingProject} onClose={() => setMakingProject(false)} onCreate={onCreateProject} />}
+            {onCreateProject && <NewProjectDialog open={makingProject} onClose={() => setMakingProject(false)} onCreate={onCreateProject} taken={projects.map((p) => p.name)} />}
 
             {/* One scroll for the whole rail. The projects used to stand still
                 while only the chats under them scrolled, so with ten projects
@@ -1841,7 +1844,7 @@ export function ChatsPage({
                       }
                     >
                       {ownProjects === 0 ? (
-                        <EmptyState variant="inline" className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</EmptyState>
+                        <EmptyState variant="inline" loading={loading} className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</EmptyState>
                       ) : (
                         /* A row is the project. It opens as its own page, with
                            its orchestrator and agents; nothing unfolds here. */
@@ -1960,7 +1963,7 @@ export function ChatsPage({
                       <ul className="chats-flat">
                         {filtered.map((c) => renderChat(c))}
                         {filtered.length === 0 && (
-                          <li><EmptyState variant="inline" className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</EmptyState></li>
+                          <li><EmptyState variant="inline" loading={loading} className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</EmptyState></li>
                         )}
                       </ul>
                     </RailGroup>
@@ -2042,7 +2045,14 @@ export function ChatsPage({
               }
             }
           />
-          {!active && (project || agent) ? (
+          {!active && loading && (activeId || project || agent) ? (
+            <>
+              <div className="chats-view-path">{listToggle}</div>
+              <div className="chats-placeholder">
+                <EmptyState loading className="chats-loading" />
+              </div>
+            </>
+          ) : !active && (project || agent) ? (
             /* Inside a project there is no landing: the thread is the
                orchestrator's by default, and it is being stood up if it is not
                there yet. Inside an agent, likewise its own thread. */
@@ -2120,9 +2130,9 @@ export function ChatsPage({
                         label="What to create"
                         selected={mode}
                         options={[
-                          ["kos", "Ask KOS"],
-                          ["chat", "Chat"],
-                          ["project", "Project"],
+                          ["kos", "Ask KOS", "KOS answers, and starts a chat or a project if it needs one"],
+                          ["chat", "New chat", "Opens a chat of its own with these words"],
+                          ["project", "New project", "Makes a project, and its chat, from this description"],
                         ]}
                         onChoose={setMode}
                       />
@@ -2137,7 +2147,7 @@ export function ChatsPage({
                             ? "Create"
                             : mode === "chat"
                               ? "Start"
-                              : "Ask KOS"}
+                              : "Send"}
                       </button>
                     </div>
                   </div>

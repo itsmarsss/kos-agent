@@ -96,7 +96,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
       <PageHead
         title="Blobs"
         {...(agents ? { count: agents.length } : {})}
-        subtitle='A blob is a responsibility KOS keeps for you, with a face: a folder under blobs/ with a thread of its own and a schedule if it needs one. Ask KOS for one in a chat ("keep an eye on…", "every Saturday…"), or write one here. A card opens the blob’s own page.'
+        subtitle='A blob is a helper that looks after one thing for you, such as a weekly recap or watching a price, on a schedule or when asked. Ask KOS for one in a chat, or make one here.'
         actions={
           <button type="button" className="btn btn--primary" onClick={() => onOpen("new")}>
             New blob
@@ -106,10 +106,10 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
 
       {/* A drawer, as the schedule editor has: the list stays beside it. */}
-      <Drawer open={open === "new"} title="New blob" subtitle="A responsibility KOS keeps for you, with a face of its own" wide onClose={() => onOpen()}>
+      <Drawer open={open === "new"} title="New blob" subtitle="A helper that looks after one thing for you" wide onClose={() => onOpen()}>
         <AgentEditor
           onSaved={(agent) => {
-            onNotice(`Made ${agent.name}`);
+            onNotice(`Made ${titleOf(agent.name)}`);
             onChanged();
             onOpen(agent.name);
           }}
@@ -120,10 +120,10 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
       {/* The rows come in as the project cards do: staggered, lifting on
           hover. Mounted once the rows are known: a list that mounted empty
           and filled later had already played its entrance to nobody. */}
-      {agents === null && !error && <p className="hint">Loading…</p>}
+      {agents === null && !error && <EmptyState loading />}
       {agents !== null && (
       <m.ul className="agents-list agents-list--index" variants={stagger} initial={firstVisit ? "hidden" : false} animate="show">
-        {agents.length === 0 && <li><EmptyState variant="inline">None yet. Ask KOS to keep something up for you, or make one with New blob.</EmptyState></li>}
+        {agents.length === 0 && <li><EmptyState variant="inline">No blobs yet. Ask KOS to look after something for you, or make one with New blob.</EmptyState></li>}
         {agents.map((a) => (
           <m.li key={a.name} variants={card} whileHover={{ y: -2 }}>
             <button type="button" className="agents-row" onClick={() => onOpen(a.name)}>

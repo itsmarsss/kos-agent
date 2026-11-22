@@ -97,6 +97,8 @@ export function InboxDecided({
    */
   const reading = useRef(0);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // Until the first page is in, the list is being read, not empty.
+  const [pageRead, setPageRead] = useState(false);
 
   // The first pages, again whenever something new is decided or the filter changes.
   useEffect(() => {
@@ -107,6 +109,7 @@ export function InboxDecided({
         if (read !== reading.current) return;
         setRows(got.slice(0, wanted.current));
         setMore(got.length > wanted.current);
+        setPageRead(true);
       })
       .catch(() => undefined);
   }, [page, markKey]);
@@ -241,7 +244,11 @@ export function InboxDecided({
       </div>
 
       {missing !== null && <p className="hint inbox-decided-missing">No ask #{missing}.</p>}
-      {shown.length === 0 ? (
+      {shown.length === 0 && (!pageRead || (filter === "all" && !query.trim())) ? (
+        <EmptyState variant="inline" loading={!pageRead}>
+          Nothing decided yet.
+        </EmptyState>
+      ) : shown.length === 0 ? (
         <EmptyState
           variant="inline"
           query={{

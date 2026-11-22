@@ -282,8 +282,8 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
             const method = String(input["method"] ?? "GET").toUpperCase();
             if (method !== "GET" && method !== "HEAD") return `a ${method} request, which can carry data out`;
             const host = typeof input["url"] === "string" ? hostOf(input["url"]) : undefined;
-            if (host === undefined) return "no host to check against the allowed hosts";
-            return allowed().has(host) ? false : `${host} is not on the allowed hosts`;
+            if (host === undefined) return "no site to check against the sites KOS may reach";
+            return allowed().has(host) ? false : `${host} is not one of the sites KOS may reach`;
           },
         },
         { secretSlots: HTTP_SECRET_SLOTS },

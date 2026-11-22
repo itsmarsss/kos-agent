@@ -6,7 +6,7 @@
 
 import type { SecretBilling, SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUse, SecretUseRow, SecretValues, VaultStatus } from "@kos/shared";
 
-import { changeHeaders, kosFetch, readError } from "./api.js";
+import { changeHeaders, FieldError, kosFetch, readRefusal } from "./api.js";
 
 export interface SecretDraft {
   label: string;
@@ -39,7 +39,12 @@ async function call<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string
     cache: "no-store",
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  if (!res.ok) throw new SecretsError(await readError(res, path), res.status);
+  if (!res.ok) {
+    const refused = await readRefusal(res, path);
+    // A label refused (taken, too long) goes under its field, as every form's name does.
+    if (refused.field && refused.problem) throw new FieldError(refused.message, refused.field, refused.problem);
+    throw new SecretsError(refused.message, res.status);
+  }
   return (await res.json()) as T;
 }
 
@@ -117,6 +122,6 @@ export function defaultPolicy(): SecretDraft["policy"] {
 /** Where a secret may be used, in a few words: its first site or host and how many more. */
 export function whereWords(use: SecretUse): string {
   const places = [...use.web.origins.map((o) => o.replace(/^https:\/\//, "")), ...use.http.hosts, ...use.apps];
-  if (places.length === 0) return "Nowhere yet";
+  if (places.length === 0) return "Not usable yet: say where it goes";
   return places.length === 1 ? places[0]! : `${places[0]} and ${places.length - 1} more`;
 }

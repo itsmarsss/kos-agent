@@ -1,13 +1,13 @@
 import { useMemo, useState, type ReactElement } from "react";
 
-import { clockWords, formatDuration, kindWord, stateOfRun, summarizeAction } from "@kos/shared";
+import { clockWords, errorWords, formatDuration, kindWord, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
 
 import { Chips, StatusPill } from "@kos/kit";
 
 import type { AuditRecord, Conversation, CronJob, Project, RunRecord } from "./api.js";
 import { ListPage } from "./ListPage.js";
 import { ProjectMark } from "./ProjectMark.js";
-import { RunsTabs } from "./RunsTabs.js";
+import { RUNS_SUBTITLE, RunsTabs } from "./RunsTabs.js";
 import { jobTitle } from "./schedulewords.js";
 
 /**
@@ -32,11 +32,11 @@ export type HistoryRow =
 /** Which slice of history is on screen. */
 type Filter = "all" | "tools" | "runs" | "failures";
 
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: "all", label: "Everything" },
-  { value: "tools", label: "Tools" },
-  { value: "runs", label: "Turns and schedules" },
-  { value: "failures", label: "Failed" },
+const FILTERS: { value: Filter; label: string; title: string }[] = [
+  { value: "all", label: "Everything", title: "Every chat reply, schedule run and step" },
+  { value: "runs", label: "Chats and schedules", title: "Each reply KOS gave and each time a schedule ran" },
+  { value: "tools", label: "Steps", title: "Each thing KOS did along the way: read a file, fetch a page" },
+  { value: "failures", label: "Failed", title: "Replies, runs and steps that went wrong" },
 ];
 
 const DAY = 86_400_000;
@@ -63,9 +63,9 @@ export function dayLabel(ts: number, now: number = Date.now()): string {
   return DATE.format(ts);
 }
 
-/** A run's kind as the row's tag says it: a chat's turn, a schedule's run, KOS's own work on memory. */
+/** A run's kind as the row's tag says it: a chat's reply, a schedule's run, KOS's own work on memory. */
 export function runKind(kind: string): string {
-  if (kind === "chat") return "Turn";
+  if (kind === "chat") return "Chat";
   if (kind === "heartbeat") return "Check";
   if (kind.startsWith("memory.")) return "Memory";
   return kindWord(kind);
@@ -115,6 +115,17 @@ function RunName({ label, project }: { label: string; project: Project | undefin
   );
 }
 
+/** A step's row: what it did, and what to when its arguments say. */
+function StepWhat({ tool, args }: { tool: string; args: unknown }): ReactElement {
+  const line = stepLine(tool, args);
+  return (
+    <span className="hist-what" title={tool}>
+      <span>{line.title}</span>
+      {line.detail && <span className="ops-muted">{line.detail}</span>}
+    </span>
+  );
+}
+
 export function HistoryPage({
   tools,
   runs,
@@ -124,6 +135,7 @@ export function HistoryPage({
   onOpenTool,
   onOpenRun,
   onFix,
+  loading = false,
 }: {
   tools: AuditRecord[];
   runs: RunRecord[];
@@ -137,6 +149,8 @@ export function HistoryPage({
   onOpenRun: (record: RunRecord) => void;
   /** Put KOS on a failure, in its own chat. */
   onFix?: (row: HistoryRow) => void;
+  /** The runs and steps have not been read yet. */
+  loading?: boolean;
 }): ReactElement {
   const [fixing, setFixing] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -157,7 +171,7 @@ export function HistoryPage({
     if (r.kind === "chat") {
       const chat = chatOf(r);
       if (chat) return chat.kind === "orchestrator" ? "KOS" : chat.title || "Untitled chat";
-      return r.ref?.startsWith("project:") ? (projectOf.get(r.ref.slice(8))?.name ?? "A project's chat") : "A chat";
+      return r.ref?.startsWith("project:") ? (projectOf.get(r.ref.slice(8))?.name ?? "A project's chat") : "An archived or deleted chat";
     }
     return RUN_WORDS[r.kind] ?? r.kind;
   };
@@ -178,8 +192,9 @@ export function HistoryPage({
   return (
     <ListPage
       title="Runs"
-      subtitle="Everything KOS has done, newest first. Approvals you decided are in the Inbox."
+      subtitle={RUNS_SUBTITLE.history}
       stackOnPhone
+      loading={loading}
       tabs={<RunsTabs current="history" />}
       rows={rows}
       rowKey={(r) => `${r.kind}-${r.kind === "tool" ? r.tool.id : r.run.id}`}
@@ -192,17 +207,17 @@ export function HistoryPage({
         r.kind === "tool" ? onOpenTool(r.tool) : onOpenRun(r.run)
       }
       filters={
-        <Chips options={FILTERS.map((f) => [f.value, f.label] as const)} selected={filter} onChoose={setFilter} />
+        <Chips options={FILTERS.map((f) => [f.value, f.label, f.title] as const)} selected={filter} onChoose={setFilter} />
       }
       columns={[
         {
           key: "kind",
           header: "",
           width: "7%",
-          searchText: (r) => (r.kind === "tool" ? "Tool" : runKind(r.run.kind)),
+          searchText: (r) => (r.kind === "tool" ? "Step" : runKind(r.run.kind)),
           render: (r) => (
             <span className={`hist-kind hist-kind--${r.kind}`}>
-              {r.kind === "tool" ? "Tool" : runKind(r.run.kind)}
+              {r.kind === "tool" ? "Step" : runKind(r.run.kind)}
             </span>
           ),
         },
@@ -212,21 +227,17 @@ export function HistoryPage({
           stack: "title",
           searchText: (r) =>
             r.kind === "tool"
-              ? `${r.tool.tool} ${summarizeAction(r.tool.tool, r.tool.args)}`
-              : `${runLabel(r.run)} ${r.run.kind} ${r.run.error ?? ""}`,
+              ? `${stepLine(r.tool.tool, r.tool.args).title} ${summarizeAction(r.tool.tool, r.tool.args)} ${r.tool.tool}`
+              : `${runLabel(r.run)} ${r.run.kind} ${r.run.error ? errorWords(r.run.error) : ""}`,
+          // A step by what it did and to what; its tool and arguments are in the drawer it opens.
           render: (r) =>
             r.kind === "tool" ? (
-              <span className="hist-what">
-                <span className="ops-mono">{r.tool.tool}</span>
-                <span className="ops-muted">
-                  {summarizeAction(r.tool.tool, r.tool.args)}
-                </span>
-              </span>
+              <StepWhat tool={r.tool.tool} args={r.tool.args} />
             ) : (
               <span className="hist-what">
                 <RunName label={runLabel(r.run)} project={markOf(r.run)} />
                 {r.run.error ? (
-                  <span className="ops-muted">{r.run.error}</span>
+                  <span className="ops-muted">{errorWords(r.run.error)}</span>
                 ) : null}
               </span>
             ),
@@ -255,7 +266,7 @@ export function HistoryPage({
           key: "fix",
           header: "",
           stack: "aside",
-          width: "8%",
+          width: "10%",
           render: (r) => {
             if (!r.failed || !onFix) return null;
             const id = `${r.kind}-${r.kind === "tool" ? r.tool.id : r.run.id}`;
@@ -264,14 +275,14 @@ export function HistoryPage({
                 type="button"
                 className="btn btn--sm"
                 disabled={fixing !== null}
-                title="Open a chat where KOS looks into this and tries to fix it"
+                title="Opens a chat where KOS looks into this and tries to fix it"
                 onClick={(e) => {
                   e.stopPropagation();
                   setFixing(id);
                   onFix(r);
                 }}
               >
-                {fixing === id ? "Starting…" : "Fix"}
+                {fixing === id ? "Starting…" : "Fix in a chat"}
               </button>
             );
           },

@@ -474,7 +474,8 @@ export function NavIcon({ name }: { name: string }): ReactElement {
     case "inbox": return p("M22 12h-6l-2 3h-4l-2-3H2|M5.5 5h13l3.5 7v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-6z");
     case "home": return p("M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z");
     case "projects": return p("M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z");
-    case "blobs": return p("c12,8,4|M4 21c0-4 3.6-7 8-7s8 3 8 7");
+    // A blob as KOS draws one: a gumdrop with two eyes, not a person.
+    case "blobs": return p("M12 3.5c4.6 0 7.5 4 7.5 9.2 0 4.6-2.6 7.8-7.5 7.8s-7.5-3.2-7.5-7.8C4.5 7.5 7.4 3.5 12 3.5z|M9.5 11v1.5|M14.5 11v1.5");
     case "files": return p("M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6");
     case "memory": return p("M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3z|M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6|M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3");
     case "history": return p("M3 12a9 9 0 1 0 3-6.7L3 8|M3 4v4h4|M12 8v4l3 2");

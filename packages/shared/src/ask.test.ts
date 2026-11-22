@@ -181,7 +181,7 @@ describe("why an ask asks", () => {
     expect(askRisk("on shop.example")).toBeUndefined();
     expect(askRisk("risky tool")).toBeUndefined();
     expect(askRisk(null)).toBeUndefined();
-    expect(askRisk("example.com is not on the allowed hosts")).toBe("example.com is not on the allowed hosts");
+    expect(askRisk("example.com is not one of the sites KOS may reach")).toBe("example.com is not one of the sites KOS may reach");
     expect(askRisk("deletes files")).toBe("Deletes files");
   });
 });
@@ -192,7 +192,7 @@ describe("a remembered yes", () => {
     expect(alwaysWords("dir:projects/budget")).toBe("Always allow in projects/budget");
     expect(alwaysWords("file:notes.txt")).toBe("Always allow on notes.txt");
     expect(alwaysWords("cmd:git")).toBe("Always allow git");
-    expect(alwaysWords("host:api.example.com")).toBe("Always allow for api.example.com");
+    expect(alwaysWords("host:api.example.com")).toBe("Always allow on api.example.com");
     expect(alwaysWords(null)).toBe("Always allow");
     expect(alwaysWords("to:discord:channel:1")).toBe("Always allow to #1");
     expect(alwaysWords("to:discord:channel:1", (kind, id) => (kind === "channel" && id === "1" ? "leetcode" : undefined))).toBe("Always allow to #leetcode");

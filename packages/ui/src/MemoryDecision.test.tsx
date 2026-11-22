@@ -79,14 +79,14 @@ describe("a memory decision", () => {
   it("names a leaned promotion by what it does, and offers the other answer beside it", () => {
     render(<MemoryDecision item={item({ kind: "promotion", lean: "promote", sure: 0.7, keys: ["project:site/editor"], claims: [{ qualified: "project:site/editor", scope: "project:site", key: "editor", value: "neovim" }] })} onResolved={() => {}} />);
     const row = document.querySelector(".mem-decision-acts")!;
-    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Make it global", "No, keep it to the project"]);
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Make it true everywhere", "No, keep it to the project"]);
   });
 
   it("asks the promotion question with yes and no", () => {
     const resolve = vi.spyOn(api, "resolveMemoryReview").mockResolvedValue({ item: item(), archived: [], promoted: [] });
     render(<MemoryDecision item={item({ kind: "promotion", keys: ["project:site/editor"], claims: [{ qualified: "project:site/editor", scope: "project:site", key: "editor", value: "neovim" }] })} onResolved={() => {}} />);
     expect(screen.queryByText("Keep this")).toBeNull();
-    fireEvent.click(screen.getByText("Yes, make it global"));
+    fireEvent.click(screen.getByText("Yes, make it true everywhere"));
     expect(resolve).toHaveBeenCalledWith(7, "promote", undefined);
   });
 

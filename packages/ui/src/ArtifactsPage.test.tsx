@@ -113,13 +113,13 @@ describe("the Artifacts page", () => {
     fireEvent.keyDown(kinds, { key: "Home" });
     fireEvent.keyDown(kinds, { key: "ArrowRight" });
     expect(deck.getAttribute("aria-checked")).toBe("true");
-    expect(within(dialog).getByText("Goes to KOS")).toBeTruthy();
+    expect(within(dialog).getByText("KOS makes it in a chat of its own")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Owner" }));
     fireEvent.click(await screen.findByRole("option", { name: "Household budget" }));
-    expect(within(dialog).getByText("Goes to Household budget's chat")).toBeTruthy();
+    expect(within(dialog).getByText("KOS makes it in Household budget's chat")).toBeTruthy();
     const ask = within(dialog).getByRole("button", { name: "Ask KOS" }) as HTMLButtonElement;
     expect(ask.disabled).toBe(true);
-    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "Ten slides on the quarter" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Describe it/), { target: { value: "Ten slides on the quarter" } });
     fireEvent.click(ask);
     expect(sent).toHaveBeenCalledWith(newRequest("deck", "Ten slides on the quarter", { project: "budget" }), "project:budget");
     await waitFor(() => expect(asked).toHaveBeenCalledWith({ project: "budget" }));
@@ -136,14 +136,14 @@ describe("the Artifacts page", () => {
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} onAskFailed={failed} />);
     fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
     const dialog = await screen.findByRole("dialog", { name: "New artifact" });
-    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo on the move" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Describe it/), { target: { value: "A memo on the move" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
     // Said while it is on its way, and not sent twice.
     const busy = within(dialog).getByRole("button", { name: "Asking…" }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
     refuse(new Error("KOS is halted"));
     expect((await within(dialog).findByRole("alert")).textContent).toBe("Could not ask KOS: KOS is halted");
-    expect((within(dialog).getByLabelText("What should it be?") as HTMLTextAreaElement).value).toBe("A memo on the move");
+    expect((within(dialog).getByLabelText(/^Describe it/) as HTMLTextAreaElement).value).toBe("A memo on the move");
     expect(within(dialog).getByRole("button", { name: "Ask KOS" })).toBeTruthy();
     expect(asked).not.toHaveBeenCalled();
     // Said in the dialog, so not again by the dashboard.
@@ -160,7 +160,7 @@ describe("the Artifacts page", () => {
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} onAskFailed={failed} />);
     fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
     const dialog = await screen.findByRole("dialog", { name: "New artifact" });
-    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Describe it/), { target: { value: "A memo" } });
     vi.useFakeTimers();
     try {
       fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
@@ -188,7 +188,7 @@ describe("the Artifacts page", () => {
     const { unmount } = render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} onAskFailed={failed} />);
     fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
     const dialog = await screen.findByRole("dialog", { name: "New artifact" });
-    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Describe it/), { target: { value: "A memo" } });
     vi.useFakeTimers();
     try {
       fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
@@ -214,13 +214,13 @@ describe("the Artifacts page", () => {
     let dialog = await open();
     fireEvent.click(within(dialog).getByRole("button", { name: "Owner" }));
     fireEvent.click(await screen.findByRole("option", { name: "noter" }));
-    expect(within(dialog).getByText("Goes to noter's chat")).toBeTruthy();
+    expect(within(dialog).getByText("KOS makes it in noter's chat")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     // The blob is removed before the dialog opens again.
     agents.mockResolvedValue({ agents: [], invalid: [] });
     dialog = await open();
-    await waitFor(() => expect(within(dialog).getByText("Goes to KOS")).toBeTruthy());
+    await waitFor(() => expect(within(dialog).getByText("KOS makes it in a chat of its own")).toBeTruthy());
   });
 
   it("asks KOS at the root for a workspace artifact, and a blob in its own thread", () => {

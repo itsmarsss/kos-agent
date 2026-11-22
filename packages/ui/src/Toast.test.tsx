@@ -14,7 +14,7 @@ const texts = (): string[] => [...document.querySelectorAll(".ops-toast-text")].
 
 describe("a toast", () => {
   it("says a reference as a reader would, never as its token", () => {
-    expect(toastWords("Approved @approval:2. http.fetch is running.")).toBe("Approved #2. http.fetch is running.");
+    expect(toastWords("Approved @approval:2. Fetch a web address: running now.")).toBe("Approved #2. Fetch a web address: running now.");
     expect(toastWords("Moved to @project:[Home lab]")).toBe("Moved to Home lab");
   });
 

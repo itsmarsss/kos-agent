@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, rmSync,
 import { dirname, join } from "node:path";
 
 import {
+  assertName,
   isReadOnlyQuery,
   isValidPageSpec,
   sheetDataOf,
@@ -826,9 +827,8 @@ export class PageStore {
    * change is kept as a version like any write.
    */
   rename(id: string, change: { title?: string; description?: string }): PageRecord {
-    const title = change.title?.trim();
-    if (change.title !== undefined && !title) throw new Error("a title is required");
-    if (title !== undefined && title.length > RENAME_TITLE_MAX) throw new Error(`a title is at most ${RENAME_TITLE_MAX} characters`);
+    // The one name check, at the title's own limit; a title may repeat, as a copy's does.
+    const title = change.title === undefined ? undefined : assertName(change.title, { noun: "artifact", max: RENAME_TITLE_MAX });
     if ((change.description?.trim().length ?? 0) > RENAME_DESCRIPTION_MAX) throw new Error(`a description is one sentence of at most ${RENAME_DESCRIPTION_MAX} characters`);
     const got = this.loaded(id);
     // An older widget page has no description, so clearing one changes nothing.

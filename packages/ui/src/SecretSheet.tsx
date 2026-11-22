@@ -2,10 +2,11 @@ import { useEffect, useRef, useState, type FormEvent, type ReactElement, type Re
 
 import { Chips, Countdown, EmptyState, Field, hintWords, SheetFoot, OriginList, PAYMENT_FRAMES, Pill, SecretField, GroupHead, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
 
+import { fieldErrorOf } from "./api.js";
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
 
-import { SECRET_KINDS, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSummary, type SecretUse, type SecretUseRow, type SecretValues, type VaultStatus, timeWords } from "@kos/shared";
+import { checkName, SECRET_KINDS, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSummary, type SecretUse, type SecretUseRow, type SecretValues, type VaultStatus, timeWords } from "@kos/shared";
 
 import {
   ASK_WORDS,
@@ -38,6 +39,16 @@ const FORM_ID = "secret-form";
 /** How long a revealed value stays on screen. */
 export const REVEAL_MS = 30_000;
 
+/** When KOS asks before using it, as the owner would choose: the chip, and what it means. */
+const ASK_CHOICES: Record<SecretDraft["policy"]["ask"], readonly [string, string]> = {
+  always: [ASK_WORDS.always, "KOS asks you before each use."],
+  turn: ["Once per request", "One yes covers the rest of what you asked KOS to do."],
+  site: ["Once per site", "One yes on a site is remembered for that site."],
+};
+
+/** The field a new secret of each kind cannot be made without. */
+const REQUIRED: Record<SecretKind, SecretFieldName> = { login: "password", card: "number", apikey: "token", note: "text" };
+
 const OUTCOME_TONE = (outcome: string): Tone => (outcome === "filled" ? "ok" : outcome === "expired" ? "muted" : outcome === "failed" ? "warn" : "danger");
 
 /**
@@ -51,6 +62,7 @@ export function SecretSheet({
   mode,
   status,
   conversations = [],
+  taken = [],
   onClose,
   onSaved,
   onDeleted,
@@ -60,15 +72,18 @@ export function SecretSheet({
   status?: VaultStatus | null;
   /** Chats a secret can be limited to. */
   conversations?: readonly { id: string; title: string }[];
+  /** The labels other secrets have, so a new one is told it is taken before it is sent. */
+  taken?: readonly string[];
   onClose: () => void;
   onSaved: (secret: SecretSummary | { handle: string }) => void;
   onDeleted?: (handle: string) => void;
 }): ReactElement {
   const editing = mode.kind === "edit" ? mode.secret : null;
   const title = editing ? editing.label : "New secret";
-  const sub = editing ? `${KINDS[editing.kind].label} · ${editing.handle}` : "KOS can use it without seeing it";
+  const sub = editing ? KINDS[editing.kind].label : "KOS can use it without seeing it";
   const readOnly = editing?.source === "env";
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState(false);
   return (
     <Drawer
       open={open}
@@ -103,7 +118,7 @@ export function SecretSheet({
               )
             }
             primary={
-              <button type="submit" form={FORM_ID} className="btn btn--primary">
+              <button type="submit" form={FORM_ID} className="btn btn--primary" disabled={blocked}>
                 {editing ? "Save" : "Create"}
               </button>
             }
@@ -111,12 +126,26 @@ export function SecretSheet({
         )
       }
     >
-      <SheetBody key={editing?.handle ?? "new"} mode={mode} status={status ?? null} conversations={conversations} onSaved={onSaved} />
+      <SheetBody key={editing?.handle ?? "new"} mode={mode} status={status ?? null} conversations={conversations} taken={taken.filter((l) => l !== editing?.label)} onBlocked={setBlocked} onSaved={onSaved} />
     </Drawer>
   );
 }
 
-function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheetMode; status: VaultStatus | null; conversations: readonly { id: string; title: string }[]; onSaved: (secret: SecretSummary | { handle: string }) => void }): ReactElement {
+function SheetBody({
+  mode,
+  status,
+  conversations,
+  taken,
+  onBlocked,
+  onSaved,
+}: {
+  mode: SecretSheetMode;
+  status: VaultStatus | null;
+  conversations: readonly { id: string; title: string }[];
+  taken: readonly string[];
+  onBlocked: (blocked: boolean) => void;
+  onSaved: (secret: SecretSummary | { handle: string }) => void;
+}): ReactElement {
   const editing = mode.kind === "edit" ? mode.secret : null;
   // Taken once, on the first render, and let go once the fields have it.
   const seedRef = useRef<SecretSeed | null | undefined>(undefined);
@@ -134,17 +163,26 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
   const [policy, setPolicy] = useState<SecretDraft["policy"]>(editing ? { ask: editing.policy.ask, unattended: editing.policy.unattended, chats: editing.policy.chats } : defaultPolicy());
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** Said only once Create is pressed: a label or a value left empty. */
+  const [tried, setTried] = useState(false);
+  const [labelRefused, setLabelRefused] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+  // The one name check the server makes, as the owner types; empty is said only after a try.
+  const labelCheck = checkName(label, { noun: "secret", taken });
+  const labelError = labelRefused ?? (labelCheck && (labelCheck.problem !== "empty" || tried) ? labelCheck.message : null);
+  const blocked = labelCheck !== null && labelCheck.problem !== "empty";
+  useEffect(() => onBlocked(blocked), [blocked, onBlocked]);
 
   const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     if (saving || readOnly) return;
-    if (!label.trim()) {
-      setError("Give it a label.");
-      return;
-    }
+    setTried(true);
+    const form = e.currentTarget;
+    const lacking = !editing && !readSecretValues(form)[REQUIRED[kind]];
+    setMissing(lacking);
+    if (labelCheck || lacking) return;
     // Read from the fields, never into state, and cleared once saved: a refused save leaves them typed for the retry,
     // where clearing them first made an edit's retry save "unchanged" and report the old password rotated.
-    const form = e.currentTarget;
     const values = valuesOf(readSecretValues(form));
     // An API key's hosts go with the way it is sent; the chips show bearer until another is chosen, so bearer is what is saved.
     const sent: SecretUse = kind === "apikey" && use.http.hosts.length && !use.http.as ? { ...use, http: { ...use.http, as: "bearer" } } : use;
@@ -166,7 +204,9 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
         onSaved(created);
       }
     } catch (err) {
-      setError(refusal(err));
+      const onLabel = fieldErrorOf(err, "label");
+      if (onLabel) setLabelRefused(onLabel);
+      else setError(refusal(err));
     } finally {
       setSaving(false);
     }
@@ -181,15 +221,27 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
   const field = (name: SecretFieldName, extra: { plain?: boolean; multiline?: boolean; required?: boolean; inputMode?: "numeric"; placeholder?: string } = {}): ReactElement => {
     const s = seedFor(name);
     const h = hintFor(name);
-    return <SecretField key={`${kind}-${name}`} label={FIELD_LABEL[name]} name={name} set={set(name)} disabled={readOnly} {...extra} {...(h ? { hint: h } : {})} {...(s ? { seed: s } : {})} />;
+    const error = missing && name === REQUIRED[kind] ? `Type the ${FIELD_LABEL[name].toLowerCase()}.` : null;
+    return <SecretField key={`${kind}-${name}`} label={FIELD_LABEL[name]} name={name} set={set(name)} disabled={readOnly} error={error} {...extra} {...(h ? { hint: h } : {})} {...(s ? { seed: s } : {})} />;
   };
 
   return (
     <div className="secret-sheet">
-      <form id={FORM_ID} className="secret-form" onSubmit={(e) => void submit(e)} autoComplete="off" noValidate={readOnly}>
+      <form id={FORM_ID} className="secret-form" onSubmit={(e) => void submit(e)} autoComplete="off" noValidate>
         {readOnly && <p className="set-note">From the environment, as {editing!.handle}. Change it where KOS is started; it cannot be edited here.</p>}
-        <Field label="Label" required>
-          <input className="kos-input" value={label} disabled={readOnly} placeholder="GitHub, Visa ending 4242" autoComplete="off" onChange={(e) => setLabel(e.target.value)} />
+        <Field label="Label" required hint="The name you will know it by." error={labelError}>
+          <input
+            className="kos-input"
+            value={label}
+            disabled={readOnly}
+            placeholder="Such as GitHub"
+            autoComplete="off"
+            aria-invalid={labelError !== null}
+            onChange={(e) => {
+              setLabelRefused(null);
+              setLabel(e.target.value);
+            }}
+          />
         </Field>
         {!editing && (
           <Field label="Kind" group>
@@ -241,7 +293,12 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
           <div className="secret-fields">
             {kind === "apikey" ? (
               <>
-                <OriginList label="API hosts" mode="host" value={use.http.hosts} disabled={readOnly} hint="Sent only in requests to these." onChange={(hosts) => setUse({ ...use, http: { ...use.http, hosts } })} />
+                <OriginList label="API hosts" mode="host" value={use.http.hosts} disabled={readOnly} hint="KOS sends the key only to these, such as api.openai.com." onChange={(hosts) => setUse({ ...use, http: { ...use.http, hosts } })} />
+                {use.http.hosts.length === 0 && !readOnly && (
+                  <p className="secret-warn" role="note">
+                    With no host, KOS can't send this key anywhere. Add the API's host above.
+                  </p>
+                )}
                 <Field label="Sent as" group>
                   <Chips
                     small
@@ -254,20 +311,21 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
               </>
             ) : (
               <>
-                <OriginList label="Sites" value={use.web.origins} disabled={readOnly} hint="Exact, or one level of wildcard: https://*.example.com." onChange={(origins) => setUse({ ...use, web: { ...use.web, origins } })} />
-                <OriginList label="Frames" value={use.web.frames} disabled={readOnly} {...(kind === "card" ? { presets: PAYMENT_FRAMES } : {})} hint="Frames inside those sites it may be filled into, such as a payment form." onChange={(frames) => setUse({ ...use, web: { ...use.web, frames } })} />
+                <OriginList label="Sites" value={use.web.origins} disabled={readOnly} hint="The sites KOS may fill it in on, such as https://github.com. https://*.example.com covers every part of a site." onChange={(origins) => setUse({ ...use, web: { ...use.web, origins } })} />
+                <OriginList label="Payment boxes" value={use.web.frames} disabled={readOnly} {...(kind === "card" ? { presets: PAYMENT_FRAMES } : {})} hint="A box from another company inside those sites, such as a card form from a payment provider." onChange={(frames) => setUse({ ...use, web: { ...use.web, frames } })} />
               </>
             )}
-            <OriginList label="Mac apps" mode="bundle" value={use.apps} disabled={readOnly} onChange={(apps) => setUse({ ...use, apps })} />
+            <OriginList label="Mac apps" mode="bundle" value={use.apps} disabled={readOnly} hint="Apps on a paired Mac it may be typed into, by the app's ID, such as com.apple.Safari." onChange={(apps) => setUse({ ...use, apps })} />
           </div>
         </SheetGroup>
 
         <SheetGroup title="When KOS asks">
           <div className="secret-fields">
             <Field label="Ask" group>
-              <Chips small options={(Object.keys(ASK_WORDS) as SecretDraft["policy"]["ask"][]).map((a) => [a, ASK_WORDS[a]] as const)} selected={policy.ask} onChoose={(ask) => !readOnly && setPolicy({ ...policy, ask })} label="Ask" />
+              <Chips small options={askOptions(kind, policy.ask).map((a) => [a, ASK_CHOICES[a][0], ASK_CHOICES[a][1]] as const)} selected={policy.ask} onChoose={(ask) => !readOnly && setPolicy({ ...policy, ask })} label="Ask" />
             </Field>
-            <SwitchLine label="Usable with nobody watching" hint="Schedules, dispatches and timers." on={policy.unattended} disabled={readOnly} onChange={(unattended) => setPolicy({ ...policy, unattended })} />
+            <p className="hint secret-section-hint">{ASK_CHOICES[policy.ask][1]}</p>
+            <SwitchLine label="Use it when you're not there" hint="For schedules and other work KOS does on its own." on={policy.unattended} disabled={readOnly} onChange={(unattended) => setPolicy({ ...policy, unattended })} />
             {policy.unattended && <p className="secret-warn" role="note">A run with nobody watching can use this secret and nobody is there to say no. Turn it on only for one a schedule needs.</p>}
             <SwitchLine label="Only in some chats" on={policy.chats !== null} disabled={readOnly} onChange={(on) => setPolicy({ ...policy, chats: on ? [] : null })} />
             {policy.chats !== null && <ChatPicks chosen={policy.chats} conversations={conversations} disabled={readOnly} onChange={(chats) => setPolicy({ ...policy, chats })} />}
@@ -289,6 +347,11 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
       )}
     </div>
   );
+}
+
+/** The asks a kind is offered: an API key goes to hosts, not sites, so Once per site is only for the rest, unless it is already set. */
+function askOptions(kind: SecretKind, current: SecretDraft["policy"]["ask"]): SecretDraft["policy"]["ask"][] {
+  return kind === "apikey" && current !== "site" ? ["always", "turn"] : ["always", "turn", "site"];
 }
 
 /** The field that carries a secret's hint. */

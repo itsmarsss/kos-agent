@@ -1,4 +1,4 @@
-import { EmptyState, GroupHead, TableHead } from "@kos/kit";
+import { EmptyState, GroupHead, listState, TableHead } from "@kos/kit";
 import { Fragment, useMemo, useState } from "react";
 
 import { PageHead } from "./PageHead.js";
@@ -33,6 +33,8 @@ export function ListPage<T>(props: {
   onRowClick: (row: T) => void;
   /** What it says with nothing in it at all; a search that finds nothing says so in the kit's words. */
   empty?: string;
+  /** The rows have not been read yet: skeleton rows, never the empty line or "0 of 0". */
+  loading?: boolean;
   /** What the rows are, for "Search <noun>" and "No <noun> match": "schedules". */
   noun?: string;
   /** Puts the page's own filters back, with the search, from the no-match line's Clear filters. */
@@ -111,6 +113,8 @@ export function ListPage<T>(props: {
     });
   }, [props.rows, props.columns, q]);
 
+  const state = listState(!props.loading, props.rows.length, filtered.length);
+
   return (
     <section className="list-page">
       <PageHead
@@ -121,23 +125,24 @@ export function ListPage<T>(props: {
         {...(props.tabs ? { tabs: props.tabs } : {})}
       />
       {props.filters && <div className="list-filters">{props.filters}</div>}
-      <div className="list-meta ops-muted">
-        {filtered.length} of {props.rows.length}
-      </div>
+      {state !== "loading" && (
+        <div className="list-meta ops-muted">
+          {filtered.length} of {props.rows.length}
+        </div>
+      )}
       <div className={`ops-table-wrap list-table${props.stackOnPhone ? " list-table--stack" : ""}`}>
         <table
           className={`ops-table ${props.fixedLayout ? "ops-table--fixed" : ""}`}
         >
           <TableHead columns={props.columns.map((c) => ({ label: c.header, ...(c.width ? { width: c.width } : {}) }))} />
           <tbody data-rows="">
-            {filtered.length === 0 &&
-              (props.rows.length === 0 ? (
-                <EmptyState variant="row" columns={props.columns.length}>
-                  {props.empty ?? `No ${noun} yet.`}
-                </EmptyState>
-              ) : (
-                <EmptyState variant="row" columns={props.columns.length} query={{ noun, onClear: clearAll }} />
-              ))}
+            {state === "loading" && <EmptyState loading variant="row" columns={props.columns.length} />}
+            {state === "empty" && (
+              <EmptyState variant="row" columns={props.columns.length}>
+                {props.empty ?? `No ${noun} yet.`}
+              </EmptyState>
+            )}
+            {state === "no-match" && <EmptyState variant="row" columns={props.columns.length} query={{ noun, onClear: clearAll }} />}
             {filtered.map((row, i) => {
               const group = props.groupBy?.(row);
               const previous =

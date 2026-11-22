@@ -59,12 +59,12 @@ export function ChatConfig({
         <input className="kos-input" value={title} onChange={(e) => setTitle(e.target.value)} />
       </Field>
 
-      <Field label="Brief" hint="Added to the system prompt for this chat only.">
+      <Field label="Brief" hint="Standing instructions KOS follows in this chat, and only this one.">
         <textarea
           className="kos-input"
           rows={4}
           value={brief}
-          placeholder="What is this conversation for, and how should it behave?"
+          placeholder="What is this chat for, and how should KOS work in it?"
           onChange={(e) => setBrief(e.target.value)}
         />
       </Field>

@@ -93,7 +93,7 @@ describe("what the last turn was given from memory", () => {
 
   it("gives another scope a group of its own", () => {
     const groups = groupRecall({ ...school, facts: [...school.facts, fact(5, "deploy", "fly", { scope: "caller:ci" })] });
-    expect(groups.map((g) => g.label)).toEqual(["Pinned", "This project", "Everywhere", "Caller ci", "Log"]);
+    expect(groups.map((g) => g.label)).toEqual(["Pinned", "This project", "Everywhere", "The app ci", "Log"]);
   });
 
   it("clamps a claim's words until it is opened, then shows them whole with its key", () => {

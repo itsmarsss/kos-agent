@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Chips, Face, Field, GroupHead, SheetFoot } from "@kos/kit";
-import { slugWords } from "@kos/shared";
+import { checkName, slugWords } from "@kos/shared";
 
-import { api, type AgentDraft, type AgentInfo, type FaceLook, type ToolInfo } from "./api.js";
+import { api, fieldErrorOf, type AgentDraft, type AgentInfo, type FaceLook, type ToolInfo } from "./api.js";
 import { SchedulePicker } from "./SchedulePicker.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ToolPicker } from "./ToolPicker.js";
@@ -37,8 +37,8 @@ interface Draft {
 }
 
 const BLANK: Draft = { name: "", description: "", brief: "", tools: null, memory: "own", task: "reasoning", schedule: "", prompt: "", report: "brief", face: {} };
-/** What the harness accepts as a name: it is a folder name and a thread id. */
-const NAME_SHAPE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** The longest name a blob takes: it names its folder and its thread. */
+const BLOB_NAME_MAX = 64;
 
 function toDraft(a: AgentInfo): Draft {
   return {
@@ -96,28 +96,36 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The server's word on the name, shown under the field until the name changes. */
+  const [nameRefused, setNameRefused] = useState<string | null>(null);
+  const [looks, setLooks] = useState(false);
   /** The names already in use, so a new one is told it is taken before it is sent. */
-  const [taken, setTaken] = useState<ReadonlySet<string>>(new Set());
+  const [taken, setTaken] = useState<readonly string[]>([]);
   const isNew = !initial;
   // Five fields is a schedule as far as the form can tell; the host checks it properly.
   const badSchedule = draft.schedule.trim() !== "" && draft.schedule.trim().split(/\s+/).length !== 5;
   const name = draft.name.trim().toLowerCase();
-  const nameTaken = isNew && name !== "" && taken.has(name);
-  const nameOdd = name !== "" && !NAME_SHAPE.test(name);
+  // The one name check the server makes; nothing is said of an empty name until Create is pressed.
+  const nameCheck = isNew && name !== "" ? checkName(name, { noun: "blob", plain: true, max: BLOB_NAME_MAX, taken }) : null;
+  const nameError = nameCheck?.message ?? nameRefused;
 
   useEffect(() => {
     void api.tools().then(setTools).catch(() => setTools([]));
-    if (isNew) void api.agents().then((r) => setTaken(new Set([...r.agents.map((a) => a.name), ...r.invalid.map((i) => i.name)]))).catch(() => undefined);
+    if (isNew) void api.agents().then((r) => setTaken([...r.agents.map((a) => a.name), ...r.invalid.map((i) => i.name)])).catch(() => undefined);
   }, [isNew]);
 
   const save = (): void => {
-    if (busy || badSchedule || nameTaken || nameOdd) return;
+    if (busy || badSchedule || nameError) return;
     setBusy(true);
     setError(null);
     api
       .saveAgent(fromDraft(draft), { create: isNew })
       .then((r) => onSaved(r.agent))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err: unknown) => {
+        const onName = fieldErrorOf(err, "name");
+        if (onName) setNameRefused(onName);
+        else setError(err instanceof Error ? err.message : String(err));
+      })
       .finally(() => setBusy(false));
   };
 
@@ -139,8 +147,8 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
               <Field
                 label="Name"
                 required
-                hint={isNew ? "Short and plain: letters, digits, dashes. It names the folder and the thread." : undefined}
-                error={nameTaken ? `A blob called ${name} already exists. Pick another name, or edit that one.` : nameOdd ? "Letters, digits and dashes only, starting with a letter or digit." : undefined}
+                hint={isNew ? "Letters, digits and dashes, such as price-watch. It can't change later." : undefined}
+                error={nameError ?? undefined}
               >
                 <input
                   className="kos-input"
@@ -148,15 +156,22 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
                   disabled={!isNew}
                   placeholder="price-watch"
                   autoFocus={isNew}
-                  aria-invalid={nameTaken || nameOdd}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                  maxLength={BLOB_NAME_MAX + 16}
+                  aria-invalid={nameError !== null}
+                  onChange={(e) => {
+                    setNameRefused(null);
+                    setDraft({ ...draft, name: e.target.value });
+                  }}
                 />
               </Field>
               <Field label="What it is for" required hint="One line, as a list would show it.">
                 <input className="kos-input" value={draft.description} placeholder="Watches one listing and says when it drops" onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
               </Field>
             </div>
-            <FaceEditor seed={seed} value={draft.face} onChange={(face) => setDraft({ ...draft, face })} preview={false} />
+            <button type="button" className="link sched-toggle" aria-expanded={looks} onClick={() => setLooks((v) => !v)}>
+              {looks ? "Hide its looks" : "Change its looks (optional)"}
+            </button>
+            {looks && <FaceEditor seed={seed} value={draft.face} onChange={(face) => setDraft({ ...draft, face })} preview={false} />}
           </div>
         </div>
       </section>
@@ -164,7 +179,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       <section className="agent-editor-section">
         <GroupHead as="h3" title="Brief" />
         <textarea className="kos-input agents-brief" rows={10} value={draft.brief} placeholder="You watch one listing for the owner…" onChange={(e) => setDraft({ ...draft, brief: e.target.value })} />
-        <span className="hint">Its standing instructions, in the second person: what it is for, how to do the work, when to tell you. It has a folder of its own, blobs/{seed}/, for notes and anything it makes.</span>
+        <span className="hint">Its standing instructions, written to it as "you": what it looks after, how to do the work, and when to tell you. It keeps its notes and what it makes in a folder of its own.</span>
       </section>
 
       <section className="agent-editor-section">
@@ -178,8 +193,8 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
               label="Memory"
               value={draft.memory}
               options={[
-                ["own", "Its own", "What it learns stays in a scope of its own, read beside your global claims."],
-                ["shared", "Shared", "The ordinary rule: the project it is in, or global."],
+                ["own", "Its own", "What it learns stays with it. It still knows what KOS knows about you."],
+                ["shared", "Shared", "What it learns goes where any chat's would: its project, or everywhere."],
               ]}
               onChange={(memory) => setDraft({ ...draft, memory })}
             />
@@ -187,8 +202,8 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
               label="Model"
               value={draft.task}
               options={[
-                ["reasoning", "Reasoning", "The route that thinks; for judgement."],
-                ["cheap", "Cheap", "The quick route; for routine checks."],
+                ["reasoning", "Thinking", "The model for thinking: for work that needs judgement."],
+                ["cheap", "Cheap", "The cheap model: for routine checks."],
               ]}
               onChange={(task) => setDraft({ ...draft, task })}
             />
@@ -226,7 +241,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
         inline
         onCancel={onCancel}
         primary={
-          <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || nameTaken || nameOdd || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim() || (draft.schedule.trim() !== "" && !draft.prompt.trim())}>
+          <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || nameError !== null || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim() || (draft.schedule.trim() !== "" && !draft.prompt.trim())}>
             {busy ? "Saving…" : isNew ? "Create" : "Save"}
           </button>
         }

@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 
 import { AnimatePresence, m, useReducedMotion } from "motion/react";
 
-import { outcomeOf, pathsIn, STATE_WORDS, stepMechanics, waitWords, type State } from "@kos/shared";
+import { outcomeOf, pathsIn, STATE_WORDS, stepLine, stepMechanics, waitWords, type State } from "@kos/shared";
 import { ChevronRight, inPlace, spring, StatusPill, StepPicture, StepTime } from "@kos/kit";
 
 import { api, type ChatEvent, type PendingAction } from "./api.js";
@@ -49,6 +49,18 @@ function Summary({ text }: { text: string }): ReactElement {
 }
 
 type Step = Extract<ChatEvent, { kind: "tool" }>;
+
+/**
+ * A step's line: its summary where the summary says what it did ("Read
+ * notes/todo.md"), and the tool's words with what it was done to where the
+ * summary is only the tool's name and its arguments ("secrets.write:
+ * handle=...").
+ */
+export function headline(event: Pick<Step, "name" | "summary" | "args">): string {
+  if (event.summary.trim() && !event.summary.startsWith(event.name)) return event.summary;
+  const line = stepLine(event.name, event.args);
+  return line.detail ? `${line.title}: ${line.detail}` : line.title;
+}
 
 /**
  * What a finished call says of itself, from how it ended and never from a
@@ -135,9 +147,9 @@ export function ToolCall({
         <span className={`toolcall-caret${open ? " is-open" : ""}`}>
           <ChevronRight size={12} />
         </span>
-        <code className="toolcall-name">{event.name}</code>
-        <span className="toolcall-summary">
-          <Summary text={event.summary} />
+        {/* What the step did, in words; the tool's own name is its tooltip and the first line under it. */}
+        <span className="toolcall-summary" title={event.name}>
+          <Summary text={headline(event)} />
         </span>
         <span className="toolcall-state">
           <StepTime running={running} startedAt={event.startedAt} ms={event.ms} />
@@ -172,6 +184,10 @@ export function ToolCall({
           exit={{ height: 0, opacity: 0, transition: still ? { duration: 0 } : { height: spring, opacity: inPlace.exit } }}
         >
           <div className="toolcall-body-inner">
+          <div className="toolcall-part">
+            <span className="toolcall-label">Tool</span>
+            <pre>{event.name}</pre>
+          </div>
           {mechanics && (
             <div className="toolcall-part">
               <span className="toolcall-label">Steps</span>

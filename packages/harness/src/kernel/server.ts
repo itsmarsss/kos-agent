@@ -9,7 +9,7 @@ import { basename, dirname, extname, join, normalize, relative, resolve, sep } f
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { askView, isExportFormat, isSearchKind, outlineOf, parseChatMode, stepMechanics, summarizeAction, usesSecret, type AskView, type ChatMode, type WidgetOutline } from "@kos/shared";
+import { askView, checkName, isExportFormat, NameError, nameRefusal, isSearchKind, outlineOf, parseChatMode, stepMechanics, summarizeAction, usesSecret, type AskView, type ChatMode, type FieldRefusal, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -125,6 +125,12 @@ export interface ApiResponse {
   status: number;
   body: unknown;
   headers?: Record<string, string>;
+}
+
+/** A refused change: a name refused by the one name check carries its field, so the form shows it there; anything else, its sentence. */
+function refusedWith(err: unknown, status = 400): ApiResponse {
+  if (err instanceof NameError) return { status, body: nameRefusal(err.check) };
+  return { status, body: { error: err instanceof Error ? err.message : String(err) } };
 }
 
 /** How a surface the owner configured came up, and why not when it did not. */
@@ -1050,16 +1056,15 @@ export async function handleApiRequest(
 
   /** Stand up a project and its orchestrator, and return the orchestrator conversation. */
   if (method === "POST" && path === "/api/projects/create") {
-    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const name = typeof body.name === "string" ? body.name : "";
     const type = typeof body.type === "string" && body.type.trim() ? body.type.trim() : "project";
-    if (!name) return { status: 400, body: { error: "name required" } };
     try {
       const made = kernel.standUpProject({ name, type });
       const c = kernel.conversations.get(made.conversationId);
       const conversation = c ? { ...c, kind: conversationKind(c, kernel.profile.ownerId) } : undefined;
       return ok({ slug: made.slug, name: made.name, conversationId: made.conversationId, conversation });
     } catch (err) {
-      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+      return refusedWith(err);
     }
   }
 
@@ -1473,6 +1478,11 @@ export async function handleApiRequest(
     if (typeof input === "string") {
       return { status: 400, body: { error: input } };
     }
+    if ("field" in input) return { status: 400, body: input };
+    // A schedule's name is how it is named everywhere, so two of one name are refused as a project's are.
+    const others = kernel.crons.list().filter((j) => path !== "/api/crons/update" || j.id !== Number(body.id));
+    const clash = checkName(input.name, { noun: "schedule", taken: others.map((j) => j.name) });
+    if (clash) return { status: 400, body: nameRefusal(clash) };
     try {
       const job =
         path === "/api/crons/update"
@@ -1567,7 +1577,7 @@ export async function handleApiRequest(
     try {
       return ok(kernel.manifest.update(slug, patch));
     } catch (err) {
-      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+      return refusedWith(err);
     }
   }
 
@@ -1691,7 +1701,7 @@ export async function handleApiRequest(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       audit(message, true);
-      return { status: err instanceof ArtifactTrashed ? 409 : 400, body: { error: message } };
+      return refusedWith(err, err instanceof ArtifactTrashed ? 409 : 400);
     }
   }
   /*
@@ -2380,10 +2390,11 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/agents/save") {
     const parsed = parseRoleInput(body);
     if (typeof parsed === "string") return { status: 400, body: { error: parsed } };
+    if ("field" in parsed) return { status: 400, body: parsed };
     // Making a new one never overwrites one that exists: the name is the
     // folder and the thread, so a second "recap" would take the first's.
     if (body.create === true && kernel.roles.exists(parsed.name)) {
-      return { status: 409, body: { error: `a blob called ${parsed.name} already exists; pick another name, or edit that one` } };
+      return { status: 409, body: nameRefusal({ problem: "taken", message: `There is already a blob called “${parsed.name}”. Pick another name, or edit that one.` }) };
     }
     try {
       const record = kernel.roles.write(parsed);
@@ -3785,9 +3796,12 @@ function describeAgent(
 }
 
 /** The editor's fields as a role, or what is wrong with them. */
-function parseRoleInput(body: Record<string, unknown>): Role | string {
+function parseRoleInput(body: Record<string, unknown>): Role | FieldRefusal | string {
   const name = typeof body.name === "string" ? body.name.trim().toLowerCase() : "";
-  if (!ROLE_NAME.test(name)) return "name must be short and plain: letters, digits, dashes";
+  // A blob's name is its folder: the one name check, held to plain letters, digits and dashes.
+  const named = checkName(name, { noun: "blob", plain: true, max: 64 });
+  if (named) return nameRefusal(named);
+  if (!ROLE_NAME.test(name)) return nameRefusal({ problem: "invalid", message: "Use letters, digits and dashes only, starting with a letter or digit." });
   const description = typeof body.description === "string" ? body.description.trim() : "";
   if (!description) return "say what it is for";
   const brief = typeof body.brief === "string" ? body.brief.trim() : "";
@@ -3798,7 +3812,7 @@ function parseRoleInput(body: Record<string, unknown>): Role | string {
       ? body.tools.split(",").map((t) => t.trim()).filter(Boolean)
       : [];
   const schedule = typeof body.schedule === "string" ? body.schedule.trim() : "";
-  if (schedule && !cron.validate(schedule)) return `invalid cron schedule: ${schedule}`;
+  if (schedule && !cron.validate(schedule)) return BAD_SCHEDULE;
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (schedule && !prompt) return "a schedule needs a prompt: what to do on each run";
   const face = parseFaceLook(body.face);
@@ -3818,11 +3832,19 @@ function parseRoleInput(body: Record<string, unknown>): Role | string {
   };
 }
 
-function parseCronInput(body: Record<string, unknown>): CreateCronInput | string {
+/** A schedule line refused, in the owner's words, under the When field. */
+const BAD_SCHEDULE: FieldRefusal = {
+  error: "That isn't a schedule KOS can read. Pick when it runs from the choices, or check the line: minute, hour, day of the month, month, day of the week.",
+  field: "schedule",
+  problem: "invalid",
+};
+
+function parseCronInput(body: Record<string, unknown>): CreateCronInput | FieldRefusal | string {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const schedule = typeof body.schedule === "string" ? body.schedule.trim() : "";
-  if (!name) return "name required";
-  if (!cron.validate(schedule)) return `invalid cron schedule: ${schedule || "(empty)"}`;
+  const named = checkName(name, { noun: "schedule" });
+  if (named) return nameRefusal(named);
+  if (!cron.validate(schedule)) return BAD_SCHEDULE;
 
   const type = body.type === "self_prompt" ? "self_prompt" : "actions";
   const input: CreateCronInput = { name, schedule, type };
@@ -3836,13 +3858,13 @@ function parseCronInput(body: Record<string, unknown>): CreateCronInput | string
   if (typeof body.agent === "string" && body.agent) input.agent = body.agent;
   if (type === "self_prompt") {
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-    if (!prompt) return "a self_prompt job needs a prompt";
+    if (!prompt) return "Say what KOS should do each time it runs.";
     input.prompt = prompt;
     return input;
   }
 
   if (!Array.isArray(body.actions) || body.actions.length === 0) {
-    return "an actions job needs at least one tool call";
+    return "Add at least one step for it to run.";
   }
   const actions: ToolCall[] = [];
   for (const [i, entry] of body.actions.entries()) {

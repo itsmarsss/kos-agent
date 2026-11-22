@@ -77,6 +77,18 @@ describe("secrets routes", () => {
     expect((await call("POST", "/api/secrets/wipe", {})).status).toBe(400);
   });
 
+  it("refuses a label another secret has, an empty one or one too long, under the Label field", async () => {
+    await call("POST", "/api/secrets/init", {});
+    const first = (await call("POST", "/api/secrets", login)).body as { handle: string };
+    const dup = await call("POST", "/api/secrets", { ...login, label: " github " });
+    expect(dup.status).toBe(400);
+    expect(dup.body).toEqual({ field: "label", problem: "taken", error: "There is already a secret called “GitHub”. Pick another name." });
+    expect((await call("POST", "/api/secrets", { ...login, label: "" })).body).toMatchObject({ field: "label", problem: "empty" });
+    expect((await call("POST", "/api/secrets", { ...login, label: "x".repeat(81) })).body).toMatchObject({ field: "label", problem: "too_long" });
+    // Its own label is no clash with itself.
+    expect((await call("PATCH", `/api/secrets/${first.handle}`, { label: "GitHub" })).status).toBe(200);
+  });
+
   it("reveals behind the typed label, five times in ten minutes, audited", async () => {
     await call("POST", "/api/secrets/init", {});
     const { handle } = (await call("POST", "/api/secrets", login)).body as { handle: string };

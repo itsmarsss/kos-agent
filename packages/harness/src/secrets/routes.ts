@@ -1,4 +1,4 @@
-import type { SecretFieldName, SecretSummary, SecretValues, VaultStatus } from "@kos/shared";
+import { checkName, nameRefusal, type SecretFieldName, type SecretSummary, type SecretValues, type VaultStatus } from "@kos/shared";
 
 import type { ApiExtension, ApiRequest, ApiResponse } from "../kernel/server.js";
 import type { SecretUses } from "../ops/secretuses.js";
@@ -38,6 +38,13 @@ const NO_STORE = { "cache-control": "no-store" };
 
 const ok = (body: unknown): ApiResponse => ({ status: 200, body, headers: NO_STORE });
 const fail = (status: number, error: string): ApiResponse => ({ status, body: { error }, headers: NO_STORE });
+
+/** A label refused by the one name check, under the Label field: empty, too long, or another secret's. */
+function labelRefused(vault: Vault, label: string, self?: string): ApiResponse | undefined {
+  const taken = vault.list().filter((m) => m.handle !== self).map((m) => m.label);
+  const check = checkName(label, { noun: "secret", taken });
+  return check ? { status: 400, body: nameRefusal(check, "label"), headers: NO_STORE } : undefined;
+}
 
 const VAULT_STATUS: Record<VaultError["code"], number> = {
   absent: 409,
@@ -158,6 +165,10 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
       }
       if (method === "POST") {
         if (!isKind(body.kind)) return fail(400, "kind is one of login, card, apikey, note");
+        if (status().state === "ready") {
+          const refused = labelRefused(vault, text(body.label) ?? "");
+          if (refused) return refused;
+        }
         const handle = vault.add({ label: text(body.label) ?? "", kind: body.kind, values: (body.values ?? {}) as SecretValues, use: body.use, policy: body.policy });
         deps.audit({ tool: "secrets.write", args: { handle, kind: body.kind, fields: vault.get(handle)!.fields }, result: "added", isError: false });
         return ok({ handle });
@@ -214,6 +225,10 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
       if (!isEnv(handle) && vault.status().state !== "ready") return fail(409, vault.status().problem ?? "the vault is not open");
       if (isEnv(handle) && !vault.get(handle)) return fail(423, "a secret from the env file is changed in the env file, not here");
       if (method === "PATCH") {
+        if (body.label !== undefined && vault.get(handle)) {
+          const refused = labelRefused(vault, text(body.label) ?? "", handle);
+          if (refused) return refused;
+        }
         const patch = {
           ...(body.label !== undefined ? { label: text(body.label) ?? "" } : {}),
           ...(body.values !== undefined ? { values: body.values as SecretValues } : {}),

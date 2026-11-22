@@ -1,6 +1,6 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { AskSecret, CallOutcome, ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, SearchKind, SearchResults, ThemeMode as Theme } from "@kos/shared";
+import type { AskSecret, CallOutcome, ChatMode, DrawnTheme, ExportFormat, HtmlPage, NameProblem, OfficeView, SearchKind, SearchResults, ThemeMode as Theme } from "@kos/shared";
 
 import { missed, reached, StalePage, Unreached, wentStale } from "./reach.js";
 
@@ -1086,14 +1086,44 @@ export interface FactRow {
 
 /** The server's own sentence when it sent one, else something serviceable. */
 export async function readError(res: Response, path: string): Promise<string> {
+  return (await readRefusal(res, path)).message;
+}
+
+/**
+ * A change refused over one of its fields (a name taken, too long): the
+ * sentence, and the field a form shows it under rather than at its foot.
+ */
+export class FieldError extends Error {
+  constructor(
+    message: string,
+    readonly field: string,
+    readonly problem: NameProblem,
+  ) {
+    super(message);
+    this.name = "FieldError";
+  }
+}
+
+/** The field a refusal is about, when it is about one; a form puts the words there. */
+export function fieldErrorOf(err: unknown, field: string): string | null {
+  return err instanceof FieldError && err.field === field ? err.message : null;
+}
+
+export async function readRefusal(res: Response, path: string): Promise<{ message: string; field?: string; problem?: NameProblem }> {
   const text = await res.text();
   try {
-    const body = JSON.parse(text) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim()) return body.error;
+    const body = JSON.parse(text) as { error?: unknown; field?: unknown; problem?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) {
+      return {
+        message: body.error,
+        ...(typeof body.field === "string" ? { field: body.field } : {}),
+        ...(typeof body.problem === "string" ? { problem: body.problem as NameProblem } : {}),
+      };
+    }
   } catch {
     // Not JSON; fall through to the raw body.
   }
-  return text.trim() || `${path} failed (${res.status})`;
+  return { message: text.trim() || `${path} failed (${res.status})` };
 }
 
 /** An owner's edit refused because the artifact was saved since it was opened: reloading shows the newer one. */
@@ -1292,7 +1322,9 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
   if (!res.ok) {
     // The server sends {"error": "..."} written for a reader; pasting the raw
     // body meant a chat showed `/api/message: 400 {"error":"..."}` instead.
-    throw new Error(await readError(res, path));
+    const refused = await readRefusal(res, path);
+    if (refused.field && refused.problem) throw new FieldError(refused.message, refused.field, refused.problem);
+    throw new Error(refused.message);
   }
   return (await res.json()) as T;
 }

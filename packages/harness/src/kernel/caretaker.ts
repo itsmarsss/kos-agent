@@ -74,7 +74,7 @@ export const MAINTENANCE = {
   name: "Maintenance",
   slug: "maintenance",
   type: "system",
-  description: "Where KOS looks into something of its own that failed: one agent per repair.",
+  description: "Where KOS fixes problems in itself, one chat per fix.",
 } as const;
 
 /**

@@ -21,7 +21,7 @@ import { LiveTurn } from "./LiveTurn.js";
  * history as context, with no tools, and nothing is recorded into the chat,
  * so an aside never derails the thread it is about. The side thread is kept
  * per chat for the life of the page, so a follow-up keeps its context, and
- * Clear forgets it. With no chat open it is a plain question to KOS.
+ * Clear forgets it. With no chat open it is a question to KOS on its own.
  *
  * It is a window, not a widget: drag it by its header, resize it by any
  * edge or corner, and it opens where you left it. Opening is the app's
@@ -242,10 +242,10 @@ export function QuickAsk({
               </>
             ) : contextId ? (
               <>
-                a plain question to KOS, not about <b>{contextTitle ?? contextId}</b>
+                a question on its own, not about <b>{contextTitle ?? contextId}</b>
               </>
             ) : (
-              "no chat open, so a plain question to KOS"
+              "a question on its own, not about any chat"
             )}
           </span>
         </div>
@@ -303,8 +303,8 @@ export function QuickAsk({
             {attachedTo
               ? "Ask a side question about this chat. KOS answers from its context, with no tools, and the chat itself is left as it is."
               : contextId
-                ? "Detached: a plain question to KOS, with nothing from this chat behind it. Attach to ask about the chat."
-                : "Open a chat to ask about it, or just ask KOS something."}
+                ? "Detached: KOS answers without this chat in mind. Attach to ask about the chat."
+                : "Ask KOS anything quick. To ask about a chat, open it first."}
           </EmptyState>
         )}
         {thread.map((t, i) => {

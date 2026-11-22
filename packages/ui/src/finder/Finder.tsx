@@ -64,10 +64,20 @@ export interface FinderProps {
 /** The type a dragged row carries: workspace paths, so a drop from the desktop is not mistaken for one. */
 const DRAG_TYPE = "application/x-kos-paths";
 const SORT_KEY = "kos.finder.sort";
+/** Whether KOS's own files (kos.sqlite, profile.json) are listed: hidden unless the owner asks, remembered per browser. */
+const OWN_KEY = "kos.finder.showOwn";
 /** Below this the finder is one column: no sidebar, no columns view, the preview a sheet. */
 const NARROW_PX = 640;
 const TYPE_RESET_MS = 900;
 const VIEW_WORDS: Record<FinderView, string> = { list: "as List", columns: "as Columns", gallery: "as Icons" };
+
+function readShowOwn(): boolean {
+  try {
+    return localStorage.getItem(OWN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function readSort(): Sort {
   try {
@@ -122,6 +132,15 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   useEffect(() => setChosenView(viewFor(folder, "list")), [folder]);
   const view: FinderView = narrow && chosenView === "columns" ? "list" : chosenView;
   const [sort, setSortState] = useState<Sort>(readSort);
+  const [showOwn, setShowOwnState] = useState(readShowOwn);
+  const setShowOwn = (on: boolean): void => {
+    setShowOwnState(on);
+    try {
+      localStorage.setItem(OWN_KEY, on ? "1" : "0");
+    } catch {
+      // For this visit only.
+    }
+  };
   const setSort = (s: Sort): void => {
     setSortState(s);
     try {
@@ -211,7 +230,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   const folders = useFolders(visible, paused);
   const entriesOf = (dir: string): DirEntry[] | undefined => {
     const got = folders.get(dir).entries;
-    return got ? sortEntries(got.filter((e) => !e.name.startsWith(".")), sort) : undefined;
+    return got ? sortEntries(got.filter((e) => !e.name.startsWith(".") && (showOwn || !e.reserved)), sort) : undefined;
   };
 
   // The lead's own entry, when it is a folder in columns: its column shows next.
@@ -356,6 +375,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     if (onAsk) items.push({ label: "Ask KOS about this", act: () => onAsk(paths), divided: true });
     if (onOpenInFiles && one) items.push({ label: "Show in Files", act: () => onOpenInFiles(one.path), ...(onAsk ? {} : { divided: true }) });
     if (!kept) items.push({ label: "Move to Trash", act: () => trashChosen(paths), danger: true, divided: true, keys: "⌘⌫" });
+    // Said rather than left out: a menu with no Rename or Trash looked broken.
+    else items.push({ label: "KOS's own file: it can't be renamed, moved or trashed", act: () => undefined, disabled: true, divided: true });
     return items;
   };
   /** The narrow bar's menu: how it is shown and sorted, then what the wide bar's buttons and Actions do. */
@@ -377,12 +398,15 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     const r = button.getBoundingClientRect();
     setMenu({ at: { x: r.right, y: r.bottom + 4 }, items, label });
   };
+  /** This folder holds KOS's own files (the workspace's root does), so the toggle that shows them is offered. */
+  const holdsOwn = (folders.get(folder).entries ?? []).some((e) => e.reserved);
   const folderItems = (): MenuItem[] => [
     { label: "New Folder", act: () => void startNewFolder(), keys: "⇧⌘N" },
     { label: "Upload Files…", act: () => picker.current?.click() },
     { label: "Get Info", act: () => setInfoPath(here), divided: true },
     { label: "Copy path", act: () => ops.copyPath([here]) },
     ...(onAsk ? [{ label: "Ask KOS about this folder", act: () => onAsk([here]), divided: true }] : []),
+    ...(holdsOwn ? [{ label: "Show KOS's files", act: () => setShowOwn(!showOwn), checked: showOwn, divided: true }] : []),
   ];
 
   /* The pointer, dragging, dropping. */
@@ -655,7 +679,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   const crumbs: Crumb[] = trail(folder, root, rootName).map((s, i, all) => (i === all.length - 1 ? { key: s.path, name: s.name, here: true } : { key: s.path, name: s.name, go: () => go({ kind: "folder", path: s.path }), drop: dropInto(s.path), over: over === s.path }));
 
   const body = (): ReactElement => {
-    if (place.kind === "trash") return <TrashView key={trashTick} rootName={rootName} onChanged={() => folders.reload()} onError={setErrorNote} onCount={setTrashCount} />;
+    if (place.kind === "trash") return <TrashView key={trashTick} rootName={rootName} onChanged={() => folders.reload()} onDone={ops.say} onError={setErrorNote} onCount={setTrashCount} />;
     if (view === "gallery" && !found && place.kind === "folder") return <GalleryView entries={ordered} h={h} empty={empty} reading={reading} />;
     if (view === "columns" && !found && place.kind === "folder") {
       return (
