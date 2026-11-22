@@ -558,6 +558,10 @@ export function CommandPalette({
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={onKeyDown}
               />
+              {/* A phone has no Escape: its way out is a word, shown only there (touch.css). */}
+              <button type="button" className="btn btn--ghost pal-cancel" onClick={onClose}>
+                Cancel
+              </button>
 
               {results.length === 0 ? (
                 <EmptyState variant="inline" className="pal-empty">

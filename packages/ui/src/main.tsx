@@ -7,16 +7,20 @@ import { AudienceWindow } from "./AudienceWindow.js";
 import { audienceRoute } from "./presentlink.js";
 import { TokenGate } from "./TokenGate.js";
 import { applyDensity, applyTheme, followOtherTabs, readDensity, readTheme } from "./theme.js";
+import { watchKeyboard } from "./touch.js";
 // The kit's pieces first, so the dashboard's own sheet says where a piece differs in its place; KaTeX's for typeset maths.
 import "@kos/kit/kit.css";
 import "@kos/kit/scrollbars.css";
 import "katex/dist/katex.min.css";
 import "./styles.css";
+import "./touch.css";
 
 // Before the first paint, so a light-theme owner never sees a dark flash.
 applyTheme(readTheme());
 applyDensity(readDensity());
 followOtherTabs();
+// A field typed into on a phone stays above the keyboard on screen.
+watchKeyboard();
 
 // A deck's audience window is the dashboard's own page, drawn alone: no shell, no nav, the slide.
 const audience = audienceRoute(window.location.hash);

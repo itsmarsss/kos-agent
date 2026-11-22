@@ -81,7 +81,11 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
                 tabIndex={-1}
                 onMouseDown={(e) => e.stopPropagation()}
                 onDoubleClick={(e) => e.stopPropagation()}
-                onClick={() => onToggle(entry)}
+                onClick={(e) => {
+                  // Its own: on a phone a tap on the row opens it, and the chevron only unfolds it.
+                  e.stopPropagation();
+                  onToggle(entry);
+                }}
               >
                 <ChevronRight size={11} title="" />
               </button>

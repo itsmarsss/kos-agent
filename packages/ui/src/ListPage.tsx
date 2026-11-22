@@ -10,6 +10,14 @@ export interface Column<T> {
   render: (row: T) => React.ReactNode;
   /** Optional string used for search filtering */
   searchText?: (row: T) => string;
+  /**
+   * Its place in a row drawn as a card on a phone (`stackOnPhone`): the
+   * title, leading the first line; the aside, its actions at that line's
+   * end; or, unsaid, one of the facts on the line under them.
+   */
+  stack?: "title" | "aside";
+  /** On a phone's card, its header said before it: a time alone ("in 3h") does not say which. */
+  stackLabel?: boolean;
 }
 
 /**
@@ -51,9 +59,10 @@ export function ListPage<T>(props: {
    */
   fixedLayout?: boolean;
   /**
-   * Under 640 px, each row as two lines (the "what" column over the rest)
-   * in place of a table wider than the phone, whose last columns sat off
-   * screen with nothing to say they were there.
+   * Under 640 px, each row as a card of two lines (its title and actions
+   * over its other facts, by each column's `stack`) in place of a table
+   * wider than the phone, whose last columns sat off screen with nothing
+   * to say they were there.
    */
   stackOnPhone?: boolean;
 }): React.ReactElement {
@@ -160,7 +169,9 @@ export function ListPage<T>(props: {
                       onClick={() => props.onRowClick(row)}
                     >
                       {props.columns.map((c) => (
-                        <td key={c.key} data-col={c.key}>{c.render(row)}</td>
+                        <td key={c.key} data-col={c.key} data-stack={c.stack} data-label={c.stackLabel ? c.header : undefined}>
+                          {c.render(row)}
+                        </td>
                       ))}
                     </tr>
                   )}

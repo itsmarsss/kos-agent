@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import { Face, Field, NavIcon, PlacePicker, SheetFoot, type Place } from "@kos/kit";
 import { slugWords } from "@kos/shared";
@@ -6,6 +6,7 @@ import { slugWords } from "@kos/shared";
 import type { Project } from "../api.js";
 import { Modal } from "../Modal.js";
 import { ProjectMark } from "../ProjectMark.js";
+import { isCoarse } from "../touch.js";
 import { nameOf, parentOf, within } from "./model.js";
 
 const FORM = "file-move-form";
@@ -39,6 +40,12 @@ export function placeOf(folder: string, projects: readonly Project[]): Place {
 export function MoveDialog({ paths, folders, projects, onMove, onClose }: { paths: string[] | null; folders: string[]; projects: Project[]; onMove: (dir: string) => void; onClose: () => void }): ReactElement {
   const [dir, setDir] = useState("");
   useEffect(() => setDir(""), [paths]);
+  const form = useRef<HTMLFormElement>(null);
+  // On a phone the focus starts on the first place, not in the search: a
+  // field focused raises the keyboard over the very list there is to choose from.
+  useEffect(() => {
+    if (paths && isCoarse()) form.current?.querySelector<HTMLElement>("[data-place]")?.focus({ preventScroll: true });
+  }, [paths]);
   const moving = paths ?? [];
   const parents = new Set(moving.map(parentOf));
   const current = parents.size === 1 ? [...parents][0] : undefined;
@@ -66,6 +73,7 @@ export function MoveDialog({ paths, folders, projects, onMove, onClose }: { path
       }
     >
       <form
+        ref={form}
         id={FORM}
         className="file-dialog"
         onSubmit={(e) => {

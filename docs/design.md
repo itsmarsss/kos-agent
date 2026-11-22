@@ -210,7 +210,8 @@ and the dashboard's `styles.css` draw the same things.
 - **Menu.** `panel`, `line-strong` border, radius 10, 3 px padding, the
   floating shadow; rows radius 7, `panel-2` under the pointer, the current
   one on a dim accent tint.
-- **File list.** Finder's: rows 28 (38 under a finger), zebra at 2.5%, 5%
+- **File list.** Finder's: rows 28 (44 under a finger), a tap opening and
+  a long press asking for the menu under a finger, zebra at 2.5%, 5%
   under the pointer, the chosen row the accent at 26% while the list has the
   keys and grey when it does not; a row being dragged at 45%. A name is one
   line, cut in the middle with its extension kept, the whole name its
@@ -226,6 +227,38 @@ and the dashboard's `styles.css` draw the same things.
   One size on every surface: the Inbox, Home's Inbox panel and a chat draw
   the same card, each with its own warn edge and its countdown. A URL on it
   wraps after a slash, never inside a name.
+
+## Touch
+
+A coarse pointer (a phone, a tablet) gets one set of rules, in the
+dashboard's `touch.css`, loaded after its sheet; the sizes are `TOUCH` in
+`design.ts`, declared as `--tap` (44) and `--tap-text` (16), in px since a
+fingertip does not scale with the density setting.
+
+- **Targets.** Nothing to press is under 44 square. Both button heights
+  (`--control-h`, `--control-h-sm`) become `--tap`; an icon button is a 44
+  circle; a row, a tab, a chip, a menu row and an option are at least 44
+  high. A mark that would break its line grown (a switch, a bare ×, a
+  disclosure chevron, a head's All, a colour) keeps its look and takes a 44
+  area round it.
+- **Fields.** Every field's words are at least 16, or iOS zooms the page in
+  on focus and leaves it there. The one `!important` in the sheets.
+- **No hover.** What the pointer reveals is shown: a chat row's ⋯, a
+  message's actions, a claim's Pin, Edit and Forget (Forget set apart). A
+  setting's words are whole, not cut at two lines. Keyboard shortcuts (⌘K,
+  a menu row's keys, the search's key help) are not offered; the search has
+  a Cancel instead of Escape.
+- **The keyboard on screen.** A sheet ends above it (`--kb-inset`, kept by
+  `watchKeyboard` in `touch.ts`), and the field typed into is scrolled into
+  sight as it comes up. A dialog whose point is a list (Move) does not open
+  the keyboard over it. Typing into a chat, its head keeps only its title.
+  Return in the composer starts a new line, as in a phone's messages; the
+  Send button sends.
+- **A phone's frame.** The bar at the top is under every sheet, drawer and
+  panel, which bring their own ×; the menu drawer shuts by a swipe back to
+  the edge; notes come in under the bar, off what is pinned to the bottom;
+  a list table is a card of two lines (`stackOnPhone`), its title and
+  actions over its facts, a time said with its column's name.
 
 ## Motion
 
