@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 
-import { Field, Pill } from "@kos/kit";
+import { Field, SheetFoot, StatusPill } from "@kos/kit";
 
 import { api, type CronJob, type JobSpend, type SkillInfo } from "./api.js";
 import { scriptIn, withScript } from "./cronscript.js";
@@ -214,7 +214,7 @@ export function CronEditor({
           finding the row again, and waiting for tomorrow to find out. */}
       {job && (
         <div className="cron-state">
-          <Pill tone={job.enabled ? "ok" : "muted"}>{job.enabled ? "On schedule" : "Paused"}</Pill>
+          <StatusPill state={job.enabled ? "on" : "off"} />
           <span className="cron-extra">
             {onRunNow && (
               <button
@@ -235,10 +235,6 @@ export function CronEditor({
                 {job.enabled ? "Pause" : "Resume"}
               </button>
             )}
-            {/* The only delete lived in a panel the schedule list does not
-                open, so from here a job could be paused forever and never
-                removed. */}
-            {onDelete && <ConfirmButton label="Delete" text={`Delete “${job.name}” and its runs?`} onConfirm={() => onDelete(job.id)} />}
           </span>
           {/* Where an outside service posts to start this job. Only when
               the host has a hook secret; without one there is no address. */}
@@ -267,14 +263,14 @@ export function CronEditor({
         {!job && (
           <Field
             label="Start from"
-            hint="A whole job, written out; change any of it below. The brief reads your calendar and mail when those servers are added under Settings, MCP servers, and says what it could not read until then. A watch reads a page in the browser and tells you what changed, with no model turn. Run a script runs a promoted script skill, picked below, with no model turn; Run a command runs a shell line, which asks the first time and never again once you press Always."
+            hint="A whole schedule, written out; change any of it below. The brief reads your calendar and mail when those servers are added under Settings, MCP servers, and says what it could not read until then. A watch reads a page in the browser and tells you what changed, with no model turn. Run a script runs a promoted script skill, picked below, with no model turn; Run a command runs a shell line, which asks the first time and never again once you press Always."
           >
             <Select
               className="settings-select"
               label="Start from a template"
               value=""
               options={[
-                { value: "", label: "a blank job" },
+                { value: "", label: "A blank schedule" },
                 ...TEMPLATES.map((t) => ({ value: t.id, label: t.label, hint: describeCron(t.schedule) ?? t.schedule })),
               ]}
               onChange={(v) => {
@@ -304,7 +300,7 @@ export function CronEditor({
         </Field>
 
         {!system && (
-          <Field label="Project" hint="Whose job this is. A self-prompt runs with the project's context; its runs sit in the project's rail.">
+          <Field label="Project" hint="Whose schedule this is. A self-prompt runs with the project's context; its runs sit in the project's rail.">
             <Select
               className="settings-select"
               label="Project"
@@ -419,19 +415,19 @@ export function CronEditor({
         </p>
       )}
 
-      <div className="settings-actions cron-actions">
-        <button type="button" className="btn" onClick={onCancel}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={saving || !name.trim()}
-          onClick={save}
-        >
-          {saving ? "Saving…" : job ? "Save changes" : "Create schedule"}
-        </button>
-      </div>
+      <SheetFoot
+          inline
+          onCancel={onCancel}
+          /* The only delete lived in a panel the schedule list does not
+             open, so from here a schedule could be paused forever and never
+             removed. Apart, at the far left. */
+          danger={job && onDelete && <ConfirmButton label="Delete" className="btn btn--danger" text={`Delete “${job.name}” and its runs?`} onConfirm={() => onDelete(job.id)} />}
+          primary={
+            <button type="button" className="btn btn--primary" disabled={saving || !name.trim()} onClick={save}>
+              {saving ? "Saving…" : job ? "Save" : "Create"}
+            </button>
+          }
+        />
     </div>
   );
 }

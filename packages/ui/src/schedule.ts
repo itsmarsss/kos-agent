@@ -178,3 +178,13 @@ export function describeCron(expr: string, locale?: string): string | null {
     }
   }
 }
+
+/**
+ * A schedule as the owner reads it, wherever one is shown: its words, or
+ * "On a custom schedule" for a line too unusual to read back. The cron line
+ * itself is for a tooltip, never the words on the page.
+ */
+export function scheduleWords(expr: string | null | undefined, locale?: string): string {
+  if (!expr) return "When asked";
+  return describeCron(expr, locale) ?? "On a custom schedule";
+}

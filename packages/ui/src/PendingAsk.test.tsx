@@ -97,7 +97,7 @@ describe("an ask's card", () => {
         onFixFailure={() => {}}
       />,
     );
-    expect(cardShown().classList.contains("kos-ask--compact")).toBe(true);
+    expect(cardShown().classList.contains("kos-ask--bare")).toBe(false);
   });
 
   it("is a build terminal's", async () => {
@@ -149,7 +149,7 @@ describe("a request for a secret", () => {
     expect(onDecide).not.toHaveBeenCalled();
     expect((screen.getByLabelText("Label", { exact: false }) as HTMLInputElement).value).toBe("Stripe");
     fireEvent.change(screen.getByLabelText(/^Token/), { target: { value: "sk_test_from_the_sheet_000" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add secret" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await vi.waitFor(() => expect(onDecide).toHaveBeenCalledWith(9, true));
     expect(add.mock.calls[0]![0]).toMatchObject({ kind: "apikey", label: "Stripe" });
   });

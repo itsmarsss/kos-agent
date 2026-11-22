@@ -1,4 +1,4 @@
-import { Face, Field, NavIcon } from "@kos/kit";
+import { Face, Field, NavIcon, SheetFoot } from "@kos/kit";
 import type { ArtifactKind } from "@kos/shared";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 
@@ -7,6 +7,8 @@ import { chatIdOf, KIND_WORD, type ArtifactOwner } from "./artifactowner.js";
 import { Modal } from "./Modal.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { Select, type SelectOption } from "./Select.js";
+
+const FORM = "new-artifact-form";
 
 /**
  * New artifact: what kind it is, who owns it, and a sentence for KOS. The
@@ -150,8 +152,24 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked, onAskFaile
   };
 
   return (
-    <Modal open={open} title="New artifact" onClose={close}>
+    <Modal
+      open={open}
+      title="New artifact"
+      onClose={close}
+      footer={
+        <SheetFoot
+          onCancel={close}
+          note={`Goes to ${owner === WORKSPACE ? "KOS" : `${ownerName}'s chat`}`}
+          primary={
+            <button type="submit" form={FORM} className="btn btn--primary" disabled={!words.trim() || sending} aria-busy={sending || undefined}>
+              {sending ? "Asking…" : "Ask KOS"}
+            </button>
+          }
+        />
+      }
+    >
       <form
+        id={FORM}
         className="artifact-dialog new-artifact"
         onSubmit={(e) => {
           e.preventDefault();
@@ -213,15 +231,6 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked, onAskFaile
             {error}
           </p>
         )}
-        <div className="artifact-dialog-actions">
-          <span className="artifact-dialog-note">Goes to {owner === WORKSPACE ? "KOS" : `${ownerName}'s chat`}</span>
-          <button type="button" className="btn btn--ghost" disabled={sending} onClick={close}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn--primary" disabled={!words.trim() || sending} aria-busy={sending || undefined}>
-            {sending ? "Asking…" : "Ask KOS"}
-          </button>
-        </div>
       </form>
     </Modal>
   );

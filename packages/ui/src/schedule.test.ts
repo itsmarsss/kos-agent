@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { exprOf, recast, shapeOf } from "./schedule.js";
+import { exprOf, recast, scheduleWords, shapeOf } from "./schedule.js";
 
 describe("a schedule as a shape", () => {
   it("reads the shapes the picker writes, and writes them back the same", () => {
@@ -55,5 +55,13 @@ describe("describeCron", () => {
     expect(describeCron("0 9 1 * *", "en-GB")).toBe("On day 1 of each month at 09:00");
     expect(describeCron("0 9 * 6 *")).toBeNull();
     expect(describeCron("nonsense")).toBeNull();
+  });
+});
+
+describe("scheduleWords", () => {
+  it("reads a schedule back in words, never as its cron line", () => {
+    expect(scheduleWords("0 8 * * 1-5", "en-US")).toBe("Weekdays at 8:00 AM");
+    expect(scheduleWords("7 3 1,15 2 *")).toBe("On a custom schedule");
+    expect(scheduleWords(null)).toBe("When asked");
   });
 });

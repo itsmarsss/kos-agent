@@ -1,4 +1,4 @@
-import { Count } from "@kos/kit";
+import { Count, SearchField } from "@kos/kit";
 import { type ReactElement, type ReactNode } from "react";
 
 import { useEdgeFade } from "./edgefade.js";
@@ -28,8 +28,8 @@ export function PageHead({
   /** How many the page holds, beside its title. */
   count?: number;
   subtitle?: ReactNode;
-  /** A search box, where the page has something worth searching. */
-  search?: ReactNode;
+  /** A search, where the page has something worth searching: drawn as the kit's SearchField, "Search <noun>". */
+  search?: PageSearch;
   /** Buttons. The primary one goes last. */
   actions?: ReactNode;
   /** The page's tabs: `PageTabs`. */
@@ -47,7 +47,7 @@ export function PageHead({
         </div>
         {(search || actions) && (
           <div className="list-head-tools">
-            {search}
+            {search && <SearchField className="list-search" value={search.value} onChange={search.onChange} noun={search.noun} />}
             {actions}
           </div>
         )}
@@ -55,6 +55,14 @@ export function PageHead({
       {tabs}
     </header>
   );
+}
+
+/** A page's search, as its head holds it. */
+export interface PageSearch {
+  value: string;
+  onChange: (value: string) => void;
+  /** What the page holds, for "Search <noun>": "projects", "the trash". */
+  noun: string;
 }
 
 export interface PageTab {

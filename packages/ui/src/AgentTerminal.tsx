@@ -347,7 +347,7 @@ export function AgentTerminal({
         {waiting.length > 0 && (
           <div className="term-asks">
             {waiting.map((a) => (
-              <PendingAsk key={a.id} ask={a} deciding={deciding} onDecide={onDecide} compact />
+              <PendingAsk key={a.id} ask={a} deciding={deciding} onDecide={onDecide} />
             ))}
           </div>
         )}

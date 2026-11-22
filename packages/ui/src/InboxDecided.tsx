@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
-import { AUTO_DECIDER, momentWords, timeCard } from "@kos/shared";
-import { ChevronDown, Chips, Collapse, Count, Empty, Pill, spring, Tag, type Tone } from "@kos/kit";
+import { AUTO_DECIDER, momentWords, STATE_WORDS, timeCard, timeWords } from "@kos/shared";
+import { ChevronDown, Chips, Collapse, Count, EmptyState, ListHead, SearchField, spring, StatusPill, Tag } from "@kos/kit";
 
 import { api, type DecidedAction, type DecidedStatus, type InboxData } from "./api.js";
 import { useEdgeFade } from "./edgefade.js";
-import { agoWords } from "./schedulewords.js";
 
 /**
  * What the Inbox has already settled, kept so a link to an old ask lands.
@@ -29,11 +28,7 @@ const SEARCH_FROM = 20;
 
 type Filter = "all" | DecidedStatus;
 
-const OUTCOME: Record<DecidedStatus, { word: string; tone: Tone }> = {
-  approved: { word: "approved", tone: "ok" },
-  denied: { word: "denied", tone: "danger" },
-  expired: { word: "lapsed", tone: "muted" },
-};
+
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
@@ -213,20 +208,18 @@ export function InboxDecided({
   return (
     <section className="inbox-group inbox-group--decided" aria-labelledby="inbox-decided-title">
       <div className="inbox-group-head">
-        <h2 className="inbox-group-title" id="inbox-decided-title">
+        <h2 className="group-title" id="inbox-decided-title">
           {/* With words to match, the total is not known: how many are here, and whether there are more. */}
           Decided {q ? <Count n={rows.length} more={more} /> : <Count n={countOf(filter)} />}
         </h2>
         <div className="inbox-decided-tools">
           {total > SEARCH_FROM && (
-            <input
-              className="list-search inbox-decided-search"
-              type="search"
-              aria-label="Search what was decided"
-              placeholder="Search decided"
+            <SearchField
+              className="inbox-decided-search"
+              noun="what was decided"
               value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
+              onChange={(v) => {
+                setQuery(v);
                 wanted.current = DECIDED_FIRST;
               }}
             />
@@ -249,40 +242,38 @@ export function InboxDecided({
 
       {missing !== null && <p className="hint inbox-decided-missing">No ask #{missing}.</p>}
       {shown.length === 0 ? (
-        <Empty inline>
-          Nothing decided matches.{" "}
-          <button
-            type="button"
-            className="link"
-            onClick={() => {
+        <EmptyState
+          variant="inline"
+          query={{
+            noun: "decisions",
+            onClear: () => {
               setFilter("all");
               setQuery("");
               wanted.current = DECIDED_FIRST;
-            }}
-          >
-            Clear
-          </button>
-        </Empty>
+            },
+          }}
+        />
       ) : (
-        <ul className="inbox-decided" ref={listRef}>
+        <div className="inbox-decided">
+        <ListHead columns={[{ label: "Outcome", width: "5.4rem" }, { label: "What" }, { label: "Asked by", width: "9rem" }, { label: "When", width: "3.6rem", align: "end" }, { label: "", width: "12px" }]} />
+        <ul className="inbox-decided-list" ref={listRef}>
           {shown.map((a) => {
-            const outcome = OUTCOME[a.status];
             const isOpen = open.has(a.id);
             const when = a.decidedAt ?? a.requestedAt;
             return (
               <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`inbox-decided-row${a.id === highlight ? " is-highlit" : ""}`}>
                 <button type="button" className="inbox-decided-line" aria-expanded={isOpen} onClick={() => toggle(a.id)}>
                   <span className="inbox-decided-outcome">
-                    <Pill tone={outcome.tone}>{outcome.word}</Pill>
+                    <StatusPill state={a.status} />
                   </span>
                   <span className="inbox-decided-what" data-id={a.id}>
                     {a.summary}
                   </span>
-                  {a.decidedBy === AUTO_DECIDER && <Tag title="This chat was set to Auto, so KOS went ahead without asking you">auto mode</Tag>}
+                  {a.decidedBy === AUTO_DECIDER && <Tag title="This chat was set to Auto, so KOS went ahead without asking you">Auto mode</Tag>}
                   {a.id === linked?.id && !rows.some((r) => r.id === a.id) && <Tag>Linked</Tag>}
-                  {a.asker && <span className="inbox-decided-where">{a.asker}</span>}
+                  <span className="inbox-decided-where">{a.asker}</span>
                   <time className="inbox-decided-when" dateTime={new Date(when).toISOString()} title={timeCard(when / 1000).join(" ")}>
-                    {agoWords(when)}
+                    {timeWords(when)}
                   </time>
                   <m.span className="chev" animate={{ rotate: isOpen ? 180 : 0 }} transition={spring}>
                     <ChevronDown size={12} />
@@ -294,7 +285,7 @@ export function InboxDecided({
                     <dl className="inbox-decided-facts">
                       <dt>Tool</dt>
                       <dd>
-                        <code>{a.tool}</code> <span className="inbox-decided-id">#{a.id}</span>
+                        <code title={`Ask #${a.id}`}>{a.tool}</code>
                       </dd>
                       {a.asker && (
                         <>
@@ -304,7 +295,7 @@ export function InboxDecided({
                       )}
                       <dt>Asked</dt>
                       <dd>{momentWords(a.requestedAt)}</dd>
-                      <dt>{outcome.word[0]!.toUpperCase() + outcome.word.slice(1)}</dt>
+                      <dt>{STATE_WORDS[a.status].word}</dt>
                       <dd>
                         {a.decidedAt ? momentWords(a.decidedAt) : "unknown"}
                         {a.decidedBy ? ` by ${a.decidedBy}` : ""}
@@ -328,6 +319,7 @@ export function InboxDecided({
             );
           })}
         </ul>
+        </div>
       )}
 
       {(more || rows.length > DECIDED_FIRST) && (

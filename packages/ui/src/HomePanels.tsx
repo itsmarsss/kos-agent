@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
-import { momentWords, summarizeAction } from "@kos/shared";
-import { CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
+import { momentWords, summarizeAction, timeWords } from "@kos/shared";
+import { CloseIcon, EmptyState, Face, GroupHead, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -10,7 +10,8 @@ import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick } from "./charts.js"
 import { PendingAsk } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
 import { ActivityDot, buildDot, fixLabel } from "./StatusDot.js";
-import { agoWords, jobTitle, SYSTEM_JOBS } from "./schedulewords.js";
+import { jobTitle } from "./schedulewords.js";
+import { scheduleWords } from "./schedule.js";
 
 /**
  * The panels a home page can be built from.
@@ -21,7 +22,7 @@ import { agoWords, jobTitle, SYSTEM_JOBS } from "./schedulewords.js";
  * makes a dashboard trustworthy.
  */
 
-type Go = (to: "blobs" | "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
+type Go = (to: "inbox" | "blobs" | "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
 
 /** A blob's state in a word or two, for the side of its row. */
 export function agentSide(a: AgentInfo): string {
@@ -31,7 +32,7 @@ export function agentSide(a: AgentInfo): string {
   if (t?.activity === "error") return "failed";
   if (a.job && !a.job.enabled) return "paused";
   if (a.job?.nextRunAt) return `next ${momentWords(a.job.nextRunAt)}`;
-  if (t?.lastSaid) return agoWords(t.updatedAt);
+  if (t?.lastSaid) return timeWords(t.updatedAt);
   return "on request";
 }
 
@@ -46,13 +47,17 @@ function Head({
 }): ReactElement {
   return (
     <header className="panel-head">
-      <h2>{title}</h2>
-      {count !== undefined && count > 0 && <Count n={count} />}
-      {onMore && (
-        <button type="button" className="link panel-more" onClick={onMore}>
-          All →
-        </button>
-      )}
+      <GroupHead
+        title={title}
+        {...(count !== undefined && count > 0 ? { count } : {})}
+        action={
+          onMore && (
+            <button type="button" className="link panel-more" onClick={onMore}>
+              All
+            </button>
+          )
+        }
+      />
     </header>
   );
 }
@@ -65,9 +70,9 @@ const RUN_TONE: Record<string, Tone> = { ok: "ok", error: "danger", running: "ac
 
 /** One run as a tick: its colour is its outcome, its title the rest. */
 function runTick(r: RunRecord): Tick {
-  const what = r.kind === "cron" ? "job" : r.kind === "chat" ? "turn" : r.kind;
+  const what = r.kind === "cron" ? "schedule" : r.kind === "chat" ? "turn" : r.kind;
   const how = r.error ? `${r.status}: ${r.error}` : r.status;
-  return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${agoWords(r.startedAt)}` };
+  return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${timeWords(r.startedAt)}` };
 }
 
 const SHARE_TONES: Tone[] = ["accent", "ok", "warn", "muted"];
@@ -120,7 +125,7 @@ export function Panel({
       const decisions = data.memory.decisions;
       return (
         <div className="panel panel--attention">
-          <Head title={title ?? "Needs you"} count={rows.length + decisions} />
+          <Head title={title ?? "Inbox"} count={rows.length + decisions} onMore={() => onGo("inbox")} />
           {decisions > 0 && (
             /* Memory's open questions count as waiting on you too; they are
                answered on the Memory page, where the claims are. */
@@ -132,15 +137,15 @@ export function Panel({
             </button>
           )}
           {rows.length === 0 ? (
-            decisions === 0 && <Empty inline>Nothing is waiting on you.</Empty>
+            decisions === 0 && <EmptyState variant="inline">Nothing is waiting on you.</EmptyState>
           ) : (
-            <ul className="panel-list">
+            <ul className="panel-list ask-list">
               {rows.slice(0, limit).map((a) => (
                 <li key={a.id} className="panel-approval">
                   {/* Decided here rather than somewhere else: this panel
                       exists because something is waiting, and sending the
                       owner elsewhere to answer defeats it. */}
-                  <PendingAsk ask={a} deciding={deciding} onDecide={onDecide} compact bare />
+                  <PendingAsk ask={a} deciding={deciding} onDecide={onDecide} />
                 </li>
               ))}
             </ul>
@@ -161,9 +166,9 @@ export function Panel({
             onMore={() => onGo("builds")}
           />
           {data.agents.length === 0 ? (
-            <Empty inline>No builds have run.</Empty>
+            <EmptyState variant="inline">No builds have run.</EmptyState>
           ) : live.length === 0 ? (
-            <Empty inline>Nothing running now.</Empty>
+            <EmptyState variant="inline">Nothing running now.</EmptyState>
           ) : (
             <ul className="panel-list">
               {live.slice(0, limit).map((b) => (
@@ -198,7 +203,7 @@ export function Panel({
         <div className={`panel${busy.some((a) => a.thread?.activity === "needs-you") ? " panel--attention" : ""}`}>
           <Head title={title ?? "Blobs"} count={busy.length} onMore={() => onGo("blobs")} />
           {rows.length === 0 ? (
-            <Empty inline>No blobs yet. Ask KOS to keep an eye on something.</Empty>
+            <EmptyState variant="inline">No blobs yet. Ask KOS to keep an eye on something.</EmptyState>
           ) : (
             <ul className="panel-list">
               {rows.slice(0, limit).map((a) => {
@@ -238,11 +243,11 @@ export function Panel({
             onMore={() => onGo("history")}
           />
           {rows.length === 0 ? (
-            <Empty inline>
+            <EmptyState variant="inline">
               {report.recent.total === 0
                 ? "Nothing has run yet."
                 : "Everything is working."}
-            </Empty>
+            </EmptyState>
           ) : (
             <ul className="panel-list">
               {rows.map((f) => (
@@ -262,7 +267,7 @@ export function Panel({
                     </button>
                     <span className="panel-row-side">
                       {f.streak > 1 ? `${f.streak}x · ` : ""}
-                      {agoWords(f.since)}
+                      {timeWords(f.since)}
                       {/* Without this the only way to clear a failure the
                           owner has already handled is to wait for the job to
                           succeed, which for a nightly job means a red header
@@ -327,7 +332,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Last 24 hours"} onMore={() => onGo("history")} />
           {calls === 0 ? (
-            <Empty inline>Nothing ran in the last day.</Empty>
+            <EmptyState variant="inline">Nothing ran in the last day.</EmptyState>
           ) : (
             <>
               <Bars
@@ -370,7 +375,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Activity"} onMore={() => onGo("history")} />
           {rows.length === 0 ? (
-            <Empty inline>KOS has not done anything yet.</Empty>
+            <EmptyState variant="inline">KOS has not done anything yet.</EmptyState>
           ) : (
             <ul className="panel-list">
               {rows.map((t) => (
@@ -379,7 +384,7 @@ export function Panel({
                     <span className="panel-row-main">
                       {summarizeAction(t.tool, t.args)}
                     </span>
-                    <span className="panel-row-side">{agoWords(t.createdAt)}</span>
+                    <span className="panel-row-side">{timeWords(t.createdAt)}</span>
                   </span>
                 </li>
               ))}
@@ -399,7 +404,7 @@ export function Panel({
             onMore={() => onGo("projects")}
           />
           {rows.length === 0 ? (
-            <Empty inline>No active projects. Ask KOS to build something.</Empty>
+            <EmptyState variant="inline">No active projects. Ask KOS to build something.</EmptyState>
           ) : (
             <div className="panel-chips">
               {rows.slice(0, limit).map((p) => (
@@ -419,7 +424,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Chats"} onMore={() => onGo("chats")} />
           {rows.length === 0 ? (
-            <Empty inline>No conversations yet.</Empty>
+            <EmptyState variant="inline">No conversations yet.</EmptyState>
           ) : (
             <ul className="panel-list">
               {rows.map((c) => (
@@ -438,7 +443,7 @@ export function Panel({
                           ? "needs you"
                           : c.activity === "error"
                             ? "failed"
-                            : agoWords(c.updatedAt)}
+                            : timeWords(c.updatedAt)}
                     </span>
                   </button>
                 </li>
@@ -458,7 +463,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Schedule"} onMore={() => onGo("crons")} />
           {rows.length === 0 ? (
-            <Empty inline>Nothing runs on its own yet.</Empty>
+            <EmptyState variant="inline">Nothing runs on its own yet.</EmptyState>
           ) : (
             <>
               <DayLine runs={data.upcoming} />
@@ -472,11 +477,9 @@ export function Panel({
                           <span className="panel-row-project"> {data.projects.find((p) => p.slug === c.projectSlug)?.name ?? c.projectSlug}</span>
                         )}
                       </span>
-                      {next.has(c.id) ? (
-                        <span className="panel-row-side">{momentWords(next.get(c.id)!)}</span>
-                      ) : (
-                        <code className="panel-row-side">{c.schedule}</code>
-                      )}
+                      <span className="panel-row-side" title={c.schedule}>
+                        {next.has(c.id) ? momentWords(next.get(c.id)!) : scheduleWords(c.schedule)}
+                      </span>
                     </span>
                   </li>
                 ))}
@@ -499,7 +502,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Spend, last 7 days"} onMore={() => onGo("settings", "spend")} />
           {models.length === 0 ? (
-            <Empty inline>Nothing spent this week.</Empty>
+            <EmptyState variant="inline">Nothing spent this week.</EmptyState>
           ) : (
             <>
               {/* The figure first: cost is the number this card is opened
@@ -520,13 +523,13 @@ export function Panel({
                   <span className="panel-stat-label">tokens out</span>
                 </div>
               </div>
-              {/* A link under the figures, not a figure among them: drawn as a stat, the words read as a number. */}
+              {/* Under the figures, not a figure among them; the same secondary Set rates as Settings, Spend. */}
               {!priced && (
-                <p className="panel-note hint">
-                  <button type="button" className="link" onClick={() => onGo("settings", "spend")}>
+                <p className="panel-note hint panel-rates">
+                  No rates yet, so no cost.
+                  <button type="button" className="btn btn--sm" onClick={() => onGo("settings", "spend")}>
                     Set rates
-                  </button>{" "}
-                  to see the cost.
+                  </button>
                 </p>
               )}
               {/* One bar per day of everything sent and received. Input is
@@ -569,10 +572,10 @@ export function Panel({
           </div>
           <p className="panel-note panel-memory-jobs">
             {mem.jobs.length === 0
-              ? "No memory jobs yet."
+              ? "No memory schedules yet."
               : on.length === 0
-                ? `Jobs off${mem.extraction ? "; reading after each turn" : "; nothing reads the log"}.`
-                : `${on.map((j) => SYSTEM_JOBS[j.name] ?? j.name).join(", ")} on${latest ? `, last ran ${agoWords(latest)}` : ", never ran"}.`}
+                ? `Its schedules are off${mem.extraction ? "; reading after each turn" : "; nothing reads the log"}.`
+                : `${on.map((j) => jobTitle(j.name)).join(", ")} on${latest ? `, last ran ${timeWords(latest)}` : ", never ran"}.`}
           </p>
         </div>
       );
@@ -586,7 +589,7 @@ export function Panel({
         <div className={`panel${broken.length ? " panel--bad" : ""}`}>
           <Head title={title ?? "Modules"} count={broken.length} onMore={() => onGo("settings", "modules")} />
           {mods.length === 0 ? (
-            <Empty inline>{`No workspace modules. Built in: ${builtinsOn.map((b) => b.name).join(", ") || "none"}.`}</Empty>
+            <EmptyState variant="inline">{`No workspace modules. Built in: ${builtinsOn.map((b) => b.name).join(", ") || "none"}.`}</EmptyState>
           ) : (
             <ul className="panel-list">
               {mods.slice(0, limit).map((mod) => (
@@ -629,7 +632,7 @@ export function Panel({
           ) : panel.text ? (
             <p className="panel-note hint">{panel.text}</p>
           ) : (
-            <Empty inline>Empty note. Press Arrange to write in it.</Empty>
+            <EmptyState variant="inline">Empty note. Press Arrange to write in it.</EmptyState>
           )}
         </div>
       );
@@ -637,7 +640,7 @@ export function Panel({
     default:
       return (
         <div className="panel">
-          <Empty inline>Unknown panel.</Empty>
+          <EmptyState variant="inline">Unknown panel.</EmptyState>
         </div>
       );
   }

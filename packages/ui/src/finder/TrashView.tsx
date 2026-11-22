@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { SheetFoot } from "@kos/kit";
 import { bytesWords } from "@kos/shared";
 
 import { api, type TrashedFile } from "../api.js";
@@ -10,9 +11,9 @@ import { TRASH_LAYOUT, useColumns } from "./columns.js";
 import { dateWords, parentOf } from "./model.js";
 
 /**
- * The trash: what was moved there, from where and when, each with Put Back
- * and Delete Immediately; Empty Trash asks once, in a dialog that says it
- * cannot be undone. Nothing leaves the trash any other way.
+ * The trash: what was moved there, from where and when, each with Restore
+ * and Delete forever, as every trash has them; Empty trash asks once, in a
+ * dialog that says it cannot be undone. Nothing leaves the trash any other way.
  */
 export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged: () => void; onError: (text: string) => void; onCount: (n: number) => void; rootName: string }): ReactElement {
   const [items, setItems] = useState<TrashedFile[] | null>(null);
@@ -39,9 +40,9 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
   return (
     <div className="finder-trash">
       <div className="finder-trash-bar">
-        <span className="hint">{items === null ? "Reading…" : items.length === 0 ? "The Trash is empty." : `${items.length} item${items.length === 1 ? "" : "s"}. Nothing here is deleted until you empty it.`}</span>
+        <span className="hint">{items === null ? "Reading…" : items.length === 0 ? "The trash is empty." : `${items.length} item${items.length === 1 ? "" : "s"}. Nothing here is deleted until you empty it.`}</span>
         <button type="button" className="btn btn--sm btn--danger" disabled={!items?.length} onClick={() => setAsking(true)}>
-          Empty Trash
+          Empty trash
         </button>
       </div>
       {items && items.length > 0 && (
@@ -53,7 +54,7 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
             {showing("trashed") && (
               <div role="columnheader" className="finder-col" data-head="trashed">
                 {cols.divider("trashed")}
-                <span className="finder-col-label" data-col="trashed">Date Trashed</span>
+                <span className="finder-col-label" data-col="trashed">Date trashed</span>
               </div>
             )}
             {showing("size") && (
@@ -85,35 +86,40 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
               )}
               <span role="gridcell" className="finder-col finder-col--acts">
                 <button type="button" className="btn btn--sm" onClick={() => act(api.restoreFile(item.id))}>
-                  Put Back
+                  Restore
                 </button>
-                <ConfirmButton label="Delete Immediately" text={`Delete ${item.name} for good? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => act(api.emptyFileTrash([item.id]))} />
+                <ConfirmButton label="Delete forever" text={`Delete ${item.name} for good? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => act(api.emptyFileTrash([item.id]))} />
               </span>
             </div>
           ))}
         </div>
       )}
-      <Modal open={asking} size="sm" title="Empty the Trash?" onClose={() => setAsking(false)}>
-        <div className="file-dialog">
-          <p>
-            {items?.length ?? 0} item{items?.length === 1 ? "" : "s"} will be deleted for good. This cannot be undone.
-          </p>
-          <div className="file-dialog-actions">
-            <button type="button" className="btn" onClick={() => setAsking(false)}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn btn--danger"
-              onClick={() => {
-                setAsking(false);
-                act(api.emptyFileTrash());
-              }}
-            >
-              Empty Trash
-            </button>
-          </div>
-        </div>
+      <Modal
+        open={asking}
+        size="sm"
+        title="Empty the trash?"
+        onClose={() => setAsking(false)}
+        footer={
+          <SheetFoot
+            onCancel={() => setAsking(false)}
+            primary={
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={() => {
+                  setAsking(false);
+                  act(api.emptyFileTrash());
+                }}
+              >
+                Empty trash
+              </button>
+            }
+          />
+        }
+      >
+        <p className="file-dialog">
+          {items?.length ?? 0} item{items?.length === 1 ? "" : "s"} will be deleted for good. This cannot be undone.
+        </p>
       </Modal>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactElement } from "react";
 
-import { Count, Empty, StepPicture, Tag } from "@kos/kit";
+import { EmptyState, GroupHead, StepPicture, Tag, When } from "@kos/kit";
 
 import { api, type FailingJob, type InboxData } from "./api.js";
 import { InboxDecided } from "./InboxDecided.js";
@@ -8,7 +8,7 @@ import { MemoryDecision } from "./MemoryPage.js";
 import { PictureGallery } from "./Lightbox.js";
 import { PageHead } from "./PageHead.js";
 import { PendingAsk } from "./PendingAsk.js";
-import { agoWords as ago } from "./schedulewords.js";
+import { kindWord } from "@kos/shared";
 import { ActivityDot, fixLabel } from "./StatusDot.js";
 import { Signed } from "./signed.js";
 
@@ -69,28 +69,25 @@ export function InboxPage({
       />
 
       {data && total === 0 && (
-        <Empty title="Nothing is waiting on you." className="inbox-clear">
+        <EmptyState title="Nothing is waiting on you." className="inbox-clear">
           Tool calls that need a yes, memory questions Tidy could not settle, and jobs failing now will show up here.
-        </Empty>
+        </EmptyState>
       )}
 
       {approvals.length > 0 && (
         <section className="inbox-group inbox-group--asks">
-          <h2 className="inbox-group-title">
-            Approvals <Count n={approvals.length} />
-          </h2>
+          <GroupHead title="Approvals" count={approvals.length} />
           <PictureGallery>
-          <ul className="panel-list inbox-box">
+          <ul className="panel-list ask-list">
             {approvals.map((a) => (
               <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`inbox-approval${a.id === highlight ? " is-highlit" : ""}`}>
                 <PendingAsk
                   ask={a}
                   deciding={deciding}
                   onDecide={onDecide}
-                  bare
                   meta={
                     <>
-                      Asked {ago(a.requestedAt)}
+                      Asked <When at={a.requestedAt} />
                       {a.conversationId && (
                         <>
                           {" · "}
@@ -121,9 +118,7 @@ export function InboxPage({
 
       {decisions.length > 0 && (
         <section className="inbox-group">
-          <h2 className="inbox-group-title">
-            Memory decisions <Count n={decisions.length} />
-          </h2>
+          <GroupHead title="Memory decisions" count={decisions.length} />
           <p className="hint">Only what KOS was not sure enough to settle itself; each leads with what it leans to. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.</p>
           <div className="inbox-box">
             {decisions.map((item) => (
@@ -135,16 +130,14 @@ export function InboxPage({
 
       {suggestions.length > 0 && (
         <section className="inbox-group">
-          <h2 className="inbox-group-title">
-            Suggestions <Count n={suggestions.length} />
-          </h2>
+          <GroupHead title="Suggestions" count={suggestions.length} />
           <p className="hint">Things KOS thinks it could make reusable. Nothing happens until you say so; accepting opens a chat that carries it out, with the usual approvals.</p>
           <div className="inbox-box">
             {suggestions.map((s) => (
               <div key={s.id} className="inbox-suggestion">
                 <div className="inbox-suggestion-main">
                   <span className="panel-row-main">
-                    <Tag>{s.kind}</Tag> {s.title}
+                    <Tag>{kindWord(s.kind)}</Tag> {s.title}
                   </span>
                   <span className="inbox-why">{s.detail}</span>
                 </div>
@@ -173,9 +166,7 @@ export function InboxPage({
 
       {failures.length > 0 && (
         <section className="inbox-group">
-          <h2 className="inbox-group-title">
-            Failing now <Count n={failures.length} />
-          </h2>
+          <GroupHead title="Failing now" count={failures.length} />
           <ul className="panel-list inbox-box">
             {failures.map((f) => (
               <li key={f.key} className="inbox-failure">
@@ -186,7 +177,7 @@ export function InboxPage({
                   </span>
                   <span className="panel-row-side">
                     {f.streak > 1 ? `${f.streak}x · ` : ""}
-                    since {ago(f.since)}
+                    <When at={f.since} />
                   </span>
                 </button>
                 <span className="panel-approval-actions">

@@ -1,5 +1,5 @@
+import { timeWords } from "@kos/shared";
 import { NavIcon } from "@kos/kit";
-import { relativeWords } from "@kos/shared";
 import type { ReactElement } from "react";
 
 import type { ArtifactSummary } from "./api.js";
@@ -46,7 +46,7 @@ export function TrashList({
                 <span>{kindOf(a)}</span>
                 <span className="artifact-card-owner">{owner(a)}</span>
                 <span className="artifact-card-time" title="When it was moved to the trash">
-                  {relativeWords(Math.round((a.trashedAt ?? a.updatedAt) / 1000))}
+                  {timeWords(a.trashedAt ?? a.updatedAt)}
                 </span>
               </span>
             </span>
@@ -55,7 +55,7 @@ export function TrashList({
             <button type="button" className="btn btn--sm" disabled={ops.busy} onClick={() => ops.restore(a)} aria-label={`Restore ${a.title}`}>
               Restore
             </button>
-            <ConfirmButton className="btn btn--sm btn--ghost trash-delete" label="Delete forever" title={`Delete ${a.title} forever`} text={deleteWords(a.title)} disabled={ops.busy} onConfirm={() => ops.remove(a)} />
+            <ConfirmButton className="btn btn--sm btn--danger" label="Delete forever" title={`Delete ${a.title} forever`} text={deleteWords(a.title)} disabled={ops.busy} onConfirm={() => ops.remove(a)} />
           </span>
         </li>
       ))}

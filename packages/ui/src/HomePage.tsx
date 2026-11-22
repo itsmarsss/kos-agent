@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { HomeLayout, HomePanel, PanelKind } from "@kos/shared";
 
 import { AnimatePresence, m } from "motion/react";
-import { ease, Empty } from "@kos/kit";
+import { ease, EmptyState } from "@kos/kit";
 
 import { api, type FailingJob, type HomeData } from "./api.js";
 import { HomeGrid } from "./HomeGrid.js";
@@ -25,7 +25,7 @@ import { PageHead } from "./PageHead.js";
  */
 
 const CATALOGUE: { kind: PanelKind; label: string; blurb: string }[] = [
-  { kind: "approvals", label: "Needs you", blurb: "Actions waiting on a decision" },
+  { kind: "approvals", label: "Inbox", blurb: "What waits on your decision" },
   { kind: "pulse", label: "Last 24 hours", blurb: "Tool calls by the hour" },
   { kind: "standing", label: "Blobs", blurb: "The blobs, the standing helpers, and what each is up to" },
   { kind: "agents", label: "Builds", blurb: "Coding work running now" },
@@ -51,7 +51,7 @@ export function HomePage({
   onFixFailure,
 }: {
   onOpenChat: (id: string) => void;
-  onGo: (to: "blobs" | "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
+  onGo: (to: "inbox" | "blobs" | "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
   onDecide: (id: number, approved: boolean, remember?: boolean, code?: string) => void;
   deciding: ReadonlySet<number>;
   onDismissFailure: (key: string) => void;
@@ -181,9 +181,9 @@ export function HomePage({
       )}
 
       {layout.panels.length === 0 && (
-        <Empty title="Nothing here">
+        <EmptyState title="Nothing here">
           Press Arrange to put something on your home page.
-        </Empty>
+        </EmptyState>
       )}
 
       <HomeGrid

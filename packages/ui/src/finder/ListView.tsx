@@ -28,7 +28,7 @@ export interface ListRow {
   match?: string;
 }
 
-const LABELS: Record<SortKey, string> = { name: "Name", modified: "Date Modified", size: "Size", kind: "Kind" };
+const LABELS: Record<SortKey, string> = { name: "Name", modified: "Date modified", size: "Size", kind: "Kind" };
 
 /** The rows drawn while a folder is read: a few names of a few lengths, as a folder has. */
 const READING_WIDTHS = ["42%", "30%", "55%", "36%", "48%", "26%"];

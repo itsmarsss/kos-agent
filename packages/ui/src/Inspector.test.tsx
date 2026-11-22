@@ -125,8 +125,9 @@ describe("the project drawer", () => {
     // not change when the drawer saves, so it went on saying "active".
     open();
     await waitFor(() => expect(sections()).toContain("About"));
-    expect(document.querySelector(".insp-hero-meta .pill")?.textContent).toBe("active");
-    expect(screen.getByText("kitchen_redo")).toBeTruthy();
+    expect(document.querySelector(".insp-hero-meta .pill")?.textContent).toBe("Active");
+    // Its slug is an id: for a tooltip, never a tag on the page.
+    expect(screen.queryByText("kitchen_redo")).toBeNull();
   });
 
   it("still shows the panel when the detail fetch fails", async () => {

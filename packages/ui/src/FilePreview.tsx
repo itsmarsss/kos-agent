@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
 import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, IconButton, Markdown, spring } from "@kos/kit";
-import { bytesWords } from "@kos/shared";
+import { bytesWords, timeWords } from "@kos/shared";
 
 import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -12,7 +12,6 @@ import { highlights, tokenize } from "./highlight.js";
 import { isOfficePath, OfficeBody } from "./OfficeView.js";
 import { hrefFor } from "./routes.js";
 import { Signed } from "./signed.js";
-import { agoWords } from "./schedulewords.js";
 
 /**
  * A file, looked at in a window over the page.
@@ -396,7 +395,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                   <span className="preview-meta">
                     {bytesWords(shown.size)}
                     {shown.language && shown.language !== "text" && shown.omitted !== "binary" ? ` · ${shown.language}` : ""}
-                    {shown.modifiedAt ? ` · ${agoWords(shown.modifiedAt)}` : ""}
+                    {shown.modifiedAt ? ` · ${timeWords(shown.modifiedAt)}` : ""}
                   </span>
                 )}
                 <span className="preview-acts">

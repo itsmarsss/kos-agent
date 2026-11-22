@@ -212,12 +212,12 @@ describe("the finder", () => {
     await openGarden();
     fireEvent.click(within(screen.getByRole("navigation", { name: "Locations" })).getByRole("button", { name: "Trash" }));
     expect(await screen.findByText("x.md")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Put Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(restore).toHaveBeenCalledWith("1-aa"));
-    fireEvent.click(screen.getByRole("button", { name: "Empty Trash" }));
+    fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
     expect(empty).not.toHaveBeenCalled();
-    const dialog = await screen.findByRole("dialog", { name: "Empty the Trash?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Empty Trash" }));
+    const dialog = await screen.findByRole("dialog", { name: "Empty the trash?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
     await waitFor(() => expect(empty).toHaveBeenCalledWith());
   });
 

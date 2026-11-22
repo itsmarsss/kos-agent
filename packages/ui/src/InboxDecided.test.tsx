@@ -70,8 +70,8 @@ describe("the decided list", () => {
     serve(rows);
     render(<InboxDecided mark={mark(rows.length)} onOpenChat={() => {}} />);
     await waitFor(() => expect(lines()).toHaveLength(2));
-    expect(within(lines()[0]!).getByText("auto mode")).toBeTruthy();
-    expect(within(lines()[1]!).queryByText("auto mode")).toBeNull();
+    expect(within(lines()[0]!).getByText("Auto mode")).toBeTruthy();
+    expect(within(lines()[1]!).queryByText("Auto mode")).toBeNull();
   });
 
   it("shows the latest five, then older ones a page at a time", async () => {
@@ -123,9 +123,9 @@ describe("the decided list", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Load older" }));
     fireEvent.click(within(screen.getByRole("group", { name: "Show decided" })).getByRole("button", { name: /Denied/ }));
-    await waitFor(() => expect(lines().every((l) => l.textContent?.includes("denied"))).toBe(true));
+    await waitFor(() => expect(lines().every((l) => l.textContent?.includes("Denied"))).toBe(true));
     await act(async () => release2());
-    expect(lines().every((l) => l.textContent?.includes("denied"))).toBe(true);
+    expect(lines().every((l) => l.textContent?.includes("Denied"))).toBe(true);
     expect(lines()).toHaveLength(DECIDED_FIRST);
   });
 
@@ -152,7 +152,7 @@ describe("the decided list", () => {
     fireEvent.click(within(group).getByRole("button", { name: /Denied/ }));
     await waitFor(() => expect(lines()).toHaveLength(2));
     expect(history).toHaveBeenLastCalledWith({ limit: DECIDED_FIRST + 1, status: "denied" });
-    expect(lines().every((l) => l.textContent?.includes("denied"))).toBe(true);
+    expect(lines().every((l) => l.textContent?.includes("Denied"))).toBe(true);
     expect(headCount()).toBe("2");
   });
 
@@ -176,8 +176,8 @@ describe("the decided list", () => {
     serve(decidedRows(30));
     render(<InboxDecided mark={mark(30)} onOpenChat={() => {}} />);
     fireEvent.change(await screen.findByRole("searchbox", { name: "Search what was decided" }), { target: { value: "nothing like it" } });
-    await screen.findByText(/Nothing decided matches/);
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await screen.findByText("No decisions match these words and filters.");
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     await waitFor(() => expect(lines()).toHaveLength(DECIDED_FIRST));
     expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("");
   });
@@ -206,7 +206,8 @@ describe("the decided list", () => {
     expect(first.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(first);
     expect(first.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("#1000")).toBeTruthy();
+    // Its number is an id: the tool's tooltip, not a word on the page.
+    expect(screen.getByTitle("Ask #1000")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open the chat" }));
     expect(open).toHaveBeenCalledWith("c1");
   });
@@ -229,7 +230,7 @@ describe("the decided list", () => {
     const group = await screen.findByRole("group", { name: "Show decided" });
     await waitFor(() => expect(lines().length).toBeGreaterThan(0));
     fireEvent.click(within(group).getByRole("button", { name: /Denied/ }));
-    await waitFor(() => expect(lines().every((l) => l.textContent?.includes("denied"))).toBe(true));
+    await waitFor(() => expect(lines().every((l) => l.textContent?.includes("Denied"))).toBe(true));
     // The Inbox polls and something new is decided: the link is the same link.
     rerender(<InboxDecided mark={mark(31, 1001)} highlight={all[1]!.id} onOpenChat={() => {}} />);
     await act(async () => {});

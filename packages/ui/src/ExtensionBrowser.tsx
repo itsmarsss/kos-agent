@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 
 import { api, type CatalogMcp, type CatalogMcpListing, type CatalogSkills, type RepoHit } from "./api.js";
-import { Chips, Empty } from "@kos/kit";
+import { Chips, EmptyState } from "@kos/kit";
 
 /**
  * Adding skills and MCP servers from Settings.
@@ -64,6 +64,10 @@ function More({ total, shown, onMore }: { total: number; shown: number; onMore: 
 }
 
 type SkillTab = "browse" | "search" | "url";
+
+
+/** The source chip that opens a field for a repository of the owner's own. */
+const OTHER = "__other";
 
 export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactElement {
   const [tab, setTab] = useState<SkillTab>("browse");
@@ -177,25 +181,17 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
       {tab === "browse" && (
         <>
           <div className="ext-sources">
-            {(data?.sources ?? []).map((s) => (
-              <button
-                key={s.repo}
-                type="button"
-                className={`ext-source${current === `${s.repo}/${s.path}` ? " is-on" : ""}`}
-                title={s.blurb}
-                onClick={() => load(`${s.repo}/${s.path}`)}
-              >
-                {s.label}
-              </button>
-            ))}
-            {!known && current && (
-              <span className="ext-source is-on" title={current}>
-                {current.split("/").slice(0, 2).join("/")}
-              </span>
-            )}
-            <button type="button" className="ext-source ext-source--other" onClick={() => setOther((v) => (v === null ? "" : null))}>
-              Other…
-            </button>
+            <Chips
+              small
+              label="Where to browse"
+              selected={other !== null ? OTHER : current}
+              options={[
+                ...(data?.sources ?? []).map((s) => [`${s.repo}/${s.path}`, s.label, s.blurb] as const),
+                ...(!known && current ? [[current, current.split("/").slice(0, 2).join("/"), current] as const] : []),
+                [OTHER, "Other…", "A repository of your own"] as const,
+              ]}
+              onChoose={(v) => (v === OTHER ? setOther((was) => (was === null ? "" : null)) : load(v))}
+            />
           </div>
           {other !== null && (
             <form
@@ -221,7 +217,7 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
             </form>
           )}
           {loading && <p className="hint">Reading the repository…</p>}
-          {data && !loading && data.skills.length === 0 && <Empty inline>No skills found there.</Empty>}
+          {data && !loading && data.skills.length === 0 && <EmptyState variant="inline">No skills found there.</EmptyState>}
           {data && !loading && data.skills.length > 0 && (
             <>
               <div className="ext-filter">
@@ -629,7 +625,7 @@ export function McpAdd({ onAdded }: { onAdded: () => void }): ReactElement {
               {loading ? "Searching…" : "Search"}
             </button>
           </form>
-          {data && q.trim() && !loading && data.results.length === 0 && <Empty inline>Nothing in the registry for that.</Empty>}
+          {data && q.trim() && !loading && data.results.length === 0 && <EmptyState variant="inline">Nothing in the registry for that.</EmptyState>}
           {data && data.results.length > 0 && (
             <ul className="ext-list">
               {data.results.map((r) => (

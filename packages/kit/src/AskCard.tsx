@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import { CODE_TTL_MS, codeProblem, registrableDomain, secretFieldWords, type AskSecret, type AskView, type StepLine } from "@kos/shared";
 
@@ -40,8 +40,6 @@ export interface AskCardProps {
   labels?: { yes: string; no: string };
   /** No remembered yes, whatever the view offers: an ask that is its own each time. */
   noRemember?: boolean;
-  /** Smaller type and buttons, for a dense list. */
-  compact?: boolean;
   /** No box of its own, for a card drawn inside another (a tool call, a list's row). */
   bare?: boolean;
   /** A quiet line at the foot: when it was asked, a way to its chat. */
@@ -72,7 +70,7 @@ function handFocusOn(): void {
   });
 }
 
-export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false, onDecide, labels, noRemember = false, compact = false, bare = false, meta, extra, children }: AskCardProps): ReactElement {
+export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false, onDecide, labels, noRemember = false, bare = false, meta, extra, children }: AskCardProps): ReactElement {
   const [pressed, setPressed] = useState<"yes" | "always" | "no" | null>(null);
   useEffect(() => {
     if (!busy) setPressed(null);
@@ -149,7 +147,6 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
   // Too big for this surface to have been sent whole: no yes here, only a no and the way to the dashboard.
   const tooLong = view.tooLong === true;
   const always = noRemember || tooLong ? undefined : view.always;
-  const size = compact ? " btn--sm" : "";
   const working = (which: "yes" | "always" | "no", words: string): ReactNode =>
     busy && pressed === which ? (
       <>
@@ -163,7 +160,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
   return (
     <section
       ref={box}
-      className={`kos-ask${compact ? " kos-ask--compact" : ""}${bare ? " kos-ask--bare" : ""}`}
+      className={`kos-ask${bare ? " kos-ask--bare" : ""}`}
       tabIndex={0}
       aria-label={`${asker ?? "KOS"} asks: ${view.title}`}
       aria-keyshortcuts="Enter Escape Meta+Backspace"
@@ -177,7 +174,9 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
         {expiresAt !== undefined && <Countdown until={expiresAt} />}
       </div>
       {/* With steps, they are what is approved: the title says only what they act on, quieter. */}
-      <p className={`kos-ask-title${view.steps ? " kos-ask-title--quiet" : ""}`}>{view.title}</p>
+      <p className={`kos-ask-title${view.steps ? " kos-ask-title--quiet" : ""}`}>
+        <Breakable text={view.title} />
+      </p>
       {view.place && (
         <p className="kos-ask-place">
           <PlaceMark tool={tool} />
@@ -231,11 +230,11 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           </span>
         )}
         {extra}
-        <button type="button" className={`btn${size}`} disabled={busy} title="Deny (Esc)" onClick={() => decide("no")}>
+        <button type="button" className="btn" disabled={busy} title="Deny (Esc)" onClick={() => decide("no")}>
           {working("no", labels?.no ?? "Deny")}
         </button>
         {always && (
-          <button type="button" className={`btn${size}`} disabled={busy} onClick={() => decide("always")}>
+          <button type="button" className="btn" disabled={busy} onClick={() => decide("always")}>
             {busy && pressed === "always" ? (
               working("always", always)
             ) : (
@@ -246,7 +245,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           </button>
         )}
         {!tooLong && (
-          <button type="button" className={`btn btn--primary${size}`} disabled={busy || (asksCode && !codeReady)} title="Approve (Enter)" onClick={() => decide("yes")}>
+          <button type="button" className="btn btn--primary" disabled={busy || (asksCode && !codeReady)} title="Approve (Enter)" onClick={() => decide("yes")}>
             {working("yes", labels?.yes ?? "Approve")}
           </button>
         )}
@@ -363,7 +362,44 @@ export function AskStepList({ steps }: { steps: StepLine[] }): ReactElement {
 
 /** A step's line, its keys as keycaps. */
 function StepWords({ line }: { line: StepLine }): ReactElement {
-  return <>{line.map((piece, i) => ("key" in piece ? <kbd key={i} className="keycap">{piece.key}</kbd> : <span key={i}>{piece.text}</span>))}</>;
+  return (
+    <>
+      {line.map((piece, i) =>
+        "key" in piece ? (
+          <kbd key={i} className="keycap">
+            {piece.key}
+          </kbd>
+        ) : (
+          <span key={i}>
+            <Breakable text={piece.text} />
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * Words with a place to break after each slash, so a URL or a path on a
+ * narrow card wraps at "/" ("…/api/v2/" over "summary.json") rather than
+ * cutting a name mid-word; a word still too long for the line breaks anywhere.
+ */
+export function Breakable({ text }: { text: string }): ReactElement {
+  const parts = text.split("/");
+  return (
+    <>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {part}
+          {i < parts.length - 1 && (
+            <>
+              /<wbr />
+            </>
+          )}
+        </Fragment>
+      ))}
+    </>
+  );
 }
 
 /** The site's own icon, or the kind of place's mark when there is no site or it has none. */

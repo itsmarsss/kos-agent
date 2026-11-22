@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease, spring, useDismiss } from "@kos/kit";
+import { ease, SheetHead, spring, useDismiss } from "@kos/kit";
 
 
 /**
@@ -13,7 +13,8 @@ import { ease, spring, useDismiss } from "@kos/kit";
  * drawer leaves the list in place beside it.
  *
  * Modals are kept for the small, blocking questions -- rename this, are you
- * sure -- where covering the page for a moment is the point.
+ * sure -- where covering the page for a moment is the point. Both have the
+ * one head (an × to close) and the one foot (`SheetFoot`).
  */
 export function Drawer({
   open,
@@ -30,7 +31,7 @@ export function Drawer({
   subtitle?: string;
   onClose: () => void;
   children: ReactNode;
-  /** Actions, pinned to the bottom so they do not scroll away. */
+  /** Its `SheetFoot`, pinned to the bottom so the actions do not scroll away. */
   footer?: ReactNode;
   /** For content that needs the room, like a form beside its explanation. */
   wide?: boolean;
@@ -58,17 +59,9 @@ export function Drawer({
             transition={spring}
             onClick={(e) => e.stopPropagation()}
           >
-            <header className="drawer-head">
-              <div className="drawer-titles">
-                <h2 className="drawer-title">{title}</h2>
-                {subtitle && <p className="drawer-sub">{subtitle}</p>}
-              </div>
-              <button type="button" className="btn" onClick={onClose}>
-                Close
-              </button>
-            </header>
+            <SheetHead title={title} subtitle={subtitle} onClose={onClose} />
             <div className="drawer-body">{children}</div>
-            {footer && <footer className="drawer-foot">{footer}</footer>}
+            {footer}
           </m.aside>
         </m.div>
       )}

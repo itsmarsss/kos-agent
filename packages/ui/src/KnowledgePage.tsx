@@ -1,14 +1,16 @@
+import { slugWords, timeWords } from "@kos/shared";
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
-import { Chips, CloseIcon, Count, EditIcon, Empty, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
+import { Chips, CloseIcon, Count, EditIcon, EmptyState, Field, GroupHead, IconButton, PinIcon, SheetFoot, Tag, UnpinIcon } from "@kos/kit";
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
+import { Modal } from "./Modal.js";
 import { useEdgeFade } from "./edgefade.js";
 import { useHashParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
 import { ConfirmButton } from "./kit.js";
-import { agoWords } from "./schedulewords.js";
+
 import { Select } from "./Select.js";
 
 /**
@@ -28,10 +30,16 @@ export interface KnowledgePageProps {
   /** The new-claim form is open: its button is the page head's, so the page owns this. */
   adding: boolean;
   onAdding: (open: boolean) => void;
+  /** The words searched for: the search box is the page head's, so the page owns them. */
+  query: string;
+  onQuery: (query: string) => void;
   /** Projects by slug from the manifest, so a project's claims are headed by its name; absent until it is read. */
   projectNames?: ReadonlyMap<string, string>;
   onChanged: () => void;
 }
+
+/** The new-claim form, for its sheet's Create. */
+const ADD_FORM = "new-claim-form";
 
 /** Rows a scope shows before "Show all". */
 export const SCOPE_FIRST = 8;
@@ -41,7 +49,7 @@ export function sourceWord(source: string | null | undefined): string | null {
   if (!source) return null;
   if (source === "dashboard" || source === "owner") return "you";
   if (source === "agent") return "KOS";
-  if (source.startsWith("cron:")) return `job #${source.slice("cron:".length)}`;
+  if (source.startsWith("cron:")) return "a schedule";
   if (source.startsWith("caller:")) return source.slice("caller:".length);
   if (source.startsWith("project:")) return source.slice("project:".length);
   return "a chat";
@@ -60,7 +68,7 @@ export function describeSource(source: string | null | undefined): string {
   if (!source) return "unknown";
   if (source === "dashboard") return "you, here";
   if (source === "chat") return "a chat";
-  if (source.startsWith("cron:")) return `a scheduled job (#${source.slice("cron:".length)})`;
+  if (source.startsWith("cron:")) return "a schedule";
   if (source.startsWith("caller:")) return `the ${source.slice("caller:".length)} caller`;
   if (source.startsWith("project:")) return `the ${source.slice("project:".length)} orchestrator`;
   return source.replace(/:owner$/, "");
@@ -82,14 +90,17 @@ export interface ScopeGroup {
 function placeOf(scope: string, names: ReadonlyMap<string, string> | undefined): { title: string; kind: string | null; rank: number; project?: string; unknown?: boolean } {
   if (scope === "global") return { title: "Everywhere", kind: null, rank: 0 };
   const blob = /^project:blob:(.+)$/.exec(scope);
-  if (blob) return { title: blob[1]!, kind: "blob", rank: 2 };
+  if (blob) return { title: slugWords(blob[1]!), kind: "Blob", rank: 2 };
   if (scope.startsWith("project:")) {
     const slug = scope.slice("project:".length);
-    if (!names) return { title: slug, kind: "project", rank: 1 };
+    if (!names) return { title: slugWords(slug), kind: "Project", rank: 1 };
     const name = names.get(slug);
-    return name ? { title: name, kind: "project", rank: 1, project: slug } : { title: slug, kind: "no such project", rank: 1, unknown: true };
+    return name ? { title: name, kind: "Project", rank: 1, project: slug } : { title: slug, kind: "No such project", rank: 1, unknown: true };
   }
-  if (scope.startsWith("caller:")) return { title: scope.slice("caller:".length), kind: "caller", rank: 3 };
+  if (scope.startsWith("caller:")) return { title: scope.slice("caller:".length), kind: "Caller", rank: 3 };
+  // A bare project slug, as some writers keep it: the project by its name.
+  const named = names?.get(scope);
+  if (named) return { title: named, kind: "Project", rank: 1, project: scope };
   return { title: scope, kind: null, rank: 4 };
 }
 
@@ -160,9 +171,8 @@ function splitTags(text: string): string[] {
     .filter(Boolean);
 }
 
-export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onChanged }: KnowledgePageProps): ReactElement {
+export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: setQuery, projectNames, onChanged }: KnowledgePageProps): ReactElement {
   const kindsRef = useEdgeFade<HTMLDivElement>(".chips");
-  const [query, setQuery] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);
   const [only, setOnly] = useState(() => idsInHash(window.location.hash));
@@ -277,10 +287,6 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
     <div className="know">
       {facts.length > 0 && (
         <div className="know-bar">
-          <label className="know-search">
-            <SearchIcon size={14} title="" />
-            <input type="search" value={query} placeholder="Search claims" aria-label="Search claims" onChange={(e) => setQuery(e.target.value)} />
-          </label>
           {only && (
             <Tag title="The claims a turn was given from memory" remove={{ label: "Show every claim", onRemove: showAll }}>
               Recalled for a turn
@@ -301,62 +307,73 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
         </div>
       )}
 
-      {adding && (
+      <Modal
+        open={adding}
+        title="New claim"
+        size="sm"
+        onClose={() => onAdding(false)}
+        footer={
+          <SheetFoot
+            onCancel={() => onAdding(false)}
+            primary={
+              <button type="submit" form={ADD_FORM} className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
+                Create
+              </button>
+            }
+          />
+        }
+      >
         <form
-          className="know-add"
+          id={ADD_FORM}
+          className="rename-form"
           onSubmit={(e) => {
             e.preventDefault();
             void save();
           }}
         >
-          <input className="kos-input kos-mono" aria-label="Key" placeholder="key, e.g. deploy_target" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
-          <input className="kos-input" aria-label="What to remember" placeholder="what to remember" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
-          <input className="kos-input" aria-label="Tags" placeholder="tags, comma separated" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
-          <span className="know-add-acts">
-            <button type="button" className="btn btn--ghost" onClick={() => onAdding(false)}>
-              Cancel
-            </button>
-            <button type="submit" className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
-              Save
-            </button>
-          </span>
+          <Field label="Key" required hint="A short name to find it by, such as deploy_target.">
+            <input className="kos-input kos-mono" autoFocus value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
+          </Field>
+          <Field label="What to remember" required>
+            <input className="kos-input" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
+          </Field>
+          <Field label="Tags" hint="Comma separated.">
+            <input className="kos-input" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
+          </Field>
         </form>
-      )}
+      </Modal>
 
-      {facts.length === 0 && !adding && (
-        <Empty title="Nothing remembered yet." className="know-empty">
+      {facts.length === 0 && (
+        <EmptyState title="Nothing remembered yet." className="know-empty">
           KOS keeps what you tell it and what its agents work out, for every chat to read. Pin what should be in every conversation.{" "}
           <button type="button" className="link" onClick={() => onAdding(true)}>
             Add a claim
           </button>
-        </Empty>
+        </EmptyState>
       )}
 
-      {facts.length > 0 && groups.length === 0 && (
-        <Empty title="No claims match." className="know-none">
-          Nothing in memory fits these words and filters.{" "}
-          <button type="button" className="link" onClick={clear}>
-            Clear the filters
-          </button>
-        </Empty>
-      )}
+      {facts.length > 0 && groups.length === 0 && <EmptyState className="know-none" query={{ noun: "claims", onClear: clear }} />}
 
       {groups.map((g) => {
         const all = filtered || whole.has(g.scope) || g.facts.length <= SCOPE_FIRST;
         const shown = all ? g.facts : g.facts.slice(0, SCOPE_FIRST);
         return (
           <section key={g.scope} className="know-group" aria-label={g.title}>
-            <h2 className="know-group-title">
-              {g.project ? (
-                <a className="know-group-link" href={hrefFor({ name: "project", slug: g.project })}>
-                  {g.title}
-                </a>
-              ) : (
-                <span className={g.unknown ? "know-group-slug" : undefined}>{g.title}</span>
-              )}
-              {g.kind && <span className={`know-group-kind${g.unknown ? " is-unknown" : ""}`}>{g.kind}</span>}
-              <Count n={g.facts.length} />
-            </h2>
+            <GroupHead
+              count={g.facts.length}
+              title={
+                <>
+                  {g.project ? (
+                    <a className="know-group-link" href={hrefFor({ name: "project", slug: g.project })}>
+                      {g.title}
+                    </a>
+                  ) : (
+                    <span className={g.unknown ? "know-group-slug" : undefined}>{g.title}</span>
+                  )}
+                  {g.kind && <span className={`know-group-kind${g.unknown ? " is-unknown" : ""}`}>{g.kind}</span>}
+                </>
+              }
+            />
             <ul className="know-list">
               {shown.map((f) => (
                 <li key={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={roveRow}>
@@ -374,7 +391,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
                       {sourceWord(f.source) && <span className="know-from">from {sourceWord(f.source)}</span>}
                       {f.kind !== "fact" && <Tag>{f.kind}</Tag>}
                       {(f.tags ?? []).length > 0 && <span className="know-tags">{f.tags!.join(", ")}</span>}
-                      {f.updatedAt ? <span className="know-when">{agoWords(f.updatedAt)}</span> : null}
+                      {f.updatedAt ? <span className="know-when">{timeWords(f.updatedAt)}</span> : null}
                     </span>
                   </button>
                   <span className="know-acts">
@@ -420,7 +437,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
       <Drawer
         open={open !== null}
         title={open?.key ?? ""}
-        {...(open ? { subtitle: [open.kind, describeScope(open.scope), open.updatedAt ? `updated ${agoWords(open.updatedAt)}` : null].filter(Boolean).join(" · ") } : {})}
+        {...(open ? { subtitle: [open.kind, describeScope(open.scope), open.updatedAt ? `updated ${timeWords(open.updatedAt)}` : null].filter(Boolean).join(" · ") } : {})}
         onClose={() => {
           setOpen(null);
           setEdit(null);
@@ -428,26 +445,28 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
         footer={
           open &&
           (edit ? (
-            <>
-              <button type="button" className="btn" onClick={() => setEdit(null)}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn--primary" disabled={saving || !edit.key.trim() || !edit.value.trim()} onClick={() => void saveEdit(open)}>
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </>
+            <SheetFoot
+              onCancel={() => setEdit(null)}
+              primary={
+                <button type="button" className="btn btn--primary" disabled={saving || !edit.key.trim() || !edit.value.trim()} onClick={() => void saveEdit(open)}>
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              }
+            />
           ) : (
-            <>
-              <span className="foot-start">
-                <ConfirmButton label="Forget" className="btn btn--danger" text={FORGET_TEXT} onConfirm={() => forget(open)} />
-              </span>
-              <button type="button" className="btn" onClick={() => togglePin(open)}>
-                {open.pinned ? "Unpin" : "Pin"}
-              </button>
-              <button type="button" className="btn btn--primary" onClick={() => startEdit(open)}>
-                Edit
-              </button>
-            </>
+            <SheetFoot
+              danger={<ConfirmButton label="Forget" className="btn btn--danger" text={FORGET_TEXT} onConfirm={() => forget(open)} />}
+              primary={
+                <>
+                  <button type="button" className="btn" onClick={() => togglePin(open)}>
+                    {open.pinned ? "Unpin" : "Pin"}
+                  </button>
+                  <button type="button" className="btn btn--primary" onClick={() => startEdit(open)}>
+                    Edit
+                  </button>
+                </>
+              }
+            />
           ))
         }
       >

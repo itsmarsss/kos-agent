@@ -121,12 +121,12 @@ describe("a divider in the list's head", () => {
     list();
     expect(screen.getAllByRole("columnheader").map((c) => [c.textContent, c.querySelector('[role="separator"]')?.getAttribute("aria-label") ?? null])).toEqual([
       ["Name", null],
-      ["Date Modified", "Resize Date Modified"],
+      ["Date modified", "Resize Date modified"],
       ["Size", "Resize Size"],
       ["Kind", "Resize Kind"],
     ]);
     const dividers = screen.getAllByRole("separator");
-    expect(dividers.map((d) => d.getAttribute("aria-label"))).toEqual(["Resize Date Modified", "Resize Size", "Resize Kind"]);
+    expect(dividers.map((d) => d.getAttribute("aria-label"))).toEqual(["Resize Date modified", "Resize Size", "Resize Kind"]);
     expect(dividers.map((d) => d.getAttribute("aria-valuenow"))).toEqual(["184", "88", "152"]);
     expect(dividers.every((d) => d.tabIndex === 0 && d.getAttribute("aria-orientation") === "vertical")).toBe(true);
     expect(cols()).toBe("minmax(0, 1fr) 184px 88px 152px");
@@ -134,7 +134,7 @@ describe("a divider in the list's head", () => {
 
   it("moves with the arrows, further with Shift, never under the column's least, and keeps the width", () => {
     list();
-    const modified = screen.getByRole("separator", { name: "Resize Date Modified" });
+    const modified = screen.getByRole("separator", { name: "Resize Date modified" });
     fireEvent.keyDown(modified, { key: "ArrowLeft" });
     expect(modified.getAttribute("aria-valuenow")).toBe("192");
     fireEvent.keyDown(modified, { key: "ArrowRight", shiftKey: true });
@@ -188,8 +188,8 @@ describe("the trash's columns", () => {
   it("resize the same way, kept apart from the list's", async () => {
     vi.spyOn(api, "fileTrash").mockResolvedValue({ items: [{ id: "1-aa", path: "notes/x.md", name: "x.md", kind: "file", size: 3, trashedAt: 1 }] });
     render(<TrashView rootName="Workspace" onChanged={() => undefined} onError={() => undefined} onCount={() => undefined} />);
-    const trashed = await screen.findByRole("separator", { name: "Resize Date Trashed" });
-    expect(screen.getAllByRole("separator").map((d) => d.getAttribute("aria-label"))).toEqual(["Resize Date Trashed", "Resize Size"]);
+    const trashed = await screen.findByRole("separator", { name: "Resize Date trashed" });
+    expect(screen.getAllByRole("separator").map((d) => d.getAttribute("aria-label"))).toEqual(["Resize Date trashed", "Resize Size"]);
     expect(cols()).toBe("minmax(0, 1fr) 184px 88px 240px");
     fireEvent.keyDown(trashed, { key: "ArrowLeft", shiftKey: true });
     expect(cols()).toBe("minmax(0, 1fr) 216px 88px 240px");

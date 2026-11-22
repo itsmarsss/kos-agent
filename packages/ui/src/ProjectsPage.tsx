@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
-import { card, Count, Empty, Pill, stagger, type Tone } from "@kos/kit";
-import { relativeWords } from "@kos/shared";
+import { card, EmptyState, GroupHead, Pill, stagger, StatusPill, When, type Tone } from "@kos/kit";
+import { isState, kindWord, STATE_WORDS } from "@kos/shared";
 
 import { api, type Conversation, type CronJob, type PageSummary, type Project } from "./api.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { PageHead } from "./PageHead.js";
 import { markLetter, markStyle } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
-import { Select, type SelectOption } from "./Select.js";
 
 /**
  * Projects as cards, one shape each: the mark, the name and its kind, what it
@@ -35,11 +34,6 @@ export interface ProjectsPageProps {
 /** Active first: dormant and archived are things you look up, not scan. */
 const ORDER = ["active", "born", "dormant", "done", "archived"];
 
-type Sort = "recent" | "name";
-const SORTS: SelectOption[] = [
-  { value: "recent", label: "Recent" },
-  { value: "name", label: "Name" },
-];
 
 /** What a card says first, when anything: the one thing that wants the owner. */
 interface Attention {
@@ -77,7 +71,6 @@ function useFailingJobs(): Map<number, string> {
 
 export function ProjectsPage({ projects, pagesByProject, conversations, crons, onInspect, onCreate }: ProjectsPageProps): ReactElement {
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<Sort>("recent");
   const [making, setMaking] = useState(false);
   const failing = useFailingJobs();
 
@@ -102,7 +95,8 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matched = q ? projects.filter((p) => [p.name, p.slug, p.type, p.description ?? ""].some((w) => w.toLowerCase().includes(q))) : projects;
-    const sorted = [...matched].sort((a, b) => (sort === "name" ? a.name.localeCompare(b.name) : lastOf(b) - lastOf(a)));
+    // By name, as every list of projects is: the rail, Files, a Move.
+    const sorted = [...matched].sort((a, b) => a.name.localeCompare(b.name));
     const byStatus = new Map<string, Project[]>();
     for (const p of sorted) {
       const group = p.type === "system" ? "system" : p.status;
@@ -110,7 +104,7 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
     }
     const rank = (group: string): number => (group === "system" ? 100 : ORDER.indexOf(group) + 1 || 99);
     return [...byStatus.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
-  }, [projects, query, sort, conversations]);
+  }, [projects, query]);
 
   const cardOf = (p: Project): ReactElement => {
     const pages = pagesByProject.get(p.slug) ?? [];
@@ -129,9 +123,9 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
             <a className="card-name project-card-link" href={hrefFor({ name: "project", slug: p.slug })}>
               {p.name}
             </a>
-            <span className="project-card-sub">{p.module ? `${p.type} · from ${p.module}` : p.type}</span>
+            <span className="project-card-sub">{p.module ? `${kindWord(p.type)} · from ${p.module}` : kindWord(p.type)}</span>
           </div>
-          {attention ? <Pill tone={attention.tone}>{attention.word}</Pill> : p.status !== "active" && <Pill tone="muted">{p.status}</Pill>}
+          {attention ? <Pill tone={attention.tone}>{attention.word}</Pill> : p.status !== "active" && isState(p.status) && <StatusPill state={p.status} />}
         </div>
         {/* Why, in words on the card: a title is out of reach of a keyboard and a finger. */}
         {attention?.why && <p className="project-card-why">{attention.why}</p>}
@@ -145,8 +139,8 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
         )}
         <div className="project-card-foot">
           <span className="project-card-holds">{holds.length > 0 ? holds.join(" · ") : "Nothing in it yet"}</span>
-          <span className="project-card-time" title="Last activity">
-            {relativeWords(Math.round(lastOf(p) / 1000))}
+          <span className="project-card-time">
+            <When at={lastOf(p)} />
           </span>
           <button type="button" className="btn btn--sm btn--ghost project-card-details" onClick={() => onInspect(p, pages)} aria-label={`Details of ${p.name}`}>
             Details
@@ -164,31 +158,25 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
         title="Projects"
         count={owned.length}
         subtitle="Each one is a chat of its own, with its agents, tables, files and artifacts."
-        search={<input className="list-search" type="search" value={query} placeholder="Search projects" aria-label="Search projects" onChange={(e) => setQuery(e.target.value)} />}
+        search={{ value: query, onChange: setQuery, noun: "projects" }}
         actions={
-          <>
-            {owned.length > 1 && <Select className="artifacts-select" value={sort} options={SORTS} onChange={(v) => setSort(v as Sort)} label="Sort" />}
-            {onCreate && (
-              <button type="button" className="btn btn--primary" onClick={() => setMaking(true)}>
-                New project
-              </button>
-            )}
-          </>
+          onCreate && (
+            <button type="button" className="btn btn--primary" onClick={() => setMaking(true)}>
+              New project
+            </button>
+          )
         }
       />
 
       {onCreate && <NewProjectDialog open={making} onClose={() => setMaking(false)} onCreate={onCreate} />}
 
-      {owned.length === 0 && <Empty title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</Empty>}
-      {query.trim() && groups.length === 0 && <Empty inline>No project matches “{query.trim()}”.</Empty>}
+      {owned.length === 0 && <EmptyState title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</EmptyState>}
+      {query.trim() && groups.length === 0 && <EmptyState query={{ noun: "projects", onClear: () => setQuery("") }} />}
 
       {groups.map(([status, items]) => (
         <section key={status} className="projects-group" aria-label={status === "system" ? "KOS's own" : several ? status : "Projects"}>
           {(several || status === "system") && (
-            <h2 className="label projects-group-head">
-              {status === "system" ? "KOS's own" : status}
-              <Count n={items.length} />
-            </h2>
+            <GroupHead title={status === "system" ? "KOS's own" : isState(status) ? STATE_WORDS[status].word : kindWord(status)} count={items.length} />
           )}
           <m.div className="project-grid" variants={stagger} initial="hidden" animate="show">
             {items.map(cardOf)}

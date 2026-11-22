@@ -201,7 +201,7 @@ describe("the Secrets page", () => {
     const host = screen.getByLabelText("Add to API hosts");
     fireEvent.change(host, { target: { value: "api.openai.com" } });
     fireEvent.keyDown(host, { key: "Enter" });
-    fireEvent.click(screen.getAllByText("Add secret").find((b) => b.closest(".drawer-foot"))!);
+    fireEvent.click(screen.getAllByText("Create").find((b) => b.closest(".sheet-foot"))!);
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/api/secrets")).toBe(true));
     const sent = calls.find((c) => c.method === "POST" && c.path === "/api/secrets")!.body as { use: { http: unknown }; values: unknown };
     expect(sent.use.http).toEqual({ hosts: ["api.openai.com"], as: "bearer" });

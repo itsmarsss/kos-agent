@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { askView } from "@kos/shared";
 
-import { ASK_SETTLE_MS, AskCard } from "./AskCard.js";
+import { ASK_SETTLE_MS, AskCard, Breakable } from "./AskCard.js";
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -269,13 +269,14 @@ describe("a press after the page moved", () => {
 describe("the approval card's sheet", () => {
   const css = readFileSync(join(__dirname, "kit.css"), "utf8");
 
-  it("draws the buttons at one height", () => {
-    expect(/\.kos-ask-actions \.btn \{[^}]*height: 32px/.test(css)).toBe(true);
+  it("draws the buttons at one height, the small control's, and no smaller card", () => {
+    expect(/\.kos-ask-actions \.btn \{[^}]*height: var\(--control-h-sm/.test(css)).toBe(true);
+    expect(css).not.toContain("kos-ask--compact");
   });
 
-  it("stands the buttons one to a row, full width, on a narrow card", () => {
+  it("stands the buttons one to a row, full width, Deny then Approve, on a narrow card", () => {
     const narrow = /@container \(max-width: 420px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
-    expect(narrow).toMatch(/\.kos-ask-actions \{ flex-direction: column-reverse; \}/);
+    expect(narrow).toMatch(/\.kos-ask-actions \{ flex-direction: column; \}/);
     expect(narrow).toMatch(/\.kos-ask-actions \.btn \{ width: 100%;/);
     expect(/\.kos-ask \{[^}]*container-type: inline-size/.test(css)).toBe(true);
   });
@@ -399,5 +400,13 @@ describe("the focus after a decision", () => {
     await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     expect(document.activeElement).toBe(box);
     box.remove();
+  });
+});
+
+describe("a URL on a narrow card", () => {
+  it("may break after each slash, never in the middle of a name for want of one", () => {
+    const { container } = render(<Breakable text="https://status.example.com/api/v2/summary.json" />);
+    expect(container.querySelectorAll("wbr")).toHaveLength(5);
+    expect(container.textContent).toBe("https://status.example.com/api/v2/summary.json");
   });
 });

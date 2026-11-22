@@ -1,6 +1,6 @@
 import { m } from "motion/react";
 import { marksOfLetters } from "@kos/shared";
-import { CloseIcon, ease, Empty, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, Switch, Tag, useOverlayScroll } from "@kos/kit";
+import { CloseIcon, ease, EmptyState, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, SheetFoot, Switch, Tag, useOverlayScroll } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -12,6 +12,7 @@ import type { FaceLook } from "./api.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { PageHead } from "./PageHead.js";
+import { useEdgeFade } from "./edgefade.js";
 import { FieldRow } from "./kit.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
@@ -246,24 +247,17 @@ function Section({
       <div className="set-card">
         <div className="set-card-body">{children}</div>
         {onSave && (
-          <footer className="set-card-foot">
-            <button
-              type="button"
-              className="btn btn--primary"
-              disabled={saving || canSave === false}
-              onClick={onSave}
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-            {extra}
-            {saved && (
-              <span
-                className={`set-saved ${saved === "Not saved yet" ? "is-unsaved" : ""}`}
-              >
-                {saved}
-              </span>
-            )}
-          </footer>
+          <SheetFoot
+            note={saved && <span className={`set-saved ${saved === "Not saved yet" ? "is-unsaved" : ""}`}>{saved}</span>}
+            primary={
+              <>
+                {extra}
+                <button type="button" className="btn btn--primary" disabled={saving || canSave === false} onClick={onSave}>
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </>
+            }
+          />
         )}
       </div>
     </section>
@@ -323,6 +317,8 @@ export function SettingsPage({
   const [picked, setPicked] = useState(0);
   const [found, setFound] = useState<{ label: string; n: number } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // On a phone the rail is a strip that scrolls sideways: it fades where there is more.
+  const sideFade = useEdgeFade<HTMLDivElement>(".set-rail", "x", data !== null && data !== undefined);
   const paneRef = useRef<HTMLDivElement>(null);
   const paneScroll = useOverlayScroll(paneRef);
   const railRef = useRef<HTMLElement>(null);
@@ -678,18 +674,15 @@ export function SettingsPage({
 
   return (
     <div className="settings-page">
-      <div className="set-side">
+      <div className="set-side" ref={sideFade}>
         <div className="set-search">
-          <input
-            ref={searchRef}
-            className="kos-input set-search-input"
-            type="search"
-            placeholder="Find a setting  /"
-            aria-label="Find a setting"
+          <SearchField
+            inputRef={searchRef}
+            className="set-search-input"
+            noun="settings"
             value={query}
-            spellCheck={false}
-            onChange={(e) => {
-              setQuery(e.target.value);
+            onChange={(v) => {
+              setQuery(v);
               setPicked(0);
             }}
             onKeyDown={(e) => {
@@ -700,6 +693,7 @@ export function SettingsPage({
                 e.preventDefault();
                 jump(hits[picked]!);
               } else if (e.key === "Escape") {
+                e.preventDefault();
                 setQuery("");
                 e.currentTarget.blur();
               }
@@ -709,7 +703,7 @@ export function SettingsPage({
         <nav className={`set-rail${query.trim() ? " set-rail--found" : ""}`} aria-label="Settings sections" ref={railScroll}>
         {query.trim() ? (
           <div className="set-results" role="listbox" aria-label="Settings found">
-            {hits.length === 0 && <Empty inline className="set-results-none">Nothing called that. Try another word.</Empty>}
+            {hits.length === 0 && <EmptyState variant="inline" className="set-results-none">Nothing called that. Try another word.</EmptyState>}
             {hits.map((hit, i) => {
               const sec = SECTIONS.find((s) => s.id === hit.section)!;
               return (
@@ -797,7 +791,7 @@ export function SettingsPage({
             </Field>
             <Field group className="set-field"
               label="Timezone"
-              hint="Schedules and “today” follow this. Checked against what this machine knows, so a typo cannot quietly move every cron job."
+              hint="Schedules and “today” follow this. Checked against what this machine knows, so a typo cannot quietly move every schedule."
             >
               {zones.current.length > 0 ? (
                 <Select
@@ -841,7 +835,8 @@ export function SettingsPage({
               <Field group className="set-field"
                 key={key}
                 label={meta.label}
-                hint={meta.hint}
+                // A sample of the key's shape ("sk-...") is the box's placeholder; words about it are its hint.
+                {...(meta.hint && /\s/.test(meta.hint) ? { hint: meta.hint } : {})}
                 badge={
                   meta.masked ? (
                     <>
@@ -853,7 +848,7 @@ export function SettingsPage({
                       )}
                     </>
                   ) : (
-                    <Pill>not set</Pill>
+                    <Pill>Not set</Pill>
                   )
                 }
               >
@@ -863,7 +858,7 @@ export function SettingsPage({
                     type="password"
                     autoComplete="new-password"
                     value={keys[key] ?? ""}
-                    placeholder={meta.masked ? "unchanged" : "not set"}
+                    placeholder={meta.masked ? "Unchanged" : meta.hint && !/\s/.test(meta.hint) ? meta.hint : "Paste it here"}
                     onChange={(e) =>
                       setKeys((k) => ({ ...k, [key]: e.target.value }))
                     }
@@ -993,7 +988,7 @@ export function SettingsPage({
              application from the rest of Settings. */
           <Section
             title="Behaviour"
-            blurb="How KOS acts when you are not watching. These are one set of settings, saved together."
+            blurb="How KOS acts when you are not watching."
             {...saveBar(
               "behaviour",
               changed,
@@ -1011,28 +1006,28 @@ export function SettingsPage({
             <div className="set-group">
               <h2>When something fails</h2>
               <p className="hint">
-                A job that fails at 3am tells you either way. This decides
+                A schedule that fails at 3am tells you either way. This decides
                 whether KOS also tries to do something about it before you wake
                 up.
               </p>
-              <Field group className="set-field"
+              <FieldRow
                 label="Extract memory in the background"
                 hint="Off by default. On, a cheap model reads new conversation in batches and proposes claims; what it writes is attributed to it, cites its sources, and shows in Memory. Run it once from the Memory page first and see what it does."
               >
                 <Switch label="Extract memory in the background" on={how.memoryExtraction} onChange={(on) => setHow({ ...how, memoryExtraction: on })} />
-              </Field>
-              <Field group className="set-field"
+              </FieldRow>
+              <FieldRow
                 label="Try to fix failures on its own"
-                hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky."
+                hint="On the first failure of a schedule, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same schedule do not start another attempt. Everything it does there still asks you before anything risky."
               >
                 <Switch label="Try to fix failures on its own" on={how.autoFix} onChange={(on) => setHow({ ...how, autoFix: on })} />
-              </Field>
-              <Field group className="set-field"
+              </FieldRow>
+              <FieldRow
                 label="Set big results aside once read"
                 hint="A page, a PDF or a long listing stays whole for the turn it came in and the next; after that the chat keeps a short outline and KOS reads the rest back with context.recall when it needs it, so later messages stay quick. Off, every result is sent whole with every message."
               >
                 <Switch label="Set big results aside once read" on={how.smartContext} onChange={(on) => setHow({ ...how, smartContext: on })} />
-              </Field>
+              </FieldRow>
             </div>
 
             <div className="set-group">
@@ -1105,7 +1100,7 @@ export function SettingsPage({
                   }
                 />
                 <Limit
-                  label="Self-prompted jobs per hour"
+                  label="Schedules that ask KOS, per hour"
                   hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
                   value={how.selfPromptsPerHour}
                   range={limits.selfPromptsPerHour}
@@ -1235,7 +1230,7 @@ export function SettingsPage({
                 ),
             )}
           >
-            <Field group className="set-field"
+            <FieldRow
               label="Trim old exchanges"
               hint="When on, the oldest exchanges fall off the front once a chat passes the budgets below, and the chat says so when it happens. Off keeps everything: the whole history is re-sent every turn, so it gets slower and costs more as it grows."
             >
@@ -1244,7 +1239,7 @@ export function SettingsPage({
                       autoTrim: on ? "on" : "off",
                     }))
                   } />
-            </Field>
+            </FieldRow>
             <Field group className="set-field"
               label="History budget"
               hint={`Characters of a conversation kept. 0 for no limit. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}
@@ -1339,7 +1334,7 @@ export function SettingsPage({
         {active === "skills" && (
           <Section title="Skills" blurb="What KOS knows how to do. One it wrote is on; one you install is off until you switch it on.">
             {skills.skills.length === 0 && skills.invalid.length === 0 && (
-              <Empty inline>Nothing installed yet. Add one below, or ask KOS to make one.</Empty>
+              <EmptyState variant="inline">Nothing installed yet. Add one below, or ask KOS to make one.</EmptyState>
             )}
             {skills.skills.length > 0 && (
               <FieldRow label="Show" hint="All of them, one project's own, a kind, or a state.">
@@ -1409,7 +1404,7 @@ export function SettingsPage({
         )}
         {active === "mcp" && (
           <Section title="MCP servers" blurb="Outside tools, declared in mcp.json the way Claude Code does. A server's tools are risky until you floor them safe.">
-            {mcp.length === 0 && <Empty inline>Nothing connected yet. Add one below.</Empty>}
+            {mcp.length === 0 && <EmptyState variant="inline">Nothing connected yet. Add one below.</EmptyState>}
             <div className="set-rows">
             {mcp.map((s) => (
               <FieldRow
@@ -1474,7 +1469,7 @@ export function SettingsPage({
               </div>
             )}
             {modules.modules.length === 0 && modules.invalid.length === 0 && (
-              <Empty inline>No workspace modules yet. Ask KOS to make one with modules.create, install one below, or add a folder under modules/.</Empty>
+              <EmptyState variant="inline">No workspace modules yet. Ask KOS to make one with modules.create, install one below, or add a folder under modules/.</EmptyState>
             )}
             {/* The second rung of the spec's distribution path: a repository
                 per module. Installed is off; nothing runs until switched on. */}
@@ -1622,7 +1617,7 @@ export function SettingsPage({
               </a>
             </Field>
             {rules.length === 0 && (
-              <Empty inline>Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</Empty>
+              <EmptyState variant="inline">Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</EmptyState>
             )}
             {rules.map((r) => (
               <Field group className="set-field"
@@ -1672,12 +1667,12 @@ export function SettingsPage({
               <>
                 <div className="set-group">
                   <h2>The window</h2>
-                  <Field group className="set-field"
+                  <FieldRow
                     label="Show the window on this machine"
                     hint="Off, Chrome runs unseen and the dashboard's Browser window is the only view. On, Chrome's own windows open here too: that is how you install extensions from the Web Store, and it is where Chrome's own dialogs appear."
                   >
                     <Switch label="Show the window on this machine" on={browserDraft.headed} onChange={(on) => setBrowserDraft({ ...browserDraft, headed: on })} />
-                  </Field>
+                  </FieldRow>
                   <Field group className="set-field"
                     label="Chrome to run"
                     hint="Blank runs the first Chrome found. Name a binary to run Chromium or Chrome for Testing instead."

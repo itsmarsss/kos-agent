@@ -52,11 +52,11 @@ describe("the Projects page", () => {
     show();
     const garden = card("Garden");
     expect(within(garden).getByText("What grows where, and when to water it.")).toBeTruthy();
-    expect(within(garden).getByText("tracker")).toBeTruthy();
+    expect(within(garden).getByText("Tracker")).toBeTruthy();
     await waitFor(() => expect(within(garden).getByText("2 agents · 2 tables · 1 artifact")).toBeTruthy());
     expect(within(card("Household budget")).getByText("1 agent")).toBeTruthy();
     expect(within(card("Old notes")).getByText("Nothing in it yet")).toBeTruthy();
-    expect(within(garden).getByTitle("Last activity").textContent).toBe("3 days ago");
+    expect(within(garden).getByText("3d ago").tagName).toBe("TIME");
     expect(detail).not.toHaveBeenCalled();
   });
 
@@ -67,22 +67,19 @@ describe("the Projects page", () => {
     expect(within(card("Garden")).getByText("garden.water: the pump is offline")).toBeTruthy();
     expect(within(card("Household budget")).getByText("Needs you")).toBeTruthy();
     // A state worth saying only when it is not the usual one.
-    expect(within(card("Old notes")).getByText("archived")).toBeTruthy();
+    expect(within(card("Old notes")).getByText("Archived")).toBeTruthy();
   });
 
-  it("groups by state only when there is more than one, newest first or by name, and searches", () => {
+  it("groups by state only when there is more than one, by name as every project list is, and searches", () => {
     show();
     expect(screen.getByRole("region", { name: "active" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "archived" })).toBeTruthy();
-    expect(order()).toEqual(["Household budget", "Garden", "Old notes"]);
-    fireEvent.click(screen.getByRole("button", { name: "Sort" }));
-    fireEvent.click(screen.getByRole("option", { name: "Name" }));
     expect(order()).toEqual(["Garden", "Household budget", "Old notes"]);
     fireEvent.change(screen.getByLabelText("Search projects"), { target: { value: "water" } });
     expect(order()).toEqual(["Garden"]);
     expect(screen.queryByRole("region", { name: "archived" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Search projects"), { target: { value: "zebra" } });
-    expect(screen.getByText("No project matches “zebra”.")).toBeTruthy();
+    expect(screen.getByText("No projects match these words and filters.")).toBeTruthy();
   });
 
   it("opens a project by its name, a real link over the card, and its drawer from Details", () => {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
-import { hexOfHsl, hueOfHex, momentWords, summarizeAction } from "@kos/shared";
-import { Card, ease, Field, lookOf, Pill, spring, Tag } from "@kos/kit";
+import { hexOfHsl, hueOfHex, isState, kindWord, momentWords, STATE_WORDS, stateOfRun, summarizeAction } from "@kos/shared";
+import { Card, ease, Field, lookOf, spring, StatusPill, Tag, When } from "@kos/kit";
 
 import type {
   AuditRecord,
@@ -17,7 +17,9 @@ import { ConfirmButton } from "./kit.js";
 import { markInk } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
-import { agoWords } from "./schedulewords.js";
+import { runKind } from "./HistoryPage.js";
+import { scheduleWords } from "./schedule.js";
+import { jobTitle } from "./schedulewords.js";
 
 export type InspectTarget =
   | { kind: "tool"; data: AuditRecord }
@@ -29,24 +31,6 @@ function prettyJson(raw: string): string {
     return JSON.stringify(JSON.parse(raw), null, 2);
   } catch {
     return raw;
-  }
-}
-
-/**
- * How long ago, in the same words the rest of the app uses. The drawer said
- * "9/1/2026, 7:43:16 AM" twice, to the second, next to a card reading "20h
- * ago"; the exact time is kept on hover for when it matters.
- */
-function ago(ts?: number | null): string {
-  return ts == null ? "—" : agoWords(ts);
-}
-
-function fmtTime(ts?: number | null): string {
-  if (ts == null) return "—";
-  try {
-    return momentWords(ts);
-  } catch {
-    return String(ts);
   }
 }
 
@@ -160,7 +144,6 @@ export function Inspector(props: {
     };
   }, [openCallId]);
 
-
   if (!target) return null;
 
   const projectSlug = target.kind === "project" ? target.data.slug : "";
@@ -200,7 +183,7 @@ export function Inspector(props: {
           <Block label="Args" text={prettyJson(t.args)} />
           <Facts
             rows={[
-              ["When", fmtTime(t.createdAt)],
+              ["When", momentWords(t.createdAt)],
               ["Risk", t.riskTier ?? "—"],
               ["User", t.userId ?? "—"],
             ]}
@@ -231,8 +214,8 @@ export function Inspector(props: {
     case "run": {
       const r = target.data;
       const job = props.crons?.find((c) => String(c.id) === r.ref);
-      title = job?.name ?? `${r.kind} run`;
-      subtitle = `${r.kind} #${r.id} · ${r.status}`;
+      title = job ? jobTitle(job.name) : `${runKind(r.kind)} run`;
+      subtitle = `${runKind(r.kind)} · ${STATE_WORDS[stateOfRun(r.status)].word}`;
       // The error first, because on a failed run it is the only reason the
       // drawer was opened. It used to be last, under four rows of timing.
       body = (
@@ -248,12 +231,12 @@ export function Inspector(props: {
                 <p className="ops-muted">This run finished without an error.</p>
               )}
               {job && (
-                <Section title="The job">
+                <Section title="The schedule">
                   <ul className="insp-rows">
                     <li>
-                      <span className="ops-mono">{job.schedule}</span>
-                      <span className="insp-meta">{job.type}</span>
-                      <Pill tone={job.enabled ? "ok" : "muted"}>{job.enabled ? "on" : "off"}</Pill>
+                      <span title={job.schedule}>{scheduleWords(job.schedule)}</span>
+                      <span className="insp-meta">{job.type === "self_prompt" ? "Asks KOS" : "Runs its steps"}</span>
+                      <StatusPill state={job.enabled ? "on" : "off"} />
                     </li>
                     {(job.actions ?? []).map((a, i) => (
                       <li key={i}>
@@ -270,11 +253,13 @@ export function Inspector(props: {
                 <dl className="insp-about">
                   <div>
                     <dt>Status</dt>
-                    <dd>{r.status}</dd>
+                    <dd>
+                      <StatusPill state={stateOfRun(r.status)} />
+                    </dd>
                   </div>
                   <div>
                     <dt>Started</dt>
-                    <dd title={fmtTime(r.startedAt)}>{ago(r.startedAt)}</dd>
+                    <dd>{r.startedAt ? <When at={r.startedAt} /> : "—"}</dd>
                   </div>
                   <div>
                     <dt>Took</dt>
@@ -320,7 +305,7 @@ export function Inspector(props: {
       // the header went on saying "active" after the status had been changed
       // to dormant a few pixels below it.
       const status = editStatus ?? p.status;
-      subtitle = `${p.slug} · ${status}`;
+      subtitle = `${kindWord(p.type)} · ${isState(status) ? STATE_WORDS[status].word : kindWord(status)}`;
       const hue = (p.colour ? hueOfHex(p.colour) : null) ?? lookOf(p.slug).hue;
       const saveEdit = (): void => {
         if (!props.onUpdateProject || !draft.name.trim()) return;
@@ -386,13 +371,12 @@ export function Inspector(props: {
               </form>
             ) : (
               <div className="insp-hero-words">
-                <div className="insp-kicker">project</div>
+                <div className="insp-kicker">Project</div>
                 <h2 className="insp-title">{p.name}</h2>
                 {p.description && <p className="insp-desc">{p.description}</p>}
                 <div className="hero-meta insp-hero-meta">
-                  <Pill tone={status === "active" ? "ok" : status === "archived" || status === "done" ? "muted" : "warn"}>{status}</Pill>
-                  <Tag>{p.type}</Tag>
-                  <Tag mono>{p.slug}</Tag>
+                  {isState(status) && <StatusPill state={status} />}
+                  <Tag>{kindWord(p.type)}</Tag>
                 </div>
               </div>
             )}
@@ -557,9 +541,9 @@ export function Inspector(props: {
                   <ul className="insp-rows">
                     {schedules.map((c) => (
                       <li key={c.id}>
-                        <span>{c.name}</span>
-                        <span className="insp-meta ops-mono">{c.schedule}</span>
-                        <Pill tone={c.enabled ? "ok" : "muted"}>{c.enabled ? "on" : "off"}</Pill>
+                        <span>{jobTitle(c.name)}</span>
+                        <span className="insp-meta" title={c.schedule}>{scheduleWords(c.schedule)}</span>
+                        <StatusPill state={c.enabled ? "on" : "off"} />
                       </li>
                     ))}
                   </ul>
@@ -577,9 +561,9 @@ export function Inspector(props: {
                             {summarizeAction(a.tool, a.args)}
                           </span>
                         </span>
-                        <span className="insp-meta" title={fmtTime(a.createdAt)}>
-                          {a.isError ? "failed · " : ""}
-                          {ago(a.createdAt)}
+                        <span className="insp-meta">
+                          {a.isError ? "Failed · " : ""}
+                          <When at={a.createdAt} />
                         </span>
                       </li>
                     ))}
@@ -597,7 +581,7 @@ export function Inspector(props: {
                   className="insp-select"
                   label="Status"
                   value={status}
-                  options={STATUSES.map((s) => ({ value: s, label: s }))}
+                  options={STATUSES.map((s) => ({ value: s, label: STATE_WORDS[s].word }))}
                   onChange={(v: string) => {
                     setEditStatus(v);
                     if (props.onSetProjectStatus) {
@@ -651,7 +635,7 @@ export function Inspector(props: {
                   </div>
                   <div>
                     <dt>Created</dt>
-                    <dd title={fmtTime(p.createdAt)}>{ago(p.createdAt)}</dd>
+                    <dd>{p.createdAt ? <When at={p.createdAt} /> : "—"}</dd>
                   </div>
                   {/* Within a minute of creation these say the same thing
                       twice, which is two rows to read and nothing learned. */}
@@ -659,9 +643,7 @@ export function Inspector(props: {
                     60_000 && (
                     <div>
                       <dt>Last touched</dt>
-                      <dd title={fmtTime(p.lastTouchedAt)}>
-                        {ago(p.lastTouchedAt)}
-                      </dd>
+                      <dd>{p.lastTouchedAt ? <When at={p.lastTouchedAt} /> : "—"}</dd>
                     </div>
                   )}
                 </dl>

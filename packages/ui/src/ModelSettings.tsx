@@ -17,7 +17,7 @@ import { Select } from "./Select.js";
 type TaskKey = "reasoning" | "cheap" | "screen";
 
 const TASKS: Array<{ key: TaskKey; label: string; hint: string }> = [
-  { key: "reasoning", label: "Reasoning", hint: "every chat turn and scheduled job" },
+  { key: "reasoning", label: "Reasoning", hint: "every chat turn and schedule" },
   { key: "cheap", label: "Cheap", hint: "deciding what is worth remembering" },
   { key: "screen", label: "Screen work", hint: "the clicks and looks on a computer or in Chrome; the reasoning model unless you choose another" },
 ];
@@ -108,12 +108,7 @@ export function ModelSettings({
 
   return (
     <div className="settings">
-      {/* No heading here: the modal already has the title, and a second one
-          scrolled up under it. */}
-      <p className="hint">
-        Applied on the next turn, no restart. Leave a field blank to keep the
-        default.
-      </p>
+      {/* No heading and no line of its own: the section above it says when this applies, once. */}
 
       {TASKS.map(({ key, label, hint }) => {
         const setting = saved[key] ?? {};

@@ -193,15 +193,15 @@ describe.skipIf(!CHROME)("the Finder's columns in a real Chrome", () => {
 
   it("moves the grid while the pointer is down and keeps the width once it is let go", async () => {
     await mount(1000, ["a.md", "b.md"]);
-    const at = await centre("Date Modified");
+    const at = await centre("Date modified");
     await mouse("mousePressed", at.x, at.y);
-    expect(await value<boolean>(`document.querySelector('[aria-label="Resize Date Modified"]').classList.contains("is-dragging")`)).toBe(true);
+    expect(await value<boolean>(`document.querySelector('[aria-label="Resize Date modified"]').classList.contains("is-dragging")`)).toBe(true);
     for (let i = 1; i <= 5; i++) await mouse("mouseMoved", at.x - i * 20, at.y);
     expect((await drawn())[1]).toBe(284);
     expect(await value<string | null>(`localStorage.getItem("kos.finder.columns")`)).toBeNull();
     await mouse("mouseReleased", at.x - 100, at.y);
     expect(JSON.parse((await value<string>(`localStorage.getItem("kos.finder.columns")`)) ?? "null")).toEqual({ modified: 284, size: 88, kind: 152 });
-    expect(await value<boolean>(`document.querySelector('[aria-label="Resize Date Modified"]').classList.contains("is-dragging")`)).toBe(false);
+    expect(await value<boolean>(`document.querySelector('[aria-label="Resize Date modified"]').classList.contains("is-dragging")`)).toBe(false);
     expect((await drawn())[1]).toBe(284);
   });
 });

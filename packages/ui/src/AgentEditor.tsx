@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { Chips, Face, Field, Req } from "@kos/kit";
+import { Chips, Face, Field, GroupHead, SheetFoot } from "@kos/kit";
+import { slugWords } from "@kos/shared";
 
 import { api, type AgentDraft, type AgentInfo, type FaceLook, type ToolInfo } from "./api.js";
 import { SchedulePicker } from "./SchedulePicker.js";
@@ -18,8 +19,7 @@ import { ToolPicker } from "./ToolPicker.js";
 
 /** "price-watch" as a title: "Price watch". */
 export function titleOf(name: string): string {
-  const words = name.replace(/[-_]+/g, " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return slugWords(name);
 }
 
 interface Draft {
@@ -131,7 +131,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       }}
     >
       <section className="agent-editor-section">
-        <h3 className="label">Who it is</h3>
+        <GroupHead as="h3" title="Who it is" />
         <div className="agent-editor-head">
           <Face seed={seed} look={draft.face} size={72} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new blob's face"} />
           <div className="agent-editor-ident">
@@ -162,15 +162,13 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       </section>
 
       <section className="agent-editor-section">
-        <h3 className="label">
-          Brief <Req />
-        </h3>
+        <GroupHead as="h3" title="Brief" />
         <textarea className="kos-input agents-brief" rows={10} value={draft.brief} placeholder="You watch one listing for the owner…" onChange={(e) => setDraft({ ...draft, brief: e.target.value })} />
         <span className="hint">Its standing instructions, in the second person: what it is for, how to do the work, when to tell you. It has a folder of its own, blobs/{seed}/, for notes and anything it makes.</span>
       </section>
 
       <section className="agent-editor-section">
-        <h3 className="label">Reach</h3>
+        <GroupHead as="h3" title="Reach" />
         <div className="agents-fields agents-fields--reach">
           <Field label="Tools" group>
             <ToolPicker tools={tools} allow={draft.tools} onChange={(allow) => setDraft({ ...draft, tools: allow })} />
@@ -199,7 +197,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       </section>
 
       <section className="agent-editor-section">
-        <h3 className="label">Schedule</h3>
+        <GroupHead as="h3" title="Schedule" />
         <div className="agents-fields">
           <Field label="When" group>
             <SchedulePicker value={draft.schedule} allowNone onChange={(schedule) => setDraft({ ...draft, schedule })} />
@@ -224,14 +222,15 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       </section>
 
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
-      <div className="rename-actions">
-        <button type="button" className="btn" disabled={busy} onClick={onCancel}>
-          Cancel
-        </button>
-        <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || nameTaken || nameOdd || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim() || (draft.schedule.trim() !== "" && !draft.prompt.trim())}>
-          {busy ? "Saving…" : isNew ? "Make it" : "Save"}
-        </button>
-      </div>
+      <SheetFoot
+        inline
+        onCancel={onCancel}
+        primary={
+          <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || nameTaken || nameOdd || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim() || (draft.schedule.trim() !== "" && !draft.prompt.trim())}>
+            {busy ? "Saving…" : isNew ? "Create" : "Save"}
+          </button>
+        }
+      />
     </form>
   );
 }

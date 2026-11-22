@@ -1,15 +1,15 @@
 import { m } from "motion/react";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { card, Empty, Face, moodOf, Pill, stagger } from "@kos/kit";
+import { card, EmptyState, Face, moodOf, stagger, StatusPill } from "@kos/kit";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo, type InvalidAgent } from "./api.js";
 import { Drawer } from "./Drawer.js";
 import { PageHead } from "./PageHead.js";
 import { hrefFor } from "./routes.js";
-import { momentWords } from "@kos/shared";
-
-import { agoWords } from "./schedulewords.js";
+import { momentWords, timeWords } from "@kos/shared";
+import { scheduleWords } from "./schedule.js";
+import { lastRunWords } from "./schedulewords.js";
 
 /**
  * The blobs, each with what it is up to.
@@ -32,7 +32,6 @@ export interface AgentsPageProps {
 
 const POLL_MS = 5000;
 
-
 /** A line of markdown as the words alone: no emphasis marks, no code ticks, no heading hashes. */
 function plain(text: string): string {
   return text.replace(/[*_`]+/g, "").replace(/^#+\s*/gm, "").replace(/\s+/g, " ").trim();
@@ -45,16 +44,16 @@ export function upTo(a: AgentInfo): string {
   if (t.activity === "working") return "Working now…";
   if (t.activity === "needs-you") return "Waiting on you";
   if (t.activity === "error") return `Its last turn failed${t.lastError ? `: ${t.lastError}` : ""}`;
-  if (t.lastSaid) return `“${plain(t.lastSaid)}” · ${agoWords(t.updatedAt)}`;
+  if (t.lastSaid) return `“${plain(t.lastSaid)}” · ${timeWords(t.updatedAt)}`;
   return "Nothing said yet";
 }
 
 /** One line on when it runs. */
 export function runsWhen(a: AgentInfo): string {
-  if (!a.job) return "runs when dispatched or spoken to";
-  if (!a.job.enabled) return `paused · ${a.job.schedule}`;
-  const next = a.job.nextRunAt ? `next ${momentWords(a.job.nextRunAt)}` : a.job.schedule;
-  return a.job.lastRunAt ? `${next} · last run ${agoWords(a.job.lastRunAt)}` : `${next} · not run yet`;
+  if (!a.job) return "When asked";
+  if (!a.job.enabled) return `Off · ${scheduleWords(a.job.schedule)}`;
+  const next = a.job.nextRunAt ? `Next ${momentWords(a.job.nextRunAt)}` : scheduleWords(a.job.schedule);
+  return `${next} · ${a.job.lastRunAt ? `last run ${lastRunWords(a.job.lastRunAt)}` : "never run"}`;
 }
 
 /**
@@ -124,7 +123,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
       {agents === null && !error && <p className="hint">Loading…</p>}
       {agents !== null && (
       <m.ul className="agents-list agents-list--index" variants={stagger} initial={firstVisit ? "hidden" : false} animate="show">
-        {agents.length === 0 && <li><Empty inline>None yet. Ask KOS to keep something up for you, or make one with New blob.</Empty></li>}
+        {agents.length === 0 && <li><EmptyState variant="inline">None yet. Ask KOS to keep something up for you, or make one with New blob.</EmptyState></li>}
         {agents.map((a) => (
           <m.li key={a.name} variants={card} whileHover={{ y: -2 }}>
             <button type="button" className="agents-row" onClick={() => onOpen(a.name)}>
@@ -136,7 +135,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
                     {a.thread?.unread && <span className="unread-dot" aria-label="unread" />}
                   </span>
                 </span>
-                <Pill>{a.job ? (a.job.enabled ? "scheduled" : "paused") : "on request"}</Pill>
+                {a.job && <StatusPill state={a.job.enabled ? "on" : "off"} />}
               </span>
               <span className="agents-row-desc">{a.description}</span>
               <span className={`agents-row-upto is-${a.thread?.activity ?? "idle"}`}>{upTo(a)}</span>
@@ -148,7 +147,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
           <li key={bad.path} className="agents-invalid">
             <span className="card-name">{bad.name}</span>
             <span className="agents-row-desc">
-              Does not read as an agent: {bad.reason}.{" "}
+              Does not read as a blob: {bad.reason}.{" "}
               <a className="link" href={hrefFor({ name: "files", path: bad.path })}>
                 Open the file
               </a>

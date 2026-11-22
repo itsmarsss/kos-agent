@@ -11,7 +11,8 @@ import { useEffect, useRef, type RefObject } from "react";
  * that scrolls down instead (`axis` "y") is marked `data-more-y`, and its
  * content is watched too, since it can grow under a box of a fixed height.
  */
-export function useEdgeFade<T extends HTMLElement>(selector?: string, axis: "x" | "y" = "x"): RefObject<T | null> {
+/** `ready` is for an element drawn only once something has loaded: the row is looked for again when it turns true. */
+export function useEdgeFade<T extends HTMLElement>(selector?: string, axis: "x" | "y" = "x", ready = true): RefObject<T | null> {
   const ref = useRef<T>(null);
   useEffect(() => {
     const el = selector ? ref.current?.querySelector<HTMLElement>(selector) : ref.current;
@@ -28,10 +29,12 @@ export function useEdgeFade<T extends HTMLElement>(selector?: string, axis: "x" 
     const seen = new ResizeObserver(mark);
     seen.observe(el);
     if (axis === "y" && el.firstElementChild) seen.observe(el.firstElementChild);
+    // A row's own box keeps its width while what is in it grows (a face loading, a count arriving): watch the items too.
+    if (axis === "x") for (const item of el.children) seen.observe(item);
     return () => {
       el.removeEventListener("scroll", mark);
       seen.disconnect();
     };
-  }, [selector, axis]);
+  }, [selector, axis, ready]);
   return ref;
 }

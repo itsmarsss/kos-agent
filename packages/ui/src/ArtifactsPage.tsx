@@ -1,8 +1,8 @@
-import { Chips, Count, Empty, Face, NavIcon, PlusIcon, Skeleton, type ChipOption } from "@kos/kit";
-import { SPAN_COLUMNS, WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage, type WidgetOutline } from "@kos/shared";
+import { Chips, Count, EmptyState, Face, NavIcon, NotFound, PlusIcon, Skeleton, type ChipOption } from "@kos/kit";
+import { SPAN_COLUMNS, WORKSPACE_SCOPE, type ArtifactKind, type HtmlPage, type WidgetOutline, timeWords } from "@kos/shared";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
-import { api, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
+import { api, HttpError, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
 import { chatIdOf, KIND_WORD, ownerOf, type ArtifactOwner } from "./artifactowner.js";
 import { PageHead } from "./PageHead.js";
 import { Drawer } from "./Drawer.js";
@@ -40,7 +40,6 @@ const KINDS: readonly ChipOption<ArtifactKind | "all">[] = [
   ["deck", "Decks"],
   ["sheet", "Sheets"],
 ];
-
 
 /** The project filter's "every project": like WORKSPACE_SCOPE, never a slug. */
 const ALL_PROJECTS = "@all";
@@ -122,7 +121,7 @@ function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary
             <span className="artifact-card-owner">
               <OwnerMark record={a} projects={projects} />
             </span>
-            <span className="artifact-card-time">{relativeWords(Math.round(a.updatedAt / 1000))}</span>
+            <span className="artifact-card-time">{timeWords(a.updatedAt)}</span>
           </span>
         </span>
       </button>
@@ -267,14 +266,15 @@ export function ArtifactsPage({
     );
   }, [source, project, projects, query]);
   const shown = useMemo(() => matching.filter((a) => kind === "all" || a.artifactKind === kind), [kind, matching]);
-  // A kind with none to show is left out, unless it is the one chosen: All, and what there is.
+  // A kind there is none of is left out; one there is stays while a search shows none of it, its count saying so.
   const kinds = useMemo(
     () =>
       KINDS.flatMap(([value, word]): ChipOption<ArtifactKind | "all">[] => {
         const n = value === "all" ? matching.length : matching.filter((a) => a.artifactKind === value).length;
-        return n > 0 || value === "all" || value === kind ? [[value, <>{word}<Count n={n} /></>]] : [];
+        const held = value === "all" || value === kind || (source ?? []).some((a) => a.artifactKind === value);
+        return held ? [[value, <>{word}<Count n={n} /></>]] : [];
       }),
-    [matching, kind],
+    [matching, kind, source],
   );
 
   const owners = useMemo(() => {
@@ -299,7 +299,6 @@ export function ArtifactsPage({
     return [...by.values()].sort((a, b) => last(a) - last(b) || latest(b) - latest(a));
   }, [shown]);
 
-  const filtered = kind !== "all" || project !== ALL_PROJECTS || query.trim() !== "";
   const clearFilters = (): void => {
     setKind("all");
     setProject(ALL_PROJECTS);
@@ -324,13 +323,12 @@ export function ArtifactsPage({
       </button>
       {trash && trash.length > 0 && (
         // Everything in the trash, said so when the filters hide some of it.
-        <ConfirmButton className="btn btn--ghost btn--danger artifacts-empty-trash" label="Empty trash" text={emptyWords(trash.length, trash.length - shown.length)} disabled={ops.busy} onConfirm={() => ops.empty(trash)} />
+        <ConfirmButton className="btn btn--danger" label="Empty trash" text={emptyWords(trash.length, trash.length - shown.length)} disabled={ops.busy} onConfirm={() => ops.empty(trash)} />
       )}
     </>
   ) : (
     newArtifact
   );
-  const search = inTrash ? "Search the trash" : "Search artifacts";
 
   return (
     <div className={inTrash ? "artifacts is-trash" : "artifacts"}>
@@ -338,7 +336,7 @@ export function ArtifactsPage({
         title={inTrash ? "Trash" : "Artifacts"}
         {...(source ? { count: source.length } : {})}
         subtitle={inTrash ? "Nothing is deleted on its own. Each stays as it was until you restore it or delete it forever." : "The pages, docs, decks and sheets KOS has made for you."}
-        search={<input className="list-search" type="search" placeholder={search} aria-label={search} value={query} onChange={(e) => setQuery(e.target.value)} />}
+        search={{ value: query, onChange: setQuery, noun: inTrash ? "the trash" : "artifacts" }}
         actions={actions}
       />
       {trashed && !inTrash && (
@@ -393,24 +391,15 @@ export function ArtifactsPage({
       {source && source.length === 0 &&
         (inTrash ? (
           <div className="artifacts-empty">
-            <Empty title="The trash is empty">What you move to the trash waits here until you restore it or delete it for good.</Empty>
+            <EmptyState title="The trash is empty">What you move to the trash waits here until you restore it or delete it for good.</EmptyState>
           </div>
         ) : (
           <div className="artifacts-empty">
-            <Empty title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</Empty>
+            <EmptyState title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</EmptyState>
             {newArtifact}
           </div>
         ))}
-      {source && source.length > 0 && shown.length === 0 && (
-        <div className="artifacts-none">
-          <Empty inline>No artifact matches these filters.</Empty>
-          {filtered && (
-            <button type="button" className="btn btn--ghost btn--sm" onClick={clearFilters}>
-              Clear filters
-            </button>
-          )}
-        </div>
-      )}
+      {source && source.length > 0 && shown.length === 0 && <EmptyState query={{ noun: inTrash ? "items in the trash" : "artifacts", onClear: clearFilters }} />}
       {shown.length > 0 && inTrash && (
         <TrashList items={shown} theme={theme} ops={ops} kindOf={kindWord} owner={(a) => <OwnerMark record={a} projects={projects} />} onOpen={onOpen} />
       )}
@@ -447,7 +436,6 @@ export function rootChatId(): Promise<string> {
   rootChat.catch(() => (rootChat = undefined));
   return rootChat;
 }
-
 
 /**
  * Where "Edit with KOS" takes the owner after asking: the project's page, the
@@ -543,6 +531,8 @@ export function ArtifactViewer({
   const [record, setRecord] = useState<PageSummary>();
   const [page, setPage] = useState<HtmlPage>();
   const [error, setError] = useState<string>();
+  /** There is no artifact by this id: said in words, never as the server's or under a head waiting for it. */
+  const [missing, setMissing] = useState(false);
   const [older, setOlder] = useState(false);
   const [asking, setAsking] = useState(false);
   const [history, setHistory] = useState(false);
@@ -581,7 +571,10 @@ export function ArtifactViewer({
     setPage((was) => (same && was ? was : got.page));
   };
   const load = (): Promise<void> => api.anyPage(id).then(show);
-  const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
+  const failed = (err: unknown): void => {
+    if (err instanceof HttpError && err.status === 404) setMissing(true);
+    else setError(err instanceof Error ? err.message : String(err));
+  };
   /** Whatever the doc has not saved is saved before the frame goes. */
   const settle = (): Promise<void> => frame.current?.settle() ?? Promise.resolve();
   const restore = (version: number): Promise<void> =>
@@ -599,6 +592,7 @@ export function ArtifactViewer({
   // A new artifact in the same viewer (another one picked beside a chat): the one open finishes its editing first.
   useEffect(() => {
     setError(undefined);
+    setMissing(false);
     setCopy(undefined);
     // Presenting was of the one before: it ends, and its audience window closes.
     setPresenter(undefined);
@@ -651,6 +645,14 @@ export function ArtifactViewer({
     setWords("");
     onOpenChat(whose);
   };
+
+  if (missing && !record) {
+    return (
+      <div className="artifact-view">
+        <NotFound what="artifact" name={id} back={{ label: `Back to ${backTo}`, onClick: onBack }} />
+      </div>
+    );
+  }
 
   return (
     <div className="artifact-view">
@@ -731,7 +733,7 @@ export function ArtifactViewer({
       {preview && record && (
         <div className="ops-alert artifact-preview" role="status">
           <span>
-            Looking at version {preview.version.version}, from {relativeWords(Math.round(preview.version.at / 1000))}. Nothing here is saved.
+            Looking at version {preview.version.version}, from {timeWords(preview.version.at)}. Nothing here is saved.
           </span>
           <span className="artifact-preview-acts">
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => void load().catch(failed)}>

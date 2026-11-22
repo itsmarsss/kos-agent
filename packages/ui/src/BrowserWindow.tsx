@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 
-import { ChevronLeft, ChevronRight, CloseIcon, Empty, FullscreenIcon, IconButton, MaximizeIcon, PlusIcon, RestoreIcon, RetryIcon, StatusDot } from "@kos/kit";
+import { ChevronLeft, ChevronRight, CloseIcon, EmptyState, FullscreenIcon, IconButton, MaximizeIcon, PlusIcon, RestoreIcon, RetryIcon, StatusDot } from "@kos/kit";
 
 import { tabName, toAddress } from "./address.js";
 import { api } from "./api.js";
@@ -573,7 +573,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
           }}
         />
         {!live.frame && (
-          <Empty inline className="browserwin-empty">
+          <EmptyState variant="inline" className="browserwin-empty">
             {live.lost
               ? "The live stream dropped. It comes back on its own when the browser does."
               : live.gone
@@ -581,7 +581,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
                 : !current
                   ? "No tab open yet. Type an address above, press +, or wait for KOS to open a page."
                   : "Waiting for the first frame…"}
-          </Empty>
+          </EmptyState>
         )}
       </div>
       {!maximized && !fullscreen && EDGES.map((edge) => (

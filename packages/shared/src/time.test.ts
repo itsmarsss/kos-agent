@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatTime, instantOf, relativeWords, timeCard, timesInWords, withUnixTimes } from "./time.js";
+import { formatTime, instantOf, relativeWords, timeCard, timesInWords, timeWords, withUnixTimes } from "./time.js";
 
 const TZ = "America/Toronto";
 /** 2026-10-18 23:42 in Toronto (EDT, UTC-4) is 03:42 UTC the next day. */
@@ -73,5 +73,14 @@ describe("a time token", () => {
     // One that joins them with a comma or a space has no word to lead with.
     expect(card("es")).toEqual(["viernes, 20 de noviembre de 2026", "23:59"]);
     expect(card("ja")).toEqual(["2026年11月20日金曜日", "23:59"]);
+  });
+});
+
+describe("timeWords", () => {
+  const now = Date.UTC(2026, 10, 22, 12, 0, 0);
+  it("says a past or future moment in the one short vocabulary", () => {
+    const at = (mins: number): string => timeWords(now + mins * 60_000, now);
+    expect([at(0), at(-0.4), at(-5), at(-90), at(-60 * 30), at(-60 * 50), at(-60 * 24 * 6)]).toEqual(["now", "just now", "5m ago", "2h ago", "30h ago", "2d ago", "6d ago"]);
+    expect([at(25), at(60 * 3), at(60 * 24 * 6)]).toEqual(["in 25m", "in 3h", "in 6d"]);
   });
 });

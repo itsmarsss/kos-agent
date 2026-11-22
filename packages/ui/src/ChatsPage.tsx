@@ -10,9 +10,9 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { cycled, runningTail, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { cycled, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
 import { isModeKey, ModeChip } from "@kos/kit";
-import { ArchiveIcon, type BlockActions, MessageTime, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
 import { PendingAsk } from "./PendingAsk.js";
@@ -91,6 +91,8 @@ import { hrefFor } from "./routes.js";
 import { useHashParam } from "./hashparams.js";
 import { fileMention } from "./finder/model.js";
 import { backInComposer, composerKeyDown, unsentHome, useAutoGrow, useStickToBottom } from "./composer.js";
+import { scheduleWords } from "./schedule.js";
+import { jobTitle } from "./schedulewords.js";
 
 /**
  * The chats page: a list that stays usable at fifty conversations, and the
@@ -193,14 +195,6 @@ interface Unsent {
 
 function clipped(title: string, max: number): string {
   return title.length > max ? `${title.slice(0, max - 1).trimEnd()}…` : title;
-}
-
-function relative(ts: number): string {
-  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
 }
 
 /** What a running conversation is doing, for the list. */
@@ -1544,7 +1538,7 @@ export function ChatsPage({
             {c.role && <Face seed={c.role} size={16} mood={moodOf(c.activity)} />}
             <span className="chats-item-title">{label ?? c.title}</span>
             <QueuedMark n={c.queued} />
-            <span className="chats-item-when">{relative(c.updatedAt)}</span>
+            <span className="chats-item-when"><When at={c.updatedAt} /></span>
           </span>
           {/* Title and state only. The brief and the tool list made every
               row a paragraph; a chat's details are one click away. */}
@@ -1595,12 +1589,7 @@ export function ChatsPage({
                     : "Not in the manifest"}
                 </span>
               </div>
-              <input
-                className="chats-search"
-                value={query}
-                placeholder="Search chats"
-                onChange={(e) => setQuery(e.target.value)}
-              />
+              <SearchField className="chats-find" noun="chats" value={query} onChange={setQuery} />
             </div>
             <div className="chats-pinned">
               {projectOrchestrator ? (
@@ -1651,11 +1640,13 @@ export function ChatsPage({
             <ul className="chats-flat">
               {shownAgents.map((c) => renderChat(c))}
               {shownAgents.length === 0 && (
-                <li><Empty inline className="chats-empty">
-                  {q
-                    ? "Nothing matches."
-                    : "No chats yet. The orchestrator starts them as work comes up, or start one with +."}
-                </Empty></li>
+                <li>
+                  {q ? (
+                    <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} />
+                  ) : (
+                    <EmptyState variant="inline" className="chats-empty">No chats yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
+                  )}
+                </li>
               )}
             </ul>
             {/* The project's schedule, under its agents: a job that works this
@@ -1694,7 +1685,7 @@ export function ChatsPage({
                   type="button"
                   className="chats-group-add"
                   aria-label="New schedule"
-                  title="Schedule a job for this project"
+                  title="A new schedule for this project"
                   onClick={() => onEditCron(undefined, project.slug)}
                 >
                   +
@@ -1707,15 +1698,15 @@ export function ChatsPage({
                     <li key={c.id}>
                       <button type="button" className="chats-item chats-job" onClick={() => onEditCron(c)} title="Edit this schedule">
                         <span className="chats-item-top">
-                          <StatusDot state={c.running ? "working" : c.enabled ? "read" : "error"} label={c.running ? "running" : c.enabled ? "on" : "off"} />
-                          <span className="chats-item-title">{c.name}</span>
-                          <span className="chats-item-when ops-mono">{c.schedule}</span>
+                          <StatusDot state={c.running ? "working" : c.enabled ? "on" : "off"} label={STATE_WORDS[c.running ? "running" : c.enabled ? "on" : "off"].word} />
+                          <span className="chats-item-title">{jobTitle(c.name)}</span>
+                          <span className="chats-item-when" title={c.schedule}>{scheduleWords(c.schedule)}</span>
                         </span>
                       </button>
                     </li>
                   ))}
                 {crons.every((c) => c.projectSlug !== project.slug) && (
-                  <li><Empty inline className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</Empty></li>
+                  <li><EmptyState variant="inline" className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -1763,7 +1754,7 @@ export function ChatsPage({
                     named for the project it is in: that is what tells them apart. */}
                 {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
                 {agentInstances.length === 0 && (
-                  <li><Empty inline className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</Empty></li>
+                  <li><EmptyState variant="inline" className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -1771,27 +1762,7 @@ export function ChatsPage({
         ) : (
           <aside className="chats-list chats-list--root">
             <div className="chats-list-head chats-list-head--root">
-              <label className="chats-find">
-                <SearchIcon />
-                <input
-                  className="chats-search"
-                  value={query}
-                  placeholder={showArchived ? "Search archived" : "Search chats"}
-                  aria-label={showArchived ? "Search archived chats" : "Search chats"}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape" && query) {
-                      e.stopPropagation();
-                      setQuery("");
-                    }
-                  }}
-                />
-                {query && (
-                  <button type="button" className="chats-find-clear" aria-label="Clear search" onClick={() => setQuery("")}>
-                    <CloseIcon size={12} title="" />
-                  </button>
-                )}
-              </label>
+              <SearchField className="chats-find" noun={showArchived ? "archived chats" : "chats"} value={query} onChange={setQuery} />
               {/* New chat opens the landing, where you choose a chat, a project,
                   or hand it to KOS, rather than dropping into an empty thread.
                   A square beside the search rather than a bar of its own: it
@@ -1824,7 +1795,7 @@ export function ChatsPage({
                   </div>
                   <ul className="chats-flat">
                     {shownArchived.map((c) => renderChat(c))}
-                    {shownArchived.length === 0 && <li><Empty inline className="chats-empty">{q ? "Nothing matches." : "Nothing archived."}</Empty></li>}
+                    {shownArchived.length === 0 && <li>{q ? <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} /> : <EmptyState variant="inline" className="chats-empty">Nothing archived.</EmptyState>}</li>}
                   </ul>
                 </section>
               ) : (
@@ -1877,7 +1848,7 @@ export function ChatsPage({
                               </span>
                               <span className="chats-item-title">{surfaceName(c.channel ?? c.title)}</span>
                               {stirring(c) && <ThreadDot live={progress[c.id]} chat={c} waiting={waitingOn.has(c.id)} />}
-                              <span className="chats-item-when">{relative(c.updatedAt)}</span>
+                              <span className="chats-item-when"><When at={c.updatedAt} /></span>
                             </span>
                           </a>
                         </li>
@@ -1905,7 +1876,7 @@ export function ChatsPage({
                       }
                     >
                       {ownProjects === 0 ? (
-                        <Empty inline className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</Empty>
+                        <EmptyState variant="inline" className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</EmptyState>
                       ) : (
                         /* A row is the project. It opens as its own page, with
                            its orchestrator and agents; nothing unfolds here. */
@@ -1988,7 +1959,7 @@ export function ChatsPage({
                       rather than what the owner is doing now. */}
                   {scheduled.length > 0 && (
                     <RailGroup
-                      title="Scheduled"
+                      title="Schedules"
                       count={scheduled.length}
                       {...(runningJobs > 0 ? { note: `${runningJobs} running` } : {})}
                       open={q !== "" || folds.isOpen("scheduled")}
@@ -2012,7 +1983,7 @@ export function ChatsPage({
                                 </span>
                                 <span className="chats-item-title">{c.title}</span>
                                 <QueuedMark n={c.queued} />
-                                <span className="chats-item-when">{relative(c.updatedAt)}</span>
+                                <span className="chats-item-when"><When at={c.updatedAt} /></span>
                               </span>
                             </a>
                           </li>
@@ -2031,14 +2002,14 @@ export function ChatsPage({
                       <ul className="chats-flat">
                         {filtered.map((c) => renderChat(c))}
                         {filtered.length === 0 && (
-                          <li><Empty inline className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</Empty></li>
+                          <li><EmptyState variant="inline" className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</EmptyState></li>
                         )}
                       </ul>
                     </RailGroup>
                   )}
 
                   {q && !shownKos && shownSurfaces.length === 0 && shownProjects.length === 0 && scheduled.length === 0 && filtered.length === 0 && (
-                    <Empty inline className="chats-empty">Nothing matches.</Empty>
+                    <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} />
                   )}
                 </>
               )}
@@ -2185,30 +2156,18 @@ export function ChatsPage({
                       }}
                     />
                     <div className="chats-welcome-actions">
-                      <div
-                        className="chats-mode"
-                        role="radiogroup"
-                        aria-label="What to create"
-                      >
-                        {(
-                          [
-                            ["kos", "Ask KOS"],
-                            ["chat", "Chat"],
-                            ["project", "Project"],
-                          ] as const
-                        ).map(([m, label]) => (
-                          <button
-                            key={m}
-                            type="button"
-                            role="radio"
-                            aria-checked={mode === m}
-                            className={`chats-mode-opt ${mode === m ? "is-active" : ""}`}
-                            onClick={() => setMode(m)}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
+                      <Chips
+                        small
+                        round
+                        label="What to create"
+                        selected={mode}
+                        options={[
+                          ["kos", "Ask KOS"],
+                          ["chat", "Chat"],
+                          ["project", "Project"],
+                        ]}
+                        onChoose={setMode}
+                      />
                       <button
                         type="submit"
                         className="btn btn--primary btn--capsule"
@@ -2277,8 +2236,8 @@ export function ChatsPage({
                     {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} />}
                     {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
                     {active.title}
-                    {active.kind === "project" && <span className="chats-role">orchestrator</span>}
-                    {(active.kind === "agent" || active.role) && <span className="chats-role">blob</span>}
+                    {active.kind === "project" && <span className="chats-role">Orchestrator</span>}
+                    {(active.kind === "agent" || active.role) && <span className="chats-role">Blob</span>}
                   </h1>
                   {/* Inside the project the rail lists the agents, so the count
                       would say what is already in view. */}
@@ -2387,6 +2346,7 @@ export function ChatsPage({
               <Modal
                 open={renaming !== null}
                 title="Rename chat"
+                size="sm"
                 onClose={() => setRenaming(null)}
               >
                 <form
@@ -2404,30 +2364,25 @@ export function ChatsPage({
                       .catch(() => setRenaming(null));
                   }}
                 >
-                  <input
-                    className="kos-input"
-                    autoFocus
-                    value={renaming?.title ?? ""}
-                    onChange={(e) =>
-                      setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
+                  <Field label="Title">
+                    <input
+                      className="kos-input"
+                      autoFocus
+                      value={renaming?.title ?? ""}
+                      onChange={(e) =>
+                        setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
+                      }
+                    />
+                  </Field>
+                  <SheetFoot
+                    inline
+                    onCancel={() => setRenaming(null)}
+                    primary={
+                      <button type="submit" className="btn btn--primary" disabled={!renaming?.title.trim()}>
+                        Save
+                      </button>
                     }
                   />
-                  <div className="rename-actions">
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => setRenaming(null)}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="btn btn--primary"
-                      disabled={!renaming?.title.trim()}
-                    >
-                      Rename
-                    </button>
-                  </div>
                 </form>
               </Modal>
 
@@ -2437,7 +2392,7 @@ export function ChatsPage({
               {/* Its step pictures open in the Lightbox, the turn's others a step away. */}
               <PictureGallery>
               <div className="chats-thread" ref={threadScroll}>
-                {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
+                {visible.length === 0 && <EmptyState variant="inline">Nothing said yet.</EmptyState>}
                 {(() => {
                   // Owner turns are numbered in order, because rewind addresses
                   // them by position rather than by any id a transcript keeps.

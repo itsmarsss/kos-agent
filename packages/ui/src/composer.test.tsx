@@ -95,7 +95,7 @@ describe("a secret in a draft", () => {
     fireEvent.click(await screen.findByText("Save as a secret instead"));
     rerender(<SecretOffer draft="my key is ok" onDraft={onDraft} />);
     fireEvent.change(screen.getByLabelText("Label", { exact: false }), { target: { value: "OpenAI" } });
-    fireEvent.click(screen.getAllByText("Add secret").find((b) => b.closest(".drawer-foot"))!);
+    fireEvent.click(screen.getAllByText("Create").find((b) => b.closest(".sheet-foot"))!);
     expect(await screen.findByText("the vault is locked")).toBeTruthy();
     fireEvent.click(screen.getByText("Cancel"));
     fireEvent.click(await screen.findByText("Put it back in the draft"));

@@ -1,11 +1,12 @@
+import { timeWords } from "@kos/shared";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import type { SecretSummary, VaultStatus } from "@kos/shared";
-import { Card, clearSecretValues, Empty, hintWords, NavIcon, Pill, readSecretValues, SecretField, Tag, takeSecretValues } from "@kos/kit";
+import { Card, clearSecretValues, EmptyState, hintWords, NavIcon, Pill, readSecretValues, SecretField, Tag, takeSecretValues } from "@kos/kit";
 
 import { useHashParam } from "./hashparams.js";
 import { PageHead } from "./PageHead.js";
-import { agoWords } from "./schedulewords.js";
+
 import { SecretSheet, type SecretSheetMode } from "./SecretSheet.js";
 import { KINDS, refusal, secretsApi, whereWords } from "./secrets.js";
 
@@ -104,7 +105,7 @@ function SecretList({ secrets, onOpen }: { secrets: SecretSummary[]; onOpen: (s:
   if (secrets.length === 0) {
     return (
       // The head's New secret is the one way in: a second primary here said the same thing twice.
-      <Empty title="No secrets yet">Add a login, a card or a key with New secret, and say where it may be used.</Empty>
+      <EmptyState title="No secrets yet">Add a login, a card or a key with New secret, and say where it may be used.</EmptyState>
     );
   }
   return (
@@ -126,7 +127,7 @@ function SecretList({ secrets, onOpen }: { secrets: SecretSummary[]; onOpen: (s:
                 <span>{whereWords(s.use)}</span>
               </span>
             </span>
-            <span className="secret-row-used">{s.lastUsedAt ? `Used ${agoWords(s.lastUsedAt)}` : "Never used"}</span>
+            <span className="secret-row-used">{s.lastUsedAt ? `Used ${timeWords(s.lastUsedAt)}` : "Never used"}</span>
           </button>
         </li>
       ))}
@@ -345,12 +346,13 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
             <input className="kos-input kos-mono" aria-label="Type wipe to confirm" placeholder="wipe" value={typed} autoComplete="off" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
             {hasPassphrase && <SecretField label="Passphrase" name="passphrase" />}
           </div>
-          <div className="secret-vault-acts">
+          {/* A confirm, as every confirm: Cancel, then what it confirms, last at the right. */}
+          <div className="secret-vault-acts secret-confirm-acts">
+            <button type="button" className="btn" onClick={() => setOpen(null)}>
+              Cancel
+            </button>
             <button type="submit" className="btn btn--danger" disabled={typed !== "wipe" || busy}>
               Wipe everything
-            </button>
-            <button type="button" className="btn btn--ghost" onClick={() => setOpen(null)}>
-              Cancel
             </button>
           </div>
         </form>

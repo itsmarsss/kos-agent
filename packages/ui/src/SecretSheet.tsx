@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactElement, type ReactNode } from "react";
 
-import { Chips, Countdown, Empty, Field, hintWords, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
+import { Chips, Countdown, EmptyState, Field, hintWords, SheetFoot, OriginList, PAYMENT_FRAMES, Pill, SecretField, GroupHead, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
 
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
-import { agoWords } from "./schedulewords.js";
-import { SECRET_KINDS, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSummary, type SecretUse, type SecretUseRow, type SecretValues, type VaultStatus } from "@kos/shared";
+
+import { SECRET_KINDS, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSummary, type SecretUse, type SecretUseRow, type SecretValues, type VaultStatus, timeWords } from "@kos/shared";
 
 import {
   ASK_WORDS,
@@ -77,9 +77,11 @@ export function SecretSheet({
       onClose={onClose}
       footer={
         readOnly ? undefined : (
-          <>
-            {editing && onDeleted && (
-              <span className="foot-start">
+          <SheetFoot
+            onCancel={onClose}
+            danger={
+              editing &&
+              onDeleted && (
                 <ConfirmButton
                   label="Delete"
                   className="btn btn--danger"
@@ -91,20 +93,21 @@ export function SecretSheet({
                       .catch((err: unknown) => setDeleteError(refusal(err)))
                   }
                 />
-              </span>
-            )}
-            <button type="button" className="btn" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" form={FORM_ID} className="btn btn--primary">
-              {editing ? "Save" : "Add secret"}
-            </button>
-            {deleteError && (
-              <span className="field-error" role="alert">
-                {deleteError}
-              </span>
-            )}
-          </>
+              )
+            }
+            note={
+              deleteError && (
+                <span className="field-error" role="alert">
+                  {deleteError}
+                </span>
+              )
+            }
+            primary={
+              <button type="submit" form={FORM_ID} className="btn btn--primary">
+                {editing ? "Save" : "Create"}
+              </button>
+            }
+          />
         )
       }
     >
@@ -194,7 +197,7 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
           </Field>
         )}
 
-        <Section label="Values">
+        <SheetGroup title="Values">
           <div className="secret-fields">
             {editing && !readOnly && <p className="hint secret-section-hint">What is kept is never shown here. A blank field keeps it; type to replace it.</p>}
             {kind === "login" && (
@@ -221,20 +224,20 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
             )}
             {kind === "note" && field("text", { required: true, multiline: true })}
           </div>
-        </Section>
+        </SheetGroup>
 
         {kind === "card" && (
-          <Section label={FIELD_LABEL.billing}>
+          <SheetGroup title={FIELD_LABEL.billing}>
             <div className="secret-billing">
               {BILLING_PARTS.map((p) => (
                 <SecretField key={p.key} label={p.label} name={`billing.${p.key}`} plain disabled={readOnly} {...(set("billing") ? { placeholder: "Unchanged" } : {})} />
               ))}
             </div>
             {set("billing") && <p className="hint secret-section-hint">Leave it blank to keep the address. Parts you type replace those parts; the rest are kept.</p>}
-          </Section>
+          </SheetGroup>
         )}
 
-        <Section label="Where it may be used">
+        <SheetGroup title="Where it may be used">
           <div className="secret-fields">
             {kind === "apikey" ? (
               <>
@@ -257,9 +260,9 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
             )}
             <OriginList label="Mac apps" mode="bundle" value={use.apps} disabled={readOnly} onChange={(apps) => setUse({ ...use, apps })} />
           </div>
-        </Section>
+        </SheetGroup>
 
-        <Section label="When KOS asks">
+        <SheetGroup title="When KOS asks">
           <div className="secret-fields">
             <Field label="Ask" group>
               <Chips small options={(Object.keys(ASK_WORDS) as SecretDraft["policy"]["ask"][]).map((a) => [a, ASK_WORDS[a]] as const)} selected={policy.ask} onChoose={(ask) => !readOnly && setPolicy({ ...policy, ask })} label="Ask" />
@@ -269,7 +272,7 @@ function SheetBody({ mode, status, conversations, onSaved }: { mode: SecretSheet
             <SwitchLine label="Only in some chats" on={policy.chats !== null} disabled={readOnly} onChange={(on) => setPolicy({ ...policy, chats: on ? [] : null })} />
             {policy.chats !== null && <ChatPicks chosen={policy.chats} conversations={conversations} disabled={readOnly} onChange={(chats) => setPolicy({ ...policy, chats })} />}
           </div>
-        </Section>
+        </SheetGroup>
         {error && (
           <p className="ops-alert ops-alert--err" role="alert">
             {error}
@@ -318,7 +321,7 @@ function SwitchLine({ label, hint, on, disabled, onChange }: { label: string; hi
 function ChatPicks({ chosen, conversations, disabled, onChange }: { chosen: string[]; conversations: readonly { id: string; title: string }[]; disabled: boolean; onChange: (chats: string[]) => void }): ReactElement {
   const known = new Set(conversations.map((c) => c.id));
   const others = chosen.filter((id) => !known.has(id));
-  if (conversations.length === 0 && others.length === 0) return <Empty inline>No chats to choose from yet; until one is ticked, no chat can use it.</Empty>;
+  if (conversations.length === 0 && others.length === 0) return <EmptyState variant="inline">No chats to choose from yet; until one is ticked, no chat can use it.</EmptyState>;
   return (
     <div className="origin-ticks">
       {conversations.map((c) => (
@@ -340,15 +343,15 @@ function Grants({ secret, disabled, onChanged }: { secret: SecretSummary; disabl
   const [error, setError] = useState<string | null>(null);
   if (secret.policy.ask !== "site" && secret.policy.grants.length === 0) return null;
   return (
-    <Section label="Remembered sites">
+    <SheetGroup title="Remembered sites">
       {secret.policy.grants.length === 0 ? (
-        <Empty inline>None yet. A yes you ask KOS to remember shows here.</Empty>
+        <EmptyState variant="inline">None yet. A yes you ask KOS to remember shows here.</EmptyState>
       ) : (
         <ul className="secret-lines">
           {secret.policy.grants.map((g) => (
             <li key={g.origin} className="secret-line">
               <span className="secret-line-main">{g.origin}</span>
-              <span className="secret-line-meta">{agoWords(g.at)}</span>
+              <span className="secret-line-meta">{timeWords(g.at)}</span>
               {!disabled && (
                 <button
                   type="button"
@@ -368,7 +371,7 @@ function Grants({ secret, disabled, onChanged }: { secret: SecretSummary; disabl
         </ul>
       )}
       {error && <p className="field-error">{error}</p>}
-    </Section>
+    </SheetGroup>
   );
 }
 
@@ -386,13 +389,13 @@ function Uses({ handle }: { handle: string }): ReactElement {
     };
   }, [handle]);
   return (
-    <Section label="Used">
+    <SheetGroup title="Used">
       {error ? (
         <p className="field-error">{error}</p>
       ) : uses === null ? (
-        <Empty inline>Reading…</Empty>
+        <EmptyState variant="inline">Reading…</EmptyState>
       ) : uses.length === 0 ? (
-        <Empty inline>Not used yet.</Empty>
+        <EmptyState variant="inline">Not used yet.</EmptyState>
       ) : (
         <ul className="secret-lines">
           {uses.map((u) => (
@@ -404,13 +407,13 @@ function Uses({ handle }: { handle: string }): ReactElement {
                   {u.decidedBy ? ` · ${u.decidedBy}` : ""}
                 </span>
               </span>
-              <span className="secret-line-meta">{agoWords(u.at)}</span>
+              <span className="secret-line-meta">{timeWords(u.at)}</span>
               <Pill tone={OUTCOME_TONE(u.outcome)}>{u.outcome}</Pill>
             </li>
           ))}
         </ul>
       )}
-    </Section>
+    </SheetGroup>
   );
 }
 
@@ -478,7 +481,7 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
   }, [until]);
 
   return (
-    <Section label="Reveal">
+    <SheetGroup title="Reveal">
       {until ? (
         <div className="secret-revealed">
           <code ref={out} className="secret-revealed-value" aria-label={`${FIELD_LABEL[field]}, shown for 30 seconds`} />
@@ -527,6 +530,16 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
           )}
         </form>
       )}
-    </Section>
+    </SheetGroup>
+  );
+}
+
+/** A titled part of the sheet: its head as every group's (GroupHead), then what it holds. */
+function SheetGroup({ title, children }: { title: string; children: ReactNode }): ReactElement {
+  return (
+    <section className="section sheet-group">
+      <GroupHead as="h3" title={title} />
+      {children}
+    </section>
   );
 }

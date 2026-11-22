@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import { hexOfHsl, hueOfHex } from "@kos/shared";
-import { Card, Empty, lookOf, Pill } from "@kos/kit";
+import { hexOfHsl, hueOfHex, isState, kindWord } from "@kos/shared";
+import { Card, EmptyState, lookOf, PaneHead, StatusPill } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
@@ -122,18 +122,17 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
     <aside ref={panel} className="project-panel" {...(modal ? { role: "dialog", "aria-modal": true } : {})} aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is: its mark in its own colour, its name, kind and state,
           what it is for, how much it holds, and what can be done with it. */}
-      <header className="project-head">
-        <div className="project-head-top">
+      <PaneHead
+        mark={
           <span className="hero-mark hero-mark--sm hero-mark--letter" aria-hidden="true" style={project.colour ? { background: project.colour, color: markInk(project.colour) } : undefined}>
             {markLetter(project.name)}
           </span>
-          <div className="project-head-titles">
-            <h2>{project.name}</h2>
-            <span className="project-head-sub">{project.type}</span>
-          </div>
-          <Pill tone={project.status === "active" ? "ok" : "muted"}>{project.status}</Pill>
-        </div>
-        {project.description && <p className="project-head-desc">{project.description}</p>}
+        }
+        title={project.name}
+        sub={kindWord(project.type)}
+        pill={isState(project.status) && <StatusPill state={project.status} />}
+        desc={project.description}
+      >
         <ul className="project-stats" aria-label="What it holds">
           {stats.map(({ n, one, section }) => {
             const words = (
@@ -184,7 +183,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
             )}
           </div>
         )}
-      </header>
+      </PaneHead>
 
       <ProjectExplorer
         label={slug}
@@ -200,7 +199,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
 
       <Card className="project-panel-section" title="Tables" count={tables.length}>
         {tables.length === 0 ? (
-          <Empty inline>No tables yet.</Empty>
+          <EmptyState variant="inline">No tables yet.</EmptyState>
         ) : (
           <ul className="insp-rows">
             {tables.map((t) => (

@@ -1,11 +1,12 @@
+import { timeWords } from "@kos/shared";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { Empty, Field, Pill, Switch, type Tone } from "@kos/kit";
+import { EmptyState, Field, Pill, Switch, type Tone } from "@kos/kit";
 
 import type { SecretSummary } from "@kos/shared";
 
 import { api, type ComputerSettings, type DeviceBuild, type DeviceCode, type LanStatus, type PairedDevice, type PushSettings, type PushStatus } from "./api.js";
 import { CommandLine, ConfirmButton, FieldRow } from "./kit.js";
-import { agoWords } from "./schedulewords.js";
+
 import { secretsApi } from "./secrets.js";
 import { Select } from "./Select.js";
 
@@ -40,12 +41,12 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
           onChange={(v) => onChange({ askMinutes: Number(v) })}
         />
       </Field>
-      <Field group className="set-field"
+      <FieldRow
         label="Work you did not start may use a computer"
         hint="Off by default: a schedule, a blob's own timer or a guest in a channel cannot start a session. On, they can ask, and the computer still asks you first, or your approval queue does if you set it to."
       >
         <Switch label="Work you did not start may use a computer" on={settings.unattended} onChange={(on) => onChange({ unattended: on })} />
-      </Field>
+      </FieldRow>
     </div>
   );
 }
@@ -55,12 +56,12 @@ function UpdateRules({ settings, onChange }: { settings: ComputerSettings; onCha
   return (
     <div className="set-group device-rules">
       <h2>Updates</h2>
-      <Field group className="set-field"
+      <FieldRow
         label="Update devices on their own"
         hint="KOS for Chrome reloads itself into KOS's new build once its side panel is idle. KOS for Mac on this computer is rebuilt and reopened once it is idle, and only when your signing key is set up, so it keeps its permissions. KOS for iPhone updates from Xcode; it says when one is ready."
       >
         <Switch label="Update devices on their own" on={settings.autoUpdate} onChange={(on) => onChange({ autoUpdate: on })} />
-      </Field>
+      </FieldRow>
     </div>
   );
 }
@@ -79,7 +80,7 @@ function PhoneRules({ settings, lan, onChange }: { settings: ComputerSettings; l
   return (
     <div className="set-group device-rules">
       <h2>Phones</h2>
-      <Field group className="set-field"
+      <FieldRow
         label="Phones on this Wi-Fi"
         hint={
           lan?.error ??
@@ -93,7 +94,7 @@ function PhoneRules({ settings, lan, onChange }: { settings: ComputerSettings; l
         }
       >
         <Switch label="Phones on this Wi-Fi" on={on} disabled={lan?.forced === true} onChange={(next) => onChange({ lan: next })} />
-      </Field>
+      </FieldRow>
     </div>
   );
 }
@@ -204,7 +205,7 @@ function missing(d: PairedDevice): string | undefined {
 export function buildWords(build: DeviceBuild | undefined, now = Date.now()): string {
   if (!build) return "Build unknown";
   const short = build.commit ? build.commit.slice(0, 7) : build.id;
-  return build.builtAt ? `Build ${short}, built ${agoWords(build.builtAt, now)}` : `Build ${short}`;
+  return build.builtAt ? `Build ${short}, built ${timeWords(build.builtAt, now)}` : `Build ${short}`;
 }
 
 /** Where a device's build stands with KOS's, as a pill, and why when it is not up to date. */
@@ -248,10 +249,10 @@ export function canUpdate(d: PairedDevice): boolean {
 export function describeDevice(d: PairedDevice, now = Date.now()): string {
   const browser = d.kind === "browser";
   if (d.kind === "phone") {
-    const seen = d.online ? "online" : d.lastSeen ? `offline, last seen ${agoWords(d.lastSeen, now)}` : "never connected";
+    const seen = d.online ? "online" : d.lastSeen ? `offline, last seen ${timeWords(d.lastSeen, now)}` : "never connected";
     return `Your phone${d.os ? `, iOS ${d.os}` : ""}, through KOS for iPhone · chat only, no computer use · ${seen}`;
   }
-  if (!d.online) return d.lastSeen ? `Offline, last seen ${agoWords(d.lastSeen, now)}` : browser ? "Never connected. Pair it from KOS for Chrome." : "Never connected. Open KOS for Mac on it.";
+  if (!d.online) return d.lastSeen ? `Offline, last seen ${timeWords(d.lastSeen, now)}` : browser ? "Never connected. Pair it from KOS for Chrome." : "Never connected. Open KOS for Mac on it.";
   const parts = [
     browser
       ? `Your own Chrome${d.os ? ` on ${d.os}` : ""}, through KOS for Chrome; not KOS's browser`
@@ -444,7 +445,7 @@ export function DevicesPanel(): ReactElement {
   return (
     <>
       {devices.length === 0 && !code && (
-        <Empty inline>Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</Empty>
+        <EmptyState variant="inline">Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</EmptyState>
       )}
       {joined && <p className="hint">Paired {joined}.</p>}
       <div className="set-rows">

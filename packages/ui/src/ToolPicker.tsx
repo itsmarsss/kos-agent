@@ -1,9 +1,11 @@
+import { Switch } from "@kos/kit";
 import type { ReactElement } from "react";
 
 import type { ToolInfo } from "./api.js";
 
 /**
- * Which tool families a chat or an agent may reach, as a list to tick.
+ * Which tool families a chat or an agent may reach, a switch on each row's
+ * right (design.md: a switch, never a checkbox).
  *
  * The scope is in families (browser, files, memory) because that is how it
  * is stored, but each row says what is actually inside: a chip that said
@@ -43,14 +45,14 @@ export function ToolPicker({ tools, allow, onChange }: ToolPickerProps): ReactEl
           const on = unrestricted || allow.includes(f);
           const owned = tools.filter((t) => t.name.split(".")[0] === f);
           return (
-            <label key={f} className={`toolpick-row ${on ? "is-on" : ""}`}>
-              <input type="checkbox" checked={on} onChange={() => toggle(f)} />
+            <div key={f} className={`toolpick-row ${on ? "is-on" : ""}`}>
               <span className="toolpick-main">
                 <span className="toolpick-name">{f}</span>
                 <span className="toolpick-tools">{owned.map((t) => t.name.split(".")[1] ?? t.name).join(", ") || "no tools"}</span>
               </span>
               <span className="toolpick-count">{owned.length}</span>
-            </label>
+              <Switch label={f} on={on} onChange={() => toggle(f)} />
+            </div>
           );
         })}
       </div>

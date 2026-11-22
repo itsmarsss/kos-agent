@@ -316,6 +316,8 @@ function conversationLabeller(
  */
 interface PendingCard extends Omit<PendingAction, "secret">, AskView {
   asksAlways?: true;
+  /** When it lapses if nobody decides, so every card can count down to it. */
+  expiresAt: number;
   asker?: string;
   summary: string;
   mechanics?: string;
@@ -343,6 +345,7 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
     // It places a secret: asked about every time, never remembered.
     ...(asksAlways ? { asksAlways: true } : {}),
     asker: kernel.askerOf(a.conversationId)?.name,
+    expiresAt: a.requestedAt + kernel.behaviour().approvalExpiryHours * 3_600_000,
     summary: summarizeAction(a.tool, a.args, names, where, HOST_KEYS),
     ...(mechanics ? { mechanics } : {}),
     ...view,
@@ -987,12 +990,8 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/approvals") {
-    // When each lapses if nobody decides, so the inbox can say so.
-    const keep = kernel.behaviour().approvalExpiryHours * 3_600_000;
     // With the ids named, so the inbox says #leetcode where the arguments say an id.
-    return ok(
-      kernel.approvals.pending().map((a) => ({ ...pendingView(kernel, a), expiresAt: a.requestedAt + keep })),
-    );
+    return ok(kernel.approvals.pending().map((a) => pendingView(kernel, a)));
   }
 
   // What the browser showed after a step, for the thread's tool card.

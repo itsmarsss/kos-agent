@@ -4,13 +4,20 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type FactRow } from "./api.js";
 import { useState, type ReactElement } from "react";
+import { SearchField } from "@kos/kit";
 
 import { groupByScope, KnowledgePage, SCOPE_FIRST, type KnowledgePageProps } from "./KnowledgePage.js";
 
-/** The page as the Memory page holds it: the new-claim form open or shut. */
-function Claims(props: Omit<KnowledgePageProps, "adding" | "onAdding">): ReactElement {
+/** The page as the Memory page holds it: the new-claim form open or shut, and the head's search. */
+function Claims(props: Omit<KnowledgePageProps, "adding" | "onAdding" | "query" | "onQuery">): ReactElement {
   const [adding, setAdding] = useState(false);
-  return <KnowledgePage {...props} adding={adding} onAdding={setAdding} />;
+  const [query, setQuery] = useState("");
+  return (
+    <>
+      <SearchField value={query} onChange={setQuery} noun="claims" />
+      <KnowledgePage {...props} adding={adding} onAdding={setAdding} query={query} onQuery={setQuery} />
+    </>
+  );
 }
 
 // jsdom has no ResizeObserver; rows that scroll sideways watch their width with one.
@@ -78,14 +85,14 @@ describe("the claims list", () => {
     );
     expect(groups.map((g) => [g.title, g.kind])).toEqual([
       ["Everywhere", null],
-      ["Lisbon trip", "project"],
-      ["verity", "blob"],
+      ["Lisbon trip", "Project"],
+      ["Verity", "Blob"],
     ]);
     expect(groups[1]).toMatchObject({ project: "trip" });
     // A project scope with no project behind it says so, under its slug.
-    expect(groupByScope([fact({ scope: "project:gone" })], new Map())[0]).toMatchObject({ title: "gone", kind: "no such project", unknown: true });
+    expect(groupByScope([fact({ scope: "project:gone" })], new Map())[0]).toMatchObject({ title: "gone", kind: "No such project", unknown: true });
     // Before the manifest is read, nothing is called missing.
-    expect(groupByScope([fact({ scope: "project:trip" })])[0]).toMatchObject({ title: "trip", kind: "project" });
+    expect(groupByScope([fact({ scope: "project:trip" })])[0]).toMatchObject({ title: "Trip", kind: "Project" });
     expect(groupByScope([fact({ scope: "project:trip" })])[0]!.unknown).toBeUndefined();
     // A slug written with its prefix twice is the same project.
     const twice = groupByScope([fact({ key: "x", scope: "project:project:trip" }), fact({ key: "y", scope: "project:trip" })], new Map([["trip", "Lisbon trip"]]));
@@ -113,8 +120,8 @@ describe("the claims list", () => {
     fireEvent.click(within(kind).getByRole("button", { name: /Pinned/ }));
     expect([...document.querySelectorAll(".know-key")].map((k) => k.textContent)).toEqual(["f1"]);
     fireEvent.change(screen.getByRole("searchbox", { name: "Search claims" }), { target: { value: "nothing like it" } });
-    expect(screen.getByText("No claims match.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Clear the filters" }));
+    expect(screen.getByText("No claims match these words and filters.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(document.querySelectorAll(".know-row")).toHaveLength(3);
   });
 
@@ -177,20 +184,20 @@ describe("the claims list", () => {
     expect(document.getElementById(screen.getByRole("button", { name: "Tag" }).getAttribute("aria-describedby")!)?.textContent).toBe("travel");
   });
 
-  it("says what memory is when it holds nothing", () => {
+  it("says what memory is when it holds nothing", async () => {
     render(<Claims facts={[]} tags={[]} onChanged={() => undefined} />);
     expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add a claim" }));
-    expect(screen.getByRole("textbox", { name: "Key" })).toBeTruthy();
-    // With nothing in memory there is no filter row, so the form carries its own way out.
+    expect(screen.getByRole("textbox", { name: /^Key/ })).toBeTruthy();
+    // The new claim is a sheet like every other: Cancel at its foot.
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("textbox", { name: "Key" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: /^Key/ })).toBeNull());
     expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();
   });
 
   it("says on the row who wrote a claim", () => {
     render(<Claims facts={[fact({ key: "a", source: "cron:10" }), fact({ key: "b", source: "dashboard" })]} tags={[]} onChanged={() => undefined} />);
-    expect([...document.querySelectorAll(".know-from")].map((e) => e.textContent)).toEqual(["from job #10", "from you"]);
+    expect([...document.querySelectorAll(".know-from")].map((e) => e.textContent)).toEqual(["from a schedule", "from you"]);
   });
 });
 

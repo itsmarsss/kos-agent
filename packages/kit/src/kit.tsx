@@ -1,7 +1,7 @@
 import { AnimatePresence, m, type HTMLMotionProps } from "motion/react";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
 
-import { formatDuration } from "@kos/shared";
+import { formatDuration, STATE_WORDS, type State } from "@kos/shared";
 
 import { ChevronDown, CloseIcon, QuoteIcon } from "./icons.js";
 import { hover, inPlace, listItem, spring } from "./motion.js";
@@ -21,6 +21,20 @@ export function Pill({ tone = "muted", title, children }: { tone?: Tone; title?:
     <span className={`pill pill--${tone}`} title={title}>
       {children}
     </span>
+  );
+}
+
+/**
+ * A state as a Pill, in its one word and tone from `STATE_WORDS`: a run's
+ * Done or Failed, a schedule's On or Off, a blob's Quiet. Every surface draws
+ * a state this way, so one state never reads four ways.
+ */
+export function StatusPill({ state, title }: { state: State; title?: string }): ReactElement {
+  const { word, tone } = STATE_WORDS[state];
+  return (
+    <Pill tone={tone} {...(title ? { title } : {})}>
+      {word}
+    </Pill>
   );
 }
 
@@ -96,21 +110,6 @@ export function Card({ title, count, pill, action, label, className, children, .
 }
 
 /**
- * What a list or panel says when there is nothing in it: an answer, not a
- * blank. A page's list says it in a dashed box; inside a card, where the
- * card is already the box, it is one quiet line (inline).
- */
-export function Empty({ title, inline = false, className, children }: { title?: string; inline?: boolean; className?: string; children: ReactNode }): ReactElement {
-  if (inline) return <p className={`empty-line${className ? ` ${className}` : ""}`}>{children}</p>;
-  return (
-    <div className={`empty${className ? ` ${className}` : ""}`}>
-      {title && <strong className="empty-title">{title}</strong>}
-      <p className="empty-text">{children}</p>
-    </div>
-  );
-}
-
-/**
  * Words with the stretches a search matched marked: `marks` are [start, end)
  * offsets into `text`, as the host's search gives them. Drawn as elements,
  * so text from a chat or a file is never read as markup.
@@ -163,6 +162,7 @@ export function Chips<V extends string | number>({
   label,
   small = false,
   scroll = false,
+  round = false,
 }: {
   options: readonly ChipOption<V>[];
   selected?: V | null;
@@ -171,9 +171,11 @@ export function Chips<V extends string | number>({
   small?: boolean;
   /** One row that scrolls sideways on its own when it runs out of room, rather than wrapping or widening the page. */
   scroll?: boolean;
+  /** Capsules, for chips inside something round (the composer): round holds round (design.md, Shape). */
+  round?: boolean;
 }): ReactElement {
   return (
-    <div className={`chips${small ? " chips--sm" : ""}${scroll ? " chips--scroll" : ""}`} role={label ? "group" : undefined} aria-label={label}>
+    <div className={`chips${small ? " chips--sm" : ""}${scroll ? " chips--scroll" : ""}${round ? " chips--round" : ""}`} role={label ? "group" : undefined} aria-label={label}>
       {options.map(([value, text, title]) => (
         <button key={String(value)} type="button" aria-pressed={value === selected} title={title} onClick={() => onChoose(value)}>
           {text}

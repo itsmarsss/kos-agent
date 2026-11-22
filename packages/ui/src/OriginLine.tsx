@@ -4,6 +4,7 @@ import { surfaceName } from "@kos/shared";
 
 import type { MessageOrigin } from "./api.js";
 import { hrefFor } from "./routes.js";
+import { jobTitle } from "./schedulewords.js";
 
 export { surfaceName };
 
@@ -21,7 +22,7 @@ export function originWords(origin: MessageOrigin): { text: string; href?: strin
   const where = !room ? surface : room.kind === "dm" ? `${surface} DM`.trim() : roomWords ? `${roomWords}${surface ? ` on ${surface}` : ""}` : surface;
   const named = roomWords ? { room: roomWords } : {};
   if (from?.kind === "guest") return { text: `${from.name}, a guest${where ? ` in ${where}` : ""}`, ...named };
-  if (from?.kind === "schedule") return { text: `schedule · ${from.name}`, ...(from.id ? { href: hrefFor({ name: "crons", job: from.id }) } : {}) };
+  if (from?.kind === "schedule") return { text: `Schedule · ${jobTitle(from.name)}`, ...(from.id ? { href: hrefFor({ name: "crons", job: from.id }) } : {}) };
   if (from?.kind === "chat") return { text: `sent by ${from.name}`, ...(from.id ? { href: hrefFor({ name: "chats", id: from.id }) } : {}) };
   if (!where || via === "dispatch") return null;
   return { text: `via ${where}`, ...named };
