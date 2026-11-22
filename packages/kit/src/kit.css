@@ -21,6 +21,23 @@
   :where(:is(button, [role="button"], summary):active) { transform: none; }
 }
 
+/* —— the one menu (Menu.tsx) ——
+   A 10 corner 3 px out holds rows of 7 (docs/design.md, Shape); panel, a
+   line-strong border and the floating shadow. Every menu draws on these:
+   the kit's Menu, and the Select, the mode menu and the artifact menu,
+   which hold more than rows. */
+.kos-menu, .sel-menu, .mode-menu, .artifact-view-menu { position: fixed; z-index: 130; display: flex; flex-direction: column; gap: 1px; min-width: 12rem; max-width: min(20rem, calc(100vw - 16px)); padding: 3px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--panel); box-shadow: var(--float); color: var(--text); font-size: var(--text-base); text-align: left; outline: none; }
+.kos-menu-row { appearance: none; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 5px 9px; border: 0; border-radius: var(--r-sm); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.kos-menu-row:hover, .kos-menu-row:focus-visible { background: var(--panel-2); outline: none; }
+.kos-menu-row:disabled { opacity: 0.45; cursor: default; background: none; }
+.kos-menu-row.is-danger { color: var(--danger); }
+.kos-menu-row.is-divided { margin-top: 4px; position: relative; }
+.kos-menu-row.is-divided::before { content: ""; position: absolute; left: 6px; right: 6px; top: -3px; border-top: 1px solid var(--line); }
+.kos-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kos-menu-tick { flex: none; display: grid; place-items: center; width: 14px; color: var(--accent); }
+.kos-menu-keys { flex: none; margin-left: 12px; color: var(--faint); font-family: inherit; font-size: var(--text-sm); }
+.kos-menu .confirm-wrap { display: contents; }
+
 /* —— KOS at work, before it has a step to show —— */
 .live-dots { display: inline-flex; gap: 3px; flex-shrink: 0; }
 .live-dots i {
@@ -723,7 +740,8 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 @keyframes mode-beat { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .mode-chip[data-running] .mode-chip-main svg { animation: none; } }
 
-.mode-menu { position: fixed; z-index: 1000; width: min(19rem, calc(100vw - 16px)); overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 1px; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--panel); box-shadow: var(--float); color: var(--text); font-size: var(--text-base); text-align: left; }
+/* The one menu's geometry (above), wider, and over everything a composer sits in. */
+.mode-menu { z-index: 1000; width: min(19rem, calc(100vw - 16px)); max-width: none; overflow-y: auto; overscroll-behavior: contain; }
 .mode-menu-row { appearance: none; display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: var(--r-sm); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .mode-menu-row > svg:first-child { flex: none; margin-top: 2px; color: var(--muted); }
 .mode-menu-row > svg:last-child:not(:first-child) { flex: none; margin-top: 2px; color: var(--accent); }

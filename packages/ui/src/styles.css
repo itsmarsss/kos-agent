@@ -1844,37 +1844,6 @@ select {
 }
 
 /* —— overflow menu —— */
-.menu { position: relative; }
-.menu > summary { list-style: none; }
-.menu > summary::-webkit-details-marker { display: none; }
-.menu-body {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 0.35rem);
-  z-index: 40;
-  min-width: 13rem;
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  box-shadow: var(--float);
-  /* Concentric: a 10 corner 3 px out holds rows of 7. */
-  padding: 3px;
-}
-.menu-body button {
-  text-align: left;
-  background: none;
-  border: 0;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-md);
-  padding: 0.45rem 0.6rem;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-}
-.menu-body button:hover { background: var(--panel-2); }
-.menu-body .is-danger { color: var(--danger); }
 /* A doc's @ mention: the dashboard's own picker of artifacts, over the doc. */
 .mention-picker { position: fixed; z-index: 60; width: 320px; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-md); box-shadow: var(--float); padding: 3px; }
 .mention-picker-search { all: unset; box-sizing: border-box; padding: 8px 10px; margin-bottom: 3px; border-bottom: 1px solid var(--line); font-size: var(--text-base); color: var(--text); }
@@ -2480,22 +2449,15 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 .sel-icon .project-mark { width: 16px; height: 16px; font-size: 9.5px; border-radius: var(--r-xs); }
 .sel-caret { display: inline-flex; color: var(--faint); flex: none; }
 
+/* The one menu's geometry (kit.css .kos-menu), fixed and placed from script:
+   as an absolutely positioned child it was clipped by any scrolling ancestor
+   and stacked below anything higher up the tree. A list, so it scrolls. */
 .sel-menu {
-  /* Fixed and placed from script: as an absolutely positioned child it was
-     clipped by any scrolling ancestor and stacked below anything higher up
-     the tree, so a long list came out cut off or covered. */
-  position: fixed;
   z-index: 120;
-  min-width: 12rem;
+  max-width: none;
   overflow-y: auto;
   list-style: none;
   margin: 0;
-  padding: 3px;
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  box-shadow: var(--float);
-  outline: none;
 }
 .sel-option {
   display: flex;
@@ -2541,37 +2503,10 @@ li:hover .chats-more,
 li:hover .chats-item-when { opacity: 0; }
 .chats-more:active:not(:disabled) { transform: translateY(-50%) scale(var(--press-scale)); }
 .chats-more:hover,
-.chats-menu ~ .chats-more {
+.chats-more[aria-expanded="true"] {
   color: var(--text);
   background: var(--panel-2);
 }
-.chats-menu {
-  position: absolute;
-  top: 1.9rem;
-  right: 0.3rem;
-  z-index: 30;
-  min-width: 9rem;
-  display: flex;
-  flex-direction: column;
-  padding: 0.25rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  box-shadow: var(--float);
-}
-.chats-menu button {
-  background: none;
-  border: 0;
-  border-radius: var(--r-sm);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-base);
-  text-align: left;
-  padding: 0.3rem 0.45rem;
-  cursor: pointer;
-}
-.chats-menu button:hover { background: var(--panel-2); }
-.chats-menu button.is-danger { color: var(--danger); }
 
 /* —— composer highlighting ——
    The mirror and the textarea must agree on every property that affects
@@ -5797,8 +5732,6 @@ a.health {
   font-family: var(--mono);
   font-size: var(--text-xs);
 }
-.side-more > summary { list-style: none; }
-.side-more .menu-body { bottom: calc(100% + 0.25rem); top: auto; left: 0; }
 .side-health {
   margin-top: 0.4rem;
   padding: 0.5rem 0.7rem;
@@ -6508,7 +6441,6 @@ a.health {
   :root[data-sidebar="rail"] .side-brand { font-size: var(--text-lg); }
   :root[data-sidebar="rail"] .side-link { justify-content: center; gap: 0; padding: 0.5rem 0; position: relative; }
   :root[data-sidebar="rail"] .side-health { justify-content: center; gap: 0; }
-  :root[data-sidebar="rail"] .side-more .menu-body { left: calc(100% + 0.3rem); bottom: 0; }
   @media (prefers-reduced-motion: reduce) {
     .app,
     .side,
@@ -7067,7 +6999,6 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 /* A window beside what opened it: a confirmation, a picker. */
 .kos-pop { position: fixed; z-index: 1000; }
 .confirm-wrap { display: inline-flex; }
-.chats-menu .confirm-wrap { display: contents; }
 .confirm-pop { width: max-content; max-width: 18rem; padding: 0.65rem 0.75rem; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--panel); box-shadow: var(--float); }
 .confirm-text { margin: 0 0 0.55rem; font-size: var(--text-md); color: var(--text); line-height: 1.4; }
 .confirm-acts { display: flex; gap: 0.4rem; }
@@ -7451,8 +7382,6 @@ html.has-presenter { overflow: hidden; }
 @media (hover: none) { .artifact-card-menu { opacity: 1; } }
 .artifacts-trash { display: inline-flex; align-items: center; gap: 0.35rem; }
 /* The menu's groups: what it is, then the owner's own handles on it, under a hairline. */
-.artifact-view-menu .is-divided { position: relative; margin-top: 7px; }
-.artifact-view-menu .is-divided::before { content: ""; position: absolute; left: 6px; right: 6px; top: -4px; border-top: 1px solid var(--line); pointer-events: none; }
 /* Rename and Move (ArtifactManage.tsx). */
 .artifact-dialog { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .artifact-dialog .hint { margin: 0; }
@@ -7545,8 +7474,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .artifact-view-deck { display: inline-flex; align-items: center; gap: 2px; margin-right: 6px; }
 .artifact-view-count { min-width: 5.5ch; text-align: center; color: var(--text); font-size: var(--text-sm); font-weight: 500; font-variant-numeric: tabular-nums; }
 .artifact-view-menu-wrap { flex: none; }
-.artifact-view-menu { position: fixed; z-index: 60; min-width: 12rem; max-width: min(20rem, calc(100vw - 16px)); padding: 3px; border-color: var(--line-strong); transform-origin: top right; }
-.artifact-view-menu button { padding: 0.4rem 0.55rem; }
+.artifact-view-menu { z-index: 60; transform-origin: top right; }
 .artifact-view-menu button[aria-checked="true"] { color: var(--accent); }
 .artifact-view-menu [role="menu"] { display: flex; flex-direction: column; }
 .artifact-view-about { margin: 0 0 3px; padding: 6px 8px 9px; color: var(--muted); font-size: var(--text-sm); line-height: 1.45; border-bottom: 1px solid var(--line); }
@@ -7633,7 +7561,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   .artifact-view-wide, .artifact-view-meta, .artifact-view-sep, .artifact-view-status:not(.is-bad), .artifact-view-owner > span:last-child { display: none; }
   .artifact-view-status { max-width: 9rem; }
   .artifact-view-owner { margin-left: 0; padding: 3px; }
-  .artifact-view-menu button.artifact-view-narrow { display: block; }
+  .artifact-view-menu button.artifact-view-narrow { display: flex; }
   .artifact-view-menu-wrap.artifact-view-narrow { display: block; }
 }
 /* Below the phone bar, which sticks at the top of a narrow window; in place of a chat, at the top of its own scroll. */
@@ -8035,17 +7963,7 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .finder-status { flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* The menu: Finder's, in the chat list's menu look. */
-.finder-menu { position: fixed; top: auto; right: auto; z-index: 80; min-width: 13.5rem; }
-.finder-menu button { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; }
-.finder-menu button.is-divided { position: relative; margin-top: 0.45rem; }
-.finder-menu button.is-divided::before { content: ""; position: absolute; top: -0.25rem; left: 0.25rem; right: 0.25rem; height: 1px; background: var(--line); }
-.finder-menu button:disabled { color: var(--faint); cursor: default; background: none; }
-.finder-menu button:focus-visible { background: var(--panel-2); outline: none; }
-.finder-menu { max-height: calc(100vh - 1rem); overflow-y: auto; }
-.finder-menu button.is-choice { justify-content: flex-start; gap: 0.4rem; }
-.finder-menu-tick { flex: none; display: grid; place-items: center; width: 0.9rem; color: var(--accent); }
-.finder-menu-label { flex: 1; }
-.finder-menu-keys { font: inherit; font-size: var(--text-xs); color: var(--faint); letter-spacing: 0.04em; }
+.finder-menu { z-index: 80; min-width: 13.5rem; max-height: calc(100vh - 1rem); overflow-y: auto; }
 
 /* The trash. */
 .finder-trash { display: flex; flex-direction: column; min-height: 0; }

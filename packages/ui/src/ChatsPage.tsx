@@ -11,7 +11,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { cycled, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
-import { isModeKey, ModeChip } from "@kos/kit";
+import { isModeKey, Menu, ModeChip } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
@@ -427,13 +427,9 @@ export function ChatsPage({
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(
     null,
   );
-  const menuRef = useRef<HTMLDivElement>(null);
-  // Every row's menu shares the ref, and one leaving as the next opens would clear it as it went: set on arrival only.
-  const holdMenu = useCallback((el: HTMLDivElement | null) => {
-    if (el) menuRef.current = el;
-  }, []);
+  /** The ⋯ that opened the row's menu: the one menu hangs from it and gives the focus back to it. */
+  const menuAnchor = useRef<HTMLElement | null>(null);
   const closeMenu = useCallback(() => setMenuFor(null), []);
-  useDismiss(menuFor !== null, closeMenu, { inside: [menuRef] });
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [rewinding, setRewinding] = useState(false);
   const [archived, setArchived] = useState<Conversation[]>([]);
@@ -1438,85 +1434,51 @@ export function ChatsPage({
           <IconButton
             className="chats-more"
             label={`Actions for ${c.title}`}
+            aria-haspopup="menu"
+            aria-expanded={menuFor === c.id}
             onClick={(e) => {
               e.stopPropagation();
+              menuAnchor.current = e.currentTarget;
               setMenuFor(menuFor === c.id ? null : c.id);
             }}
           >
             <MoreIcon />
           </IconButton>
-          {/* Wrapped so it leaves as well as arrives: without this the
-              menu appeared gently and then simply stopped existing. */}
-          <AnimatePresence>
-          {menuFor === c.id && (
-            <m.div
-              className="chats-menu"
-              role="menu"
-              ref={holdMenu}
-              initial={{ opacity: 0, scale: 0.96, y: -4 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: -3 }}
-              transition={ease}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuFor(null);
-                  // Renaming was only reachable by typing /rename, which
-                  // is a strange thing to have to know for the one bit
-                  // of a chat the owner is most likely to change.
-                  setRenaming({ id: c.id, title: c.title });
-                }}
-              >
-                Rename
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuFor(null);
-                  void api.rewind(c.id, 0, { forkTitle: `${c.title} copy` })
+          <Menu
+            open={menuFor === c.id}
+            onClose={closeMenu}
+            anchor={menuAnchor}
+            label={`Actions for ${c.title}`}
+            items={[
+              // Renaming was only reachable by typing /rename, which is a strange thing to have to know for the one bit of a chat the owner is most likely to change.
+              { label: "Rename", act: () => setRenaming({ id: c.id, title: c.title }) },
+              {
+                label: "Duplicate",
+                act: () =>
+                  void api
+                    .rewind(c.id, 0, { forkTitle: `${c.title} copy` })
                     .then((r) => {
                       onChanged();
                       onOpen(r.conversationId);
                     })
-                    .catch(() => undefined);
-                }}
-              >
-                Duplicate
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuFor(null);
-                  setHandingOff({ id: c.id, title: c.title });
-                }}
-              >
-                Hand off…
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuFor(null);
-                  void api.archiveConversation(c.id, !showArchived).then(onChanged);
-                }}
-              >
-                {showArchived ? "Unarchive" : "Archive"}
-              </button>
-              {/* Asked once, beside the item: delete is the one thing here
-                  that cannot be undone, and a menu item that does it on one
-                  click is a trap beside Archive. */}
-              <ConfirmButton
-                className="is-danger"
-                label="Delete"
-                text={`Delete “${c.title}”?`}
-                onConfirm={() => {
-                  setMenuFor(null);
-                  void api.deleteConversation(c.id).then(onChanged);
-                }}
-              />
-            </m.div>
-          )}
-          </AnimatePresence>
+                    .catch(() => undefined),
+              },
+              { label: "Hand off…", act: () => setHandingOff({ id: c.id, title: c.title }) },
+              { label: showArchived ? "Unarchive" : "Archive", act: () => void api.archiveConversation(c.id, !showArchived).then(onChanged) },
+            ]}
+          >
+            {/* Asked once, beside the item: delete is the one thing here that cannot be undone, and a menu item that does it on one click is a trap beside Archive. */}
+            <ConfirmButton
+              role="menuitem"
+              className="kos-menu-row is-danger"
+              label="Delete"
+              text={`Delete “${c.title}”?`}
+              onConfirm={() => {
+                setMenuFor(null);
+                void api.deleteConversation(c.id).then(onChanged);
+              }}
+            />
+          </Menu>
           <a
           className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
           href={hrefOf(c)}
@@ -1893,38 +1855,30 @@ export function ChatsPage({
                                     <IconButton
                                       className="chats-more"
                                       label={`Actions for ${p.name}`}
+                                      aria-haspopup="menu"
+                                      aria-expanded={menuFor === menuKey}
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        menuAnchor.current = e.currentTarget;
                                         setMenuFor(menuFor === menuKey ? null : menuKey);
                                       }}
                                     >
                                       <MoreIcon />
                                     </IconButton>
                                   )}
-                                  <AnimatePresence>
-                                    {menuFor === menuKey && (
-                                      <m.div
-                                        className="chats-menu"
-                                        role="menu"
-                                        ref={holdMenu}
-                                        initial={{ opacity: 0, scale: 0.96, y: -4 }}
-                                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                                        exit={{ opacity: 0, scale: 0.97, y: -3 }}
-                                        transition={ease}
-                                      >
-                                        <ConfirmButton
-                                          className="is-danger"
-                                          label="Delete project"
-                                          confirmLabel="Delete for good"
-                                          text={`Delete ${p.name}? Its chats, and what of it is in the trash, are kept; the rest goes.`}
-                                          onConfirm={() => {
-                                            setMenuFor(null);
-                                            void onDeleteProject!(p.slug).catch(() => undefined);
-                                          }}
-                                        />
-                                      </m.div>
-                                    )}
-                                  </AnimatePresence>
+                                  <Menu open={menuFor === menuKey} onClose={closeMenu} anchor={menuAnchor} label={`Actions for ${p.name}`}>
+                                    <ConfirmButton
+                                      role="menuitem"
+                                      className="kos-menu-row is-danger"
+                                      label="Delete project"
+                                      confirmLabel="Delete for good"
+                                      text={`Delete ${p.name}? Its chats, and what of it is in the trash, are kept; the rest goes.`}
+                                      onConfirm={() => {
+                                        setMenuFor(null);
+                                        void onDeleteProject!(p.slug).catch(() => undefined);
+                                      }}
+                                    />
+                                  </Menu>
                                   <a
                                     className={`chats-item ${p.thread?.id === activeId ? "is-active" : ""}`}
                                     href={hrefFor({ name: "project", slug: p.slug })}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type Mood, NavIcon, useDismiss, useKosLook } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type Mood, Menu, NavIcon, useDismiss, useKosLook } from "@kos/kit";
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
@@ -76,8 +76,7 @@ export function Sidebar({
     }
   }, [railed]);
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDetailsElement>(null);
-  useDismiss(moreOpen, () => setMoreOpen(false), { inside: [moreRef] });
+  const moreRef = useRef<HTMLButtonElement>(null);
   // Going somewhere closes the drawer; a route change is the signal.
   useEffect(() => setOpen(false), [route]);
   // Escape closes the drawer; its backdrop takes the press away.
@@ -169,33 +168,33 @@ export function Sidebar({
             <NavIcon name="settings" />
             <span className="side-label">Settings</span>
           </a>
-          {/* Controlled rather than left to the element: a native details
-              stays open over whatever it just opened, and when you click
-              elsewhere. */}
-          <details
-            className="menu side-more"
+          <button
+            type="button"
             ref={moreRef}
-            open={moreOpen}
-            onToggle={(e) => setMoreOpen(e.currentTarget.open)}
-            onClick={(e) => {
-              const target = e.target as HTMLElement;
-              if (target.closest("button, a")) setMoreOpen(false);
-            }}
+            className="side-link side-more"
+            title="More"
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((v) => !v)}
           >
-            <summary className="side-link" title="More">
-              <NavIcon name="more" />
-              <span className="side-label">More…</span>
-            </summary>
-            <div className="menu-body">
-              <button type="button" onClick={onRefresh}>Refresh</button>
-              <button type="button" onClick={onSnapshot}>Snapshot now</button>
-              <button type="button" onClick={onOpenWorkspace}>Open workspace folder</button>
-              <button type="button" onClick={onCopyWorkspace}>Copy workspace path</button>
-              <button type="button" className="is-danger" onClick={onToggleKill}>
-                {status?.halted ? "Resume KOS" : "Halt KOS"}
-              </button>
-            </div>
-          </details>
+            <NavIcon name="more" />
+            <span className="side-label">More…</span>
+          </button>
+          <Menu
+            open={moreOpen}
+            onClose={() => setMoreOpen(false)}
+            anchor={moreRef}
+            label="More"
+            side={railed ? "right" : "above"}
+            align={railed ? "end" : "start"}
+            items={[
+              { label: "Refresh", act: onRefresh },
+              { label: "Snapshot now", act: onSnapshot },
+              { label: "Open workspace folder", act: onOpenWorkspace },
+              { label: "Copy workspace path", act: onCopyWorkspace },
+              { label: status?.halted ? "Resume KOS" : "Halt KOS", act: onToggleKill, danger: true, divided: true },
+            ]}
+          />
           {/* Three states, in the order that matters: stopped, broken, fine.
               The old bar said "Running" regardless, so a job that had been
               failing for two days sat behind a green dot. */}

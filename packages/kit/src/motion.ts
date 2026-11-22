@@ -54,6 +54,15 @@ export const fromTop: Variants = {
 };
 
 /**
+ * What floats over the page arriving and going (a menu, a popover): a fade
+ * and a scale from 0.98, from the corner it hangs by (its transform-origin).
+ */
+export const float: Variants = {
+  hidden: { opacity: 0, scale: 0.98 },
+  show: { opacity: 1, scale: 1 },
+};
+
+/**
  * A page arriving in the window: there from its first frame (a fade from
  * most of the way, never from nothing) and an 8 px rise, on the one ease.
  * The page it replaces goes at once rather than fading out first, so a
