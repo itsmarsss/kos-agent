@@ -7871,6 +7871,8 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder {
   container: finder / inline-size;
   --finder-row: 1.75rem;
+  /* How far each level of a folder opened in place steps in. */
+  --finder-indent: 1.15rem;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -7911,6 +7913,9 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder-title-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .finder-tools { display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; flex: 0 1 auto; min-width: 0; }
 .finder-tools-wide, .finder-tools-narrow { display: contents; }
+/* Only the search gives way: the views, sort and buttons keep their size. */
+.finder-tools-wide > * { flex: none; }
+.finder-tools-wide > .chips { flex-wrap: nowrap; }
 .finder-tools-narrow { display: none; }
 .finder-toolbar > .chips { flex: 1 1 100%; }
 .finder-sortby .sel-button { min-width: 8rem; padding: 0 0.6rem; font-size: var(--text-base); }
@@ -8234,9 +8239,12 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
   .finder-toolbar.is-searching .finder-title { display: none; }
   .finder-toolbar.is-searching .finder-tools { flex: 1 1 auto; }
   .finder-toolbar.is-searching .finder-search { display: flex; flex: 1 1 auto; min-width: 0; }
-  .finder-gallery { grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: 0.2rem; padding: 0.5rem; }
+  .finder-gallery { grid-template-columns: repeat(auto-fill, minmax(5.25rem, 1fr)); gap: 0.1rem; padding: 0.35rem; }
+  .finder-tile { padding-inline: 0.15rem; }
+  .finder-tile-name { padding-inline: 0.2rem; }
   .finder-tile-art .files-thumb { inset: 0.3rem; }
   .finder-pathbar { gap: 0.5rem; }
+  .finder-list { --finder-indent: 0.8rem; }
 }
 @container finder (max-width: 360px) {
   .finder-status { display: none; }

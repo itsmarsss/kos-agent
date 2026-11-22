@@ -68,7 +68,7 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
           {...h.drag(entry)}
           {...(entry.kind === "dir" ? h.drop(entry.path) : {})}
         >
-          <span role="gridcell" className="finder-col finder-col--name" style={{ paddingLeft: `calc(${depth} * 1.15rem + 0.35rem)` }}>
+          <span role="gridcell" className="finder-col finder-col--name" style={{ paddingLeft: `calc(${depth} * var(--finder-indent) + 0.35rem)` }}>
             {entry.kind === "dir" && onToggle && where === undefined ? (
               <button
                 type="button"

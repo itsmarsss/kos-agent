@@ -28,6 +28,8 @@ export function FinderMenu({ at, items, onClose, label }: { at: { x: number; y: 
   const ref = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState({ left: at.x, top: at.y });
   useDismiss(true, onClose, { inside: [ref] });
+  /** A menu with choices in it keeps a column for their ticks, so every label lines up. */
+  const ticks = items.some((item) => item.checked !== undefined);
   useLayoutEffect(() => {
     const box = ref.current?.getBoundingClientRect();
     if (!box) return;
@@ -65,14 +67,14 @@ export function FinderMenu({ at, items, onClose, label }: { at: { x: number; y: 
           type="button"
           role={item.checked === undefined ? "menuitem" : "menuitemradio"}
           aria-checked={item.checked}
-          className={`${item.danger ? "is-danger" : ""}${item.divided ? " is-divided" : ""}${item.checked === undefined ? "" : " is-choice"}`}
+          className={`${item.danger ? "is-danger" : ""}${item.divided ? " is-divided" : ""}${ticks ? " is-choice" : ""}`}
           disabled={item.disabled}
           onClick={() => {
             onClose();
             item.act();
           }}
         >
-          {item.checked !== undefined && <span className="finder-menu-tick">{item.checked && <CheckIcon size={13} title="" />}</span>}
+          {ticks && <span className="finder-menu-tick">{item.checked && <CheckIcon size={13} title="" />}</span>}
           <span className="finder-menu-label">{item.label}</span>
           {item.keys && <kbd className="finder-menu-keys">{item.keys}</kbd>}
         </button>

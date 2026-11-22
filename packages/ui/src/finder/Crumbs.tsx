@@ -23,9 +23,13 @@ export interface Crumb {
   here?: boolean;
 }
 
-/** How much a step gives way, by its place: each further out gives far more than the one inside it, so the left goes first. */
-const SHRINK_BASE = 8;
-const shrinkOf = (i: number, n: number): number => (i === n - 1 ? 0.01 : SHRINK_BASE ** (n - 1 - i));
+/**
+ * How much a step gives way, by its place: each further out gives far more
+ * than the one inside it, so the left goes first. The last is 1, not less:
+ * flex lets factors summing under 1 take only that share of the overflow.
+ */
+const SHRINK_BASE = 64;
+const shrinkOf = (i: number, n: number): number => SHRINK_BASE ** (n - 1 - i);
 
 export function Crumbs({ items, label, className, title }: { items: Crumb[]; label: string; className: string; title: string }): ReactElement {
   return (
