@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
-import { momentWords, summarizeAction, timeWords } from "@kos/shared";
+import { errorWords, momentWords, stepLine, timeWords } from "@kos/shared";
 import { CloseIcon, EmptyState, Face, GroupHead, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
@@ -235,6 +235,10 @@ export function Panel({
       const report = data.health;
       const rows = report.failing.slice(0, limit);
       const rate = report.recent.total > 0 ? report.recent.rate : 0;
+      // The steps Runs lists as failed, over the day the Last 24 hours panel counts, so the two panels and Runs agree.
+      const day = padHours(data.pulse, 24);
+      const steps = day.reduce((n, h) => n + h.calls, 0);
+      const stepsFailed = day.reduce((n, h) => n + h.errors, 0);
       return (
         <div className={`panel ${rows.length ? "panel--bad" : ""}`}>
           <Head
@@ -244,9 +248,11 @@ export function Panel({
           />
           {rows.length === 0 ? (
             <EmptyState variant="inline">
-              {report.recent.total === 0
+              {report.recent.total === 0 && steps === 0
                 ? "Nothing has run yet."
-                : "Everything is working."}
+                : stepsFailed > 0 || report.recent.errors > 0
+                  ? "Nothing is failing now."
+                  : "Everything is working."}
             </EmptyState>
           ) : (
             <ul className="panel-list">
@@ -263,7 +269,7 @@ export function Panel({
                       onClick={() => onOpenFailure(f.key)}
                     >
                       <span className="fail-label">{f.label}</span>
-                      <span className="fail-why">{f.error ?? "failed"}</span>
+                      <span className="fail-why">{f.error ? errorWords(f.error) : "Failed"}</span>
                     </button>
                     <span className="panel-row-side">
                       {f.streak > 1 ? `${f.streak}x · ` : ""}
@@ -311,13 +317,27 @@ export function Panel({
                reads as a bad patch and a lone red tick as a lone one. */
             <Ticks items={[...data.runs].reverse().map(runTick)} />
           )}
-          {report.recent.total > 0 && (
-            // Labelled, because the count in the header is jobs broken right
-            // now and this is runs over time: "What broke 1" above "5 of the
-            // last 100 failed" read as a contradiction.
+          {(report.recent.total > 0 || steps > 0) && (
+            // Labelled, because the count in the header is what is broken
+            // right now and these are over time: "Everything is working"
+            // above "4 failed" read as a contradiction unless each says what
+            // it counts, in the words Runs uses.
             <p className="panel-foot panel-foot--chart">
-              Failure rate: {report.recent.errors} of the last{" "}
-              {report.recent.total} runs ({Math.round(rate * 100)}%)
+              {report.recent.total > 0 && (
+                <span>
+                  Chats and schedules: {report.recent.errors} of the last {report.recent.total} failed ({Math.round(rate * 100)}%).{" "}
+                </span>
+              )}
+              {steps > 0 && (
+                <span>
+                  Steps in the last day: {stepsFailed} of {steps} failed.
+                </span>
+              )}{" "}
+              {(stepsFailed > 0 || report.recent.errors > 0) && (
+                <button type="button" className="link" onClick={() => onGo("history")}>
+                  See them in Runs
+                </button>
+              )}
             </p>
           )}
         </div>
@@ -339,7 +359,7 @@ export function Panel({
                 labelEvery={6}
                 bars={hours.map((h) => ({
                   label: hourLabel(h.hour),
-                  title: `${hourLabel(h.hour)}: ${h.calls} ${h.calls === 1 ? "call" : "calls"}${h.errors ? `, ${h.errors} failed` : ""}`,
+                  title: `${hourLabel(h.hour)}: ${h.calls} ${h.calls === 1 ? "step" : "steps"}${h.errors ? `, ${h.errors} failed` : ""}`,
                   parts: [
                     { value: h.calls - h.errors, tone: "accent" },
                     { value: h.errors, tone: "danger" },
@@ -347,7 +367,7 @@ export function Panel({
                 }))}
               />
               <p className="panel-foot panel-foot--chart">
-                {calls} tool {calls === 1 ? "call" : "calls"}
+                {calls} {calls === 1 ? "step" : "steps"}
                 {errors ? `, ${errors} failed` : ", none failed"}
               </p>
             </>
@@ -381,9 +401,7 @@ export function Panel({
               {rows.map((t) => (
                 <li key={t.id}>
                   <span className={`panel-row ${t.isError ? "is-error" : ""}`}>
-                    <span className="panel-row-main">
-                      {summarizeAction(t.tool, t.args)}
-                    </span>
+                    <StepRow tool={t.tool} args={t.args} />
                     <span className="panel-row-side">{timeWords(t.createdAt)}</span>
                   </span>
                 </li>
@@ -644,4 +662,15 @@ export function Panel({
         </div>
       );
   }
+}
+
+/** A step in a panel's row: what it did, then what to in a quieter tone; its tool's name is the tooltip. */
+function StepRow({ tool, args }: { tool: string; args: unknown }): ReactElement {
+  const line = stepLine(tool, args);
+  return (
+    <span className="panel-row-main" title={tool}>
+      {line.title}
+      {line.detail && <span className="panel-row-project"> {line.detail}</span>}
+    </span>
+  );
 }
