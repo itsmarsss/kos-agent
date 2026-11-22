@@ -1,4 +1,4 @@
-import { summarizeAction, usesSecret, type ActionHome } from "@kos/shared";
+import { summarizeAction, toolWords, usesSecret, type ActionHome } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
@@ -233,7 +233,7 @@ export class Decisions {
       !options.remember ? r : kept ? { ...r, remembered: true } : { ...r, remembered: false, message: `Approved; nothing to remember for this one. ${r.message}` };
 
     // A turn suspended on this decision does the rest itself.
-    if (awaited) return done({ ok: true, message: `Approved @approval:${id}. ${action.tool} is running.` });
+    if (awaited) return done({ ok: true, message: `Approved @approval:${id}. ${toolWords(action.tool)}: running now.` });
 
     const by = decidedBy ?? d.ownerId;
     if (action.tool.startsWith(BUILD_ACTION_PREFIX)) {
