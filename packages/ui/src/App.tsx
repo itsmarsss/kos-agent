@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, StatusPill, When } from "@kos/kit";
-import { momentWords, slugWords, timeCard } from "@kos/shared";
+import { errorWords, momentWords, slugWords, timeCard } from "@kos/shared";
 
 import {
   type FailingJob,
@@ -222,7 +222,8 @@ export function App(): React.ReactElement {
   }, [kosLook, status?.pendingApprovals, status?.halted]);
 
   const flash = (kind: "ok" | "warn" | "err", text: string): void => {
-    setToast({ kind, text });
+    // A refusal in the owner's words: never a store's or a tool's own message, a host path or a stack's prefix.
+    setToast({ kind, text: kind === "err" ? errorWords(text) : text });
     window.setTimeout(() => setToast(null), 3200);
   };
 
