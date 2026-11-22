@@ -103,8 +103,12 @@ function MenuBox({ onClose, label, anchor, at, side, align, items, children, cla
     const el = box.current;
     if (!el) return;
     setSpot(menuPlace({ width: el.offsetWidth, height: el.offsetHeight }, anchor?.current?.getBoundingClientRect() ?? null, at, side, align));
-    el.querySelector<HTMLElement>(ROWS)?.focus({ preventScroll: true });
   }, [at?.x, at?.y]);
+  // Once placed (hidden until then, and a hidden row takes no focus), the focus goes to its first row.
+  const placed = spot !== null;
+  useLayoutEffect(() => {
+    if (placed) box.current?.querySelector<HTMLElement>(ROWS)?.focus({ preventScroll: true });
+  }, [placed]);
   const ticks = items.some((item) => item.checked !== undefined);
 
   const shut = (back: boolean): void => {

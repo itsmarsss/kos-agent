@@ -69,9 +69,12 @@ export function ModeChip({ mode, onChange, running = false, disabled = false }: 
     if (!at) return;
     // As tall as the room above the chip allows; past that it scrolls.
     setSpot({ left: Math.max(8, Math.min(at.left, window.innerWidth - width - 8)), bottom: window.innerHeight - at.top + 6, maxHeight: at.top - 14 });
-    // The focus goes in, onto the mode in force: going into Auto is then a step down and a press, never the first key.
-    menu.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')?.focus({ preventScroll: true });
   }, [open]);
+  // Placed (hidden until then, and a hidden row takes no focus), the focus goes in, onto the mode in force: going into Auto is then a step down and a press, never the first key.
+  const placed = open && spot !== null;
+  useLayoutEffect(() => {
+    if (placed) menu.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')?.focus({ preventScroll: true });
+  }, [placed]);
   const walk = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
