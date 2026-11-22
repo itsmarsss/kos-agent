@@ -543,6 +543,7 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 .chips button:active { transform: scale(0.97); }
 /* In a header, beside small buttons. */
 .chips--sm button { padding: 0.2rem 0.55rem; }
+.chips--round button { border-radius: 999px; }
 /* One row, scrolling sideways inside itself: a phone's filters never widen the page. It asks for no width of its own (contain), so it takes the width it is given. */
 .chips--scroll { contain: inline-size; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; min-width: 0; max-width: 100%; }
 .chips--scroll::-webkit-scrollbar { display: none; }

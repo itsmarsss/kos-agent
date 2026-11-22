@@ -12,7 +12,7 @@ import {
 import { AnimatePresence, m } from "motion/react";
 import { cycled, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
 import { isModeKey, ModeChip } from "@kos/kit";
-import { ArchiveIcon, type BlockActions, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
 import { PendingAsk } from "./PendingAsk.js";
@@ -2156,30 +2156,18 @@ export function ChatsPage({
                       }}
                     />
                     <div className="chats-welcome-actions">
-                      <div
-                        className="chats-mode"
-                        role="radiogroup"
-                        aria-label="What to create"
-                      >
-                        {(
-                          [
-                            ["kos", "Ask KOS"],
-                            ["chat", "Chat"],
-                            ["project", "Project"],
-                          ] as const
-                        ).map(([m, label]) => (
-                          <button
-                            key={m}
-                            type="button"
-                            role="radio"
-                            aria-checked={mode === m}
-                            className={`chats-mode-opt ${mode === m ? "is-active" : ""}`}
-                            onClick={() => setMode(m)}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
+                      <Chips
+                        small
+                        round
+                        label="What to create"
+                        selected={mode}
+                        options={[
+                          ["kos", "Ask KOS"],
+                          ["chat", "Chat"],
+                          ["project", "Project"],
+                        ]}
+                        onChoose={setMode}
+                      />
                       <button
                         type="submit"
                         className="btn btn--primary btn--capsule"

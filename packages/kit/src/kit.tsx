@@ -162,6 +162,7 @@ export function Chips<V extends string | number>({
   label,
   small = false,
   scroll = false,
+  round = false,
 }: {
   options: readonly ChipOption<V>[];
   selected?: V | null;
@@ -170,9 +171,11 @@ export function Chips<V extends string | number>({
   small?: boolean;
   /** One row that scrolls sideways on its own when it runs out of room, rather than wrapping or widening the page. */
   scroll?: boolean;
+  /** Capsules, for chips inside something round (the composer): round holds round (design.md, Shape). */
+  round?: boolean;
 }): ReactElement {
   return (
-    <div className={`chips${small ? " chips--sm" : ""}${scroll ? " chips--scroll" : ""}`} role={label ? "group" : undefined} aria-label={label}>
+    <div className={`chips${small ? " chips--sm" : ""}${scroll ? " chips--scroll" : ""}${round ? " chips--round" : ""}`} role={label ? "group" : undefined} aria-label={label}>
       {options.map(([value, text, title]) => (
         <button key={String(value)} type="button" aria-pressed={value === selected} title={title} onClick={() => onChoose(value)}>
           {text}

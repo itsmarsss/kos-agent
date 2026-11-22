@@ -237,7 +237,7 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
               setEditing(false);
               setAgent(saved);
               onChanged();
-              onNotice(`Saved ${saved.name}`);
+              onNotice(`Saved ${titleOf(saved.name)}.`);
             }}
             onCancel={() => setEditing(false)}
           />

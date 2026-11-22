@@ -65,6 +65,10 @@ function More({ total, shown, onMore }: { total: number; shown: number; onMore: 
 
 type SkillTab = "browse" | "search" | "url";
 
+
+/** The source chip that opens a field for a repository of the owner's own. */
+const OTHER = "__other";
+
 export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactElement {
   const [tab, setTab] = useState<SkillTab>("browse");
   const [data, setData] = useState<CatalogSkills | null>(null);
@@ -177,25 +181,17 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
       {tab === "browse" && (
         <>
           <div className="ext-sources">
-            {(data?.sources ?? []).map((s) => (
-              <button
-                key={s.repo}
-                type="button"
-                className={`ext-source${current === `${s.repo}/${s.path}` ? " is-on" : ""}`}
-                title={s.blurb}
-                onClick={() => load(`${s.repo}/${s.path}`)}
-              >
-                {s.label}
-              </button>
-            ))}
-            {!known && current && (
-              <span className="ext-source is-on" title={current}>
-                {current.split("/").slice(0, 2).join("/")}
-              </span>
-            )}
-            <button type="button" className="ext-source ext-source--other" onClick={() => setOther((v) => (v === null ? "" : null))}>
-              Other…
-            </button>
+            <Chips
+              small
+              label="Where to browse"
+              selected={other !== null ? OTHER : current}
+              options={[
+                ...(data?.sources ?? []).map((s) => [`${s.repo}/${s.path}`, s.label, s.blurb] as const),
+                ...(!known && current ? [[current, current.split("/").slice(0, 2).join("/"), current] as const] : []),
+                [OTHER, "Other…", "A repository of your own"] as const,
+              ]}
+              onChoose={(v) => (v === OTHER ? setOther((was) => (was === null ? "" : null)) : load(v))}
+            />
           </div>
           {other !== null && (
             <form

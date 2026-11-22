@@ -991,7 +991,7 @@ export function SettingsPage({
              application from the rest of Settings. */
           <Section
             title="Behaviour"
-            blurb="How KOS acts when you are not watching. These are one set of settings, saved together."
+            blurb="How KOS acts when you are not watching."
             {...saveBar(
               "behaviour",
               changed,
@@ -1013,24 +1013,24 @@ export function SettingsPage({
                 whether KOS also tries to do something about it before you wake
                 up.
               </p>
-              <Field group className="set-field"
+              <FieldRow
                 label="Extract memory in the background"
                 hint="Off by default. On, a cheap model reads new conversation in batches and proposes claims; what it writes is attributed to it, cites its sources, and shows in Memory. Run it once from the Memory page first and see what it does."
               >
                 <Switch label="Extract memory in the background" on={how.memoryExtraction} onChange={(on) => setHow({ ...how, memoryExtraction: on })} />
-              </Field>
-              <Field group className="set-field"
+              </FieldRow>
+              <FieldRow
                 label="Try to fix failures on its own"
-                hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky."
+                hint="On the first failure of a schedule, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same schedule do not start another attempt. Everything it does there still asks you before anything risky."
               >
                 <Switch label="Try to fix failures on its own" on={how.autoFix} onChange={(on) => setHow({ ...how, autoFix: on })} />
-              </Field>
-              <Field group className="set-field"
+              </FieldRow>
+              <FieldRow
                 label="Set big results aside once read"
                 hint="A page, a PDF or a long listing stays whole for the turn it came in and the next; after that the chat keeps a short outline and KOS reads the rest back with context.recall when it needs it, so later messages stay quick. Off, every result is sent whole with every message."
               >
                 <Switch label="Set big results aside once read" on={how.smartContext} onChange={(on) => setHow({ ...how, smartContext: on })} />
-              </Field>
+              </FieldRow>
             </div>
 
             <div className="set-group">
@@ -1233,7 +1233,7 @@ export function SettingsPage({
                 ),
             )}
           >
-            <Field group className="set-field"
+            <FieldRow
               label="Trim old exchanges"
               hint="When on, the oldest exchanges fall off the front once a chat passes the budgets below, and the chat says so when it happens. Off keeps everything: the whole history is re-sent every turn, so it gets slower and costs more as it grows."
             >
@@ -1242,7 +1242,7 @@ export function SettingsPage({
                       autoTrim: on ? "on" : "off",
                     }))
                   } />
-            </Field>
+            </FieldRow>
             <Field group className="set-field"
               label="History budget"
               hint={`Characters of a conversation kept. 0 for no limit. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}
@@ -1670,12 +1670,12 @@ export function SettingsPage({
               <>
                 <div className="set-group">
                   <h2>The window</h2>
-                  <Field group className="set-field"
+                  <FieldRow
                     label="Show the window on this machine"
                     hint="Off, Chrome runs unseen and the dashboard's Browser window is the only view. On, Chrome's own windows open here too: that is how you install extensions from the Web Store, and it is where Chrome's own dialogs appear."
                   >
                     <Switch label="Show the window on this machine" on={browserDraft.headed} onChange={(on) => setBrowserDraft({ ...browserDraft, headed: on })} />
-                  </Field>
+                  </FieldRow>
                   <Field group className="set-field"
                     label="Chrome to run"
                     hint="Blank runs the first Chrome found. Name a binary to run Chromium or Chrome for Testing instead."

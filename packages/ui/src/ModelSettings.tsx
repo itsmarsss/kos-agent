@@ -108,12 +108,7 @@ export function ModelSettings({
 
   return (
     <div className="settings">
-      {/* No heading here: the modal already has the title, and a second one
-          scrolled up under it. */}
-      <p className="hint">
-        Applied on the next turn, no restart. Leave a field blank to keep the
-        default.
-      </p>
+      {/* No heading and no line of its own: the section above it says when this applies, once. */}
 
       {TASKS.map(({ key, label, hint }) => {
         const setting = saved[key] ?? {};
