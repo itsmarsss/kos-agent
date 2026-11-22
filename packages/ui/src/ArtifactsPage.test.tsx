@@ -58,9 +58,9 @@ describe("the Artifacts page", () => {
     fireEvent.change(screen.getByLabelText("Search artifacts"), { target: { value: "totals by category" } });
     expect(titles()).toEqual(["Ledger"]);
     fireEvent.change(screen.getByLabelText("Search artifacts"), { target: { value: "nothing like this" } });
-    expect(screen.getByText("No artifact matches these filters.")).toBeTruthy();
-    // A kind with none left is left out, All kept.
-    expect(screen.queryByRole("button", { name: /^Decks/ })).toBeNull();
+    expect(screen.getByText("No artifacts match these words and filters.")).toBeTruthy();
+    // A kind there is stays while the search shows none of it, its count saying so.
+    expect(screen.getByRole("button", { name: "Decks0" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "All0" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(titles()).toHaveLength(4);

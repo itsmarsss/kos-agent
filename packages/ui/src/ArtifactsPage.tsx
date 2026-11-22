@@ -267,14 +267,15 @@ export function ArtifactsPage({
     );
   }, [source, project, projects, query]);
   const shown = useMemo(() => matching.filter((a) => kind === "all" || a.artifactKind === kind), [kind, matching]);
-  // A kind with none to show is left out, unless it is the one chosen: All, and what there is.
+  // A kind there is none of is left out; one there is stays while a search shows none of it, its count saying so.
   const kinds = useMemo(
     () =>
       KINDS.flatMap(([value, word]): ChipOption<ArtifactKind | "all">[] => {
         const n = value === "all" ? matching.length : matching.filter((a) => a.artifactKind === value).length;
-        return n > 0 || value === "all" || value === kind ? [[value, <>{word}<Count n={n} /></>]] : [];
+        const held = value === "all" || value === kind || (source ?? []).some((a) => a.artifactKind === value);
+        return held ? [[value, <>{word}<Count n={n} /></>]] : [];
       }),
-    [matching, kind],
+    [matching, kind, source],
   );
 
   const owners = useMemo(() => {
@@ -299,7 +300,6 @@ export function ArtifactsPage({
     return [...by.values()].sort((a, b) => last(a) - last(b) || latest(b) - latest(a));
   }, [shown]);
 
-  const filtered = kind !== "all" || project !== ALL_PROJECTS || query.trim() !== "";
   const clearFilters = (): void => {
     setKind("all");
     setProject(ALL_PROJECTS);
@@ -324,13 +324,12 @@ export function ArtifactsPage({
       </button>
       {trash && trash.length > 0 && (
         // Everything in the trash, said so when the filters hide some of it.
-        <ConfirmButton className="btn btn--ghost btn--danger artifacts-empty-trash" label="Empty trash" text={emptyWords(trash.length, trash.length - shown.length)} disabled={ops.busy} onConfirm={() => ops.empty(trash)} />
+        <ConfirmButton className="btn btn--danger" label="Empty trash" text={emptyWords(trash.length, trash.length - shown.length)} disabled={ops.busy} onConfirm={() => ops.empty(trash)} />
       )}
     </>
   ) : (
     newArtifact
   );
-  const search = inTrash ? "Search the trash" : "Search artifacts";
 
   return (
     <div className={inTrash ? "artifacts is-trash" : "artifacts"}>
@@ -338,7 +337,7 @@ export function ArtifactsPage({
         title={inTrash ? "Trash" : "Artifacts"}
         {...(source ? { count: source.length } : {})}
         subtitle={inTrash ? "Nothing is deleted on its own. Each stays as it was until you restore it or delete it forever." : "The pages, docs, decks and sheets KOS has made for you."}
-        search={<input className="list-search" type="search" placeholder={search} aria-label={search} value={query} onChange={(e) => setQuery(e.target.value)} />}
+        search={{ value: query, onChange: setQuery, noun: inTrash ? "the trash" : "artifacts" }}
         actions={actions}
       />
       {trashed && !inTrash && (
@@ -401,16 +400,7 @@ export function ArtifactsPage({
             {newArtifact}
           </div>
         ))}
-      {source && source.length > 0 && shown.length === 0 && (
-        <div className="artifacts-none">
-          <EmptyState variant="inline">No artifact matches these filters.</EmptyState>
-          {filtered && (
-            <button type="button" className="btn btn--ghost btn--sm" onClick={clearFilters}>
-              Clear filters
-            </button>
-          )}
-        </div>
-      )}
+      {source && source.length > 0 && shown.length === 0 && <EmptyState query={{ noun: inTrash ? "items in the trash" : "artifacts", onClear: clearFilters }} />}
       {shown.length > 0 && inTrash && (
         <TrashList items={shown} theme={theme} ops={ops} kindOf={kindWord} owner={(a) => <OwnerMark record={a} projects={projects} />} onOpen={onOpen} />
       )}

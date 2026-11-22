@@ -18,7 +18,7 @@ import { padDays } from "./chartdata.js";
 import { fitInside, place, type Placement } from "./popover.js";
 import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
-import { EmptyState } from "@kos/kit";
+import { EmptyState, SheetFoot } from "@kos/kit";
 
 /**
  * What KOS has spent.
@@ -445,23 +445,14 @@ export function SpendPanel(): ReactElement {
         subtitle="What each model costs, and how much it can hold"
         onClose={() => setEditing(false)}
         footer={
-          <>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => setEditing(false)}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn btn--primary"
-              disabled={saving}
-              onClick={save}
-            >
-              {saving ? "Saving…" : "Save rates"}
-            </button>
-          </>
+          <SheetFoot
+            onCancel={() => setEditing(false)}
+            primary={
+              <button type="button" className="btn btn--primary" disabled={saving} onClick={save}>
+                {saving ? "Saving…" : "Save"}
+              </button>
+            }
+          />
         }
       >
         <p className="hint">

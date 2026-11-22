@@ -2,7 +2,8 @@ import { useState, type ReactElement } from "react";
 
 import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
-import { Field } from "@kos/kit";
+import { kindWord } from "@kos/shared";
+import { Field, SheetFoot } from "@kos/kit";
 
 /**
  * New project: a name, a kind, and nothing else to decide, in a drawer so
@@ -16,6 +17,8 @@ import { Field } from "@kos/kit";
 
 /** The kinds a project usually is; anything else can be typed. */
 const KINDS = ["project", "tracker", "notes", "budget", "app", "research"];
+
+const FORM_ID = "new-project-form";
 
 export interface NewProjectDialogProps {
   open: boolean;
@@ -42,8 +45,24 @@ export function NewProjectDialog({ open, onClose, onCreate }: NewProjectDialogPr
       .finally(() => setCreating(false));
   };
   return (
-    <Drawer open={open} title="New project" subtitle="A name and a kind; empty until you or KOS put something in it" onClose={onClose}>
+    <Drawer
+      open={open}
+      title="New project"
+      subtitle="A name and a kind; empty until you or KOS put something in it"
+      onClose={onClose}
+      footer={
+        <SheetFoot
+          onCancel={onClose}
+          primary={
+            <button type="submit" form={FORM_ID} className="btn btn--primary" disabled={creating || !draft.name.trim()}>
+              {creating ? "Creating…" : "Create"}
+            </button>
+          }
+        />
+      }
+    >
       <form
+        id={FORM_ID}
         className="rename-form"
         onSubmit={(e) => {
           e.preventDefault();
@@ -58,20 +77,12 @@ export function NewProjectDialog({ open, onClose, onCreate }: NewProjectDialogPr
             className="settings-select"
             label="Kind"
             value={draft.kind}
-            options={[...KINDS.map((k) => ({ value: k, label: k })), { value: "other", label: "something else…" }]}
+            options={[...KINDS.map((k) => ({ value: k, label: kindWord(k) })), { value: "other", label: "Something else…" }]}
             onChange={(kind) => setDraft({ ...draft, kind })}
           />
           {draft.kind === "other" && <input className="kos-input" value={draft.other} placeholder="a word for what it is" onChange={(e) => setDraft({ ...draft, other: e.target.value })} />}
         </Field>
         {error && <p className="ops-alert ops-alert--err">{error}</p>}
-        <div className="rename-actions">
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn--primary" disabled={creating || !draft.name.trim()}>
-            {creating ? "Creating…" : "Create"}
-          </button>
-        </div>
       </form>
     </Drawer>
   );

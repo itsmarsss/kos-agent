@@ -27,7 +27,7 @@ import { chatShown, frameOf, hrefFor, pageKeyOf, parseRoute, type Route } from "
 import { Drawer } from "./Drawer.js";
 import { targetHref } from "./hashparams.js";
 import { CronEditor } from "./CronEditor.js";
-import { describeCron } from "./schedule.js";
+import { describeCron, scheduleWords } from "./schedule.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
@@ -791,10 +791,8 @@ export function App(): React.ReactElement {
             should be asked to hold. */}
         <Drawer
           open={editingCron !== null}
-          title={editingCron?.job ? editingCron.job.name : "New schedule"}
-          {...(editingCron?.job
-            ? { subtitle: `Cron #${editingCron.job.id}` }
-            : { subtitle: "Runs on its own, on a schedule you set" })}
+          title={editingCron?.job ? jobTitle(editingCron.job.name) : "New schedule"}
+          subtitle={editingCron?.job ? scheduleWords(editingCron.job.schedule) : "Runs on its own, on a schedule you set"}
           onClose={() => {
             setEditingCron(null);
             if (route.name === "crons" && route.job) window.location.hash = hrefFor({ name: "crons" });

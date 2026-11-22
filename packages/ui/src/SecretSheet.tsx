@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 
-import { Chips, Countdown, EmptyState, Field, hintWords, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
+import { Chips, Countdown, EmptyState, Field, hintWords, SheetFoot, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
 
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
@@ -77,9 +77,11 @@ export function SecretSheet({
       onClose={onClose}
       footer={
         readOnly ? undefined : (
-          <>
-            {editing && onDeleted && (
-              <span className="foot-start">
+          <SheetFoot
+            onCancel={onClose}
+            danger={
+              editing &&
+              onDeleted && (
                 <ConfirmButton
                   label="Delete"
                   className="btn btn--danger"
@@ -91,20 +93,21 @@ export function SecretSheet({
                       .catch((err: unknown) => setDeleteError(refusal(err)))
                   }
                 />
-              </span>
-            )}
-            <button type="button" className="btn" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" form={FORM_ID} className="btn btn--primary">
-              {editing ? "Save" : "Add secret"}
-            </button>
-            {deleteError && (
-              <span className="field-error" role="alert">
-                {deleteError}
-              </span>
-            )}
-          </>
+              )
+            }
+            note={
+              deleteError && (
+                <span className="field-error" role="alert">
+                  {deleteError}
+                </span>
+              )
+            }
+            primary={
+              <button type="submit" form={FORM_ID} className="btn btn--primary">
+                {editing ? "Save" : "Create"}
+              </button>
+            }
+          />
         )
       }
     >

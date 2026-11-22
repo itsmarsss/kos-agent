@@ -1,3 +1,4 @@
+import { EmptyState, GroupHead, TableHead } from "@kos/kit";
 import { Fragment, useMemo, useState } from "react";
 
 import { PageHead } from "./PageHead.js";
@@ -21,7 +22,12 @@ export function ListPage<T>(props: {
   columns: Column<T>[];
   rowKey: (row: T) => string | number;
   onRowClick: (row: T) => void;
+  /** What it says with nothing in it at all; a search that finds nothing says so in the kit's words. */
   empty?: string;
+  /** What the rows are, for "Search <noun>" and "No <noun> match": "schedules". */
+  noun?: string;
+  /** Puts the page's own filters back, with the search, from the no-match line's Clear filters. */
+  onClearFilters?: () => void;
   filters?: React.ReactNode;
   /** The page's tabs, under its head (`PageTabs`). */
   tabs?: React.ReactNode;
@@ -52,6 +58,11 @@ export function ListPage<T>(props: {
   stackOnPhone?: boolean;
 }): React.ReactElement {
   const [q, setQ] = useState("");
+  const noun = props.noun ?? props.title.toLowerCase();
+  const clearAll = (): void => {
+    setQ("");
+    props.onClearFilters?.();
+  };
   const foldKey = `kos.list.${props.title}.folded`;
   const [folded, setFolded] = useState<Set<string>>(() => {
     try {
@@ -95,15 +106,7 @@ export function ListPage<T>(props: {
       <PageHead
         title={props.title}
         {...(props.subtitle ? { subtitle: props.subtitle } : {})}
-        search={
-          <input
-            className="list-search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={`Search ${props.title.toLowerCase()}`}
-            aria-label={`Search ${props.title}`}
-          />
-        }
+        search={{ value: q, onChange: setQ, noun }}
         {...(props.toolbar ? { actions: props.toolbar } : {})}
         {...(props.tabs ? { tabs: props.tabs } : {})}
       />
@@ -115,23 +118,16 @@ export function ListPage<T>(props: {
         <table
           className={`ops-table ${props.fixedLayout ? "ops-table--fixed" : ""}`}
         >
-          <thead>
-            <tr>
-              {props.columns.map((c) => (
-                <th key={c.key} style={c.width ? { width: c.width } : undefined}>
-                  {c.header}
-                </th>
-              ))}
-            </tr>
-          </thead>
+          <TableHead columns={props.columns.map((c) => ({ label: c.header, ...(c.width ? { width: c.width } : {}) }))} />
           <tbody>
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={props.columns.length} className="ops-muted">
-                  {props.empty ?? "No rows"}
-                </td>
-              </tr>
-            )}
+            {filtered.length === 0 &&
+              (props.rows.length === 0 ? (
+                <EmptyState variant="row" columns={props.columns.length}>
+                  {props.empty ?? `No ${noun} yet.`}
+                </EmptyState>
+              ) : (
+                <EmptyState variant="row" columns={props.columns.length} query={{ noun, onClear: clearAll }} />
+              ))}
             {filtered.map((row, i) => {
               const group = props.groupBy?.(row);
               const previous =
@@ -139,16 +135,22 @@ export function ListPage<T>(props: {
               return (
                 <Fragment key={props.rowKey(row)}>
                   {group && group !== previous ? (
-                    <tr className={`list-group ${props.collapsible ? "is-foldable" : ""} ${group && folded.has(group) ? "is-folded" : ""}`}>
+                    <tr className={`table-group list-group ${props.collapsible ? "is-foldable" : ""} ${group && folded.has(group) ? "is-folded" : ""}`}>
                       <th colSpan={props.columns.length} scope="colgroup">
-                        {props.collapsible ? (
-                          <button type="button" className="list-group-fold" aria-expanded={!folded.has(group)} onClick={() => toggleFold(group)}>
-                            <span className="list-group-caret" aria-hidden="true">{folded.has(group) ? "▸" : "▾"}</span>
-                            {group}
-                          </button>
-                        ) : (
-                          group
-                        )}
+                        <GroupHead
+                          as="h3"
+                          count={filtered.filter((r) => props.groupBy?.(r) === group).length}
+                          title={
+                            props.collapsible ? (
+                              <button type="button" className="list-group-fold" aria-expanded={!folded.has(group)} onClick={() => toggleFold(group)}>
+                                <span className="list-group-caret" aria-hidden="true">{folded.has(group) ? "▸" : "▾"}</span>
+                                {group}
+                              </button>
+                            ) : (
+                              group
+                            )
+                          }
+                        />
                       </th>
                     </tr>
                   ) : null}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactElement } from "react";
 
-import { NavIcon, useOverlayScroll } from "@kos/kit";
+import { NavIcon, SheetFoot, useOverlayScroll } from "@kos/kit";
 
 import { Toast } from "../Toast.js";
 import { api, type Attachment, type DirEntry, type FileSearch, type Project } from "../api.js";
@@ -777,7 +777,9 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
       <Drawer open={infoPath !== null} title="Info" subtitle={infoPath ? (byPath.get(infoPath) ? kindOf(byPath.get(infoPath)!) : nameOf(infoPath) || rootName) : ""} onClose={() => setInfoPath(null)}
         footer={
           infoPath ? (
-            <div className="finder-info-acts">
+            <SheetFoot
+              primary={
+                <>
               {byPath.get(infoPath)?.kind === "file" && (
                 <button type="button" className="btn btn--sm" onClick={() => {
                   setSel(only(infoPath));
@@ -800,7 +802,9 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
                   Ask KOS about this
                 </button>
               )}
-            </div>
+                </>
+              }
+            />
           ) : undefined
         }
       >

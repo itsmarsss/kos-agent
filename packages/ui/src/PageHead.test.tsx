@@ -14,11 +14,12 @@ afterEach(() => {
 
 describe("a page's head", () => {
   it("says what the page is, then its tools, then its tabs, in that order", () => {
-    render(<PageHead title="Schedule" count={3} subtitle="Jobs KOS runs on its own." search={<input aria-label="Search" />} actions={<button type="button">New schedule</button>} tabs={<RunsTabs current="crons" />} />);
+    render(<PageHead title="Schedule" count={3} subtitle="Jobs KOS runs on its own." search={{ value: "", onChange: () => {}, noun: "schedules" }} actions={<button type="button">New schedule</button>} tabs={<RunsTabs current="crons" />} />);
     const head = screen.getByRole("banner");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Schedule3");
     const order = [...head.querySelectorAll("h1, p, input, button, nav")].map((e) => e.tagName);
     expect(order).toEqual(["H1", "P", "INPUT", "BUTTON", "NAV"]);
+    expect(screen.getByPlaceholderText("Search schedules")).toBeTruthy();
   });
 
   it("draws Runs' tabs as links to their pages, the open one marked as the page", () => {

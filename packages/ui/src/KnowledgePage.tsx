@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
-import { Chips, CloseIcon, Count, EditIcon, EmptyState, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
+import { Chips, CloseIcon, Count, EditIcon, EmptyState, SheetFoot, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
@@ -428,26 +428,28 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
         footer={
           open &&
           (edit ? (
-            <>
-              <button type="button" className="btn" onClick={() => setEdit(null)}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn--primary" disabled={saving || !edit.key.trim() || !edit.value.trim()} onClick={() => void saveEdit(open)}>
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </>
+            <SheetFoot
+              onCancel={() => setEdit(null)}
+              primary={
+                <button type="button" className="btn btn--primary" disabled={saving || !edit.key.trim() || !edit.value.trim()} onClick={() => void saveEdit(open)}>
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              }
+            />
           ) : (
-            <>
-              <span className="foot-start">
-                <ConfirmButton label="Forget" className="btn btn--danger" text={FORGET_TEXT} onConfirm={() => forget(open)} />
-              </span>
-              <button type="button" className="btn" onClick={() => togglePin(open)}>
-                {open.pinned ? "Unpin" : "Pin"}
-              </button>
-              <button type="button" className="btn btn--primary" onClick={() => startEdit(open)}>
-                Edit
-              </button>
-            </>
+            <SheetFoot
+              danger={<ConfirmButton label="Forget" className="btn btn--danger" text={FORGET_TEXT} onConfirm={() => forget(open)} />}
+              primary={
+                <>
+                  <button type="button" className="btn" onClick={() => togglePin(open)}>
+                    {open.pinned ? "Unpin" : "Pin"}
+                  </button>
+                  <button type="button" className="btn btn--primary" onClick={() => startEdit(open)}>
+                    Edit
+                  </button>
+                </>
+              }
+            />
           ))
         }
       >

@@ -1,7 +1,7 @@
 import { useRef, type ReactElement, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { CloseIcon, ease, IconButton, spring, useDismiss, useFocusTrap } from "@kos/kit";
+import { ease, SheetHead, spring, useDismiss, useFocusTrap } from "@kos/kit";
 
 
 /**
@@ -14,6 +14,7 @@ export function Modal({
   title,
   onClose,
   size,
+  footer,
   children,
 }: {
   open: boolean;
@@ -21,6 +22,8 @@ export function Modal({
   onClose: () => void;
   /** A short form (a name, a choice of place) in a narrower box than a dialog's usual. */
   size?: "sm";
+  /** Its `SheetFoot`, under the body, which scrolls above it. */
+  footer?: ReactNode;
   children: ReactNode;
 }): ReactElement {
   useDismiss(open, onClose, { away: false, scroll: false, resize: false, escape: "dialog" });
@@ -58,15 +61,11 @@ export function Modal({
             exit={{ opacity: 0, scale: 0.98, y: 4 }}
             transition={spring}
           >
-            <header className="modal-head">
-              <strong>{title}</strong>
-              <IconButton label="Close" onClick={onClose}>
-                <CloseIcon title="" />
-              </IconButton>
-            </header>
+            <SheetHead title={title} onClose={onClose} />
             <div className="modal-body" ref={body}>
               {children}
             </div>
+            {footer}
           </m.div>
           </div>
         </>
