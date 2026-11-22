@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactElement, type ReactNode } from "react";
 
-import { ChevronLeft, ChevronRight, Chips, ColumnsIcon, FolderPlusIcon, GridIcon, IconButton, InfoIcon, ListIcon, MoreIcon, SearchIcon, UploadIcon } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Chips, ColumnsIcon, FolderPlusIcon, GridIcon, IconButton, InfoIcon, ListIcon, MoreIcon, SearchField, SearchIcon, UploadIcon } from "@kos/kit";
 
 import { Select } from "../Select.js";
 import type { FinderView, Sort, SortKey } from "./model.js";
@@ -96,25 +96,23 @@ export function Toolbar(p: ToolbarProps): ReactElement {
           )}
         </div>
         {p.searchable && (
-          <label className="finder-search">
-            <SearchIcon size={13} title="" />
-            <input
-              ref={field}
-              type="search"
-              value={p.query}
-              placeholder="Search"
-              aria-label="Search this folder and below"
-              onChange={(e) => p.onQuery(e.target.value)}
-              onBlur={() => setSearchOpen(false)}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === "Escape") {
-                  p.onQuery("");
-                  setSearchOpen(false);
-                }
-              }}
-            />
-          </label>
+          <SearchField
+            className="finder-search"
+            inputRef={field}
+            noun="this folder"
+            label="Search this folder and below"
+            value={p.query}
+            onChange={p.onQuery}
+            onBlur={() => setSearchOpen(false)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") {
+                e.preventDefault();
+                p.onQuery("");
+                setSearchOpen(false);
+              }
+            }}
+          />
         )}
         <div className="finder-tools-narrow">
           {p.searchable && !searching && (

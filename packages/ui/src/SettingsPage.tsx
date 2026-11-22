@@ -1,6 +1,6 @@
 import { m } from "motion/react";
 import { marksOfLetters } from "@kos/shared";
-import { CloseIcon, ease, EmptyState, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, Switch, Tag, useOverlayScroll } from "@kos/kit";
+import { CloseIcon, ease, EmptyState, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, Switch, Tag, useOverlayScroll } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -680,16 +680,13 @@ export function SettingsPage({
     <div className="settings-page">
       <div className="set-side">
         <div className="set-search">
-          <input
-            ref={searchRef}
-            className="kos-input set-search-input"
-            type="search"
-            placeholder="Find a setting  /"
-            aria-label="Find a setting"
+          <SearchField
+            inputRef={searchRef}
+            className="set-search-input"
+            noun="settings"
             value={query}
-            spellCheck={false}
-            onChange={(e) => {
-              setQuery(e.target.value);
+            onChange={(v) => {
+              setQuery(v);
               setPicked(0);
             }}
             onKeyDown={(e) => {
@@ -700,6 +697,7 @@ export function SettingsPage({
                 e.preventDefault();
                 jump(hits[picked]!);
               } else if (e.key === "Escape") {
+                e.preventDefault();
                 setQuery("");
                 e.currentTarget.blur();
               }

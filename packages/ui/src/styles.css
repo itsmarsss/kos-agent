@@ -4070,6 +4070,7 @@ li:hover .chats-item-when { opacity: 0; }
    the sections, and the setting it opens flashed where it sits. */
 .set-search { padding-bottom: 0.6rem; }
 .set-search-input { width: 100%; }
+.set-search-input .search-field-input { height: var(--control-h); }
 .set-results { display: flex; flex-direction: column; gap: 0.15rem; }
 .set-results-none { padding: 0 0.7rem; }
 .is-found { border-radius: var(--r-sm); animation: set-found 1.8s ease-out; }
@@ -7809,7 +7810,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder-sortby .sel-button { min-width: 8rem; padding: 0 0.6rem; font-size: var(--text-base); }
 /* Every control in the bar one small height and the icon buttons square,
    where the views, the icons, the sort and the search sat at 23 to 30px. */
-.finder-toolbar :is(.chips button, .sel-button, .finder-search) { height: var(--control-h-sm); box-sizing: border-box; }
+.finder-toolbar :is(.chips button, .sel-button) { height: var(--control-h-sm); box-sizing: border-box; }
 .finder-toolbar .chips button { display: inline-flex; align-items: center; }
 .finder-toolbar .icon-btn { flex: none; width: var(--control-h-sm); height: var(--control-h-sm); }
 
@@ -7846,23 +7847,9 @@ button.finder-crumb:hover { background: color-mix(in srgb, var(--text) 7%, trans
 .finder-where-crumbs .finder-crumb:not(.is-here) { font-size: var(--text-base); }
 .finder-where-crumbs .finder-crumb.is-here { font-weight: 600; }
 .finder-title .finder-places .sel-button { padding: 0 0.6rem; font-size: var(--text-lg); font-weight: 600; border-color: transparent; background: none; }
-.finder-search {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex: 0 1 12rem;
-  min-width: 7rem;
-  padding: 0 0.55rem;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--bg);
-  color: var(--faint);
-  transition: border-color 140ms ease;
-}
-.finder-search:focus-within { border-color: var(--accent); color: var(--muted); }
-.finder-search input { all: unset; flex: 1; min-width: 0; font-size: var(--text-base); color: var(--text); }
-.finder-search input::placeholder { color: var(--faint); }
-.finder-search input::-webkit-search-cancel-button { display: none; }
+/* The kit's SearchField in the bar, at the bar's small height. */
+.finder-search { flex: 0 1 12rem; min-width: 7rem; }
+.finder-search .search-field-input { height: var(--control-h-sm); }
 
 .finder-body { flex: 1; min-height: 0; display: flex; }
 .finder-side {

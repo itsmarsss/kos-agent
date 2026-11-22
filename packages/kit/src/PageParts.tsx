@@ -1,4 +1,4 @@
-import { useRef, type ReactElement, type ReactNode } from "react";
+import { useImperativeHandle, useRef, type FocusEvent, type KeyboardEvent, type ReactElement, type ReactNode, type Ref } from "react";
 
 import { CloseIcon, SearchIcon } from "./icons.js";
 import { Count } from "./kit.js";
@@ -26,8 +26,31 @@ export function GroupHead({ title, count, action, as: Tag = "h2", id }: { title:
  * Escape clears too. Its placeholder is "Search <what>", the one pattern,
  * so a page names only what it holds.
  */
-export function SearchField({ value, onChange, noun, label, className, autoFocus }: { value: string; onChange: (v: string) => void; noun: string; label?: string; className?: string; autoFocus?: boolean }): ReactElement {
+export function SearchField({
+  value,
+  onChange,
+  noun,
+  label,
+  className,
+  autoFocus,
+  inputRef,
+  onKeyDown,
+  onBlur,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  noun: string;
+  label?: string;
+  className?: string;
+  autoFocus?: boolean;
+  /** The field itself, for a page that focuses it on a key (Settings' /). */
+  inputRef?: Ref<HTMLInputElement | null>;
+  /** Keys a page reads first (arrows through results); Escape still clears unless it stops it. */
+  onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
+  onBlur?: (e: FocusEvent<HTMLInputElement>) => void;
+}): ReactElement {
   const input = useRef<HTMLInputElement>(null);
+  useImperativeHandle(inputRef, () => input.current!, []);
   return (
     <label className={`search-field${className ? ` ${className}` : ""}`}>
       <SearchIcon />
@@ -40,7 +63,10 @@ export function SearchField({ value, onChange, noun, label, className, autoFocus
         aria-label={label ?? `Search ${noun}`}
         autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)}
+        {...(onBlur ? { onBlur } : {})}
         onKeyDown={(e) => {
+          onKeyDown?.(e);
+          if (e.defaultPrevented) return;
           if (e.key === "Escape" && value) {
             e.stopPropagation();
             onChange("");
