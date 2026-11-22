@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, StatusPill, When } from "@kos/kit";
+import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, pageArrive, StatusPill, When } from "@kos/kit";
 import { momentWords, timeCard } from "@kos/shared";
 
 import {
@@ -21,7 +21,7 @@ import {
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
-import { AnimatePresence, m } from "motion/react";
+import { m } from "motion/react";
 
 import { chatShown, frameOf, hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
@@ -759,24 +759,20 @@ export function App(): React.ReactElement {
           />
 
         {/* A page arriving. Keyed on the route so switching tabs is a change
-            the eye can follow rather than a swap between two frames. Short
-            and small: this is orientation, not decoration. The page carries
-            its own frame (a reading width and gutter, or the chat's full
-            bleed): on the main element the frame flipped the instant the
-            route changed, so the page still fading out jumped to the next
-            page's margins before it was gone. */}
-        <AnimatePresence mode="wait" initial={false}>
-          <m.div
-            key={pageKeyOf(route)}
-            className={`ops-page ops-page--${frameOf(route)}${route.name === "files" ? " ops-page--files" : route.name === "settings" ? " ops-page--split" : ""}`}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={ease}
-          >
-            {body}
-          </m.div>
-        </AnimatePresence>
+            the eye can follow, but never a frame with no page in it: the old
+            page goes at once and the new one is there from its first frame,
+            settling with the one ease (a fade from most of the way and an
+            8 px rise). Nothing waits on it. The page carries its own frame
+            (a reading width and gutter, or the chat's full bleed). */}
+        <m.div
+          key={pageKeyOf(route)}
+          className={`ops-page ops-page--${frameOf(route)}${route.name === "files" ? " ops-page--files" : route.name === "settings" ? " ops-page--split" : ""}`}
+          initial={pageArrive.initial}
+          animate={pageArrive.animate}
+          transition={ease}
+        >
+          {body}
+        </m.div>
 
         {/* A drawer: a schedule has a name, a cron line, a type and a body
             of actions, which is more than a dialog in the middle of the page
