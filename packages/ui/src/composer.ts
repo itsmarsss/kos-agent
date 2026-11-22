@@ -1,5 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 
+import { isCoarse } from "./touch.js";
+
 /** The composer after a send that failed: the words back, unless the owner has typed something new since. */
 export function backInComposer(now: string, sent: string): string {
   return now.trim() ? now : sent;
@@ -22,13 +24,18 @@ export function unsentHome(sent: { reached: boolean; command: boolean; midTurn: 
  * This is what every chat surface does, so anything else is a small daily
  * surprise. IME composition is excluded: pressing Enter to accept a candidate
  * would otherwise fire off a half-typed message.
+ *
+ * Under a finger it is the other way about, as in every phone's messages:
+ * the keyboard's Return starts a new line, which a phone's keyboard has no
+ * Shift+Return for, and the Send button beside the box sends.
  */
 export function composerKeyDown(
   event: KeyboardEvent<HTMLTextAreaElement>,
   send: () => void,
+  newlineOnEnter: boolean = isCoarse(),
 ): void {
   if (event.key !== "Enter") return;
-  if (event.shiftKey) return;
+  if (event.shiftKey || newlineOnEnter) return;
   if (event.nativeEvent.isComposing) return;
   event.preventDefault();
   send();
@@ -149,11 +156,24 @@ export function useAutoGrow(
     if (!el) return;
     // Reset first: without it the box can only ever get taller.
     el.style.height = "auto";
-    const line = parseFloat(getComputedStyle(el).lineHeight || "20") || 20;
-    const max = line * maxRows;
-    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
-    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+    const style = getComputedStyle(el);
+    const line = parseFloat(style.lineHeight || "20") || 20;
+    const pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    const { height, scrolls } = grownHeight(el.scrollHeight, line, pad, maxRows);
+    el.style.height = `${height}px`;
+    el.style.overflowY = scrolls ? "auto" : "hidden";
   }, [ref, value, maxRows]);
+}
+
+/**
+ * A box's height for what it holds, a whole number of its lines and never
+ * more than `maxRows` of them. The content's own height, taken as it came,
+ * grew the box by a line and a bit, then a line less a bit, as the
+ * fractions of a line height rounded one way and the other.
+ */
+export function grownHeight(contentHeight: number, line: number, pad: number, maxRows: number): { height: number; scrolls: boolean } {
+  const rows = Math.max(1, Math.round((contentHeight - pad) / line));
+  return { height: Math.min(rows, maxRows) * line + pad, scrolls: rows > maxRows };
 }
 
 /** Something in a draft that looks like a secret, where it is, and what it would be kept as. */

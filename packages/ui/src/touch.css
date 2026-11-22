@@ -113,3 +113,20 @@
     display: none;
   }
 }
+
+/* Typing into a chat on a phone, the keyboard takes half the screen: the
+   chat's head keeps only its title, on one line, and the room goes to the
+   messages. It was the crumbs, a title on two lines and its brief, 150 px of
+   a 500 px window. */
+@media (pointer: coarse) and (max-width: 860px) {
+  .chats:has(.composer-input textarea:focus) .chats-view-head :is(.chats-view-path, .chats-lineage, .chats-brief, .chats-meta) {
+    display: none;
+  }
+  .chats:has(.composer-input textarea:focus) .chats-view-head h1 {
+    display: block;
+    overflow: hidden;
+    font-size: var(--text-lg);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
