@@ -128,20 +128,17 @@ describe("the approval card", () => {
     expect(onDecide).toHaveBeenLastCalledWith(true);
   });
 
-  it("denies on Escape or ⌘⌫ on the card itself, not on what is inside it", () => {
+  it("denies on ⌘⌫ on the card itself, never on Escape", () => {
     const one = card();
     settle();
-    fireEvent.keyDown(screen.getByRole("button", { name: "Details" }), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Details" }), { key: "Backspace", metaKey: true });
     expect(one.onDecide).not.toHaveBeenCalled();
     fireEvent.keyDown(one.section, { key: "Backspace" });
-    expect(one.onDecide).not.toHaveBeenCalled();
     fireEvent.keyDown(one.section, { key: "Escape" });
-    expect(one.onDecide).toHaveBeenLastCalledWith(false);
-    cleanup();
-    const two = card();
-    settle();
-    fireEvent.keyDown(two.section, { key: "Backspace", metaKey: true });
-    expect(two.onDecide).toHaveBeenCalledWith(false);
+    expect(one.onDecide).not.toHaveBeenCalled();
+    expect(one.section.getAttribute("aria-keyshortcuts")).not.toMatch(/Escape/);
+    fireEvent.keyDown(one.section, { key: "Backspace", metaKey: true });
+    expect(one.onDecide).toHaveBeenCalledWith(false);
   });
 
   it("offers no Approve for an ask too long to have been sent whole", () => {
@@ -387,7 +384,9 @@ describe("an ask for a one-time code", () => {
 });
 
 describe("the focus after a decision", () => {
-  it("goes on to the next ask's Approve, or to what the surface marked, never to the page", async () => {
+  const frame = (): Promise<void> => act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+
+  it("goes to what the surface marked when no ask is left, never to the page", async () => {
     const box = document.createElement("textarea");
     box.setAttribute("data-after-ask", "");
     document.body.append(box);
@@ -397,9 +396,45 @@ describe("the focus after a decision", () => {
     deny.focus();
     fireEvent.click(deny);
     unmount();
-    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    await frame();
     expect(document.activeElement).toBe(box);
     box.remove();
+  });
+
+  it("goes to the next card, whose Enter is not a yes until the owner goes to it", async () => {
+    const first = vi.fn();
+    const next = vi.fn();
+    const Two = ({ both }: { both: boolean }) => (
+      <>
+        {both && <AskCard view={{ title: "Run: ls" }} tool="shell.run" onDecide={first} />}
+        <AskCard view={{ title: "Run: rm -rf build" }} tool="shell.run" onDecide={next} />
+      </>
+    );
+    const { rerender, container } = render(<Two both />);
+    settle();
+    const [one] = [...container.querySelectorAll<HTMLElement>(".kos-ask")];
+    const keyboard = (el: HTMLElement): void => void vi.spyOn(el, "matches").mockImplementation((q: string) => q === ":focus-visible");
+    keyboard(one!);
+    one!.focus();
+    fireEvent.keyDown(one!, { key: "Enter" });
+    expect(first).toHaveBeenCalledWith(true);
+    rerender(<Two both={false} />);
+    await frame();
+    const two = container.querySelector<HTMLElement>(".kos-ask")!;
+    // The card, not its Approve: a second Enter lands on a card that says what it is.
+    expect(document.activeElement).toBe(two);
+    keyboard(two);
+    settle();
+    fireEvent.keyDown(two, { key: "Enter" });
+    expect(next).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toMatch(/next ask/i);
+    // Gone to on purpose (Tab to a button and back): now Enter is a yes.
+    const approve = screen.getByRole("button", { name: "Approve" });
+    fireEvent.blur(two, { relatedTarget: approve });
+    fireEvent.focus(approve);
+    two.focus();
+    fireEvent.keyDown(two, { key: "Enter" });
+    expect(next).toHaveBeenCalledWith(true);
   });
 });
 
