@@ -1,7 +1,7 @@
 import { useRef, type ReactElement, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease, SheetHead, spring, useDismiss, useFocusTrap } from "@kos/kit";
+import { ease, SheetHead, spring, useFocusTrap } from "@kos/kit";
 
 
 /**
@@ -26,11 +26,10 @@ export function Modal({
   footer?: ReactNode;
   children: ReactNode;
 }): ReactElement {
-  useDismiss(open, onClose, { away: false, scroll: false, resize: false, escape: "dialog" });
-  // The tab key stays in the dialog, and the focus goes back to what opened it.
+  // The focus goes in, the tab key stays in, Escape shuts it, and the focus goes back to what opened it.
   const box = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
-  useFocusTrap(box, open, body);
+  useFocusTrap(box, open, { start: body, onEscape: onClose });
 
   return (
     <AnimatePresence>

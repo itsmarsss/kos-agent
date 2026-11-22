@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactElement, type ReactNode, type WheelEvent } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { ChevronLeft, ChevronRight, CloseIcon, CopyIcon, DownloadIcon, ease, IconButton, PictureViewer, spring, useDismiss, useFocusTrap } from "@kos/kit";
+import { ChevronLeft, ChevronRight, CloseIcon, CopyIcon, DownloadIcon, ease, IconButton, PictureViewer, spring, useFocusTrap } from "@kos/kit";
 
 /** One picture the viewer shows: where it is, the step's words, and when. */
 export interface Shown {
@@ -109,8 +109,7 @@ export function Lightbox({ pictures, index, onIndex, onClose }: { pictures: Show
   const [copied, setCopied] = useState(false);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ x: number; y: number; view: View; distance: number; moved: number } | null>(null);
-  useDismiss(open, onClose, { away: false, scroll: false, resize: false, escape: "dialog" });
-  useFocusTrap(box, open);
+  useFocusTrap(box, open, { onEscape: onClose });
 
   const go = (to: number): void => {
     if (index === null || to < 0 || to >= pictures.length) return;
