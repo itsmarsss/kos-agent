@@ -632,14 +632,20 @@ export function App(): React.ReactElement {
     if (Number.isInteger(id)) void decide(id, approved, remember, code);
   };
 
+  // A drawer belongs to the page it was opened over: leaving the page shuts it.
+  const pageKey = pageKeyOf(route);
+  useEffect(() => setInspect(null), [pageKey]);
+  /** What the drawer shows, kept while it shuts so it leaves with what it held. */
+  const lastInspect = useRef<string | null>(null);
   const inspectKey =
     inspect == null
-      ? "none"
+      ? lastInspect.current
       : inspect.kind === "tool"
         ? `tool-${inspect.data.id}`
         : inspect.kind === "run"
           ? `run-${inspect.data.id}`
           : `project-${inspect.data.slug}`;
+  lastInspect.current = inspectKey;
 
   /** A project's threads open inside the project; the rest open in Chats. */
   const openConversation = (id: string): void => {
@@ -713,16 +719,13 @@ export function App(): React.ReactElement {
         onCopyWorkspace={() => void copyWorkspace()}
         onToggleKill={() => void toggleKill()}
       />
-      <main className="ops">
+      <main className="ops" tabIndex={-1} data-focus-home>
         <HostBanner reach={reach} />
         <Toast note={toast} />
-        {/* Wrapped so it unmounts: the panel returned null when closed, which
-            skips the exit animation entirely and makes a drawer vanish rather
-            than close. */}
-        <AnimatePresence>
-          {inspect && (
+        {/* Keyed on what it shows, and still keyed on it while it shuts, so
+            the drawer leaves with what it held rather than vanishing. */}
           <Inspector
-            key={inspectKey}
+            key={inspectKey ?? "none"}
             target={inspect}
             onClose={() => setInspect(null)}
             onOpenPage={openPage}
@@ -752,8 +755,6 @@ export function App(): React.ReactElement {
             }}
             onDeleteProject={deleteProject}
           />
-          )}
-        </AnimatePresence>
 
         {/* A page arriving. Keyed on the route so switching tabs is a change
             the eye can follow rather than a swap between two frames. Short

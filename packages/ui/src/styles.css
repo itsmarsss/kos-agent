@@ -147,6 +147,8 @@ select {
   gap: 0.75rem;
   min-height: 100vh;
 }
+/* The page's region takes the focus a sheet or a page move hands back; it is not a control, so no ring. */
+.ops:focus { outline: none; }
 
 .ops-top {
   display: flex;
@@ -1248,65 +1250,9 @@ select {
   background: var(--accent-dim);
 }
 
-/* —— inspector drawer —— */
-.insp-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  justify-content: flex-end;
-}
-
-.insp-panel {
-  /* 440px was too narrow for what it holds: a page spec, a table listing or a
-     tool's arguments all wrapped into unreadable columns. */
-  width: min(720px, 100vw);
-  height: 100%;
-  background: var(--panel);
-  border-left: 1px solid var(--line-strong);
-  box-shadow: var(--float);
-  display: flex;
-  flex-direction: column;
-}
-
-@keyframes insp-in {
-  from {
-    transform: translateX(12px);
-    opacity: 0.6;
-  }
-  to {
-    transform: none;
-    opacity: 1;
-  }
-}
-
-.insp-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  align-items: flex-start;
-  padding: 0.85rem 0.9rem;
-  border-bottom: 1px solid var(--line);
-}
-
-.insp-kicker {
-  font-size: var(--text-base);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--faint);
-}
-
-.insp-title {
-  margin: 0.15rem 0 0.1rem;
-  font-size: var(--text-xl);
-  font-weight: 600;
-  word-break: break-word;
-}
-
+/* —— inspector drawer ——
+   A run, a tool call or a project, in the one Drawer. */
 .insp-body {
-  padding: 0.75rem 0.9rem 1.5rem;
-  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1473,16 +1419,6 @@ select {
   margin: 0.1rem 0 0;
   font-size: var(--text-base);
   overflow-wrap: anywhere;
-}
-
-.insp-foot {
-  margin-top: auto;
-  padding: 0.65rem 0.9rem;
-  border-top: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
 }
 
 /* —— primary nav —— */
@@ -5421,6 +5357,8 @@ a.health {
 }
 
 .drawer--wide { width: min(56rem, 100vw); }
+/* A sheet floats in with a fade and a scale from 0.98, held at the edge it hangs from. */
+.drawer { transform-origin: right center; }
 
 .drawer-body {
   flex: 1;
@@ -7125,7 +7063,7 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .hero-mark--letter { font-weight: 700; font-size: var(--text-md); line-height: 1; }
 
 /* The project drawer's head: the mark on its colour, the words, Edit beside Close. */
-.insp-head--hero { align-items: flex-start; background: linear-gradient(180deg, hsl(var(--blob-h, 214) 72% 62% / 0.12), transparent); }
+.insp-hero-row { display: flex; align-items: flex-start; gap: 0.75rem; }
 .insp-hero { display: flex; align-items: flex-start; gap: 0.8rem; flex: 1; min-width: 0; }
 .insp-hero-words { min-width: 0; }
 .insp-hero-words .insp-desc { margin: 0.3rem 0 0; }
