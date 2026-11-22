@@ -34,7 +34,7 @@ describe("the schedule picker", () => {
   it("lets the line be edited as text, and keeps one it cannot read as custom", () => {
     const onChange = vi.fn();
     render(<SchedulePicker value="0 9 * * *" onChange={onChange} />);
-    fireEvent.click(screen.getByRole("button", { name: "Edit as cron" }));
+    fireEvent.click(screen.getByRole("button", { name: "Write the line" }));
     const line = screen.getByLabelText("The cron line") as HTMLInputElement;
     expect(line.value).toBe("0 9 * * *");
     fireEvent.change(line, { target: { value: "0 9 * 6 *" } });

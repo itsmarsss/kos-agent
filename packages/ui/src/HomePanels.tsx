@@ -523,13 +523,13 @@ export function Panel({
                   <span className="panel-stat-label">tokens out</span>
                 </div>
               </div>
-              {/* A link under the figures, not a figure among them: drawn as a stat, the words read as a number. */}
+              {/* Under the figures, not a figure among them; the same secondary Set rates as Settings, Spend. */}
               {!priced && (
-                <p className="panel-note hint">
-                  <button type="button" className="link" onClick={() => onGo("settings", "spend")}>
+                <p className="panel-note hint panel-rates">
+                  No rates yet, so no cost.
+                  <button type="button" className="btn btn--sm" onClick={() => onGo("settings", "spend")}>
                     Set rates
-                  </button>{" "}
-                  to see the cost.
+                  </button>
                 </p>
               )}
               {/* One bar per day of everything sent and received. Input is

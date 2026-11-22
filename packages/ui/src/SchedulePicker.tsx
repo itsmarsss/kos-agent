@@ -151,7 +151,7 @@ export function SchedulePicker({ value, onChange, allowNone = false }: ScheduleP
         <span className={`cron-reads${bad ? " is-bad" : ""}`}>{words}</span>
         {!none && shape.kind !== "custom" && (
           <button type="button" className="link sched-toggle" aria-expanded={showRaw} onClick={() => setShowRaw((v) => !v)}>
-            {showRaw ? "Hide the line" : "Edit as cron"}
+            {showRaw ? "Hide the line" : "Write the line"}
           </button>
         )}
       </div>

@@ -1,10 +1,11 @@
 import { timeWords } from "@kos/shared";
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
-import { Chips, CloseIcon, Count, EditIcon, EmptyState, SheetFoot, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
+import { Chips, CloseIcon, Count, EditIcon, EmptyState, Field, GroupHead, IconButton, PinIcon, SheetFoot, Tag, UnpinIcon } from "@kos/kit";
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
+import { Modal } from "./Modal.js";
 import { useEdgeFade } from "./edgefade.js";
 import { useHashParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
@@ -29,10 +30,16 @@ export interface KnowledgePageProps {
   /** The new-claim form is open: its button is the page head's, so the page owns this. */
   adding: boolean;
   onAdding: (open: boolean) => void;
+  /** The words searched for: the search box is the page head's, so the page owns them. */
+  query: string;
+  onQuery: (query: string) => void;
   /** Projects by slug from the manifest, so a project's claims are headed by its name; absent until it is read. */
   projectNames?: ReadonlyMap<string, string>;
   onChanged: () => void;
 }
+
+/** The new-claim form, for its sheet's Create. */
+const ADD_FORM = "new-claim-form";
 
 /** Rows a scope shows before "Show all". */
 export const SCOPE_FIRST = 8;
@@ -42,7 +49,7 @@ export function sourceWord(source: string | null | undefined): string | null {
   if (!source) return null;
   if (source === "dashboard" || source === "owner") return "you";
   if (source === "agent") return "KOS";
-  if (source.startsWith("cron:")) return `job #${source.slice("cron:".length)}`;
+  if (source.startsWith("cron:")) return "a schedule";
   if (source.startsWith("caller:")) return source.slice("caller:".length);
   if (source.startsWith("project:")) return source.slice("project:".length);
   return "a chat";
@@ -161,9 +168,8 @@ function splitTags(text: string): string[] {
     .filter(Boolean);
 }
 
-export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onChanged }: KnowledgePageProps): ReactElement {
+export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: setQuery, projectNames, onChanged }: KnowledgePageProps): ReactElement {
   const kindsRef = useEdgeFade<HTMLDivElement>(".chips");
-  const [query, setQuery] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);
   const [only, setOnly] = useState(() => idsInHash(window.location.hash));
@@ -278,10 +284,6 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
     <div className="know">
       {facts.length > 0 && (
         <div className="know-bar">
-          <label className="know-search">
-            <SearchIcon size={14} title="" />
-            <input type="search" value={query} placeholder="Search claims" aria-label="Search claims" onChange={(e) => setQuery(e.target.value)} />
-          </label>
           {only && (
             <Tag title="The claims a turn was given from memory" remove={{ label: "Show every claim", onRemove: showAll }}>
               Recalled for a turn
@@ -302,29 +304,43 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
         </div>
       )}
 
-      {adding && (
+      <Modal
+        open={adding}
+        title="New claim"
+        size="sm"
+        onClose={() => onAdding(false)}
+        footer={
+          <SheetFoot
+            onCancel={() => onAdding(false)}
+            primary={
+              <button type="submit" form={ADD_FORM} className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
+                Create
+              </button>
+            }
+          />
+        }
+      >
         <form
-          className="know-add"
+          id={ADD_FORM}
+          className="rename-form"
           onSubmit={(e) => {
             e.preventDefault();
             void save();
           }}
         >
-          <input className="kos-input kos-mono" aria-label="Key" placeholder="key, e.g. deploy_target" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
-          <input className="kos-input" aria-label="What to remember" placeholder="what to remember" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
-          <input className="kos-input" aria-label="Tags" placeholder="tags, comma separated" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
-          <span className="know-add-acts">
-            <button type="button" className="btn btn--ghost" onClick={() => onAdding(false)}>
-              Cancel
-            </button>
-            <button type="submit" className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
-              Save
-            </button>
-          </span>
+          <Field label="Key" required hint="A short name to find it by, such as deploy_target.">
+            <input className="kos-input kos-mono" autoFocus value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
+          </Field>
+          <Field label="What to remember" required>
+            <input className="kos-input" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
+          </Field>
+          <Field label="Tags" hint="Comma separated.">
+            <input className="kos-input" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
+          </Field>
         </form>
-      )}
+      </Modal>
 
-      {facts.length === 0 && !adding && (
+      {facts.length === 0 && (
         <EmptyState title="Nothing remembered yet." className="know-empty">
           KOS keeps what you tell it and what its agents work out, for every chat to read. Pin what should be in every conversation.{" "}
           <button type="button" className="link" onClick={() => onAdding(true)}>
@@ -333,31 +349,28 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
         </EmptyState>
       )}
 
-      {facts.length > 0 && groups.length === 0 && (
-        <EmptyState title="No claims match." className="know-none">
-          Nothing in memory fits these words and filters.{" "}
-          <button type="button" className="link" onClick={clear}>
-            Clear the filters
-          </button>
-        </EmptyState>
-      )}
+      {facts.length > 0 && groups.length === 0 && <EmptyState className="know-none" query={{ noun: "claims", onClear: clear }} />}
 
       {groups.map((g) => {
         const all = filtered || whole.has(g.scope) || g.facts.length <= SCOPE_FIRST;
         const shown = all ? g.facts : g.facts.slice(0, SCOPE_FIRST);
         return (
           <section key={g.scope} className="know-group" aria-label={g.title}>
-            <h2 className="know-group-title">
-              {g.project ? (
-                <a className="know-group-link" href={hrefFor({ name: "project", slug: g.project })}>
-                  {g.title}
-                </a>
-              ) : (
-                <span className={g.unknown ? "know-group-slug" : undefined}>{g.title}</span>
-              )}
-              {g.kind && <span className={`know-group-kind${g.unknown ? " is-unknown" : ""}`}>{g.kind}</span>}
-              <Count n={g.facts.length} />
-            </h2>
+            <GroupHead
+              count={g.facts.length}
+              title={
+                <>
+                  {g.project ? (
+                    <a className="know-group-link" href={hrefFor({ name: "project", slug: g.project })}>
+                      {g.title}
+                    </a>
+                  ) : (
+                    <span className={g.unknown ? "know-group-slug" : undefined}>{g.title}</span>
+                  )}
+                  {g.kind && <span className={`know-group-kind${g.unknown ? " is-unknown" : ""}`}>{g.kind}</span>}
+                </>
+              }
+            />
             <ul className="know-list">
               {shown.map((f) => (
                 <li key={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={roveRow}>

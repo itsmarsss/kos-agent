@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
 import { Chips, EmptyState, Pill, Switch, Tag } from "@kos/kit";
-import { momentWords, timeWords } from "@kos/shared";
+import { kindWord, momentWords, slugWords, timeWords } from "@kos/shared";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 import { PageHead, PageTabs, tabId } from "./PageHead.js";
 import { useHashParam } from "./hashparams.js";
 import { hrefFor } from "./routes.js";
+import { scheduleWords } from "./schedule.js";
+import { jobTitle, lastRunWords } from "./schedulewords.js";
 
 /**
  * Memory, in one place.
@@ -25,7 +27,7 @@ const TABS: { id: Tab; label: string; blurb: string }[] = [
   { id: "decisions", label: "Decisions", blurb: "What Tidy could not settle on its own, and what was settled." },
   { id: "pages", label: "Pages", blurb: "Memory in prose, written from the claims and yours to edit." },
   { id: "log", label: "Log", blurb: "Everything said, searched by words and by meaning." },
-  { id: "jobs", label: "Schedule", blurb: "Read, Tidy and Condense: the three jobs that keep memory, and when they run." },
+  { id: "jobs", label: "Schedule", blurb: "Read, Tidy and Condense: the three schedules that keep memory, and when they run." },
   { id: "callers", label: "Callers", blurb: "Other programs that share memory, and what each may see." },
 ];
 
@@ -62,6 +64,9 @@ export function MemoryPage({
   };
   /** The new-claim form, opened from the page head. */
   const [adding, setAdding] = useState(false);
+  // The head's search is the open tab's: the claims', or the log's.
+  const [claimsQuery, setClaimsQuery] = useState("");
+  const [logQuery, setLogQuery] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
   useEffect(() => {
     void api.memoryReview().then((r) => setPendingCount(r.pending.length)).catch(() => undefined);
@@ -73,13 +78,16 @@ export function MemoryPage({
         subtitle={TABS.find((t) => t.id === tab)!.blurb}
         {...(tab === "claims"
           ? {
+              search: { value: claimsQuery, onChange: setClaimsQuery, noun: "claims" },
               actions: (
-                <button type="button" className="btn btn--primary" aria-expanded={adding} onClick={() => setAdding((v) => !v)}>
-                  {adding ? "Cancel" : "New claim"}
+                <button type="button" className="btn btn--primary" onClick={() => setAdding(true)}>
+                  New claim
                 </button>
               ),
             }
-          : {})}
+          : tab === "log"
+            ? { search: { value: logQuery, onChange: setLogQuery, noun: "the log" } }
+            : {})}
         tabs={
           <PageTabs
             label="Memory"
@@ -99,10 +107,10 @@ export function MemoryPage({
         }
       />
       <div id="mem-panel" role="tabpanel" aria-labelledby={tabId("Memory", tab)} className="mem-panel">
-      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
+      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} query={claimsQuery} onQuery={setClaimsQuery} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}
-      {tab === "log" && <LogTab titles={titles} />}
+      {tab === "log" && <LogTab titles={titles} query={logQuery} {...(projectNames ? { projectNames } : {})} />}
       {tab === "jobs" && <JobsTab />}
       {tab === "callers" && <CallersTab />}
       </div>
@@ -371,8 +379,14 @@ function PagesTab(): ReactElement {
   );
 }
 
-function LogTab({ titles }: { titles: Map<string, string> }): ReactElement {
-  const [query, setQuery] = useState("");
+/** Who said a line of the log, by the names the Words table gives: KOS's replies are KOS's. */
+function speaker(role: string): string {
+  if (role === "agent" || role === "assistant") return "KOS";
+  if (role === "user" || role === "owner") return "You";
+  return kindWord(role);
+}
+
+function LogTab({ titles, query, projectNames }: { titles: Map<string, string>; query: string; projectNames?: ReadonlyMap<string, string> }): ReactElement {
   const [events, setEvents] = useState<{ id: number; ts: number; role: string; text: string; projectSlug: string | null; conversationId: string | null; caller: string; trust: string; shadowed: boolean }[]>([]);
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -382,16 +396,15 @@ function LogTab({ titles }: { titles: Map<string, string> }): ReactElement {
   }, [query]);
   return (
     <Group title="Log" shown={false} blurb="Every message in and out, kept. Searched by words and by meaning at once; shadowed means out of a thread's context, still here.">
-      <input className="list-search mem-search" placeholder="Search the log" aria-label="Search the log" value={query} onChange={(e) => setQuery(e.target.value)} />
-      {events.length === 0 && <p className="hint">{query ? "Nothing matches." : "Nothing said yet."}</p>}
+      {events.length === 0 && (query ? <EmptyState variant="inline" query={{ noun: "messages" }} /> : <EmptyState variant="inline">Nothing said yet.</EmptyState>)}
       {events.map((e) => (
         <div key={e.id} className={`mem-event ${e.shadowed ? "is-shadowed" : ""}`}>
           <div className="mem-event-meta">
-            <Tag>{e.role}</Tag>
+            <Tag>{speaker(e.role)}</Tag>
             {e.trust === "external" && <Pill tone="warn">via {e.caller}</Pill>}
-            {e.projectSlug && <span className="ops-mono">{e.projectSlug}</span>}
+            {e.projectSlug && <span className="ops-muted" title={e.projectSlug}>{projectNames?.get(e.projectSlug) ?? slugWords(e.projectSlug)}</span>}
             {e.conversationId && (
-              <a className="ops-muted" href={`#/chats/${encodeURIComponent(e.conversationId)}`}>
+              <a className="link link--quiet" href={`#/chats/${encodeURIComponent(e.conversationId)}`}>
                 {titles.get(e.conversationId) ?? "a deleted chat"}
               </a>
             )}
@@ -404,10 +417,10 @@ function LogTab({ titles }: { titles: Map<string, string> }): ReactElement {
   );
 }
 
-const JOBS: { name: string; label: string; what: string }[] = [
-  { name: "kos.memory", label: "Read", what: "reads what was said since it last looked and keeps what matters, citing its sources" },
-  { name: "kos.dream", label: "Tidy", what: "merges duplicates, archives the stale, flags what it cannot settle, writes the pages" },
-  { name: "kos.observe", label: "Condense", what: "stands a dated note in for the older part of a long thread" },
+const JOBS: { name: string; what: string }[] = [
+  { name: "kos.memory", what: "reads what was said since it last looked and keeps what matters, citing its sources" },
+  { name: "kos.dream", what: "merges duplicates, archives the stale, flags what it cannot settle, writes the pages" },
+  { name: "kos.observe", what: "stands a dated note in for the older part of a long thread" },
 ];
 
 function JobsTab(): ReactElement {
@@ -421,7 +434,7 @@ function JobsTab(): ReactElement {
   }, []);
   useEffect(load, [load]);
   return (
-    <Group title="Memory jobs" blurb="Memory is maintained by KOS itself, as scheduled jobs you can read, edit on the Schedule page, switch, and run now. Each runs on the model class it names.">
+    <Group title="Memory's schedules" blurb="Memory is kept by KOS itself, on schedules you can read, change on the Schedule page, switch off, and run now. Each runs on the model class it names.">
       {unread && <p className="hint">Unread by memory: {unread.count} messages, about {Math.round(unread.chars / 1000)}k characters.</p>}
       {JOBS.map((j) => {
         const job = crons.find((c) => c.name === j.name);
@@ -430,10 +443,11 @@ function JobsTab(): ReactElement {
           <div key={j.name} className="mem-job">
             <div className="mem-job-main">
               <div className="mem-job-title">
-                <strong>{j.label}</strong> <span className="ops-mono ops-muted">{j.name}</span>
-                <Pill tone={job.enabled ? "ok" : "muted"}>{job.enabled ? "On schedule" : "Off"}</Pill>
+                <strong title={j.name}>{jobTitle(j.name)}</strong>
               </div>
-              <div className="hint">{j.what} · {job.schedule} · {job.task ?? "reasoning"} route{job.lastRunAt ? ` · last ran ${momentWords(job.lastRunAt)}` : " · never run"}</div>
+              <div className="hint">
+                {j.what} · <span title={job.schedule}>{scheduleWords(job.schedule)}</span> · {job.task ?? "reasoning"} route · last run {lastRunWords(job.lastRunAt).toLowerCase()}
+              </div>
               {said[job.id] && <div className="mem-job-said">{said[job.id]}</div>}
             </div>
             <div className="mem-actions">
@@ -444,7 +458,7 @@ function JobsTab(): ReactElement {
                   setSaid((s) => ({ ...s, [job.id]: text }));
                 }).catch((err: unknown) => setSaid((s) => ({ ...s, [job.id]: err instanceof Error ? err.message : String(err) }))).finally(() => { setBusy(null); load(); });
               }}>{busy === job.id ? "Running…" : "Run now"}</button>
-              <Switch label={`${j.label} on schedule`} on={job.enabled} onChange={(on) => void api.setCronEnabled(job.id, on).then(load, load)} />
+              <Switch label={`${jobTitle(j.name)} on`} on={job.enabled} onChange={(on) => void api.setCronEnabled(job.id, on).then(load, load)} />
             </div>
           </div>
         );

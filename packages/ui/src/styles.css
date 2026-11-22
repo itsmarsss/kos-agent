@@ -2061,10 +2061,15 @@ select {
   background: none;
   color: var(--accent);
   text-decoration: none;
-  font-size: var(--text-md);
+  font: inherit;
   cursor: pointer;
 }
 .link:hover { text-decoration: underline; }
+/* The one quieter link: a name in a row of facts (a log line's chat), muted
+   until the pointer is on it. Every other link in the dashboard's own words
+   is .link; KOS's prose keeps its underline (design.md, Chat). */
+.link--quiet { color: var(--muted); }
+.link--quiet:hover { color: var(--text); }
 
 .feed { list-style: none; margin: 0; padding: 0; }
 .feed-item > button {
@@ -4774,6 +4779,7 @@ body.is-arranging { user-select: none; }
 .panel--bad { border-color: var(--danger); }
 .panel-head { margin-bottom: 0.6rem; }
 .panel-more { font-size: var(--text-sm); }
+.panel-rates { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .panel-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .panel-list > li { border-bottom: 1px solid var(--line); }
 .panel-list > li:last-child { border-bottom: 0; }
