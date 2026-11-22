@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 
 import { m } from "motion/react";
-import { useDismiss } from "@kos/kit";
+import { CheckIcon, useDismiss } from "@kos/kit";
 
 /**
  * The file manager's menu: what a right click on a row or the ⋯ in the
@@ -20,6 +20,8 @@ export interface MenuItem {
   disabled?: boolean;
   /** The keys that do the same, said at the right. */
   keys?: string;
+  /** One of a set of choices (the view, the sort): ticked when it is the one in force. */
+  checked?: boolean;
 }
 
 export function FinderMenu({ at, items, onClose, label }: { at: { x: number; y: number }; items: MenuItem[]; onClose: () => void; label: string }): ReactElement {
@@ -31,7 +33,7 @@ export function FinderMenu({ at, items, onClose, label }: { at: { x: number; y: 
     if (!box) return;
     setPlace({
       left: Math.max(8, Math.min(at.x, window.innerWidth - box.width - 8)),
-      top: at.y + box.height > window.innerHeight - 8 ? Math.max(8, at.y - box.height) : at.y,
+      top: at.y + box.height <= window.innerHeight - 8 ? at.y : Math.max(8, Math.min(at.y - box.height, window.innerHeight - box.height - 8)),
     });
     ref.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [at.x, at.y]);
@@ -61,15 +63,17 @@ export function FinderMenu({ at, items, onClose, label }: { at: { x: number; y: 
         <button
           key={item.label}
           type="button"
-          role="menuitem"
-          className={`${item.danger ? "is-danger" : ""}${item.divided ? " is-divided" : ""}`}
+          role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+          aria-checked={item.checked}
+          className={`${item.danger ? "is-danger" : ""}${item.divided ? " is-divided" : ""}${item.checked === undefined ? "" : " is-choice"}`}
           disabled={item.disabled}
           onClick={() => {
             onClose();
             item.act();
           }}
         >
-          <span>{item.label}</span>
+          {item.checked !== undefined && <span className="finder-menu-tick">{item.checked && <CheckIcon size={13} title="" />}</span>}
+          <span className="finder-menu-label">{item.label}</span>
           {item.keys && <kbd className="finder-menu-keys">{item.keys}</kbd>}
         </button>
       ))}

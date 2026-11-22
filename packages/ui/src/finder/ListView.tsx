@@ -6,8 +6,8 @@ import { bytesWords } from "@kos/shared";
 import type { DirEntry } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { FILES_LAYOUT, useColumns, type ColumnLayout } from "./columns.js";
-import { dateWords, kindOf, parentOf, type Sort, type SortKey } from "./model.js";
-import { EntryName, rowProps, type RowHandlers } from "./rows.js";
+import { dateWords, kindOf, parentOf, sortBy, type Sort, type SortKey } from "./model.js";
+import { EntryName, rowProps, stateClass, type RowHandlers } from "./rows.js";
 
 /**
  * The list: a row per thing, sortable by any column, a folder opening in
@@ -42,7 +42,7 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
         {keys.map((key) => (
           <div key={key} role="columnheader" data-head={key} className={`finder-col finder-col--${key}`} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : "none"}>
             {cols.divider(key)}
-            <button type="button" className="finder-col-label" data-col={key} onClick={() => onSort({ key, desc: sort.key === key ? !sort.desc : key === "modified" || key === "size" })}>
+            <button type="button" className="finder-col-label" data-col={key} onClick={() => onSort(sortBy(sort, key))}>
               {LABELS[key]}
               {sort.key === key && <span className={`finder-sort${sort.desc ? " is-desc" : ""}`} aria-hidden="true" />}
             </button>
@@ -63,7 +63,7 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
         <div
           key={entry.path}
           role="row"
-          className={`finder-row${h.selected.has(entry.path) ? " is-selected" : ""}${h.lead === entry.path ? " is-lead" : ""}${h.over === entry.path ? " is-drop" : ""}`}
+          className={`finder-row${stateClass(entry, h)}`}
           {...rowProps(entry, h)}
           {...h.drag(entry)}
           {...(entry.kind === "dir" ? h.drop(entry.path) : {})}

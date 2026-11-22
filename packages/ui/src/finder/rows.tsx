@@ -21,6 +21,8 @@ export interface RowHandlers {
   editing: string | null;
   /** The folder something is being dragged over. */
   over: string | null;
+  /** What this page is dragging, drawn faded where it was. */
+  dragged?: ReadonlySet<string>;
   press: (e: MouseEvent, entry: DirEntry) => void;
   open: (entry: DirEntry) => void;
   menu: (e: MouseEvent, entry: DirEntry) => void;
@@ -30,6 +32,10 @@ export interface RowHandlers {
   /** A folder that takes a drop: a row dragged from here, or files from the desktop. */
   drop: (dir: string) => { onDragOver: (e: DragEvent) => void; onDragLeave: (e: DragEvent) => void; onDrop: (e: DragEvent) => void };
 }
+
+/** A row's or tile's state as classes: chosen, the lead, a drop's target, being dragged. */
+export const stateClass = (entry: DirEntry, h: RowHandlers): string =>
+  `${h.selected.has(entry.path) ? " is-selected" : ""}${h.lead === entry.path ? " is-lead" : ""}${h.over === entry.path ? " is-drop" : ""}${h.dragged?.has(entry.path) ? " is-dragged" : ""}`;
 
 /** The pointer on a row: press selects, a second press opens, the other button asks for the menu. */
 export function rowProps(entry: DirEntry, h: RowHandlers): {

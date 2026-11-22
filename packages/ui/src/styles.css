@@ -7894,31 +7894,71 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 }
 .finder--loading { background: var(--panel); }
 
+/* One row at every width: the title gives way first, then the search; in a
+   narrow Finder the tools fold into the ⋯ menu (the container query below). */
 .finder-toolbar {
   flex: none;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.4rem 0.75rem;
+  gap: 0.4rem 0.6rem;
   min-height: 2.9rem;
   padding: 0.45rem 0.6rem;
   border-bottom: 1px solid var(--line);
 }
-.finder-nav { display: flex; align-items: center; gap: 0.1rem; min-width: 0; flex: 1 1 10rem; }
-.finder-title { margin: 0 0 0 0.4rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-lg); font-weight: 600; }
-.finder-tools { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 0.3rem; }
+.finder-nav { display: flex; align-items: center; gap: 0.1rem; min-width: 0; flex: 1 1 0; }
+.finder-title { display: flex; min-width: 0; flex: 1 1 auto; margin: 0 0 0 0.3rem; font-size: var(--text-lg); font-weight: 600; }
+.finder-title-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.finder-tools { display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; flex: 0 1 auto; min-width: 0; }
+.finder-tools-wide, .finder-tools-narrow { display: contents; }
+.finder-tools-narrow { display: none; }
+.finder-toolbar > .chips { flex: 1 1 100%; }
 .finder-sortby .sel-button { min-width: 8rem; padding: 0 0.6rem; font-size: var(--text-base); }
 /* Every control in the bar one small height and the icon buttons square,
    where the views, the icons, the sort and the search sat at 23 to 30px. */
-:is(.finder-nav, .finder-tools) :is(.chips button, .sel-button, .finder-search) { height: var(--control-h-sm); box-sizing: border-box; }
-:is(.finder-nav, .finder-tools) .chips button { display: inline-flex; align-items: center; }
-:is(.finder-nav, .finder-tools) > .icon-btn { width: var(--control-h-sm); height: var(--control-h-sm); }
+.finder-toolbar :is(.chips button, .sel-button, .finder-search) { height: var(--control-h-sm); box-sizing: border-box; }
+.finder-toolbar .chips button { display: inline-flex; align-items: center; }
+.finder-toolbar .icon-btn { flex: none; width: var(--control-h-sm); height: var(--control-h-sm); }
+
+/* A path on one line (Crumbs.tsx), cut from the left: each step's flex-shrink
+   is set by its place, the outermost giving way first, to its mark or an
+   ellipsis, the last keeping its name longest. */
+.finder-crumbs { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; }
+.finder-crumb-step { display: inline-flex; align-items: center; gap: 0.05rem; min-width: 1.6rem; color: var(--faint); }
+.finder-crumb-step:first-child { min-width: 1.3rem; }
+.finder-crumb-step:last-child { min-width: 0; }
+.finder-crumb-step > svg { flex: none; }
+.finder-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  max-width: 100%;
+  height: 1.45rem;
+  padding: 0 0.3rem;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+}
+.finder-crumb > svg { flex: none; width: 13px; height: 13px; color: var(--accent); }
+.finder-crumb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+button.finder-crumb { cursor: pointer; }
+button.finder-crumb:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+.finder-crumb.is-here { color: var(--text); cursor: default; }
+.finder-crumb.is-drop { background: var(--accent-dim); box-shadow: inset 0 0 0 1.5px var(--accent); }
+/* In the title: the folder in the title's weight, the way to it quieter. */
+.finder-where-crumbs .finder-crumb { height: 1.75rem; font-weight: 500; }
+.finder-where-crumbs .finder-crumb:not(.is-here) { font-size: var(--text-base); }
+.finder-where-crumbs .finder-crumb.is-here { font-weight: 600; }
 .finder-title .finder-places .sel-button { padding: 0 0.6rem; font-size: var(--text-lg); font-weight: 600; border-color: transparent; background: none; }
 .finder-search {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  width: 12rem;
+  flex: 0 1 12rem;
+  min-width: 7rem;
   padding: 0 0.55rem;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
@@ -7967,11 +8007,16 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder-side-icon .project-mark { width: 15px; height: 15px; font-size: 0.55rem; border-radius: 4px; }
 .finder-side-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.finder-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; outline: none; }
+/* The list scrolls in here and nowhere else: never sideways, and a scroll
+   that reaches its end stops rather than moving the panel or page round it.
+   scroll-padding keeps a row the keys reach clear of the sticky head. */
+.finder-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden auto; overscroll-behavior: contain; scroll-padding-top: var(--finder-row); outline: none; }
 .finder-main.is-drop { box-shadow: inset 0 0 0 2px var(--accent); }
 .finder-reading { display: flex; flex-direction: column; gap: 0.85rem; padding: 0.9rem 1rem; }
 .finder-tile-skeleton { display: block; aspect-ratio: 1; }
-.finder-empty { margin: 3rem auto; padding: 0 1rem; color: var(--faint); font-size: var(--text-base); text-align: center; }
+.finder-empty { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; margin: auto; padding: 2.5rem 1rem; color: var(--faint); font-size: var(--text-base); text-align: center; }
+.finder-empty > svg { width: 30px; height: 30px; opacity: 0.6; }
+.finder-empty-hint { font-size: var(--text-sm); }
 
 /* The list. */
 .finder-list { display: flex; flex-direction: column; min-width: 0; padding-bottom: 0.5rem; }
@@ -8056,6 +8101,8 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
   -webkit-user-select: none;
 }
 .finder-row:nth-child(even) { background: color-mix(in srgb, var(--text) 2.5%, transparent); }
+.finder-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+:is(.finder-row, .finder-tile, .finder-crow).is-dragged { opacity: 0.45; }
 .finder-col { min-width: 0; padding: 0 0.6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .finder-col--name { display: flex; align-items: center; gap: 0.4rem; color: var(--text); }
 .finder-col--size { text-align: right; font-variant-numeric: tabular-nums; }
@@ -8074,9 +8121,11 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 }
 .finder-disclose svg { transition: transform 140ms ease; }
 .finder-disclose.is-open svg { transform: rotate(90deg); }
+/* The name fills its room (names.tsx cuts it to fit, in the middle); a
+   search's folder sits at the right, never more than half. */
 .finder-name-wrap { display: flex; align-items: baseline; gap: 0.6rem; min-width: 0; flex: 1; }
-.finder-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.finder-where { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: var(--text-sm); }
+.finder-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.finder-where { flex: 0 1 auto; max-width: 50%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: var(--text-sm); }
 .finder-rename {
   flex: 1;
   min-width: 6rem;
@@ -8152,28 +8201,7 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 
 /* The path, at the foot. */
 .finder-pathbar { flex: none; display: flex; align-items: center; gap: 0.75rem; height: 1.95rem; padding: 0 0.5rem; border-top: 1px solid var(--line); font-size: var(--text-sm); }
-.finder-path { display: flex; align-items: center; flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
-.finder-path::-webkit-scrollbar { display: none; }
-.finder-path-step { display: inline-flex; align-items: center; gap: 0.05rem; color: var(--faint); }
-.finder-path button, .finder-path-leaf {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  height: 1.4rem;
-  padding: 0 0.35rem;
-  border: 0;
-  border-radius: var(--r-xs);
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-.finder-path button:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
-.finder-path button.is-here, .finder-path-leaf { color: var(--text); }
-.finder-path-leaf { cursor: default; }
-.finder-path-leaf > svg { width: 13px; height: 13px; flex: none; color: var(--accent); }
-.finder-path button.is-drop { background: var(--accent-dim); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.finder-path { flex: 1; }
 .finder-status { flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* The menu: Finder's, in the chat list's menu look. */
@@ -8183,6 +8211,10 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .finder-menu button.is-divided::before { content: ""; position: absolute; top: -0.25rem; left: 0.25rem; right: 0.25rem; height: 1px; background: var(--line); }
 .finder-menu button:disabled { color: var(--faint); cursor: default; background: none; }
 .finder-menu button:focus-visible { background: var(--panel-2); outline: none; }
+.finder-menu { max-height: calc(100vh - 1rem); overflow-y: auto; }
+.finder-menu button.is-choice { justify-content: flex-start; gap: 0.4rem; }
+.finder-menu-tick { flex: none; display: grid; place-items: center; width: 0.9rem; color: var(--accent); }
+.finder-menu-label { flex: 1; }
 .finder-menu-keys { font: inherit; font-size: var(--text-xs); color: var(--faint); letter-spacing: 0.04em; }
 
 /* The trash. */
@@ -8191,29 +8223,32 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .finder-col--acts .btn { height: 1.35rem; padding: 0 0.55rem; font-size: var(--text-sm); }
 .finder-col--acts { display: flex; justify-content: flex-end; gap: 0.35rem; overflow: visible; }
 
-/* One column: a phone, or the narrow column beside a chat. */
+/* A narrow Finder: the narrow column beside a chat, a phone. The bar is one
+   row (back, forward, where you are, search, ⋯); the list keeps its head,
+   its columns giving way by rank (finder/columns.tsx). */
 @container finder (max-width: 640px) {
-  .finder { --finder-row: 2.6rem; }
-  .finder-toolbar { padding: 0.45rem 0.5rem; }
-  .finder-tools { flex: 1 1 100%; justify-content: flex-start; }
-  .finder-search { order: 10; flex: 1 1 100%; width: auto; }
-  .finder-list-head { display: none; }
-  .finder-row { grid-template-columns: minmax(0, 1fr) auto; margin: 0 0.25rem; border-radius: 0; }
-  .finder-row:nth-child(even) { background: none; }
-  .finder-row + .finder-row { box-shadow: 0 -1px 0 color-mix(in srgb, var(--line) 70%, transparent); }
-  .finder-row.is-selected + .finder-row, .finder-row + .finder-row.is-selected { box-shadow: none; }
-  .finder-col--modified, .finder-col--kind { display: none; }
-  .finder-col--size { color: var(--faint); font-size: var(--text-sm); }
-  .finder-name-wrap { flex-direction: column; align-items: flex-start; gap: 0; }
-  .finder-where { flex: none; max-width: 100%; }
-  .finder-gallery { grid-template-columns: repeat(auto-fill, minmax(5.75rem, 1fr)); padding: 0.6rem; }
-  .finder-row--trash, .finder-list-head--trash { grid-template-columns: minmax(0, 1fr) auto; }
-  .finder-row--trash .finder-col--modified, .finder-row--trash .finder-col--size { display: none; }
+  .finder-toolbar { padding: 0.4rem 0.45rem; gap: 0.4rem; }
+  .finder-tools-wide { display: none; }
+  .finder-tools-narrow { display: contents; }
+  .finder-search { display: none; }
+  .finder-toolbar.is-searching .finder-title { display: none; }
+  .finder-toolbar.is-searching .finder-tools { flex: 1 1 auto; }
+  .finder-toolbar.is-searching .finder-search { display: flex; flex: 1 1 auto; min-width: 0; }
+  .finder-gallery { grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: 0.2rem; padding: 0.5rem; }
+  .finder-tile-art .files-thumb { inset: 0.3rem; }
+  .finder-pathbar { gap: 0.5rem; }
+}
+@container finder (max-width: 360px) {
   .finder-status { display: none; }
 }
+/* A finger needs taller rows than a pointer. */
+@media (pointer: coarse) {
+  .finder { --finder-row: 2.4rem; }
+}
 
-/* The finder inside a project's card: the card is its frame, so it draws none of its own. */
-.project-files .finder { height: 26rem; border: 0; border-radius: 0; background: transparent; }
+/* The finder inside a project's card: the card is its frame, so it draws none
+   of its own, and its height is bounded so it scrolls rather than growing the panel. */
+.project-files .finder { height: clamp(18rem, 62vh, 34rem); border: 0; border-radius: 0; background: transparent; }
 
 /* —— Office files, drawn (OfficeView.tsx) —— */
 /* An Office file fills the window: the grid, the slides or the page scroll in themselves, under their own heads. */
