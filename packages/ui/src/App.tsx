@@ -1182,7 +1182,7 @@ export function App(): React.ReactElement {
     // A blob's schedule is the blob's, not one of yours to arrange, so the
     // blobs' jobs stand together as KOS's own do.
     const blob = (c: CronJob): boolean => c.name.startsWith("blob.");
-    const groupOf = (c: CronJob): string => (system(c) ? "KOS's own" : blob(c) ? "Blobs" : (projectName(c.projectSlug) ?? "Yours"));
+    const groupOf = (c: CronJob): string => (system(c) ? "KOS's upkeep" : blob(c) ? "Blobs" : (projectName(c.projectSlug) ?? "Yours"));
     const rank = (c: CronJob): string => (system(c) ? "3" : blob(c) ? "2" : c.projectSlug ? `1 ${groupOf(c)}` : "0");
     const rows = crons
       .filter((c) => {

@@ -122,6 +122,6 @@ export function defaultPolicy(): SecretDraft["policy"] {
 /** Where a secret may be used, in a few words: its first site or host and how many more. */
 export function whereWords(use: SecretUse): string {
   const places = [...use.web.origins.map((o) => o.replace(/^https:\/\//, "")), ...use.http.hosts, ...use.apps];
-  if (places.length === 0) return "Nowhere yet";
+  if (places.length === 0) return "Not usable yet: say where it goes";
   return places.length === 1 ? places[0]! : `${places[0]} and ${places.length - 1} more`;
 }

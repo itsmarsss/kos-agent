@@ -249,12 +249,14 @@ Discord, the side panel, KOS for Mac, and in what KOS says.
 | KOS | the root, where work is routed from | KOS |
 | orchestrator | a project's own thread, one per project, which plans the work and hands it out | "Garden orchestrator"; inside the project's own rail or channel, Orchestrator |
 | agent | a chat inside a project, doing a piece of its work | its title ("Fix login"); "agent" is its kind, on the rail, in `/agents`, in counts |
-| blob | a standing helper with a face and a thread of its own | its name, never "agent" |
+| blob | a standing helper with a face and a thread of its own: "a helper that looks after one thing for you" | its name, never "agent"; its tools are offered in plain groups (Files and folders, The web, Memory, Schedules, Projects and tables, Messages and chats, Run code, Secrets, Your computer), the families under Advanced |
 | build | coding work KOS runs in a folder | its folder; never "coding agent" |
 | chat | anything else: a chat at the root, a surface's own stream | its title |
 | schedule | what KOS runs on its own, on a timer | "Schedule" everywhere in the dashboard: the page, its tab, New schedule, the editor; never "cron" or "job" in words the owner reads. The cron line and an id are for a tooltip; the words are `scheduleWords` ("Weekdays at 8:00 AM"). The editor picks when (Every day, Weekdays, Some days, Every few hours, Every few minutes, Monthly) and writes the line; the line itself is "Advanced: write the line", checked as typed (`cronProblem`) |
 | Inbox | the one queue of what waits on the owner | Inbox: the nav, Home's panel, the palette; "Approvals" only as the group of asks inside it |
 | step | one thing KOS did along the way (read a file, fetch a page) | by what it did, from `toolWords` (`@kos/shared`): "List files", "Save a secret", with what it was done to after it (`stepLine`); never the tool's name ("files.ls"), an id or its arguments, which are for a tooltip and Details |
+| memory's tabs | what KOS remembers, by what the owner looks for | What it knows, To decide, Notes, Everything said, Upkeep, Other apps; one remembered thing is a claim, its key said as words ("Home city") with the key its tooltip |
+| when KOS asks for a secret | how often an owner's yes on a secret lasts | Every time, Once per request, Once per site |
 | sites KOS may reach | the hosts KOS fetches from without asking | "Sites KOS may reach" in Settings, Network and Permissions, and in an ask ("example.com is not one of the sites KOS may reach"); never "allowed hosts" or "allowlist" |
 | the model for thinking, the cheap model, the screen model | the three routes a turn's models go by | those words in Settings, Models, the composer's model chip and a schedule's Model; never "reasoning route" or "cheap route" |
 
@@ -271,7 +273,10 @@ A kind as a tag is in sentence case, from one table (`KIND_WORDS`,
 Deck, Login, API key. A thing is named by its name, never its slug ("Plant
 watcher", not plant-watcher; "Reading log", not reading_log); an id or a
 slug is for a tooltip. Every trash says Restore, Delete forever and Empty
-trash. A list of projects is by name, KOS's own last.
+trash; a restore says so in a toast ("Restored “Old memo”"). A list of
+projects is by name, KOS's own last; KOS's own schedules are grouped as
+KOS's upkeep. Files hides KOS's own files (its database and profile) until
+Show KOS's files.
 
 A name the owner gives (a project, a schedule, a secret, a blob, an
 artifact) is checked one way (`checkName` in `@kos/shared`), by the server

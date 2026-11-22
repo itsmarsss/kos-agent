@@ -203,7 +203,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
               value={draft.task}
               options={[
                 ["reasoning", "Thinking", "The model for thinking: for work that needs judgement."],
-                ["cheap", "Quick", "The cheap model: for routine checks."],
+                ["cheap", "Cheap", "The cheap model: for routine checks."],
               ]}
               onChange={(task) => setDraft({ ...draft, task })}
             />

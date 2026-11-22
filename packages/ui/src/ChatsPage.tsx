@@ -1610,7 +1610,7 @@ export function ChatsPage({
                       <ThreadDot live={progress[projectOrchestrator.id]} chat={projectOrchestrator} waiting={waitingOn.has(projectOrchestrator.id)} />
                       <QueuedMark n={projectOrchestrator.queued} />
                     </span>
-                    <span className="chats-root-sub">Plans the work and runs the agents</span>
+                    <span className="chats-root-sub">Plans the project's work and hands it to its chats</span>
                   </span>
                 </a>
               ) : (

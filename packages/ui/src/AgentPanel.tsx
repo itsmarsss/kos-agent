@@ -211,7 +211,7 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
             <Tag title="Every tool KOS has">Everything KOS can do</Tag>
           )}
           <Tag title={agent.memory === "own" ? "What it remembers is its own" : "It shares memory with the project it is in, or the global pool"}>{agent.memory === "own" ? "Own memory" : "Shared memory"}</Tag>
-          <Tag title={agent.task === "cheap" ? "The cheap model, for routine checks" : "The model for thinking, for work that needs judgement"}>{agent.task === "cheap" ? "Quick model" : "Thinking model"}</Tag>
+          <Tag title={agent.task === "cheap" ? "The cheap model, for routine checks" : "The model for thinking, for work that needs judgement"}>{agent.task === "cheap" ? "Cheap model" : "Thinking model"}</Tag>
           {agent.report === "always" && <Tag title="Each scheduled run's answer is sent to you, tagged as its own">Reports each run</Tag>}
         </div>
       </Card>
