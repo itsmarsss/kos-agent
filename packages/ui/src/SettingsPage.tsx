@@ -1006,7 +1006,7 @@ export function SettingsPage({
             <div className="set-group">
               <h2>When something fails</h2>
               <p className="hint">
-                A job that fails at 3am tells you either way. This decides
+                A schedule that fails at 3am tells you either way. This decides
                 whether KOS also tries to do something about it before you wake
                 up.
               </p>

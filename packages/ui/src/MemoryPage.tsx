@@ -446,7 +446,7 @@ function JobsTab(): ReactElement {
                 <strong title={j.name}>{jobTitle(j.name)}</strong>
               </div>
               <div className="hint">
-                {j.what} · <span title={job.schedule}>{scheduleWords(job.schedule)}</span> · {job.task ?? "reasoning"} route · last run {lastRunWords(job.lastRunAt).toLowerCase()}
+                {j.what} · <span title={job.schedule}>{scheduleWords(job.schedule)}</span> · {job.task ?? "reasoning"} route · {job.lastRunAt ? `last run ${lastRunWords(job.lastRunAt)}` : "never run"}
               </div>
               {said[job.id] && <div className="mem-job-said">{said[job.id]}</div>}
             </div>

@@ -53,7 +53,7 @@ export function runsWhen(a: AgentInfo): string {
   if (!a.job) return "When asked";
   if (!a.job.enabled) return `Off · ${scheduleWords(a.job.schedule)}`;
   const next = a.job.nextRunAt ? `Next ${momentWords(a.job.nextRunAt)}` : scheduleWords(a.job.schedule);
-  return `${next} · last run ${lastRunWords(a.job.lastRunAt).toLowerCase()}`;
+  return `${next} · ${a.job.lastRunAt ? `last run ${lastRunWords(a.job.lastRunAt)}` : "never run"}`;
 }
 
 /**
