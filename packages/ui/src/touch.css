@@ -64,6 +64,16 @@
     --finder-row: var(--tap);
   }
 
+  /* A box that scrolls inside a panel that scrolls lets a swipe that reaches
+     its end carry on into the panel: the project's files held every swipe
+     that started on them, and the sections under them were out of reach. */
+  .project-panel .finder-main {
+    overscroll-behavior: auto;
+  }
+  .chats.is-panel-drawer .project-files .finder {
+    height: clamp(14rem, 45dvh, 24rem);
+  }
+
   /* A sheet ends above the keyboard on screen (watchKeyboard in touch.ts), so its foot and the field typed into both show. */
   :is(.drawer-backdrop, .insp-backdrop, .sheet-backdrop, .modal-wrap, .pal-wrap) {
     bottom: var(--kb-inset, 0px);

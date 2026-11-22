@@ -2820,6 +2820,7 @@ export function ChatsPage({
             onError={project.onError}
             hidden={!panelShown}
             modal={drawer.open}
+            onClose={drawer.close}
           />
         )}
         {agent && (
@@ -2833,6 +2834,7 @@ export function ChatsPage({
             onRemoved={agent.onRemoved}
             hidden={!panelShown}
             modal={drawer.open}
+            onClose={drawer.close}
             rail={<ArtifactRail {...railProps} />}
           />
         )}
