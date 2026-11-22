@@ -12,7 +12,7 @@ import {
 import { AnimatePresence, m } from "motion/react";
 import { cycled, runningTail, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
 import { isModeKey, ModeChip } from "@kos/kit";
-import { ArchiveIcon, type BlockActions, MessageTime, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, type BlockActions, MessageTime, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
 import { PendingAsk } from "./PendingAsk.js";
@@ -1651,11 +1651,11 @@ export function ChatsPage({
             <ul className="chats-flat">
               {shownAgents.map((c) => renderChat(c))}
               {shownAgents.length === 0 && (
-                <li><Empty inline className="chats-empty">
+                <li><EmptyState variant="inline" className="chats-empty">
                   {q
                     ? "Nothing matches."
                     : "No chats yet. The orchestrator starts them as work comes up, or start one with +."}
-                </Empty></li>
+                </EmptyState></li>
               )}
             </ul>
             {/* The project's schedule, under its agents: a job that works this
@@ -1715,7 +1715,7 @@ export function ChatsPage({
                     </li>
                   ))}
                 {crons.every((c) => c.projectSlug !== project.slug) && (
-                  <li><Empty inline className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</Empty></li>
+                  <li><EmptyState variant="inline" className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -1763,7 +1763,7 @@ export function ChatsPage({
                     named for the project it is in: that is what tells them apart. */}
                 {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
                 {agentInstances.length === 0 && (
-                  <li><Empty inline className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</Empty></li>
+                  <li><EmptyState variant="inline" className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -1824,7 +1824,7 @@ export function ChatsPage({
                   </div>
                   <ul className="chats-flat">
                     {shownArchived.map((c) => renderChat(c))}
-                    {shownArchived.length === 0 && <li><Empty inline className="chats-empty">{q ? "Nothing matches." : "Nothing archived."}</Empty></li>}
+                    {shownArchived.length === 0 && <li><EmptyState variant="inline" className="chats-empty">{q ? "Nothing matches." : "Nothing archived."}</EmptyState></li>}
                   </ul>
                 </section>
               ) : (
@@ -1905,7 +1905,7 @@ export function ChatsPage({
                       }
                     >
                       {ownProjects === 0 ? (
-                        <Empty inline className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</Empty>
+                        <EmptyState variant="inline" className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</EmptyState>
                       ) : (
                         /* A row is the project. It opens as its own page, with
                            its orchestrator and agents; nothing unfolds here. */
@@ -2031,14 +2031,14 @@ export function ChatsPage({
                       <ul className="chats-flat">
                         {filtered.map((c) => renderChat(c))}
                         {filtered.length === 0 && (
-                          <li><Empty inline className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</Empty></li>
+                          <li><EmptyState variant="inline" className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</EmptyState></li>
                         )}
                       </ul>
                     </RailGroup>
                   )}
 
                   {q && !shownKos && shownSurfaces.length === 0 && shownProjects.length === 0 && scheduled.length === 0 && filtered.length === 0 && (
-                    <Empty inline className="chats-empty">Nothing matches.</Empty>
+                    <EmptyState variant="inline" className="chats-empty">Nothing matches.</EmptyState>
                   )}
                 </>
               )}
@@ -2437,7 +2437,7 @@ export function ChatsPage({
               {/* Its step pictures open in the Lightbox, the turn's others a step away. */}
               <PictureGallery>
               <div className="chats-thread" ref={threadScroll}>
-                {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
+                {visible.length === 0 && <EmptyState variant="inline">Nothing said yet.</EmptyState>}
                 {(() => {
                   // Owner turns are numbered in order, because rewind addresses
                   // them by position rather than by any id a transcript keeps.

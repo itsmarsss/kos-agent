@@ -1,4 +1,4 @@
-import { Card, Collapse, DrawerRow, Empty, NavIcon } from "@kos/kit";
+import { Card, Collapse, DrawerRow, EmptyState, NavIcon } from "@kos/kit";
 import { relativeWords } from "@kos/shared";
 import { useEffect, useState, type ReactElement } from "react";
 
@@ -83,7 +83,7 @@ export interface ArtifactRailProps {
 }
 
 function Rows({ items, open, onOpen }: ArtifactRailProps): ReactElement {
-  if (items.length === 0) return <Empty inline>No artifacts yet. Ask KOS for a doc, a deck, a sheet or a page.</Empty>;
+  if (items.length === 0) return <EmptyState variant="inline">No artifacts yet. Ask KOS for a doc, a deck, a sheet or a page.</EmptyState>;
   return (
     <ul className="artifact-rail" aria-label="Artifacts">
       {items.map((a) => {

@@ -203,7 +203,7 @@ describe("the web sheets keep to the tokens", () => {
     });
 
     it(`${sheet} sets type at 400, 500, 600 or 700 only`, () => {
-      const off = declarations(css, "font-weight").filter((d) => !/^(400|500|600|700|inherit|normal|var\(--title-weight\))$/.test(d.value));
+      const off = declarations(css, "font-weight").filter((d) => !/^(400|500|600|700|inherit|normal|var\(--title-weight(, 700)?\))$/.test(d.value));
       expect(off.map((d) => `line ${d.line}: ${d.value}`)).toEqual([]);
     });
 

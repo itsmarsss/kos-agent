@@ -1,6 +1,6 @@
 import { m } from "motion/react";
 import { marksOfLetters } from "@kos/shared";
-import { CloseIcon, ease, Empty, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, Switch, Tag, useOverlayScroll } from "@kos/kit";
+import { CloseIcon, ease, EmptyState, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, Switch, Tag, useOverlayScroll } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -709,7 +709,7 @@ export function SettingsPage({
         <nav className={`set-rail${query.trim() ? " set-rail--found" : ""}`} aria-label="Settings sections" ref={railScroll}>
         {query.trim() ? (
           <div className="set-results" role="listbox" aria-label="Settings found">
-            {hits.length === 0 && <Empty inline className="set-results-none">Nothing called that. Try another word.</Empty>}
+            {hits.length === 0 && <EmptyState variant="inline" className="set-results-none">Nothing called that. Try another word.</EmptyState>}
             {hits.map((hit, i) => {
               const sec = SECTIONS.find((s) => s.id === hit.section)!;
               return (
@@ -1339,7 +1339,7 @@ export function SettingsPage({
         {active === "skills" && (
           <Section title="Skills" blurb="What KOS knows how to do. One it wrote is on; one you install is off until you switch it on.">
             {skills.skills.length === 0 && skills.invalid.length === 0 && (
-              <Empty inline>Nothing installed yet. Add one below, or ask KOS to make one.</Empty>
+              <EmptyState variant="inline">Nothing installed yet. Add one below, or ask KOS to make one.</EmptyState>
             )}
             {skills.skills.length > 0 && (
               <FieldRow label="Show" hint="All of them, one project's own, a kind, or a state.">
@@ -1409,7 +1409,7 @@ export function SettingsPage({
         )}
         {active === "mcp" && (
           <Section title="MCP servers" blurb="Outside tools, declared in mcp.json the way Claude Code does. A server's tools are risky until you floor them safe.">
-            {mcp.length === 0 && <Empty inline>Nothing connected yet. Add one below.</Empty>}
+            {mcp.length === 0 && <EmptyState variant="inline">Nothing connected yet. Add one below.</EmptyState>}
             <div className="set-rows">
             {mcp.map((s) => (
               <FieldRow
@@ -1474,7 +1474,7 @@ export function SettingsPage({
               </div>
             )}
             {modules.modules.length === 0 && modules.invalid.length === 0 && (
-              <Empty inline>No workspace modules yet. Ask KOS to make one with modules.create, install one below, or add a folder under modules/.</Empty>
+              <EmptyState variant="inline">No workspace modules yet. Ask KOS to make one with modules.create, install one below, or add a folder under modules/.</EmptyState>
             )}
             {/* The second rung of the spec's distribution path: a repository
                 per module. Installed is off; nothing runs until switched on. */}
@@ -1622,7 +1622,7 @@ export function SettingsPage({
               </a>
             </Field>
             {rules.length === 0 && (
-              <Empty inline>Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</Empty>
+              <EmptyState variant="inline">Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</EmptyState>
             )}
             {rules.map((r) => (
               <Field group className="set-field"

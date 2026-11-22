@@ -1,7 +1,7 @@
 import { AnimatePresence, m, type HTMLMotionProps } from "motion/react";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
 
-import { formatDuration } from "@kos/shared";
+import { formatDuration, STATE_WORDS, type State } from "@kos/shared";
 
 import { ChevronDown, CloseIcon, QuoteIcon } from "./icons.js";
 import { hover, inPlace, listItem, spring } from "./motion.js";
@@ -21,6 +21,20 @@ export function Pill({ tone = "muted", title, children }: { tone?: Tone; title?:
     <span className={`pill pill--${tone}`} title={title}>
       {children}
     </span>
+  );
+}
+
+/**
+ * A state as a Pill, in its one word and tone from `STATE_WORDS`: a run's
+ * Done or Failed, a schedule's On or Off, a blob's Quiet. Every surface draws
+ * a state this way, so one state never reads four ways.
+ */
+export function StatusPill({ state, title }: { state: State; title?: string }): ReactElement {
+  const { word, tone } = STATE_WORDS[state];
+  return (
+    <Pill tone={tone} {...(title ? { title } : {})}>
+      {word}
+    </Pill>
   );
 }
 
@@ -92,21 +106,6 @@ export function Card({ title, count, pill, action, label, className, children, .
       )}
       {children}
     </section>
-  );
-}
-
-/**
- * What a list or panel says when there is nothing in it: an answer, not a
- * blank. A page's list says it in a dashed box; inside a card, where the
- * card is already the box, it is one quiet line (inline).
- */
-export function Empty({ title, inline = false, className, children }: { title?: string; inline?: boolean; className?: string; children: ReactNode }): ReactElement {
-  if (inline) return <p className={`empty-line${className ? ` ${className}` : ""}`}>{children}</p>;
-  return (
-    <div className={`empty${className ? ` ${className}` : ""}`}>
-      {title && <strong className="empty-title">{title}</strong>}
-      <p className="empty-text">{children}</p>
-    </div>
   );
 }
 

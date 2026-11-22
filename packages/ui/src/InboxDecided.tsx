@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { m } from "motion/react";
 
 import { AUTO_DECIDER, momentWords, timeCard } from "@kos/shared";
-import { ChevronDown, Chips, Collapse, Count, Empty, Pill, spring, Tag, type Tone } from "@kos/kit";
+import { ChevronDown, Chips, Collapse, Count, EmptyState, Pill, spring, Tag, type Tone } from "@kos/kit";
 
 import { api, type DecidedAction, type DecidedStatus, type InboxData } from "./api.js";
 import { useEdgeFade } from "./edgefade.js";
@@ -249,7 +249,7 @@ export function InboxDecided({
 
       {missing !== null && <p className="hint inbox-decided-missing">No ask #{missing}.</p>}
       {shown.length === 0 ? (
-        <Empty inline>
+        <EmptyState variant="inline">
           Nothing decided matches.{" "}
           <button
             type="button"
@@ -262,7 +262,7 @@ export function InboxDecided({
           >
             Clear
           </button>
-        </Empty>
+        </EmptyState>
       ) : (
         <ul className="inbox-decided" ref={listRef}>
           {shown.map((a) => {

@@ -1,4 +1,4 @@
-import { Chips, Count, Empty, Face, NavIcon, PlusIcon, Skeleton, type ChipOption } from "@kos/kit";
+import { Chips, Count, EmptyState, Face, NavIcon, PlusIcon, Skeleton, type ChipOption } from "@kos/kit";
 import { SPAN_COLUMNS, WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage, type WidgetOutline } from "@kos/shared";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
@@ -393,17 +393,17 @@ export function ArtifactsPage({
       {source && source.length === 0 &&
         (inTrash ? (
           <div className="artifacts-empty">
-            <Empty title="The trash is empty">What you move to the trash waits here until you restore it or delete it for good.</Empty>
+            <EmptyState title="The trash is empty">What you move to the trash waits here until you restore it or delete it for good.</EmptyState>
           </div>
         ) : (
           <div className="artifacts-empty">
-            <Empty title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</Empty>
+            <EmptyState title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</EmptyState>
             {newArtifact}
           </div>
         ))}
       {source && source.length > 0 && shown.length === 0 && (
         <div className="artifacts-none">
-          <Empty inline>No artifact matches these filters.</Empty>
+          <EmptyState variant="inline">No artifact matches these filters.</EmptyState>
           {filtered && (
             <button type="button" className="btn btn--ghost btn--sm" onClick={clearFilters}>
               Clear filters

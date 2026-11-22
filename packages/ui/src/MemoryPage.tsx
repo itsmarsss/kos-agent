@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
-import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
+import { Chips, EmptyState, Pill, Switch, Tag } from "@kos/kit";
 import { momentWords } from "@kos/shared";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
@@ -293,7 +293,7 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   return (
     <>
       <Group title="Needs a decision" blurb="Only what KOS was not sure enough to settle itself. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.">
-        {pending.length === 0 && <Empty inline>Nothing waiting. Tidy settles what it is sure of and leaves here only a contradiction or a promotion it was not; how sure it has to be is in Settings, Behaviour.</Empty>}
+        {pending.length === 0 && <EmptyState variant="inline">Nothing waiting. Tidy settles what it is sure of and leaves here only a contradiction or a promotion it was not; how sure it has to be is in Settings, Behaviour.</EmptyState>}
         {pending.map((item) => (
           <MemoryDecision key={item.id} item={item} onResolved={() => { load(); onChanged(); }} />
         ))}
@@ -350,7 +350,7 @@ function PagesTab(): ReactElement {
   }, [named, clearNamed]);
   return (
     <Group title="Pages" shown={false} blurb={'One for you everywhere, one per project, written by Tidy from current claims. Edit a line in the form "- key: value" and it reads back as your word.'}>
-      {pages.length === 0 && <Empty inline>No pages yet. Tidy writes them; Run now on the Schedule tab if you do not want to wait for 4 AM.</Empty>}
+      {pages.length === 0 && <EmptyState variant="inline">No pages yet. Tidy writes them; Run now on the Schedule tab if you do not want to wait for 4 AM.</EmptyState>}
       {edited.length > 0 && (
         <p className="hint">
           Edited since memory wrote them: {edited.join(", ")}.{" "}
@@ -473,7 +473,7 @@ function CallersTab(): ReactElement {
           <code className="ops-mono">{issued.token}</code>
         </div>
       )}
-      {callers.length === 0 && <Empty inline>No callers yet. Make one below and give the token to the other program.</Empty>}
+      {callers.length === 0 && <EmptyState variant="inline">No callers yet. Make one below and give the token to the other program.</EmptyState>}
       {callers.map((c) => (
         <div key={c.id} className="mem-row mem-row--split">
           <div>

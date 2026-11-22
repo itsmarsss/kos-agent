@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
-import { card, Count, Empty, Pill, stagger, type Tone } from "@kos/kit";
+import { card, Count, EmptyState, Pill, stagger, type Tone } from "@kos/kit";
 import { relativeWords } from "@kos/shared";
 
 import { api, type Conversation, type CronJob, type PageSummary, type Project } from "./api.js";
@@ -179,8 +179,8 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
 
       {onCreate && <NewProjectDialog open={making} onClose={() => setMaking(false)} onCreate={onCreate} />}
 
-      {owned.length === 0 && <Empty title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</Empty>}
-      {query.trim() && groups.length === 0 && <Empty inline>No project matches “{query.trim()}”.</Empty>}
+      {owned.length === 0 && <EmptyState title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</EmptyState>}
+      {query.trim() && groups.length === 0 && <EmptyState variant="inline">No project matches “{query.trim()}”.</EmptyState>}
 
       {groups.map(([status, items]) => (
         <section key={status} className="projects-group" aria-label={status === "system" ? "KOS's own" : several ? status : "Projects"}>

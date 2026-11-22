@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { Chips, Empty, listItem, Pill, type Tone } from "@kos/kit";
+import { Chips, EmptyState, listItem, Pill, type Tone } from "@kos/kit";
 
 import { AgentTerminal } from "./AgentTerminal.js";
 import { Drawer } from "./Drawer.js";
@@ -343,14 +343,14 @@ export function BuildsPage({
       )}
 
       {builds && builds.length === 0 && (
-        <Empty title="Nothing running">
+        <EmptyState title="Nothing running">
           KOS starts one when a job is bigger than editing a file, and it
           appears here while it works.
-        </Empty>
+        </EmptyState>
       )}
 
       {active && active.length === 0 && builds && builds.length > 0 && (
-        <Empty inline>Nothing running now. Recent builds below.</Empty>
+        <EmptyState variant="inline">Nothing running now. Recent builds below.</EmptyState>
       )}
 
       <div className="builds-list">

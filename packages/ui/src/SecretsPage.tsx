@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import type { SecretSummary, VaultStatus } from "@kos/shared";
-import { Card, clearSecretValues, Empty, hintWords, NavIcon, Pill, readSecretValues, SecretField, Tag, takeSecretValues } from "@kos/kit";
+import { Card, clearSecretValues, EmptyState, hintWords, NavIcon, Pill, readSecretValues, SecretField, Tag, takeSecretValues } from "@kos/kit";
 
 import { useHashParam } from "./hashparams.js";
 import { PageHead } from "./PageHead.js";
@@ -104,7 +104,7 @@ function SecretList({ secrets, onOpen }: { secrets: SecretSummary[]; onOpen: (s:
   if (secrets.length === 0) {
     return (
       // The head's New secret is the one way in: a second primary here said the same thing twice.
-      <Empty title="No secrets yet">Add a login, a card or a key with New secret, and say where it may be used.</Empty>
+      <EmptyState title="No secrets yet">Add a login, a card or a key with New secret, and say where it may be used.</EmptyState>
     );
   }
   return (

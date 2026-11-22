@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { momentWords, summarizeAction } from "@kos/shared";
-import { CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
+import { CloseIcon, Count, EmptyState, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -132,7 +132,7 @@ export function Panel({
             </button>
           )}
           {rows.length === 0 ? (
-            decisions === 0 && <Empty inline>Nothing is waiting on you.</Empty>
+            decisions === 0 && <EmptyState variant="inline">Nothing is waiting on you.</EmptyState>
           ) : (
             <ul className="panel-list ask-list">
               {rows.slice(0, limit).map((a) => (
@@ -161,9 +161,9 @@ export function Panel({
             onMore={() => onGo("builds")}
           />
           {data.agents.length === 0 ? (
-            <Empty inline>No builds have run.</Empty>
+            <EmptyState variant="inline">No builds have run.</EmptyState>
           ) : live.length === 0 ? (
-            <Empty inline>Nothing running now.</Empty>
+            <EmptyState variant="inline">Nothing running now.</EmptyState>
           ) : (
             <ul className="panel-list">
               {live.slice(0, limit).map((b) => (
@@ -198,7 +198,7 @@ export function Panel({
         <div className={`panel${busy.some((a) => a.thread?.activity === "needs-you") ? " panel--attention" : ""}`}>
           <Head title={title ?? "Blobs"} count={busy.length} onMore={() => onGo("blobs")} />
           {rows.length === 0 ? (
-            <Empty inline>No blobs yet. Ask KOS to keep an eye on something.</Empty>
+            <EmptyState variant="inline">No blobs yet. Ask KOS to keep an eye on something.</EmptyState>
           ) : (
             <ul className="panel-list">
               {rows.slice(0, limit).map((a) => {
@@ -238,11 +238,11 @@ export function Panel({
             onMore={() => onGo("history")}
           />
           {rows.length === 0 ? (
-            <Empty inline>
+            <EmptyState variant="inline">
               {report.recent.total === 0
                 ? "Nothing has run yet."
                 : "Everything is working."}
-            </Empty>
+            </EmptyState>
           ) : (
             <ul className="panel-list">
               {rows.map((f) => (
@@ -327,7 +327,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Last 24 hours"} onMore={() => onGo("history")} />
           {calls === 0 ? (
-            <Empty inline>Nothing ran in the last day.</Empty>
+            <EmptyState variant="inline">Nothing ran in the last day.</EmptyState>
           ) : (
             <>
               <Bars
@@ -370,7 +370,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Activity"} onMore={() => onGo("history")} />
           {rows.length === 0 ? (
-            <Empty inline>KOS has not done anything yet.</Empty>
+            <EmptyState variant="inline">KOS has not done anything yet.</EmptyState>
           ) : (
             <ul className="panel-list">
               {rows.map((t) => (
@@ -399,7 +399,7 @@ export function Panel({
             onMore={() => onGo("projects")}
           />
           {rows.length === 0 ? (
-            <Empty inline>No active projects. Ask KOS to build something.</Empty>
+            <EmptyState variant="inline">No active projects. Ask KOS to build something.</EmptyState>
           ) : (
             <div className="panel-chips">
               {rows.slice(0, limit).map((p) => (
@@ -419,7 +419,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Chats"} onMore={() => onGo("chats")} />
           {rows.length === 0 ? (
-            <Empty inline>No conversations yet.</Empty>
+            <EmptyState variant="inline">No conversations yet.</EmptyState>
           ) : (
             <ul className="panel-list">
               {rows.map((c) => (
@@ -458,7 +458,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Schedule"} onMore={() => onGo("crons")} />
           {rows.length === 0 ? (
-            <Empty inline>Nothing runs on its own yet.</Empty>
+            <EmptyState variant="inline">Nothing runs on its own yet.</EmptyState>
           ) : (
             <>
               <DayLine runs={data.upcoming} />
@@ -499,7 +499,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Spend, last 7 days"} onMore={() => onGo("settings", "spend")} />
           {models.length === 0 ? (
-            <Empty inline>Nothing spent this week.</Empty>
+            <EmptyState variant="inline">Nothing spent this week.</EmptyState>
           ) : (
             <>
               {/* The figure first: cost is the number this card is opened
@@ -586,7 +586,7 @@ export function Panel({
         <div className={`panel${broken.length ? " panel--bad" : ""}`}>
           <Head title={title ?? "Modules"} count={broken.length} onMore={() => onGo("settings", "modules")} />
           {mods.length === 0 ? (
-            <Empty inline>{`No workspace modules. Built in: ${builtinsOn.map((b) => b.name).join(", ") || "none"}.`}</Empty>
+            <EmptyState variant="inline">{`No workspace modules. Built in: ${builtinsOn.map((b) => b.name).join(", ") || "none"}.`}</EmptyState>
           ) : (
             <ul className="panel-list">
               {mods.slice(0, limit).map((mod) => (
@@ -629,7 +629,7 @@ export function Panel({
           ) : panel.text ? (
             <p className="panel-note hint">{panel.text}</p>
           ) : (
-            <Empty inline>Empty note. Press Arrange to write in it.</Empty>
+            <EmptyState variant="inline">Empty note. Press Arrange to write in it.</EmptyState>
           )}
         </div>
       );
@@ -637,7 +637,7 @@ export function Panel({
     default:
       return (
         <div className="panel">
-          <Empty inline>Unknown panel.</Empty>
+          <EmptyState variant="inline">Unknown panel.</EmptyState>
         </div>
       );
   }

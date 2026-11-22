@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 import { isSearchKind, marksOfLetters, SEARCH_KINDS, type HitKind, type SearchHit, type SearchKind, type SearchTarget, type Snippet } from "@kos/shared";
-import { ease, Empty, Marked } from "@kos/kit";
+import { ease, EmptyState, Marked } from "@kos/kit";
 
 import { api } from "./api.js";
 import { NAV, type Route } from "./routes.js";
@@ -560,13 +560,13 @@ export function CommandPalette({
               />
 
               {results.length === 0 ? (
-                <Empty inline className="pal-empty">
+                <EmptyState variant="inline" className="pal-empty">
                   {waiting.length > 0
                     ? `Searching ${sourcesWords(waiting)}…`
                     : parsed.term || parsed.kind
                       ? "Nothing matches."
                       : "Start typing."}
-                </Empty>
+                </EmptyState>
               ) : (
                 <ul className="pal-list" ref={listRef}>
                   {results.map((r, i) => {

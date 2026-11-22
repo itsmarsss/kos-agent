@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactElement } from "react";
 
-import { Count, Empty, StepPicture, Tag } from "@kos/kit";
+import { Count, EmptyState, StepPicture, Tag } from "@kos/kit";
 
 import { api, type FailingJob, type InboxData } from "./api.js";
 import { InboxDecided } from "./InboxDecided.js";
@@ -69,9 +69,9 @@ export function InboxPage({
       />
 
       {data && total === 0 && (
-        <Empty title="Nothing is waiting on you." className="inbox-clear">
+        <EmptyState title="Nothing is waiting on you." className="inbox-clear">
           Tool calls that need a yes, memory questions Tidy could not settle, and jobs failing now will show up here.
-        </Empty>
+        </EmptyState>
       )}
 
       {approvals.length > 0 && (

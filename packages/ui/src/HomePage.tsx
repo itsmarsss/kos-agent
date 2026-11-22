@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { HomeLayout, HomePanel, PanelKind } from "@kos/shared";
 
 import { AnimatePresence, m } from "motion/react";
-import { ease, Empty } from "@kos/kit";
+import { ease, EmptyState } from "@kos/kit";
 
 import { api, type FailingJob, type HomeData } from "./api.js";
 import { HomeGrid } from "./HomeGrid.js";
@@ -181,9 +181,9 @@ export function HomePage({
       )}
 
       {layout.panels.length === 0 && (
-        <Empty title="Nothing here">
+        <EmptyState title="Nothing here">
           Press Arrange to put something on your home page.
-        </Empty>
+        </EmptyState>
       )}
 
       <HomeGrid

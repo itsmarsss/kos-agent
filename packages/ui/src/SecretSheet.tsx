@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 
-import { Chips, Countdown, Empty, Field, hintWords, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
+import { Chips, Countdown, EmptyState, Field, hintWords, OriginList, PAYMENT_FRAMES, Pill, SecretField, Section, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
 
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
@@ -318,7 +318,7 @@ function SwitchLine({ label, hint, on, disabled, onChange }: { label: string; hi
 function ChatPicks({ chosen, conversations, disabled, onChange }: { chosen: string[]; conversations: readonly { id: string; title: string }[]; disabled: boolean; onChange: (chats: string[]) => void }): ReactElement {
   const known = new Set(conversations.map((c) => c.id));
   const others = chosen.filter((id) => !known.has(id));
-  if (conversations.length === 0 && others.length === 0) return <Empty inline>No chats to choose from yet; until one is ticked, no chat can use it.</Empty>;
+  if (conversations.length === 0 && others.length === 0) return <EmptyState variant="inline">No chats to choose from yet; until one is ticked, no chat can use it.</EmptyState>;
   return (
     <div className="origin-ticks">
       {conversations.map((c) => (
@@ -342,7 +342,7 @@ function Grants({ secret, disabled, onChanged }: { secret: SecretSummary; disabl
   return (
     <Section label="Remembered sites">
       {secret.policy.grants.length === 0 ? (
-        <Empty inline>None yet. A yes you ask KOS to remember shows here.</Empty>
+        <EmptyState variant="inline">None yet. A yes you ask KOS to remember shows here.</EmptyState>
       ) : (
         <ul className="secret-lines">
           {secret.policy.grants.map((g) => (
@@ -390,9 +390,9 @@ function Uses({ handle }: { handle: string }): ReactElement {
       {error ? (
         <p className="field-error">{error}</p>
       ) : uses === null ? (
-        <Empty inline>Reading…</Empty>
+        <EmptyState variant="inline">Reading…</EmptyState>
       ) : uses.length === 0 ? (
-        <Empty inline>Not used yet.</Empty>
+        <EmptyState variant="inline">Not used yet.</EmptyState>
       ) : (
         <ul className="secret-lines">
           {uses.map((u) => (

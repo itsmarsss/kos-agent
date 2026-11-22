@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
-import { Chips, CloseIcon, Count, EditIcon, Empty, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
+import { Chips, CloseIcon, Count, EditIcon, EmptyState, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
@@ -324,21 +324,21 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
       )}
 
       {facts.length === 0 && !adding && (
-        <Empty title="Nothing remembered yet." className="know-empty">
+        <EmptyState title="Nothing remembered yet." className="know-empty">
           KOS keeps what you tell it and what its agents work out, for every chat to read. Pin what should be in every conversation.{" "}
           <button type="button" className="link" onClick={() => onAdding(true)}>
             Add a claim
           </button>
-        </Empty>
+        </EmptyState>
       )}
 
       {facts.length > 0 && groups.length === 0 && (
-        <Empty title="No claims match." className="know-none">
+        <EmptyState title="No claims match." className="know-none">
           Nothing in memory fits these words and filters.{" "}
           <button type="button" className="link" onClick={clear}>
             Clear the filters
           </button>
-        </Empty>
+        </EmptyState>
       )}
 
       {groups.map((g) => {

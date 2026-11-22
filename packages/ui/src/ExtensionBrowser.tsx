@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 
 import { api, type CatalogMcp, type CatalogMcpListing, type CatalogSkills, type RepoHit } from "./api.js";
-import { Chips, Empty } from "@kos/kit";
+import { Chips, EmptyState } from "@kos/kit";
 
 /**
  * Adding skills and MCP servers from Settings.
@@ -221,7 +221,7 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
             </form>
           )}
           {loading && <p className="hint">Reading the repository…</p>}
-          {data && !loading && data.skills.length === 0 && <Empty inline>No skills found there.</Empty>}
+          {data && !loading && data.skills.length === 0 && <EmptyState variant="inline">No skills found there.</EmptyState>}
           {data && !loading && data.skills.length > 0 && (
             <>
               <div className="ext-filter">
@@ -629,7 +629,7 @@ export function McpAdd({ onAdded }: { onAdded: () => void }): ReactElement {
               {loading ? "Searching…" : "Search"}
             </button>
           </form>
-          {data && q.trim() && !loading && data.results.length === 0 && <Empty inline>Nothing in the registry for that.</Empty>}
+          {data && q.trim() && !loading && data.results.length === 0 && <EmptyState variant="inline">Nothing in the registry for that.</EmptyState>}
           {data && data.results.length > 0 && (
             <ul className="ext-list">
               {data.results.map((r) => (

@@ -1,4 +1,4 @@
-import { Empty, Pill } from "@kos/kit";
+import { EmptyState, Pill } from "@kos/kit";
 import { relativeWords } from "@kos/shared";
 import { useEffect, useState, type ReactElement } from "react";
 
@@ -104,7 +104,7 @@ export function VersionList({
           Page history: {error}
         </p>
       )}
-      {versions.length < 2 && !error && <Empty inline>One version so far. Each change is kept here, with a way back.</Empty>}
+      {versions.length < 2 && !error && <EmptyState variant="inline">One version so far. Each change is kept here, with a way back.</EmptyState>}
       {versions.length > 0 && (
         <ol className="versions-list" aria-label="Versions">
           {[...versions].reverse().map((v) => (

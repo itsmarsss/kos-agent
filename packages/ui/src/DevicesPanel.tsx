@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { Empty, Field, Pill, Switch, type Tone } from "@kos/kit";
+import { EmptyState, Field, Pill, Switch, type Tone } from "@kos/kit";
 
 import type { SecretSummary } from "@kos/shared";
 
@@ -444,7 +444,7 @@ export function DevicesPanel(): ReactElement {
   return (
     <>
       {devices.length === 0 && !code && (
-        <Empty inline>Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</Empty>
+        <EmptyState variant="inline">Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</EmptyState>
       )}
       {joined && <p className="hint">Paired {joined}.</p>}
       <div className="set-rows">

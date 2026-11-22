@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { hexOfHsl, hueOfHex } from "@kos/shared";
-import { Card, Empty, lookOf, Pill } from "@kos/kit";
+import { Card, EmptyState, lookOf, Pill } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
@@ -200,7 +200,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
 
       <Card className="project-panel-section" title="Tables" count={tables.length}>
         {tables.length === 0 ? (
-          <Empty inline>No tables yet.</Empty>
+          <EmptyState variant="inline">No tables yet.</EmptyState>
         ) : (
           <ul className="insp-rows">
             {tables.map((t) => (

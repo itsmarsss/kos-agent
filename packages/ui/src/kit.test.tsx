@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Card, Empty, Field, Pill, Tag } from "@kos/kit";
+import { Card, EmptyState, Field, Pill, Tag } from "@kos/kit";
 import { ConfirmButton } from "./kit.js";
 
 afterEach(cleanup);
@@ -52,7 +52,7 @@ describe("the kit", () => {
     render(
       <>
         <Tag mono>browser</Tag>
-        <Empty title="All clear">Nothing is waiting on you.</Empty>
+        <EmptyState title="All clear">Nothing is waiting on you.</EmptyState>
       </>,
     );
     expect(screen.getByText("browser").className).toBe("tag tag--mono");

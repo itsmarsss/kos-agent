@@ -1,6 +1,6 @@
 import { m } from "motion/react";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { card, Empty, Face, moodOf, Pill, stagger } from "@kos/kit";
+import { card, EmptyState, Face, moodOf, Pill, stagger } from "@kos/kit";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo, type InvalidAgent } from "./api.js";
@@ -124,7 +124,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
       {agents === null && !error && <p className="hint">Loading…</p>}
       {agents !== null && (
       <m.ul className="agents-list agents-list--index" variants={stagger} initial={firstVisit ? "hidden" : false} animate="show">
-        {agents.length === 0 && <li><Empty inline>None yet. Ask KOS to keep something up for you, or make one with New blob.</Empty></li>}
+        {agents.length === 0 && <li><EmptyState variant="inline">None yet. Ask KOS to keep something up for you, or make one with New blob.</EmptyState></li>}
         {agents.map((a) => (
           <m.li key={a.name} variants={card} whileHover={{ y: -2 }}>
             <button type="button" className="agents-row" onClick={() => onOpen(a.name)}>

@@ -1,0 +1,123 @@
+import { useRef, type ReactElement, type ReactNode } from "react";
+
+import { CloseIcon, SearchIcon } from "./icons.js";
+import { Count } from "./kit.js";
+
+/**
+ * The head over a group of rows, or a section of a form: its name at the
+ * title's size and weight, how many when it counts, an action at its right.
+ * Inbox's Approvals, Memory's Everywhere, Projects' KOS's own, a sheet's
+ * "When it runs" are this one head, not four.
+ */
+export function GroupHead({ title, count, action, as: Tag = "h2", id }: { title: ReactNode; count?: number; action?: ReactNode; as?: "h2" | "h3"; id?: string }): ReactElement {
+  return (
+    <div className="group-head">
+      <Tag className="group-title" id={id}>
+        {title}
+        {count !== undefined && <Count n={count} />}
+      </Tag>
+      {action && <span className="group-action">{action}</span>}
+    </div>
+  );
+}
+
+/**
+ * A search box: the glass at its start, an × to clear once there are words,
+ * Escape clears too. Its placeholder is "Search <what>", the one pattern,
+ * so a page names only what it holds.
+ */
+export function SearchField({ value, onChange, noun, label, className, autoFocus }: { value: string; onChange: (v: string) => void; noun: string; label?: string; className?: string; autoFocus?: boolean }): ReactElement {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <label className={`search-field${className ? ` ${className}` : ""}`}>
+      <SearchIcon />
+      <input
+        ref={input}
+        className="kos-input search-field-input"
+        type="search"
+        value={value}
+        placeholder={`Search ${noun}`}
+        aria-label={label ?? `Search ${noun}`}
+        autoFocus={autoFocus}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && value) {
+            e.stopPropagation();
+            onChange("");
+          }
+        }}
+      />
+      {value && (
+        <button
+          type="button"
+          className="search-field-clear"
+          aria-label="Clear search"
+          onClick={() => {
+            onChange("");
+            input.current?.focus();
+          }}
+        >
+          <CloseIcon size={12} title="" />
+        </button>
+      )}
+    </label>
+  );
+}
+
+/**
+ * What a page says when what it was asked to open is not there: a project,
+ * an artifact, a blob, by the name it was asked for, and the way back. Never
+ * the server's own words, and never a skeleton waiting for what will not come.
+ */
+export function NotFound({ what, name, back }: { what: string; name: string; back?: { label: string; href?: string; onClick?: () => void } }): ReactElement {
+  return (
+    <div className="not-found" role="status">
+      <strong className="empty-title">No {what} called “{name}”</strong>
+      <p className="empty-text">It may have been renamed, moved or deleted.</p>
+      {back &&
+        (back.href ? (
+          <a className="btn btn--sm" href={back.href}>
+            {back.label}
+          </a>
+        ) : (
+          <button type="button" className="btn btn--sm" onClick={back.onClick}>
+            {back.label}
+          </button>
+        ))}
+    </div>
+  );
+}
+
+/** One column of a table's head: its words, and which side its figures sit. */
+export interface Column {
+  label: ReactNode;
+  align?: "start" | "end";
+  /** A CSS width, for a column that should not grow: "6rem". */
+  width?: string;
+}
+
+/** A table's head, in the one style: small, quiet, the columns named. */
+export function TableHead({ columns }: { columns: readonly Column[] }): ReactElement {
+  return (
+    <thead className="table-head">
+      <tr>
+        {columns.map((c, i) => (
+          <th key={i} scope="col" className={c.align === "end" ? "is-end" : undefined} style={c.width ? { width: c.width } : undefined}>
+            {c.label}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+/** A group's head inside a table (Today, Yours): a GroupHead across its columns. */
+export function TableGroup({ title, count, columns }: { title: ReactNode; count?: number; columns: number }): ReactElement {
+  return (
+    <tr className="table-group">
+      <th colSpan={columns} scope="colgroup">
+        <GroupHead title={title} as="h3" {...(count !== undefined ? { count } : {})} />
+      </th>
+    </tr>
+  );
+}

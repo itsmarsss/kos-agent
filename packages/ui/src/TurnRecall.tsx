@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactElement, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
-import { CloseIcon, Count, Empty, IconButton, NavIcon, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useFocusTrap, useOverlayScroll } from "@kos/kit";
+import { CloseIcon, Count, EmptyState, IconButton, NavIcon, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useFocusTrap, useOverlayScroll } from "@kos/kit";
 import { timeCard } from "@kos/shared";
 
 import type { TurnRecall as Recall } from "./api.js";
@@ -342,12 +342,12 @@ function RecallPanel({
         <div className="recall-body" ref={scroller}>
           <div className="recall-groups">
             {shown.length === 0 && (
-              <Empty inline className="recall-none">
+              <EmptyState variant="inline" className="recall-none">
                 Nothing here matches “{query.trim()}”.{" "}
                 <button type="button" className="link" onClick={() => setQuery("")}>
                   Clear the filter
                 </button>
-              </Empty>
+              </EmptyState>
             )}
             {shown.map((g) => (
               <section key={g.id} className="recall-group" aria-label={g.label}>
