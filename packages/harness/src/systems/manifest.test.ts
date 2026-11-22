@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { NAME_MAX, NameError } from "@kos/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
@@ -81,9 +82,18 @@ describe("ProjectManifest", () => {
     const changed = manifest.update("garden", { name: "Back garden", description: "Beds and the greenhouse", type: "tracker" });
     expect(changed).toMatchObject({ slug: "garden", name: "Back garden", description: "Beds and the greenhouse", type: "tracker" });
     expect(manifest.update("garden", { description: "  " }).description).toBeNull();
-    expect(() => manifest.update("garden", { name: "Shed" })).toThrow(/another project is called Shed/);
-    expect(() => manifest.update("garden", { name: " " })).toThrow(/needs a name/);
+    expect(() => manifest.update("garden", { name: "Shed" })).toThrow(/already a project called “Shed”/);
+    expect(() => manifest.update("garden", { name: " " })).toThrow(/Give the project a name/);
+    expect(manifest.update("garden", { name: "back GARDEN" }).name).toBe("back GARDEN");
     expect(() => manifest.update("nope", { name: "x" })).toThrow(/no project/);
+  });
+
+  it("refuses a new project whose name is taken in any case, or too long, in words and not the store's", () => {
+    manifest.createProject({ name: "Home lab", type: "project" });
+    expect(() => manifest.createProject({ name: "home lab ", type: "project" })).toThrow(NameError);
+    expect(() => manifest.createProject({ name: "home lab", type: "project" })).toThrow("There is already a project called “Home lab”. Pick another name.");
+    expect(() => manifest.createProject({ name: "x".repeat(NAME_MAX + 1), type: "project" })).toThrow(/Keep it to 80 characters/);
+    expect(manifest.createProject({ name: "  Garden  ", type: "notes" }).name).toBe("Garden");
   });
 
   it("lists projects, optionally filtered by status", () => {

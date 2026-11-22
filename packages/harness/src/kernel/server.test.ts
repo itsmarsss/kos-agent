@@ -175,6 +175,16 @@ describe("handleApiRequest", () => {
     expect(kernel.manifest.list().some((p) => p.slug === made.slug)).toBe(true);
   });
 
+  it("refuses a project's taken or too long name in words under its field, never the store's", async () => {
+    await handleApiRequest(kernel, { method: "POST", path: "/api/projects/create", body: { name: "Home lab", type: "project" } });
+    const dup = await handleApiRequest(kernel, { method: "POST", path: "/api/projects/create", body: { name: "home lab", type: "project" } });
+    expect(dup.status).toBe(400);
+    expect(dup.body).toEqual({ field: "name", problem: "taken", error: "There is already a project called “Home lab”. Pick another name." });
+    expect(JSON.stringify(dup.body)).not.toMatch(/UNIQUE|constraint|manifest/);
+    const long = await handleApiRequest(kernel, { method: "POST", path: "/api/projects/create", body: { name: "a".repeat(270), type: "project" } });
+    expect(long.body).toMatchObject({ field: "name", problem: "too_long", error: "Keep it to 80 characters; this is 270." });
+  });
+
   it("lists projects with how many tables each made, as their page does, a name that only looks like one not counted", async () => {
     kernel.manifest.createProject({ name: "Shelf", type: "tracker" });
     kernel.migrator.migrate("shelf", { op: "create_table", table: "books", columns: [{ name: "id", type: "INTEGER", primaryKey: true }] });
@@ -526,7 +536,7 @@ describe("handleApiRequest", () => {
     expect(empty).toEqual({ agents: [], invalid: [] });
     const bad = await handleApiRequest(kernel, { method: "POST", path: "/api/agents/save", body: { name: "Price Watch", description: "x", brief: "y" } });
     expect(bad.status).toBe(400);
-    expect((bad.body as { error: string }).error).toMatch(/short and plain/);
+    expect(bad.body).toMatchObject({ field: "name", problem: "invalid", error: expect.stringMatching(/letters, digits and dashes/) });
     const noPrompt = await handleApiRequest(kernel, { method: "POST", path: "/api/agents/save", body: { name: "price-watch", description: "x", brief: "y", schedule: "0 9 * * 1" } });
     expect((noPrompt.body as { error: string }).error).toMatch(/needs a prompt/);
     const saved = (await handleApiRequest(kernel, {
@@ -539,7 +549,7 @@ describe("handleApiRequest", () => {
     // Making a new one under a name that exists is refused, not an overwrite.
     const dup = await handleApiRequest(kernel, { method: "POST", path: "/api/agents/save", body: { name: "price-watch", description: "Another", brief: "No.", create: true } });
     expect(dup.status).toBe(409);
-    expect((dup.body as { error: string }).error).toMatch(/already exists/);
+    expect(dup.body).toMatchObject({ field: "name", problem: "taken", error: expect.stringMatching(/already a blob called “price-watch”/) });
     expect(kernel.roles.get("price-watch")?.description).toBe("Watches a listing");
     const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/agents" })).body as {
       agents: { name: string; thread: { id: string; activity: string; lastSaid: string | null }; job?: { id: number; nextRunAt: number | null } }[];
@@ -2372,7 +2382,19 @@ describe("owner-written schedules", () => {
       prompt: "x",
     });
     expect(res.status).toBe(400);
-    expect(JSON.stringify(res.body)).toContain("invalid cron schedule");
+    expect(res.body).toMatchObject({ field: "schedule", problem: "invalid", error: expect.stringMatching(/isn't a schedule KOS can read/) });
+  });
+
+  it("refuses a schedule's name taken by another, too long or empty, under its field, and lets an edit keep its own", async () => {
+    const body = { schedule: "0 9 * * *", type: "self_prompt", prompt: "x" };
+    const first = (await post("/api/crons/create", { ...body, name: "Morning brief" })).body as { id: number };
+    const dup = await post("/api/crons/create", { ...body, name: "morning BRIEF " });
+    expect(dup.status).toBe(400);
+    expect(dup.body).toEqual({ field: "name", problem: "taken", error: "There is already a schedule called “Morning brief”. Pick another name." });
+    expect((await post("/api/crons/create", { ...body, name: "x".repeat(81) })).body).toMatchObject({ field: "name", problem: "too_long" });
+    expect((await post("/api/crons/create", { ...body, name: " " })).body).toMatchObject({ field: "name", problem: "empty" });
+    expect((await post("/api/crons/update", { ...body, id: first.id, name: "Morning brief" })).status).toBe(200);
+    expect(kernel.crons.list().filter((c) => c.name === "Morning brief")).toHaveLength(1);
   });
 
   it("refuses a self_prompt with nothing to say", async () => {
