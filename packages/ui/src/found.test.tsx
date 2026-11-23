@@ -6,6 +6,7 @@ import { api, HttpError } from "./api.js";
 import { FilesPage } from "./FilesPage.js";
 import { isGone, useFound } from "./found.js";
 import { parseRoute } from "./routes.js";
+import { isSettingsSection } from "./settingsindex.js";
 
 afterEach(() => {
   cleanup();
@@ -35,6 +36,7 @@ describe("a bad link", () => {
     expect(parseRoute("#/inbox/abc")).toEqual({ name: "missing", path: "/inbox/abc" });
     expect(parseRoute("#/nowhere")).toEqual({ name: "missing", path: "/nowhere" });
     expect(parseRoute("#/inbox/99999")).toEqual({ name: "inbox", id: 99999 });
+    expect(isSettingsSection("nope")).toBe(false);
   });
 
   it("to a file that is not there says so, not the workspace root", async () => {

@@ -26,6 +26,7 @@ import { m } from "motion/react";
 import { chatShown, frameOf, hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
 import { useFound } from "./found.js";
+import { isSettingsSection } from "./settingsindex.js";
 import { targetHref, useCreateParam } from "./hashparams.js";
 import { CronEditor } from "./CronEditor.js";
 import { scheduleWords } from "./schedule.js";
@@ -1206,6 +1207,9 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "settings") {
+    if (route.section !== undefined && !isSettingsSection(route.section)) {
+      return shell(<NotFound what="setting" name={route.section} back={{ label: "Back to Settings", href: hrefFor({ name: "settings" }) }} />);
+    }
     return shell(
       <SettingsPage
         section={route.section}
