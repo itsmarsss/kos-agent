@@ -9,7 +9,7 @@ import { actionSteps, summarizeAction, type ActionHome, type ActionNames, type S
 import { placePath } from "./filehome.js";
 import { showInvisible } from "./invisible.js";
 import { usesSecret } from "./secretref.js";
-import type { AskSecret } from "./secrets.js";
+import { PRIVATE_TOOLS, type AskSecret } from "./secrets.js";
 import type { KeyPlatform } from "./keys.js";
 
 /** What a yes-and-remember keeps: the tool or its family, the scope it covers, the project it holds in. */
@@ -72,6 +72,11 @@ export interface AskInput {
   platform?: KeyPlatform;
 }
 
+/** The owner's clipboard read on their Mac, the one approval card that shows part of what the call would bring in. */
+export const CLIPBOARD_READ = "clipboard.read";
+/** As much of the clipboard as its card quotes. */
+export const CLIPBOARD_PREVIEW_MAX = 120;
+
 const upperFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 function argsOf(args: string | Record<string, unknown>): Record<string, unknown> {
@@ -122,7 +127,7 @@ export function askPlace(input: Pick<AskInput, "tool" | "args" | "rule" | "yours
   }
   if (tool.startsWith("chrome.")) return { words: "In your Chrome" };
   if (tool.startsWith("computer.")) return { words: "On your Mac" };
-  if (tool === "secrets.type") return { words: typeof a.device === "string" && a.device ? `On your Mac, ${a.device}` : "On your Mac" };
+  if (tool === "secrets.type" || tool === CLIPBOARD_READ) return { words: typeof a.device === "string" && a.device ? `On your Mac, ${a.device}` : "On your Mac" };
   if (tool === "shell.run" || tool === "python.run") {
     const cwd = typeof a.cwd === "string" && a.cwd.trim() ? a.cwd.trim() : "";
     return { words: cwd ? `In ${cwd}` : "In the workspace" };
@@ -246,13 +251,29 @@ export function alwaysTip(rule: AskRule, names?: ActionNames): string {
 /** Said on a card asked in a chat set to Auto, for what Auto never covers. */
 export const BEYOND_AUTO_NOTE = "Auto never covers this: it asks each time";
 
+/**
+ * What a clipboard read would bring in, for the owner to know it before a
+ * yes: the start of it, scrubbed by the host, as the card's one step line.
+ * A step, never the title, so a notification, which carries the title
+ * alone, never shows it.
+ */
+function clipboardLines(a: Record<string, unknown>): StepLine[] | undefined {
+  if (typeof a.preview !== "string") return undefined;
+  const length = typeof a.length === "number" ? a.length : a.preview.length;
+  const line = a.preview.replace(/\s+/g, " ").trim();
+  const cut = line.length > CLIPBOARD_PREVIEW_MAX ? `${line.slice(0, CLIPBOARD_PREVIEW_MAX - 1).trimEnd()}…` : line;
+  const all = length > cut.length ? `, the start of ${length.toLocaleString("en-US")} characters` : "";
+  return [[{ text: `“${showInvisible(cut)}”${all}` }]];
+}
+
 /** An ask, as every card lays it out. */
 export function askView(input: AskInput): AskView {
   const { tool, args, reason, rule, names, where, platform } = input;
   const a = argsOf(args);
   const place = askPlace(input);
   const risk = askRisk(reason);
-  const lines = actionSteps(tool, args, platform);
+  const acting = actionSteps(tool, args, platform);
+  const lines = acting ?? (tool === CLIPBOARD_READ ? clipboardLines(a) : undefined);
   // A run of actions with no purpose said is titled by what it acts on and
   // listed in full; one action alone is its own title.
   // The model's account of a step is its words, said apart and quieter: the
@@ -262,7 +283,7 @@ export function askView(input: AskInput): AskView {
   const steps = lines;
   // A shell command's folder is its place line, so its title is the command alone.
   const titled = { ...a, intent: undefined, ...(tool === "shell.run" ? { cwd: undefined } : {}) };
-  const title = steps ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, where, platform);
+  const title = acting ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, where, platform);
   const always = !(input.asksAlways ?? usesSecret(tool, a));
   const secret = input.secret ?? undefined;
   // A secret whose policy is "site" offers its own remembered yes: a grant on this origin, or in this Mac app, kept in the vault.
@@ -285,7 +306,7 @@ export function askView(input: AskInput): AskView {
             : `Approves this, and from now on ${secret!.label} is filled on ${secret!.origin} without asking; each use is still recorded. Take it back on the Secrets page.`,
         }
       : !always
-        ? { alwaysNote: "Secrets always ask" }
+        ? { alwaysNote: PRIVATE_TOOLS.includes(tool) ? "Asks every time" : "Secrets always ask" }
         : input.beyondAuto
           ? { alwaysNote: BEYOND_AUTO_NOTE }
           : rule

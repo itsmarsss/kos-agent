@@ -456,6 +456,11 @@ export class GuardedTools implements ToolBox {
     // Judged, asked about and run as stamped: what the owner says yes to is
     // what runs, and the call can check it still holds.
     const input = await within(async () => registry.stamp(name, called));
+    /** The audit's record of the call once it ran: as much of it as its tool keeps. */
+    const audited = (ran: ToolExecution): { args: Record<string, unknown>; result: string; isError: boolean } => {
+      const kept = registry.audited(name, input, ran);
+      return { args: kept.args, result: kept.result, isError: ran.isError };
+    };
 
     // A secret where its tool declared no slot for one, or bound for another host: refused before anyone is asked.
     const misplaced = placeSecrets(name, input, registry.secretSlots(name), secrets, who);
@@ -538,7 +543,7 @@ export class GuardedTools implements ToolBox {
         );
         this.deps.onAutoRan?.();
         const ran = await underAuto.run(true, () => run(name, input));
-        audit.record({ tool: name, args: input, result: ran.content, isError: ran.isError, riskTier: "risky", approvedBy: AUTO_DECIDER, ...(userId ? { userId } : {}) });
+        audit.record({ tool: name, ...audited(ran), riskTier: "risky", approvedBy: AUTO_DECIDER, ...(userId ? { userId } : {}) });
         this.deps.onExecuted?.(name, ran);
         return autoResult(ran);
       }
@@ -547,7 +552,7 @@ export class GuardedTools implements ToolBox {
       // Only by a yes its own tool keeps (a secret's grant on this site, or for this turn): run, and audited as such.
       if (always && (await within(async () => registry.granted(name, input)))) {
         const granted = await run(name, input);
-        audit.record({ tool: name, args: input, result: granted.content, isError: granted.isError, riskTier: "risky", approvedBy: GRANT_DECIDER, ...(userId ? { userId } : {}), ...(conversationId ? { conversationId } : {}) });
+        audit.record({ tool: name, ...audited(granted), riskTier: "risky", approvedBy: GRANT_DECIDER, ...(userId ? { userId } : {}), ...(conversationId ? { conversationId } : {}) });
         this.deps.onExecuted?.(name, granted);
         return granted;
       }
@@ -561,9 +566,7 @@ export class GuardedTools implements ToolBox {
         const allowedResult = await run(name, input, bound);
         audit.record({
           tool: name,
-          args: input,
-          result: allowedResult.content,
-          isError: allowedResult.isError,
+          ...audited(allowedResult),
           riskTier: "risky",
           ...(userId ? { userId } : {}),
           ...(conversationId ? { conversationId } : {}),
@@ -657,9 +660,7 @@ export class GuardedTools implements ToolBox {
       const approvedRun = await run(name, input, undefined, { id: action.id, by: approvals.get(action.id)?.decidedBy ?? userId ?? "owner" });
       audit.record({
         tool: name,
-        args: input,
-        result: approvedRun.content,
-        isError: approvedRun.isError,
+        ...audited(approvedRun),
         riskTier: "risky",
         ...(userId ? { userId } : {}),
         ...(conversationId ? { conversationId } : {}),
@@ -672,9 +673,7 @@ export class GuardedTools implements ToolBox {
     const result = await run(name, input);
     audit.record({
       tool: name,
-      args: input, // pre-injection; AuditLog also redacts defensively
-      result: result.content,
-      isError: result.isError,
+      ...audited(result), // pre-injection; AuditLog also redacts defensively
       riskTier: "safe",
       ...(userId ? { userId } : {}),
       ...(conversationId ? { conversationId } : {}),

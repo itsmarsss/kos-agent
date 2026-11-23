@@ -1,4 +1,4 @@
-import { summarizeAction, toolWords, usesSecret, type ActionHome } from "@kos/shared";
+import { PRIVATE_TOOLS, summarizeAction, toolWords, usesSecret, type ActionHome } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
@@ -77,6 +77,10 @@ export interface DecisionsDeps {
     keeps?: (tool: string, input: Record<string, unknown>) => boolean;
     /** Why the tool refuses this call now, judged inside the asking turn's stores; see ToolRisk.refuse. */
     refusal?: (tool: string, input: Record<string, unknown>) => Promise<string | undefined>;
+    /** What the audit keeps of a call that ran; see ToolRisk.audited. All of it when absent. */
+    audited?: (tool: string, input: Record<string, unknown>, result: { content: string; isError: boolean }) => { args: Record<string, unknown>; result: string };
+    /** Whether the tool's ask lapses once its turn no longer waits on it; see ToolRisk.awaitedOnly. */
+    awaitedOnly?: (tool: string) => boolean;
   };
   /** The kill switch: while thrown, no decision runs anything. */
   halted?: () => boolean;
@@ -137,8 +141,11 @@ export interface DecisionOptions {
   code?: string;
 }
 
-/** Said on a chat surface for an ask that places a secret, in place of its buttons or a typed decision. */
-export function secretAskElsewhere(id: number | string): string {
+/** Said on a chat surface for an ask that places a secret, or shows the owner's private data, in place of its buttons or a typed decision. */
+export function secretAskElsewhere(id: number | string, tool?: string): string {
+  if (tool !== undefined && PRIVATE_TOOLS.includes(tool)) {
+    return `KOS asks: ${toolWords(tool)} (#${id}). Decide on the dashboard or a paired device; what it shows is private, so it is never shown or decided here.`;
+  }
   return `KOS asks to use a secret (#${id}). Decide on the dashboard or a paired device; a secret's use is never decided here.`;
 }
 
@@ -198,18 +205,18 @@ export class Decisions {
     const placing = usesSecret(action.tool, stored);
     // A call that places a secret is approved only where the owner is proved: the dashboard or a paired device, never a chat surface.
     if (!DECIDING_SURFACES.has(options.surface) && placing) {
-      return { ok: false, message: secretAskElsewhere(id) };
+      return { ok: false, message: secretAskElsewhere(id, action.tool) };
     }
     // Typed words are not a press: on a device's own chat they could be KOS's own keys.
     if (options.typed && placing) {
-      return { ok: false, message: `#${id} uses a secret, which is decided with its card's buttons on the dashboard or a paired device, never a typed /approve.` };
+      return { ok: false, message: `#${id} ${PRIVATE_TOOLS.includes(action.tool) ? "shows something private of yours" : "uses a secret"}, which is decided with its card's buttons on the dashboard or a paired device, never a typed /approve.` };
     }
     // Nor from where KOS's own pointer may be: the ask stays, for the owner to decide where KOS is not.
     const handsOn = placing ? d.handsOn?.(options.device, action.conversationId) : undefined;
     if (handsOn) return { ok: false, message: `#${id} was not approved: ${handsOn}` };
     const awaited = d.approvals.isAwaited(id);
-    // A secrets tool's ask nobody waits on any more is not run later: the page it was for is gone.
-    if (!awaited && action.tool.startsWith(SECRETS_PREFIX)) {
+    // A secrets tool's ask nobody waits on any more is not run later: the page it was for is gone. Nor one whose tool runs only for its turn.
+    if (!awaited && (action.tool.startsWith(SECRETS_PREFIX) || d.registry.awaitedOnly?.(action.tool) === true)) {
       d.approvals.lapse(id, decidedBy ?? d.ownerId);
       return { ok: false, message: `#${id} lapsed: KOS was no longer waiting on it, so nothing was done. Ask KOS again.` };
     }
@@ -264,7 +271,8 @@ export class Decisions {
           });
       // What it answered is scrubbed before the audit and the resumed turn read it.
       const r = { ...ran, content: d.secrets.scrub(ran.content) };
-      d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
+      const kept = d.registry.audited?.(action.tool, stored, r) ?? { args: stored, result: r.content };
+      d.audit.record({ tool: action.tool, args: kept.args, result: kept.result, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
       if (!r.isError) d.onToolRan(action.tool);
       return r;
     }, action.conversationId ?? SHARED_LANE);

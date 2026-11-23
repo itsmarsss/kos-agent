@@ -65,6 +65,18 @@ export interface ToolRisk {
   /** A yes-and-remember the tool keeps itself, in place of a permission rule: true when it kept one. */
   keep?: (input: Record<string, unknown>) => boolean;
   /**
+   * What the audit, and the approval once it is decided, keep of a call
+   * when not all of it: a read of the owner's clipboard keeps that it
+   * happened and how much, never what it held. The arguments are as
+   * stamped; the result is the call's own words, or its error.
+   */
+  audited?: (input: Record<string, unknown>, result: { content: string; isError: boolean }) => { args: Record<string, unknown>; result: string };
+  /**
+   * Runs only for the turn waiting on it: an ask decided after its turn
+   * has gone lapses rather than running for nobody, as a secret's does.
+   */
+  awaitedOnly?: boolean;
+  /**
    * The call starts a session on one of the owner's devices. Auto covers it
    * only where the owner also let Auto start sessions; a device that asks on
    * itself still asks there.

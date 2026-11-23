@@ -135,8 +135,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
 
   /// This run's log onto the clipboard, for the owner to send when something went wrong.
   private func copyLog() {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(Log.recent(), forType: .string)
+    Clipboard.copy(Log.recent())
     model.logCopied = true
     Task { [weak self] in
       try? await Task.sleep(nanoseconds: 2_000_000_000)

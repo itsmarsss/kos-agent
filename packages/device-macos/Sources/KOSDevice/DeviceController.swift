@@ -110,6 +110,9 @@ final class DeviceController {
     case .sessionStatus:
       // Said, not done: never behind an action in flight.
       return await answer(call) { try self.status(call.params(SessionStatusParams.self), from: origin) }
+    case .clipboardRead:
+      // No session: KOS asks the owner for each read on its own card, and never in a turn they are not at.
+      return await answer(call) { try ClipboardResult.answer(call.params(ClipboardReadParams.self), from: SystemClipboard()) }
     default:
       return await inTurn { await self.answer(call) { try await self.act(method, call, from: origin) } }
     }
@@ -490,7 +493,7 @@ final class DeviceController {
         throw error
       }
 
-    case .sessionBegin, .sessionEnd, .sessionStatus:
+    case .sessionBegin, .sessionEnd, .sessionStatus, .clipboardRead:
       throw DeviceError(.internal, "\(method.rawValue) is not an action.")
     }
   }

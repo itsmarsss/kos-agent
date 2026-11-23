@@ -60,6 +60,8 @@ final class ChatController {
   private var openRead = false
   /// The owner was told once that without Accessibility the window cannot bring in what they select.
   private var toldAccess = false
+  /// A picture from the clipboard, for the words about to be sent.
+  private var clipboardPicture: (id: String, png: Data)?
 
   /// How long the window waits to hear that KOS has the owner's words before it gives them back.
   private static let takeWithin: TimeInterval = 12
@@ -69,6 +71,7 @@ final class ChatController {
   init() {
     model.send = { [weak self] text, quote in self?.say(text, quote: quote) }
     model.readSelection = { [weak self] in self?.readSelection() }
+    model.sendClipboard = { [weak self] in self?.sendClipboard() }
     model.decide = { [weak self] id, approved, remember, code in self?.tell(.decide(approval: id, approved: approved, remember: remember, code: code)) }
     model.list = { [weak self] in self?.tell(.list) }
     model.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
@@ -173,7 +176,13 @@ final class ChatController {
   // MARK: The owner
 
   private func say(_ text: String, quote: ChatModel.Quote?) {
-    tell(.send(text: text, beside: beside(), quote: quote.map { Quote(text: $0.text, from: $0.from) }))
+    // A picture from the clipboard goes ahead of the words, in parts, as a phone's files do.
+    let files = clipboardPicture.map { [$0] } ?? []
+    clipboardPicture = nil
+    for file in files {
+      for part in AttachmentPart.parts(id: file.id, name: Self.pictureName, mediaType: "image/png", bytes: file.png) { tell(.attach(part)) }
+    }
+    tell(.send(text: text, beside: beside(), quote: quote.map { Quote(text: $0.text, from: $0.from) }, files: files.map(\.id)))
     // KOS says it has the words at once; nothing back in a while is a KOS that cannot talk here.
     taking?.invalidate()
     taking = Timer.scheduledTimer(withTimeInterval: Self.takeWithin, repeats: false) { [weak self] _ in
@@ -182,6 +191,34 @@ final class ChatController {
       }
     }
   }
+
+  // MARK: The clipboard
+
+  /// What the owner copied, read once because they asked, and sent as their message into the chat the window shows,
+  /// where KOS scrubs it as any of their words: its text, else a picture. Nothing marked concealed, transient or
+  /// auto-generated is read (docs/computer.md, The clipboard).
+  func sendClipboard() {
+    open()
+    guard model.usable else {
+      model.error = "KOS is not connected, so your clipboard was not sent."
+      return
+    }
+    switch ClipboardRead.read(from: SystemClipboard(), limit: ClipboardResult.limit, pictures: true) {
+    case .marked:
+      model.error = "Your clipboard holds something marked private, such as a password manager's copy, so it was not sent."
+    case .nothing:
+      model.error = "Your clipboard has no text or picture to send."
+    case .text(let text, let length):
+      model.say(text, files: [], quoting: false)
+      if length > text.count { model.hint = "Only the first \(text.count.formatted()) characters of your clipboard went." }
+    case .picture(let png):
+      clipboardPicture = (UUID().uuidString, png)
+      model.say("", files: [Self.pictureName], quoting: false)
+    }
+  }
+
+  /// The name a picture from the clipboard goes by.
+  private static let pictureName = "Clipboard.png"
 
   // MARK: While KOS works this Mac
 

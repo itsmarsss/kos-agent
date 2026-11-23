@@ -109,7 +109,10 @@ public struct ChatView: View {
         }
       }
       Spacer(minLength: 8)
-      if model.usable { IconButton(symbol: "square.and.pencil", label: "New chat") { model.say("/new") } }
+      if model.usable {
+        IconButton(symbol: "doc.on.clipboard", label: "Send clipboard to KOS") { model.sendClipboard() }
+        IconButton(symbol: "square.and.pencil", label: "New chat") { model.say("/new") }
+      }
       IconButton(symbol: "xmark", label: "Close", tint: Theme.danger) { model.close() }
     }
     .padding(.horizontal, 14)

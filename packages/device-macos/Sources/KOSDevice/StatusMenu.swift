@@ -22,6 +22,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
   var onOpen: (() -> Void)?
   /// The chat window, as ⌥⌘K opens it.
   var onChat: (() -> Void)?
+  /// What the owner copied, sent into the chat window's chat as their message.
+  var onSendClipboard: (() -> Void)?
   /// Each of these acts on every KOS it can: one at a time is the window's.
   var onReconnect: (() -> Void)?
   var onConnect: (() -> Void)?
@@ -128,6 +130,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
       chat.keyEquivalent = "k"
       chat.keyEquivalentModifierMask = [.command, .option]
       menu.addItem(chat)
+      menu.addItem(action("Send Clipboard to KOS", #selector(sendClipboard)))
     }
     menu.addItem(action(now.kos.isEmpty ? "Pair with KOS…" : "Open KOS for Mac…", #selector(open)))
     menu.addItem(.separator())
@@ -192,6 +195,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
   @objc private func open() { onOpen?() }
   @objc private func openChat() { onChat?() }
+  @objc private func sendClipboard() { onSendClipboard?() }
   @objc private func reconnect() { onReconnect?() }
   @objc private func connect() { onConnect?() }
   @objc private func disconnect() { onDisconnect?() }

@@ -298,8 +298,10 @@ describe("the Secrets page", () => {
     await waitFor(() => expect(calls.find((c) => c.path === "/api/secrets/wipe")?.body).toEqual({ confirm: "wipe", passphrase: "long and secret" }));
   });
 
-  it("reveals after the label is typed, for 30 seconds, then clears it", async () => {
+  it("reveals after the label is typed, for 30 seconds, then clears it, never onto the clipboard", async () => {
     serve("ready", { "POST /api/secrets/github-login-9xq1/reveal": () => ({ value: "hunter2" }) });
+    const writes = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: writes, write: writes }, configurable: true });
     render(<SecretsPage />);
     fireEvent.click(await screen.findByText("GitHub"));
     const proof = (await screen.findByLabelText(/Type “GitHub” to confirm/)) as HTMLInputElement;
@@ -314,12 +316,14 @@ describe("the Secrets page", () => {
     });
     expect(calls.find((c) => c.path.endsWith("/reveal"))?.body).toEqual({ field: "password", label: "GitHub" });
     expect(document.querySelector(".secret-revealed-value")?.textContent).toBe("hunter2");
-    expect(screen.getByText("Copy")).toBeTruthy();
+    // A page can only write plain text to the clipboard, which history apps keep: a secret's value is never offered there.
+    expect(screen.queryByText("Copy")).toBeNull();
     expect(screen.getByText(/Hidden in 30s/)).toBeTruthy();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(REVEAL_MS);
     });
     expect(document.body.innerHTML).not.toContain("hunter2");
     expect(screen.getByRole("button", { name: "Reveal" })).toBeTruthy();
+    expect(writes).not.toHaveBeenCalled();
   });
 });

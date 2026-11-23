@@ -1,6 +1,6 @@
 import { fenced } from "@kos/browser";
 import { isAttended, isOwnerTurn, ownWordsOn, registerSecretType, SECRET_TYPE, turnStop, type AuditEntry, type KosModule, type ModuleContext, type SecretTypeDeps, type ToolRisk } from "@kos/harness";
-import { ScreenMemory, UNCHANGED, WAIT_BUDGET_MS, WaitBudget, abortable, actionsOf, doneText, hasActions, runActions, summarizeAction, type RunAdapter } from "@kos/shared";
+import { CLIPBOARD_READ, ScreenMemory, UNCHANGED, WAIT_BUDGET_MS, WaitBudget, abortable, actionsOf, doneText, hasActions, runActions, summarizeAction, type RunAdapter } from "@kos/shared";
 
 import type { OwnerChrome } from "./chrome.js";
 import type { DeviceHub, Session } from "./hub.js";
@@ -8,6 +8,7 @@ import { CHROME_PANEL, MAC_PANEL } from "./panel.js";
 import { DeviceError } from "./link.js";
 import type { Capture, Point } from "./protocol.js";
 import { macSecrets } from "./secretmac.js";
+import { registerClipboardRead } from "./clipboard.js";
 
 /**
  * computer.*: a paired computer, as three tools.
@@ -71,6 +72,8 @@ export interface ComputerToolsDeps {
   audit?(entry: AuditEntry): void;
   /** The owner's vault and its record of uses: with them, secrets.type types a saved secret on the Mac. */
   secrets?: Omit<SecretTypeDeps, "mac">;
+  /** The host's scrubber: with it, clipboard.read reads what the owner copied on a Mac, masked; without, it is not offered. */
+  scrub?: (text: string) => string;
   /** How long the screen is given to settle after an action before the picture. */
   settleMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -156,6 +159,8 @@ const KEEPALIVE_MS = 30_000;
 const TOUCH = { region: { x: 0, y: 0, width: 1, height: 1 } };
 
 const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "computer.end"];
+/** Offered with the computer tools, where the host's scrubber is at hand. */
+const MAC_CLIPBOARD_TOOLS = [CLIPBOARD_READ];
 /** Offered with the computer tools, where the owner's vault is at hand. */
 const MAC_SECRET_TOOLS = [SECRET_TYPE];
 const CHROME_TOOLS = ["chrome.start", "chrome.end", "chrome.page"];
@@ -167,7 +172,7 @@ const PAGE_PART = 12_000;
 const HEADINGS_MAX = 24;
 /** The Chrome may first ask the owner to let KOS read pages, and waits up to five minutes for them. */
 const PAGE_WAIT_MS = 315_000;
-const TOOL_NAMES = [...COMPUTER_TOOLS, ...MAC_SECRET_TOOLS, ...CHROME_TOOLS];
+const TOOL_NAMES = [...COMPUTER_TOOLS, ...MAC_SECRET_TOOLS, ...MAC_CLIPBOARD_TOOLS, ...CHROME_TOOLS];
 const VERSION = "0.1.0";
 
 export const COMPUTER_MANIFEST: KosModule["manifest"] = {
@@ -553,6 +558,14 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   function macOf(): string | undefined {
     const chat = deps.caller();
     return chat ? deps.panelMac?.(chat)?.device : undefined;
+  }
+
+  /** The Mac a call means: the one named, else the calling chat's window's, else the only one; or why there is none, online. */
+  function macFor(named: string | undefined): { id: string; name: string } | string {
+    const device = hub.find(named ?? macOf(), "computer");
+    if (!device) return named ? `No Mac named "${named}" is paired with KOS. computer.devices names them.` : "Name the Mac: computer.devices names those paired with KOS.";
+    if (!hub.list().some((d) => d.id === device.id && d.online)) return `${device.name} is not connected to KOS now.`;
+    return { id: device.id, name: device.name };
   }
 
   /** A session on a computer: what the owner sees asked, on the device, and the first picture of it. */
@@ -1097,9 +1110,10 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           if (want && !registered[kind]) {
             (kind === "computer" ? registerComputer : registerChrome)(ctx);
             if (kind === "computer" && deps.secrets) offSecretType = registerSecretType(ctx, { ...deps.secrets, mac: macSecrets(hub) });
+            if (kind === "computer" && deps.scrub) registerClipboardRead(ctx, { mac: macFor, read: (id, params) => hub.request(id, CLIPBOARD_READ, params), scrub: deps.scrub });
             registered[kind] = true;
           } else if (!want && registered[kind]) {
-            for (const name of kind === "computer" ? COMPUTER_TOOLS : CHROME_TOOLS) ctx.unregisterTool?.(name);
+            for (const name of kind === "computer" ? [...COMPUTER_TOOLS, ...MAC_CLIPBOARD_TOOLS] : CHROME_TOOLS) ctx.unregisterTool?.(name);
             if (kind === "computer") offSecretType?.();
             registered[kind] = false;
           }

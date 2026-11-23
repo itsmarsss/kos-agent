@@ -116,7 +116,7 @@ import { applyModelSettings, MODEL_SETTINGS_KEY, parseModelSettings, type ModelS
 import { SettingsStore } from "../store/settings.js";
 import { ModuleLoader, type KosModule, type LoadReport } from "../modules/loader.js";
 import { AuditLog } from "../ops/audit.js";
-import { ApprovalQueue, type PendingAction } from "../ops/approvals.js";
+import { ApprovalQueue, keepOnRecord, type PendingAction } from "../ops/approvals.js";
 import { PersistentKillSwitch } from "../ops/killswitch.js";
 import { priorForSdk, runSdkChat, sdkCallMessages, withoutCalls, type SdkChatResult, type SdkToolCall } from "../chat/sdkchat.js";
 import { HealthMonitor } from "../ops/health.js";
@@ -826,6 +826,7 @@ export class Kernel {
         decidedBy: action.decidedBy,
       }),
     );
+    keepOnRecord(this.approvals, this.registry);
     this.embedder = args.embedder;
     this.presses = args.presses;
     this.daemons = args.daemons;

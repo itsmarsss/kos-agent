@@ -483,6 +483,9 @@ export function summarizeAction(
     }
     case "secrets.allow_site":
       return `Allow ${secretNamed(a)} on ${typeof a.origin === "string" ? a.origin : "this tab's site"}`;
+    // Never what was copied: a summary is a notification's line and the record's, kept after the ask.
+    case "clipboard.read":
+      return typeof a.device === "string" && a.device ? `Read what you copied on ${a.device}` : "Read what you copied";
     case "secrets.request": {
       // The label is KOS's words, so it is quoted as such and kept short.
       const label = typeof a.label === "string" ? a.label.replace(/\s+/g, " ").trim() : "";

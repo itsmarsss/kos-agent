@@ -234,6 +234,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           ...(options.ownHosts ? { ownHosts: options.ownHosts } : {}),
           codes: () => requireServices(ctx).secrets.codes,
         },
+        // What a read of the owner's clipboard brings in, and its card's preview, masked as any tool result is.
+        scrub: (text) => secrets.scrub(text),
         // The KOS for Mac window's chat set to Ask: each step on the screen asks first.
         asksEachStep: (conversation) => mac.asksEachStep(conversation),
         inAuto: (conversation) => mac.inAuto(conversation),

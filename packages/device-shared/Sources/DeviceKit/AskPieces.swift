@@ -2,12 +2,6 @@ import DeviceCore
 import Foundation
 import SwiftUI
 
-#if os(macOS)
-  import AppKit
-#else
-  import UIKit
-#endif
-
 /// An approval as KOS for Mac and KOS for iPhone ask it, the web kit's AskCard in SwiftUI: what KOS wants to do,
 /// where, each action with its keys as keycaps, why it asks, and the arguments folded under Details. The buttons
 /// are the surface's own (a row on the Mac, a thumb's stack on the phone), drawn with KOSButtonStyle at one height.
@@ -240,13 +234,8 @@ public struct AskDetails: View {
   }
 
   private func copy() {
-    let json = ArgNode.pretty(args)
-    #if os(macOS)
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(json, forType: .string)
-    #else
-      UIPasteboard.general.string = json
-    #endif
+    // What KOS is about to send, and a clipboard read's preview of the owner's own: marked, and gone in a minute.
+    Clipboard.copy(ArgNode.pretty(args), sensitive: true)
     copied = true
   }
 }
