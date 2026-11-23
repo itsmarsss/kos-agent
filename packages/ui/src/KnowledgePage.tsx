@@ -361,7 +361,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
           <Field label="Name" required hint="A short name KOS finds it by, such as home city. Saying it again under the same name updates it.">
             <input className="kos-input" autoFocus placeholder="Home city" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
           </Field>
-          <Field label="What to remember" required>
+          <Field label="What to remember" required hint="A fact, or a standing rule such as “never message me after 10pm”. Pin it afterwards to have every chat read it.">
             <input className="kos-input" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
           </Field>
           <Field label="Tags" hint="Comma separated.">

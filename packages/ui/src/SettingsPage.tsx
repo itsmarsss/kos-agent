@@ -293,6 +293,9 @@ function timezones(): string[] {
   }
 }
 
+/** Where a rule the owner states lives: Memory for every chat, a chat's Brief for one. */
+export const STANDING_RULES_HINT = "A rule for every chat, such as “never message me after 10pm”, is kept in Memory: say it in any chat, or add it there and pin it so every chat reads it. A rule for one chat goes in that chat's Brief.";
+
 export function SettingsPage({
   section,
   onSection,
@@ -841,6 +844,10 @@ export function SettingsPage({
             </Field>
             <Field group className="set-field" label="Owner id" hint="Identifies you across channels. Set at first run.">
               <input className="kos-input" value={data.profile.ownerId} readOnly />
+            </Field>
+            {/* Not a setting: where a rule the owner states is kept, so "never message me after 10pm" has a home to find. */}
+            <Field group className="set-field" label="Standing rules" hint={STANDING_RULES_HINT}>
+              <a className="btn btn--sm" href={hrefFor({ name: "memory" })}>Open Memory</a>
             </Field>
           </Section>
         )}
