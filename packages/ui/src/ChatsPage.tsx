@@ -234,6 +234,37 @@ function ThreadDot({
   return <ActivityDot activity={chat.activity} error={chat.lastError} unread={chat.unread} />;
 }
 
+/** What the landing's Send does with what was typed. */
+export type LandingMode = "kos" | "chat" | "project";
+
+/** The rail's New chat starts a chat of the owner's own; Chats opened bare is KOS's front door. */
+export function landingMode(composing: boolean): LandingMode {
+  return composing ? "chat" : "kos";
+}
+
+/** The landing's heading for each choice, so it never promises KOS's routing for a chat of the owner's own. */
+export const LANDING_WORDS: Readonly<Record<LandingMode, { title: string; sub: string }>> = {
+  kos: { title: "What do you want done?", sub: "KOS finds the chat, project or blob it belongs in, or starts one." },
+  chat: { title: "Start a new chat", sub: "A chat of its own, empty until you write. KOS answers here." },
+  project: { title: "Start a project", sub: "Describe it, and KOS makes the project and its chat." },
+};
+
+/** What KOS's own chat is for, in place of the prompt it runs on. */
+export const KOS_CHAT_LINE = "Tell KOS what you want done. It finds the chat, project or blob the work belongs in, or starts one.";
+
+/**
+ * The one line under a chat's title. KOS's chat, a project's orchestrator
+ * and Maintenance carry KOS's own prompt as their brief, written for the
+ * model: KOS's line says what it is for, a project's is the project's
+ * description, or none. Any other chat's brief is the owner's own, set in
+ * Configure.
+ */
+export function chatLine(chat: Pick<Conversation, "kind" | "brief" | "projectSlug">, projects: readonly Pick<Project, "slug" | "description">[]): string | null {
+  if (chat.kind === "orchestrator") return KOS_CHAT_LINE;
+  if (chat.kind === "project") return projects.find((p) => p.slug === chat.projectSlug)?.description ?? null;
+  return chat.brief ?? null;
+}
+
 export function ChatsPage({
   conversations,
   projects,
@@ -398,7 +429,9 @@ export function ChatsPage({
    * - chat: a plain conversation that does the work itself.
    * - project: stand up a project and its orchestrator, with this as the goal.
    */
-  const [mode, setMode] = useState<"kos" | "chat" | "project">("kos");
+  const [mode, setMode] = useState<LandingMode>(landingMode(composing));
+  // New chat means a chat of the owner's own; opening Chats bare means KOS's front door.
+  useEffect(() => setMode(landingMode(composing)), [composing]);
   const startFromLanding = async (): Promise<void> => {
     const text = opening.trim();
     if (!text || creating) return;
@@ -2088,10 +2121,8 @@ export function ChatsPage({
                   <Face seed={KOS_SEED} look={faceLookOf(kos)} size={56} mood={moodOf(orchestrator?.activity)} label="KOS" />
                 </m.span>
                 <m.div className="chats-welcome-head" variants={card}>
-                  <p className="chats-welcome-title">What do you want done?</p>
-                  <p className="chats-welcome-sub">
-                    KOS routes it to the right project or blob, or stands a new one up.
-                  </p>
+                  <p className="chats-welcome-title">{LANDING_WORDS[mode].title}</p>
+                  <p className="chats-welcome-sub">{LANDING_WORDS[mode].sub}</p>
                 </m.div>
                 {/* The question has to be answerable here. A button that leads
                     to an empty chat is a detour; typing is the way in. */}
@@ -2215,10 +2246,7 @@ export function ChatsPage({
                     </p>
                   )}
                   {(() => {
-                    // A project's orchestrator and Maintenance carry KOS's own prompt as their brief, written for
-                    // the model: their line is the project's description, or none. Any other chat's brief is the
-                    // owner's own, set in Configure.
-                    const line = active.kind === "project" ? (projects.find((p) => p.slug === active.projectSlug)?.description ?? null) : active.brief;
+                    const line = chatLine(active, projects);
                     return line ? <p className="chats-brief">{line}</p> : null;
                   })()}
                   {/* Counts are not something anyone came here to read. Only
