@@ -174,13 +174,13 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
 
       {onCreate && <NewProjectDialog open={making} onClose={() => setMaking(false)} onCreate={onCreate} taken={projects.map((p) => p.name)} />}
 
-      {owned.length === 0 && <EmptyState loading={loading} title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</EmptyState>}
+      {owned.length === 0 && <EmptyState loading={loading} shape="cards" title="No projects yet">Ask KOS to build something, or make an empty one with New project, and it shows up here.</EmptyState>}
       {query.trim() && groups.length === 0 && <EmptyState query={{ noun: "projects", onClear: () => setQuery("") }} />}
 
       {groups.map(([status, items]) => (
-        <section key={status} className="projects-group" aria-label={status === "system" ? "KOS's own" : several ? status : "Projects"}>
+        <section key={status} className="projects-group" aria-label={status === "system" ? "KOS's upkeep" : several ? status : "Projects"}>
           {(several || status === "system") && (
-            <GroupHead title={status === "system" ? "KOS's own" : isState(status) ? STATE_WORDS[status].word : kindWord(status)} count={items.length} />
+            <GroupHead title={status === "system" ? "KOS's upkeep" : isState(status) ? STATE_WORDS[status].word : kindWord(status)} count={items.length} />
           )}
           <m.div className="project-grid" variants={stagger} initial="hidden" animate="show">
             {items.map(cardOf)}

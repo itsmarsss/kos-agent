@@ -145,17 +145,17 @@ export function ListPage<T>(props: {
         {...(props.tabs ? { tabs: props.tabs } : {})}
       />
       {props.filters && <div className="list-filters">{props.filters}</div>}
-      {state !== "loading" && (
-        <div className="list-meta ops-muted">
-          {filtered.length} of {props.rows.length}
-        </div>
-      )}
+      {/* Its line is kept while loading, so the table does not drop when the count arrives. */}
+      <div className="list-meta ops-muted" {...(state === "loading" ? { "aria-hidden": true } : {})}>
+        {state === "loading" ? "\u00a0" : `${filtered.length} of ${props.rows.length}`}
+      </div>
       <div className={`ops-table-wrap list-table${props.stackOnPhone ? " list-table--stack" : ""}`}>
         <table
           className={`ops-table ${props.fixedLayout ? "ops-table--fixed" : ""}`}
         >
           <TableHead columns={props.columns.map((c) => ({ label: c.header || (c.srHeader ? <span className="sr-only">{c.srHeader}</span> : ""), ...(c.width ? { width: c.width } : {}) }))} />
-          <tbody data-rows="">
+          {/* Mounted again when the rows arrive, so they come in as every page's content does. */}
+          <tbody data-rows="" key={state === "loading" ? "loading" : "read"} className={state === "loading" ? undefined : "arrive"}>
             {state === "loading" && <EmptyState loading variant="row" columns={props.columns.length} />}
             {state === "empty" && (
               <EmptyState variant="row" columns={props.columns.length}>

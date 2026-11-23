@@ -10,6 +10,7 @@ export type StateTone = "ok" | "warn" | "danger" | "accent" | "muted";
 
 export const STATE_WORDS = {
   ok: { word: "Done", tone: "ok" },
+  partial: { word: "With errors", tone: "warn" },
   failed: { word: "Failed", tone: "danger" },
   running: { word: "Running", tone: "accent" },
   waiting: { word: "Needs you", tone: "warn" },
@@ -38,6 +39,7 @@ export function isState(v: unknown): v is State {
 /** A run's or a step's status as stored, as the state it is drawn as: "error" and "failed" alike are Failed. */
 export function stateOfRun(status: string): State {
   if (status === "ok" || status === "success" || status === "done") return "ok";
+  if (status === "partial") return "partial";
   if (status === "error" || status === "failed" || status === "timeout") return "failed";
   if (status === "running" || status === "started") return "running";
   if (status === "waiting" || status === "pending") return "waiting";

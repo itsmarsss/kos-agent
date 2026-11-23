@@ -76,7 +76,7 @@ afterEach(() => {
 describe("the project panel", () => {
   it("shows the folder, pages and tables, each a way in", async () => {
     const h = open();
-    await screen.findByText("Kitchen redo");
+    await screen.findAllByText("Kitchen redo");
     expect(await screen.findByText("plan.md")).toBeTruthy();
     expect(screen.getByText("Items")).toBeTruthy();
     expect(screen.getByText("5 rows")).toBeTruthy();
@@ -90,18 +90,18 @@ describe("the project panel", () => {
   it("shuts by its own × when drawn as a drawer over the chat, and has none as a column", async () => {
     const onClose = vi.fn();
     open({}, undefined, { onClose });
-    await screen.findByText("Kitchen redo");
+    await screen.findAllByText("Kitchen redo");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledOnce();
     cleanup();
     open();
-    await screen.findByText("Kitchen redo");
+    await screen.findAllByText("Kitchen redo");
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 
   it("leaves out what the project has none of, and says so", async () => {
     open({ pages: [], tables: [] }, []);
-    await screen.findByText("Kitchen redo");
+    await screen.findAllByText("Kitchen redo");
     expect(await screen.findByText("This folder is empty.")).toBeTruthy();
     expect(screen.getByText(/No artifacts yet/)).toBeTruthy();
     expect(screen.getByText(/^No tables yet\./)).toBeTruthy();

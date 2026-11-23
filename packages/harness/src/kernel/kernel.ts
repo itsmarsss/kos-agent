@@ -150,6 +150,7 @@ import { STATUS_TOOL } from "../tools/status.js";
 import { ARTIFACT_TOOLS } from "../tools/systems.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
+import { outcomeOf, type StepTally } from "../ops/outcome.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type FaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload, type NotifySent, parseTarget } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
@@ -622,6 +623,8 @@ export class Kernel {
   private readonly ownerSaid = new Map<string, { text: string; userId: string; eventId?: number }>();
   /** Conversations whose last turn threw, with the error, until the next turn. */
   private readonly failed = new Map<string, string>();
+  /** The audit log's newest id when each chat run began, by run: its own steps are the ones after. */
+  private readonly turnMarks = new Map<number, number>();
 
   /**
    * Each live turn's stop, by conversation and then by turn.
@@ -1213,6 +1216,7 @@ export class Kernel {
     {
       // Kept with the chat it ran in, so a run in the log leads to its chat.
       const runId = this.runs.start("chat", sessionId);
+      this.turnMarks.set(runId, this.audit.lastId());
       const turnId = String(runId);
       // Who this turn is to the fences: attended unless the harness started it
       // or the sender was not, the owner's only when the door that took the
@@ -1829,7 +1833,7 @@ export class Kernel {
           // Settled as resumed: the surface the words came from answered
           // "waiting on you" and has nothing left to post this answer with.
           await settle(result, true);
-          this.runs.finish(ctx.runId, "ok");
+          this.finishTurnRun(ctx.runId, ctx.sessionId);
         })
         .catch((err: unknown) => {
           if (this.closed) return;
@@ -1844,8 +1848,20 @@ export class Kernel {
       };
     }
     const reply = await settle(first.result, false);
-    this.runs.finish(ctx.runId, "ok");
+    this.finishTurnRun(ctx.runId, ctx.sessionId);
     return { reply, suspended: false };
+  }
+
+  /**
+   * A chat run that reached its reply, on the record by its steps: one with
+   * a failed step finished with errors, however its reply reads. The owner
+   * watched each step fail, so it is never a failure of its own; a
+   * schedule's run is judged on its own row.
+   */
+  private finishTurnRun(runId: number, sessionId: string): void {
+    const mark = this.turnMarks.get(runId);
+    const outcome = mark === undefined ? { status: "ok" as const, error: null } : outcomeOf(this.audit.tally(sessionId, mark), false);
+    this.runs.finish(runId, outcome.status, outcome.error);
   }
 
   private readonly replySurfaces = new Map<string, (msg: OutboundMessage) => Promise<void>>();
@@ -1915,7 +1931,7 @@ export class Kernel {
   }
 
   /** The conversation a job's runs speak from, without making it: the blob's thread, or the job's own. */
-  private jobPlace(job: CronJob): string {
+  jobPlace(job: CronJob): string {
     return job.agent && this.roles.exists(job.agent) ? agentConversationId(job.agent) : cronSessionId(job.id);
   }
 
@@ -1999,8 +2015,9 @@ export class Kernel {
     }
   }
 
-  private async runJobTurn(prompt: string, job: CronJob): Promise<string> {
+  private async runJobTurn(prompt: string, job: CronJob): Promise<{ reply: string; steps: StepTally }> {
     const id = this.jobThread(job);
+    const mark = this.audit.lastId();
     /*
      * Not enqueued again: fire() is already running inside the work queue,
      * and handleMessage enqueues on the conversation's own lane, so this
@@ -2020,7 +2037,7 @@ export class Kernel {
     // what to tell.
     const role = job.agent ? this.roles.get(job.agent) : undefined;
     if (role?.report === "always" && res.reply.trim()) this.caretaker.tell(res.reply, { from: this.senderFor(id) });
-    return res.reply;
+    return { reply: res.reply, steps: this.audit.tally(id, mark) };
   }
 
 
@@ -2137,7 +2154,10 @@ export class Kernel {
   }
 
   private endTurn(sessionId: string, turnId?: string): void {
-    if (turnId) this.turnMade.end(sessionId, turnId);
+    if (turnId) {
+      this.turnMade.end(sessionId, turnId);
+      this.turnMarks.delete(Number(turnId));
+    }
     this.working.delete(sessionId);
     this.openTurn(sessionId, false);
     // Words the turn never reached a step to hear run as a turn of their own.
@@ -2677,12 +2697,14 @@ export class Kernel {
   agentJob(name: string): BlobJob | undefined {
     const job = this.crons.list().find((j) => j.agent === name);
     if (!job) return undefined;
+    const [last] = this.runs.finishedFor("cron", String(job.id), 1);
     return {
       id: job.id,
       schedule: job.schedule,
       enabled: job.enabled,
       lastRunAt: job.lastRunAt ?? null,
       nextRunAt: job.enabled ? (this.cronNextRuns(job.id, 1)[0] ?? null) : null,
+      ...(last ? { lastOutcome: { status: last.status, error: last.error } } : {}),
     };
   }
 
@@ -4297,7 +4319,7 @@ export class Kernel {
     await this.rememberTurn({ userId, text, reply, sessionId, remembers: ctx.remembers, stopped: result.stopped === true, said: ctx.said });
 
     if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], { resumed: ctx.resumed ?? false, from: ctx.from, dm: ctx.dm });
-    this.runs.finish(runId, "ok");
+    this.finishTurnRun(runId, sessionId);
     return reply;
   }
 

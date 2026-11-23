@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 import { isSearchKind, marksOfLetters, SEARCH_KINDS, type HitKind, type SearchHit, type SearchKind, type SearchTarget, type Snippet } from "@kos/shared";
-import { announce, ease, EmptyState, Marked, useFocusTrap } from "@kos/kit";
+import { announce, ease, EmptyState, float, Marked, useFocusTrap } from "@kos/kit";
 
 import { api } from "./api.js";
 import { withParams } from "./hashparams.js";
@@ -214,12 +214,13 @@ export function settingsHits(parsed: ReturnType<typeof parseQuery>): SearchHit[]
 
 /** What each kind of hit is called on its row. */
 const HIT_WORD: Record<HitKind, string> = {
-  msg: "message",
-  text: "file",
-  memory: "memory",
-  run: "run",
-  secret: "secret",
-  settings: "setting",
+  msg: "Message",
+  text: "File",
+  memory: "Memory",
+  // A run's or a step's hint says which it is.
+  run: "",
+  secret: "Secret",
+  settings: "Setting",
 };
 
 /**
@@ -232,7 +233,7 @@ export function everywhereRows(hits: readonly SearchHit[], open: (target: Search
     .sort((a, b) => b.score - a.score)
     .map((h): Action => {
       const named = h.snippet.text === "" || h.snippet.text === h.title;
-      const word = h.target.kind === "call" ? "tool call" : HIT_WORD[h.kind];
+      const word = HIT_WORD[h.kind];
       return {
         id: `hit:${h.kind}:${h.id}`,
         label: h.title,
@@ -297,10 +298,10 @@ export function buildActions(ctx: PaletteContext): Action[] {
     },
     {
       id: "snapshot",
-      label: "Snapshot now",
-      hint: "commit the workspace as it stands",
+      label: "Back up now",
+      hint: "save a copy of the workspace, as the nightly Backup does",
       group: "Actions",
-      keywords: "backup git commit save",
+      keywords: "snapshot backup copy save",
       run: ctx.snapshot,
     },
     {
@@ -636,10 +637,12 @@ export function CommandPalette({
               role="dialog"
               aria-modal="true"
               aria-label="Search and commands"
-              // At its final place and size from the first frame, fading in: its list fills under the box, and a box that grew while it scaled read as two motions.
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              // At its final place and size from the first frame, then as everything that floats: a fade and a scale from 0.98, from its top edge.
+              variants={float}
+              initial="hidden"
+              animate="show"
+              exit="hidden"
+              style={{ transformOrigin: "50% 0" }}
               transition={ease}
             >
               <input
@@ -724,7 +727,7 @@ export function CommandPalette({
                   <kbd>&gt;</kbd> commands
                 </span>
                 <span>
-                  <kbd>file:</kbd> <kbd>msg:</kbd> narrow
+                  <kbd>file:</kbd> or <kbd>msg:</kbd> searches only files or chats
                 </span>
               </footer>
             </m.div>

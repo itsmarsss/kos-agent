@@ -5,6 +5,7 @@ import type { Tone } from "@kos/kit";
 import type { ModuleInfo, Project, ProjectNode, UpcomingRun } from "./api.js";
 import { clip, clockLabel, hourLabel } from "./chartdata.js";
 import { hrefFor } from "./routes.js";
+import { jobTitle } from "./schedulewords.js";
 
 /**
  * The small charts the home page draws.
@@ -139,7 +140,7 @@ export function DayLine({ runs, now = Date.now() }: { runs: UpcomingRun[]; now?:
             key={`${r.id}-${i}`}
             className="chart-dayline-run"
             style={{ left: `${((r.at - now) / DAY) * 100}%` }}
-            title={`${r.name} at ${clockLabel(r.at)}`}
+            title={`${jobTitle(r.name)} at ${clockLabel(r.at)}`}
           />
         ))}
       </div>

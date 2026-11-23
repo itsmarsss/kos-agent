@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 
 import { api, type CatalogMcp, type CatalogMcpListing, type CatalogSkills, type RepoHit } from "./api.js";
 import { Chips, EmptyState } from "@kos/kit";
+import { skillSummary } from "./skillviews.js";
 
 /**
  * Adding skills and MCP servers from Settings.
@@ -244,7 +245,7 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
                   <Row
                     key={s.source}
                     name={s.name}
-                    blurb={s.description}
+                    blurb={skillSummary(s.description)}
                     meta={
                       <a className="ext-item-link" href={s.source} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
                         {s.source.replace("https://github.com/", "")}

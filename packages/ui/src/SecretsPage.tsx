@@ -284,9 +284,9 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
           </dd>
         </div>
         <div>
-          <dt>Kept out of what KOS writes</dt>
-          <dd title="Times a secret's value turned up in KOS's output and was hidden before it was kept or shown, since KOS started">
-            {status.scrubbed} {status.scrubbed === 1 ? "time" : "times"} since KOS started
+          <dt>Hidden from what KOS writes</dt>
+          <dd title="Each time a secret's value turned up in something KOS wrote, it was blanked out before anyone saw it or it was kept">
+            {status.scrubbed === 0 ? "No secret has turned up since KOS started" : `${status.scrubbed} ${status.scrubbed === 1 ? "time" : "times"} since KOS started`}
           </dd>
         </div>
       </dl>

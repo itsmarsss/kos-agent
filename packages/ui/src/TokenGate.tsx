@@ -12,7 +12,7 @@ export function DashboardTokenField({ onHeld }: { onHeld?: () => void }): ReactE
   const [token, setToken] = useState(dashboardToken() ?? "");
   const [held, setHeld] = useState(dashboardToken() !== undefined);
   return (
-    <Field group className="set-field" label="Dashboard token for this browser" hint="If this KOS has a dashboard token (set under Providers), enter it here. This tab sends it with each request and forgets it when the tab closes." badge={held ? <Pill tone="ok">held</Pill> : null}>
+    <Field group className="set-field" label="Sign this browser in" hint="Only when a dashboard token is set under Providers: type it here, and this tab sends it with each request and forgets it when the tab closes." badge={held ? <Pill tone="ok">held</Pill> : null}>
       <form
         className="set-token"
         onSubmit={(e) => {

@@ -1,4 +1,5 @@
 import { runAgent, type Inference, type ToolBox } from "../agent/loop.js";
+import { NO_STEPS, outcomeOf, type RunOutcome, type StepTally } from "../ops/outcome.js";
 import type { Db } from "../store/db.js";
 import { evaluateCondition, queryScope, readerOf } from "./conditions.js";
 import { template, templateArgs } from "./templating.js";
@@ -15,7 +16,7 @@ export interface CronActionResult {
 export type CronExecResult =
   | { ran: false; reason: "condition" | "no-agent" }
   | { ran: true; type: "actions"; results: CronActionResult[] }
-  | { ran: true; type: "self_prompt"; finalText: string };
+  | { ran: true; type: "self_prompt"; finalText: string; steps: StepTally };
 
 export interface CronExecutorDeps {
   db: Db;
@@ -31,7 +32,7 @@ export interface CronExecutorDeps {
    * Run the prompt as a turn in the job's conversation, and give back what it
    * said. Absent for a caller with no conversations, such as a test.
    */
-  runInConversation?: (prompt: string, job: CronJob) => Promise<string>;
+  runInConversation?: (prompt: string, job: CronJob) => Promise<{ reply: string; steps: StepTally }>;
   maxIterations?: number;
 }
 
@@ -82,8 +83,8 @@ export async function runCronJob(
    * questioned and re-read with the machinery that already exists for one.
    */
   if (deps.runInConversation) {
-    const finalText = await deps.runInConversation(prompt, job);
-    return { ran: true, type: "self_prompt", finalText };
+    const { reply, steps } = await deps.runInConversation(prompt, job);
+    return { ran: true, type: "self_prompt", finalText: reply, steps };
   }
 
   const system = await deps.buildSystem?.(job);
@@ -92,20 +93,28 @@ export async function runCronJob(
     ...(system ? { system } : {}),
     ...(deps.maxIterations ? { maxIterations: deps.maxIterations } : {}),
   });
-  return { ran: true, type: "self_prompt", finalText: result.finalText };
+  return { ran: true, type: "self_prompt", finalText: result.finalText, steps: NO_STEPS };
 }
 
 /**
- * Did this run actually fail?
+ * How a run went: from its steps, never from its reply.
  *
- * An action that errors does not throw: it comes back with isError set, and a
- * job whose every step failed would otherwise be indistinguishable from a
- * clean run. Written once because the scheduled path and the run-it-now path
- * must agree on what "failed" means, and they did not.
+ * An action that errors does not throw: it comes back with isError set, and
+ * a job whose every step failed would otherwise be indistinguishable from a
+ * clean run. A self-prompt job is the same: its turn replies "Done." over
+ * steps that all failed. Written once because the scheduled path and the
+ * run-it-now path must agree on what "failed" means, and they did not.
  */
+export function cronOutcome(result: CronExecResult): RunOutcome | { status: "skipped"; error: null } {
+  if (!result.ran) return { status: "skipped", error: null };
+  if (result.type === "self_prompt") return outcomeOf(result.steps, true);
+  // A stored action is a step the job was written to take: any that fails, fails the run.
+  const failed = result.results.find((r) => r.isError);
+  return failed ? { status: "error", error: `${failed.tool}: ${failed.content}` } : { status: "ok", error: null };
+}
+
+/** The failure of a run that failed, for the run-it-now answer and the health report; null for any other. */
 export function cronFailure(result: CronExecResult): string | null {
-  if (!result.ran || result.type !== "actions") return null;
-  const failed = result.results.filter((r) => r.isError);
-  if (failed.length === 0) return null;
-  return `${failed[0]!.tool}: ${failed[0]!.content}`;
+  const outcome = cronOutcome(result);
+  return outcome.status === "error" ? outcome.error : null;
 }

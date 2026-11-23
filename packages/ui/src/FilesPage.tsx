@@ -1,6 +1,9 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { NotFound } from "@kos/kit";
+
 import { api } from "./api.js";
+import { isGone } from "./found.js";
 import { Finder } from "./finder/Finder.js";
 import { useHashParam } from "./hashparams.js";
 import { parentOf } from "./finder/model.js";
@@ -24,7 +27,7 @@ export interface FilesPageProps {
 
 export function FilesPage({ path = ".", onOpen, onAsk }: FilesPageProps): ReactElement {
   /** The address as a folder, and the file in it it names, once known. */
-  const [at, setAt] = useState<{ folder: string; focus?: string } | null>(null);
+  const [at, setAt] = useState<{ folder: string; focus?: string } | { gone: string } | null>(null);
   /** The line a search found in the file (`?line=` on the address). */
   const [line] = useHashParam("line");
   useEffect(() => {
@@ -36,13 +39,14 @@ export function FilesPage({ path = ".", onOpen, onAsk }: FilesPageProps): ReactE
     void api
       .fileInfo(path)
       .then((info) => !cancelled && setAt(info.kind === "dir" ? { folder: path } : { folder: parentOf(path), focus: path }))
-      // Gone, or never was: the folder it would be in.
-      .catch(() => !cancelled && setAt({ folder: parentOf(path) }));
+      // Gone, or never was: said so. A line that broke is no answer, so it opens the folder it would be in.
+      .catch((err: unknown) => !cancelled && setAt(isGone(err) ? { gone: path } : { folder: parentOf(path) }));
     return () => {
       cancelled = true;
     };
   }, [path]);
   if (!at) return <div className="finder finder--loading" aria-busy="true" />;
+  if ("gone" in at) return <NotFound what="file or folder" name={at.gone} back={{ label: "Back to Files", onClick: () => onOpen(".") }} />;
   const shown = Number(line);
   return (
     <>

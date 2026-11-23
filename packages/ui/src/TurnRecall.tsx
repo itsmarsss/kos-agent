@@ -184,7 +184,7 @@ export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | n
       </span>
     );
   }
-  const counts = [facts > 0 ? plural(facts, "claim") : null, moments > 0 ? plural(moments, "log entry", "log entries") : null].filter(Boolean).join(" · ");
+  const counts = [facts > 0 ? plural(facts, "thing it knows", "things it knows") : null, moments > 0 ? plural(moments, "past note") : null].filter(Boolean).join(" · ");
 
   return (
     <div className="recall" ref={wrap}>

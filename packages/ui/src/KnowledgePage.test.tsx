@@ -6,7 +6,7 @@ import { api, type FactRow } from "./api.js";
 import { useState, type ReactElement } from "react";
 import { SearchField } from "@kos/kit";
 
-import { groupByScope, KnowledgePage, SCOPE_FIRST, type KnowledgePageProps } from "./KnowledgePage.js";
+import { describeSource, groupByScope, KnowledgePage, SCOPE_FIRST, type KnowledgePageProps } from "./KnowledgePage.js";
 
 /** The page as the Memory page holds it: the new-claim form open or shut, and the head's search. */
 function Claims(props: Omit<KnowledgePageProps, "adding" | "onAdding" | "query" | "onQuery">): ReactElement {
@@ -263,5 +263,19 @@ describe("a turn's memory, opened from its chat", () => {
     render(<Claims facts={[fact({ id: 1, key: "k1", value: "value 1" })]} tags={[]} onChanged={() => undefined} />);
     expect(screen.getByText("value 1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Show every claim" })).toBeNull();
+  });
+});
+
+describe("where a claim came from", () => {
+  it("says it in a sentence, never a slug or an id", () => {
+    expect(["dashboard", "cron:3", "project:home_lab", "agent:plant-watcher", "discord:owner", "c-9f2", null].map(describeSource)).toEqual([
+      "You added it on this page",
+      "A schedule",
+      "The Home lab orchestrator",
+      "Plant watcher, a blob",
+      "You, on Discord",
+      "A chat",
+      "Not known",
+    ]);
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
 import { Chips, EmptyState, Pill, Switch, Tag } from "@kos/kit";
-import { kindWord, momentWords, slugWords, timeWords } from "@kos/shared";
+import { kindWord, momentWords, slugWords, SYSTEM_SCHEDULE_ABOUT, timeWords } from "@kos/shared";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type MemoryChange, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
@@ -23,7 +23,7 @@ import { jobTitle, lastRunWords } from "./schedulewords.js";
 type Tab = "claims" | "decisions" | "pages" | "log" | "jobs" | "callers";
 
 const TABS: { id: Tab; label: string; blurb: string }[] = [
-  { id: "claims", label: "What it knows", blurb: "Each thing KOS believes (a claim), for every chat to read: true everywhere or in one project, with where it came from." },
+  { id: "claims", label: "What it knows", blurb: "What KOS knows, one claim at a time, for every chat to read. Each says where it applies and where KOS heard it." },
   { id: "decisions", label: "To decide", blurb: "What KOS was not sure enough to settle when it tidied memory, what you settled, and every change to what it believes." },
   { id: "pages", label: "Notes", blurb: "Memory written out as notes, from what KOS knows. Yours to edit." },
   { id: "log", label: "Everything said", blurb: "Every message to and from KOS, kept, and searched by words or by meaning." },
@@ -406,12 +406,22 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   );
 }
 
+/** Why there are no notes yet, and what brings them: never a time that will not come. */
+export function notesEmptyWords(tidy: Pick<CronJob, "enabled" | "schedule"> | null): string {
+  if (!tidy) return "No notes yet. KOS writes them when it tidies memory.";
+  if (!tidy.enabled) return "No notes yet. Memory: Tidy writes them, and it is off: turn it on or press Run now on the Upkeep tab.";
+  return `No notes yet. Memory: Tidy writes them (${scheduleWords(tidy.schedule)}); press Run now on the Upkeep tab rather than wait.`;
+}
+
 function PagesTab(): ReactElement {
   const [pages, setPages] = useState<{ name: string; path: string; updatedAt: number }[]>([]);
   const [edited, setEdited] = useState<string[]>([]);
   const [open, setOpen] = useState<{ name: string; markdown: string } | null>(null);
+  // Memory: Tidy writes the pages; whether it is on decides what the empty line can promise.
+  const [tidy, setTidy] = useState<CronJob | null>(null);
   const load = useCallback(() => {
     void api.memoryReview().then((r) => { setPages(r.pages); setEdited(r.edited ?? []); }).catch(() => undefined);
+    void api.crons().then((all) => setTidy(all.find((c) => c.name === "kos.dream") ?? null)).catch(() => undefined);
   }, []);
   useEffect(load, [load]);
   // A page the address names (a search hit): opened once, and taken off the address.
@@ -423,7 +433,7 @@ function PagesTab(): ReactElement {
   }, [named, clearNamed]);
   return (
     <Group title="Pages" shown={false} blurb={'One note for everywhere and one per project, written from what KOS knows each time it tidies memory. Edit a line written as "- name: value" and KOS reads it back as yours.'}>
-      {pages.length === 0 && <EmptyState variant="inline">No notes yet. KOS writes them when it tidies memory; press Run now on the Upkeep tab rather than wait for 4 AM.</EmptyState>}
+      {pages.length === 0 && <EmptyState variant="inline">{notesEmptyWords(tidy)}</EmptyState>}
       {edited.length > 0 && (
         <p className="hint">
           Edited since memory wrote them: {edited.join(", ")}.{" "}
@@ -472,7 +482,7 @@ function LogTab({ titles, query, projectNames }: { titles: Map<string, string>; 
             {e.projectSlug && <span className="ops-muted" title={e.projectSlug}>{projectNames?.get(e.projectSlug) ?? slugWords(e.projectSlug)}</span>}
             {e.conversationId && (
               <a className="link link--quiet" href={`#/chats/${encodeURIComponent(e.conversationId)}`}>
-                {titles.get(e.conversationId) ?? "a deleted chat"}
+                {titles.get(e.conversationId) ?? "An archived or deleted chat"}
               </a>
             )}
             <span className="ops-muted">{momentWords(e.ts)}</span>
@@ -484,11 +494,8 @@ function LogTab({ titles, query, projectNames }: { titles: Map<string, string>; 
   );
 }
 
-const JOBS: { name: string; what: string }[] = [
-  { name: "kos.memory", what: "reads what was said since it last looked and keeps what matters, citing its sources" },
-  { name: "kos.dream", what: "merges duplicates, archives the stale, flags what it cannot settle, writes the pages" },
-  { name: "kos.observe", what: "stands a dated note in for the older part of a long thread" },
-];
+/** Memory's own schedules, in the order they do their work. */
+const JOBS = ["kos.memory", "kos.dream", "kos.observe"] as const;
 
 function JobsTab(): ReactElement {
   const [crons, setCrons] = useState<CronJob[]>([]);
@@ -501,19 +508,20 @@ function JobsTab(): ReactElement {
   }, []);
   useEffect(load, [load]);
   return (
-    <Group title="Memory's schedules" blurb="KOS keeps its memory itself, on these schedules. Switch them off or run them now here; change when they run under Runs, Schedule.">
+    <Group title="Memory's schedules" blurb="KOS keeps its memory itself, on these schedules. Switch them on or off, or run one now.">
       {unread && <p className="hint">Unread by memory: {unread.count} messages, about {Math.round(unread.chars / 1000)}k characters.</p>}
-      {JOBS.map((j) => {
-        const job = crons.find((c) => c.name === j.name);
+      {JOBS.map((name) => {
+        const job = crons.find((c) => c.name === name);
         if (!job) return null;
         return (
-          <div key={j.name} className="mem-job">
+          <div key={name} className="mem-job">
             <div className="mem-job-main">
               <div className="mem-job-title">
-                <strong title={j.name}>{jobTitle(j.name)}</strong>
+                <strong>{jobTitle(name)}</strong>
               </div>
+              <div className="hint">{SYSTEM_SCHEDULE_ABOUT[name]}</div>
               <div className="hint">
-                {j.what} · <span title={job.schedule}>{scheduleWords(job.schedule)}</span> · {job.task === "cheap" ? "the cheap model" : "the model for thinking"} · {job.lastRunAt ? `last run ${lastRunWords(job.lastRunAt)}` : "never run"}
+                {job.enabled ? scheduleWords(job.schedule) : "Off"} · {job.task === "cheap" ? "the cheap model" : "the model for thinking"} · {job.lastRunAt ? `last run ${lastRunWords(job.lastRunAt)}` : "never run"}
               </div>
               {said[job.id] && <div className="mem-job-said">{said[job.id]}</div>}
             </div>
@@ -525,7 +533,7 @@ function JobsTab(): ReactElement {
                   setSaid((s) => ({ ...s, [job.id]: text }));
                 }).catch((err: unknown) => setSaid((s) => ({ ...s, [job.id]: err instanceof Error ? err.message : String(err) }))).finally(() => { setBusy(null); load(); });
               }}>{busy === job.id ? "Running…" : "Run now"}</button>
-              <Switch label={`${jobTitle(j.name)} on`} on={job.enabled} onChange={(on) => void api.setCronEnabled(job.id, on).then(load, load)} />
+              <Switch label={`${jobTitle(name)} on`} on={job.enabled} onChange={(on) => void api.setCronEnabled(job.id, on).then(load, load)} />
             </div>
           </div>
         );

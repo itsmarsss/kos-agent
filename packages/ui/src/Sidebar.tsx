@@ -26,7 +26,7 @@ type MoreAction = "refresh" | "snapshot" | "open" | "copy";
 /** The More menu's everyday items, each with a line saying what it does; Halt stands apart below them. */
 const MORE_ITEMS: { action: MoreAction; label: string; hint: string }[] = [
   { action: "refresh", label: "Refresh", hint: "Read everything on this page again" },
-  { action: "snapshot", label: "Snapshot now", hint: "Save a copy of the workspace you can roll back to" },
+  { action: "snapshot", label: "Back up now", hint: "Save a copy of the workspace now. The dashboard cannot restore one yet." },
   { action: "open", label: "Open workspace folder", hint: "Show KOS's folder in Finder" },
   { action: "copy", label: "Copy workspace path", hint: "Copy where KOS's folder is" },
 ];
@@ -266,14 +266,14 @@ export function Sidebar({
           <a
             className={`health side-health ${healthClass}`}
             href={hrefFor({ name: "home" })}
-            title={failing > 0 ? "Something is failing. The overview says what and for how long." : (status?.workspace ?? "")}
+            title={failing > 0 ? "Something is failing. The overview says what and for how long." : "Opens the overview"}
           >
             <span className="health-dot" />
             <span className="side-health-text">
               {busy ? `${busy}…` : healthText}
               {/* Its line is kept before the status comes, so the block does not grow under the pointer as it loads. */}
               {model ? (
-                <span className="side-model" title={`The model for thinking, from ${model.provider}. Change it in Settings, Models.`}>
+                <span className="side-model" title="The model for thinking. Change it in Settings, Models.">
                   Thinks with {model.model}
                 </span>
               ) : (

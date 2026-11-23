@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentInfo, HomeData } from "./api.js";
-import { agentSide, Panel } from "./HomePanels.js";
+import { agentSide, memoryNote, Panel, runTick } from "./HomePanels.js";
 
 /**
  * The memory and modules panels, and the decisions line in Needs you.
@@ -104,7 +104,13 @@ describe("the memory panel", () => {
     show("memory", data({ memory: { claims: 12, unread: 3, extraction: true, decisions: 0, jobs: [{ id: 2, name: "kos.memory", enabled: false, lastRunAt: null }] } }));
     expect(screen.getByText("12")).toBeTruthy();
     expect(screen.getByText("claims")).toBeTruthy();
-    expect(screen.getByText(/Its schedules are off; reading after each turn/)).toBeTruthy();
+    expect(screen.getByText("Its schedules are off. A background read takes what was said once enough is unread.")).toBeTruthy();
+  });
+
+  it("never says reading beside a background read that keeps failing", () => {
+    const mem = { claims: 0, unread: 64, extraction: true, decisions: 0, jobs: [], lastRead: { at: 1, failed: true } };
+    expect(memoryNote(mem, [], null)).toBe("Its schedules are off. The background read failed last time, so those messages stay unread; see Runs.");
+    expect(memoryNote({ ...mem, extraction: false }, [], null)).toBe("Its schedules are off, and nothing reads what was said.");
   });
 
   it("names the jobs that are on and when one last ran", () => {
@@ -167,12 +173,21 @@ describe("the charts", () => {
     expect(screen.getByRole("img", { name: "working" })).toBeTruthy();
   });
 
+  it("titles a run's tick in Runs' words, never its stored status", () => {
+    const at = Date.now();
+    expect(runTick({ id: 1, kind: "chat", ref: "c1", status: "ok", error: null, startedAt: at, finishedAt: at, durationMs: 1 }).title).toMatch(/^Chat · Done · /);
+    const tick = runTick({ id: 2, kind: "cron", ref: "3", status: "partial", error: "1 of 2 steps failed.", startedAt: at, finishedAt: at, durationMs: 1 });
+    expect(tick).toMatchObject({ tone: "warn" });
+    expect(tick.title).toMatch(/^Schedule · With errors: 1 of 2 steps failed\. · /);
+  });
+
   it("never says everything is working beside steps that failed, and says what each figure counts", () => {
     const hour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
     const onGo = vi.fn();
     show("failures", data({ health: { ok: true, failing: [], recent: { total: 20, errors: 0, rate: 0 } }, pulse: [{ hour, calls: 28, errors: 4 }] }), onGo);
     expect(screen.queryByText("Everything is working.")).toBeNull();
-    expect(screen.getByText("Nothing is failing now.")).toBeTruthy();
+    expect(screen.queryByText(/Nothing is failing/)).toBeNull();
+    expect(screen.getByText("Nothing is still failing. What failed earlier is counted below.")).toBeTruthy();
     expect(screen.getByText(/Chats and schedules: 0 of the last 20 failed/)).toBeTruthy();
     expect(screen.getByText("Steps in the last day: 4 of 28 failed.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "See them in Runs" }));
@@ -195,7 +210,7 @@ describe("the charts", () => {
     // Oldest on the left.
     expect(ticks[0]?.className).toContain("chart-tick--ok");
     expect(ticks[1]?.className).toContain("chart-tick--danger");
-    expect(ticks[1]?.getAttribute("title")).toContain("timed out");
+    expect(ticks[1]?.getAttribute("title")).toContain("It took too long");
   });
 
   it("maps modules on one side of KOS and projects on the other, each with its state", () => {

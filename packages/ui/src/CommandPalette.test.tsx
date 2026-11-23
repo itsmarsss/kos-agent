@@ -196,12 +196,12 @@ describe("what Everywhere searches", () => {
       [
         hit("msg", "low", 0.5, { hint: "you" }),
         hit("secret", "Bank", 0.9, { snippet: { text: "Bank", marks: [[0, 4]] }, hint: "login", target: { kind: "secret", handle: "bank" } }),
-        hit("run", "files.write", 0.7, { hint: "tool", target: { kind: "call", id: 3 } }),
+        hit("run", "Write a file", 0.7, { hint: "Step", target: { kind: "call", id: 3 } }),
       ],
       vi.fn(),
     );
-    expect(rows.map((r) => r.label)).toEqual(["Bank", "files.write", "low"]);
-    expect(rows.map((r) => r.hint)).toEqual(["secret · login", "tool call · tool", "message · you"]);
+    expect(rows.map((r) => r.label)).toEqual(["Bank", "Write a file", "low"]);
+    expect(rows.map((r) => r.hint)).toEqual(["Secret · login", "Step", "Message · you"]);
     expect(rows[0]).toMatchObject({ labelMarks: [[0, 4]] });
     expect(rows[0]!.snippet).toBeUndefined();
     expect(rows[2]!.snippet).toEqual({ text: "the low line", marks: [[4, 7]] });

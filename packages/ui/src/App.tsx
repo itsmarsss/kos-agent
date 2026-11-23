@@ -26,6 +26,8 @@ import { m } from "motion/react";
 import { chatShown, frameOf, hrefFor, pageKeyOf, pageName, pageTitle, parseRoute, type Route } from "./routes.js";
 import { landOnHeading } from "./landing.js";
 import { Drawer } from "./Drawer.js";
+import { useFound } from "./found.js";
+import { isSettingsSection } from "./settingsindex.js";
 import { targetHref, useCreateParam } from "./hashparams.js";
 import { CronEditor } from "./CronEditor.js";
 import { scheduleWords } from "./schedule.js";
@@ -209,6 +211,15 @@ export function App(): React.ReactElement {
   }, [route, crons]);
   // New schedule from the palette: the Schedule page with `?new` on its address.
   useCreateParam(() => setEditingCron({}), route.name === "crons");
+  // Whether what the address names is there, for the pages that open one thing by its id or name.
+  const approvalId = route.name === "inbox" ? route.id : undefined;
+  const buildId = route.name === "builds" ? route.id : undefined;
+  const pageId = route.name === "page" ? route.id : undefined;
+  const blobName = route.name === "blobs" && route.blob !== "new" ? route.blob : undefined;
+  const approvalFound = useFound(approvalId === undefined ? null : `inbox:${approvalId}`, () => api.approval(approvalId!).then(() => true));
+  const buildFound = useFound(buildId === undefined ? null : `build:${buildId}`, () => api.build(buildId!).then(() => true));
+  const pageFound = useFound(pageId === undefined ? null : `page:${pageId}`, () => api.anyPage(pageId!).then(() => true));
+  const blobFound = useFound(blobName === undefined ? null : `blob:${blobName}`, () => api.agents().then((r) => [...r.agents, ...r.invalid].some((a) => a.name === blobName)));
   /** The schedule's drawer shut, and its address with it, so the next read of the jobs does not open it again. */
   const closeCron = (): void => {
     setEditingCron(null);
@@ -607,14 +618,9 @@ export function App(): React.ReactElement {
         res.excluded.length > 0
           ? ` · ${res.excluded.length} folder${
               res.excluded.length === 1 ? "" : "s"
-            } with own repo not included`
+            } with a history of their own left out`
           : "";
-      flash(
-        "ok",
-        res.sha
-          ? `Snapshot ${res.sha.slice(0, 10)}${omitted}`
-          : `Nothing to snapshot${omitted}`,
-      );
+      flash("ok", res.sha ? `Backed up the workspace${omitted}` : `Nothing changed since the last backup${omitted}`);
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
     } finally {
@@ -839,6 +845,7 @@ export function App(): React.ReactElement {
           <Inspector
             key={inspectKey ?? "none"}
             target={inspect}
+            {...(status?.workspace ? { workspace: status.workspace } : {})}
             onClose={() => setInspect(null)}
             onOpenPage={openPage}
             crons={crons}
@@ -891,7 +898,7 @@ export function App(): React.ReactElement {
           open={editingCron !== null}
           title={editingCron?.job ? jobTitle(editingCron.job.name) : "New schedule"}
           // What is saved, said as saved: the line in the form says the time being set, and this one read as stale beside it.
-          subtitle={editingCron?.job ? `Saved to run ${scheduleWords(editingCron.job.schedule).replace(/^./, (c) => c.toLowerCase())}` : "Runs on its own, on a schedule you set"}
+          subtitle={editingCron?.job ? `Saved to run ${scheduleWords(editingCron.job.schedule).replace(/^./, (c) => c.toLowerCase())}` : "Pick when it runs and what it does"}
           onClose={closeCron}
         >
           {editingCron && (
@@ -978,6 +985,10 @@ export function App(): React.ReactElement {
     </ErrorBoundary>
   );
 
+  if (route.name === "missing") {
+    return shell(<NotFound what="page" name={route.path} back={{ label: "Back to Overview", href: hrefFor({ name: "home" }) }} />);
+  }
+
   // —— agent page ——
   if (route.name === "page") {
     /*
@@ -991,6 +1002,7 @@ export function App(): React.ReactElement {
       list.some((pg) => pg.id === route.id),
     );
     const back: Route = owner ? { name: "projects" } : { name: "home" };
+    if (pageFound === "gone") return shell(<NotFound what="page" name={route.id} back={{ label: owner ? "Back to Projects" : "Back to Overview", href: hrefFor(back) }} />);
     // An HTML artifact is shown as the Artifacts viewer shows it: one head, its versions in a drawer, drawn as part of the page.
     if (activePage?.kind === "html") {
       return shell(
@@ -1077,7 +1089,7 @@ export function App(): React.ReactElement {
     const slug = route.slug;
     // No such project: said in words with the way back, not a rail of chats to start in it.
     if (projectsRead && !projects.some((p) => p.slug === slug)) {
-      return shell(<NotFound what="project" name={slug} back={{ label: "All projects", href: hrefFor({ name: "projects" }) }} />);
+      return shell(<NotFound what="project" name={slug} back={{ label: "Back to Projects", href: hrefFor({ name: "projects" }) }} />);
     }
     return shell(
       <ChatsPage
@@ -1154,6 +1166,7 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "builds") {
+    if (buildFound === "gone") return shell(<NotFound what="build" name={`#${route.id}`} back={{ label: "Back to Builds", href: hrefFor({ name: "builds" }) }} />);
     return shell(
       <BuildsPage
         deciding={deciding}
@@ -1170,6 +1183,8 @@ export function App(): React.ReactElement {
      * The same page a project gets, scoped to the agent instead.
      */
     const name = route.blob;
+    // No such blob: said in its page's place, not a blob page stood up around a name.
+    if (blobFound === "gone") return shell(<NotFound what="blob" name={name} back={{ label: "Back to Blobs", href: hrefFor({ name: "blobs" }) }} />);
     return shell(
       <ChatsPage
         conversations={conversations}
@@ -1218,6 +1233,9 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "settings") {
+    if (route.section !== undefined && !isSettingsSection(route.section)) {
+      return shell(<NotFound what="setting" name={route.section} back={{ label: "Back to Settings", href: hrefFor({ name: "settings" }) }} />);
+    }
     return shell(
       <SettingsPage
         section={route.section}
@@ -1259,6 +1277,11 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "crons") {
+    // A schedule linked to that is not there: said so, rather than the list as if the link had worked.
+    const wanted = route.job?.trim().toLowerCase();
+    if (wanted && read.has("crons") && !crons.some((c) => c.name.toLowerCase() === wanted || String(c.id) === wanted)) {
+      return shell(<NotFound what="schedule" name={route.job!} back={{ label: "Back to Schedule", href: hrefFor({ name: "crons" }) }} />);
+    }
     // Yours first, then KOS's own (kos.backup, kos.memory and the rest):
     // the two were interleaved by id, so the owner's three sat among six
     // of the system's and read as one list of nine.
@@ -1326,10 +1349,10 @@ export function App(): React.ReactElement {
             searchText: (c) => `${jobTitle(c.name)} ${c.name} ${c.schedule} ${c.type}`,
             render: (c) => (
               <span className="sched-name">
-                {/* KOS's own jobs by the names the owner knows them by; the id is in the title. */}
-                <span className="sched-title" title={c.name}>{jobTitle(c.name)}</span>
+                {/* KOS's own jobs by the names the owner knows them by, never their ids or cron lines. */}
+                <span className="sched-title">{jobTitle(c.name)}</span>
                 <span className="sched-sub">
-                  <span title={c.schedule}>{scheduleWords(c.schedule)}</span>
+                  <span>{scheduleWords(c.schedule)}</span>
                   <span>{c.type === "self_prompt" ? "Asks KOS" : "Runs its steps"}</span>
                 </span>
               </span>
@@ -1374,7 +1397,7 @@ export function App(): React.ReactElement {
             searchText: (c) => projectName(c.projectSlug) ?? "",
             render: (c) =>
               c.projectSlug ? (
-                <span className="sched-project" title={c.projectSlug}>
+                <span className="sched-project">
                   {projectName(c.projectSlug)}
                 </span>
               ) : (
@@ -1424,6 +1447,7 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "inbox") {
+    if (approvalFound === "gone") return shell(<NotFound what="approval" name={`#${route.id}`} back={{ label: "Back to Inbox", href: hrefFor({ name: "inbox" }) }} />);
     return shell(
       <InboxPage
         data={inbox}

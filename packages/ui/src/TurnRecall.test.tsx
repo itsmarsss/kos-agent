@@ -57,12 +57,12 @@ describe("what the last turn was given from memory", () => {
   it("counts in the chip and opens on a press", () => {
     render(<TurnRecall recalled={school} />);
     const chip = screen.getByRole("button", { name: /^Memory:/ });
-    expect(chip.textContent).toBe("4 claims · 1 log entry");
-    expect(chip.getAttribute("aria-label")).toBe("Memory: 4 claims · 1 log entry");
+    expect(chip.textContent).toBe("4 things it knows · 1 past note");
+    expect(chip.getAttribute("aria-label")).toBe("Memory: 4 things it knows · 1 past note");
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(chip);
     const dialog = screen.getByRole("dialog", { name: "What KOS remembered for this turn" });
-    expect(within(dialog).getByText("4 claims · 1 log entry")).toBeTruthy();
+    expect(within(dialog).getByText("4 things it knows · 1 past note")).toBeTruthy();
     expect(within(dialog).getByRole("link", { name: /school/ }).getAttribute("href")).toBe("#/project/school");
     expect(within(dialog).getByRole("link", { name: "Open in Memory" }).getAttribute("href")).toBe("#/memory?tab=claims&ids=1,2,3,4");
   });

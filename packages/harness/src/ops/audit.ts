@@ -1,6 +1,7 @@
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
 import type { RiskTier } from "../risk/tiers.js";
+import type { StepTally } from "./outcome.js";
 import { caller } from "../kernel/caller.js";
 
 export interface AuditEntry {
@@ -187,6 +188,25 @@ export class AuditLog {
          GROUP BY hour ORDER BY hour`,
       )
       .all(since) as HourCount[];
+  }
+
+  /** The newest call's id, 0 before any: a mark to count a run's own calls from. */
+  lastId(): number {
+    const row = this.db.prepare(`SELECT MAX(id) AS id FROM audit_log`).get() as { id: number | null };
+    return row.id ?? 0;
+  }
+
+  /** The calls one chat made after a mark, and the first that failed: one run's steps, for its outcome. */
+  tally(conversationId: string, afterId: number): StepTally {
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(is_error), 0) AS failed FROM audit_log WHERE conversation_id = ? AND id > ?`)
+      .get(conversationId, afterId) as { total: number; failed: number };
+    const first = row.failed > 0
+      ? (this.db
+          .prepare(`SELECT tool, result FROM audit_log WHERE conversation_id = ? AND id > ? AND is_error = 1 ORDER BY id LIMIT 1`)
+          .get(conversationId, afterId) as { tool: string; result: string })
+      : undefined;
+    return { total: row.total, failed: row.failed, firstError: first ? `${first.tool}: ${first.result}` : null };
   }
 
   /** One call in full, for a reader who opened it. */

@@ -108,8 +108,8 @@ export const MODE_WORDS: Record<ChatModeName, { label: string; does: string; sho
   },
   auto: {
     label: "Auto",
-    does: "KOS goes ahead without asking for risky steps you start in this chat, in its own browser, your Chrome and your Mac too. Each one is in the Inbox as approved by auto mode.",
-    short: "Goes ahead without asking; each step is in the Inbox",
+    does: "KOS goes ahead without asking for risky steps you start in this chat, in its own browser, your Chrome and your Mac too. Each step is listed in Runs.",
+    short: "Goes ahead without asking; each step is listed in Runs",
   },
 };
 
@@ -122,24 +122,24 @@ export function modeTip(mode: ChatMode, now: number): string {
 
 /** What Auto never covers: it asks as Ask does, or refuses, whatever the chat is set to. Enforced in the harness. */
 export const AUTO_NEVER: readonly string[] = [
-  "Anything KOS refuses outright; Stop and the kill switch always win, and the kill switch turns Auto off",
-  "Secrets, and any step marked to ask every time",
-  "Purchases and payments: paying tools, and steps on a checkout or card page",
-  "Deleting for good: a whole folder, a destructive command, a permanent delete, or a delete outside the workspace",
-  "A shell command past reading, building and testing, and any shell or Python run where nothing narrower than the container holds the network",
-  "Writing into another project or a blob's folder, or the whole workspace from one",
-  "Messages, posts, reactions and roles anyone but you sees, data sent to a site you have not listed, and opening a place to others",
-  "Changing KOS itself or what runs without you: a skill, a module, an app, a site, a schedule, a coding agent",
-  "Running script in a page, or handing a page to you",
-  "Typing where a computer reported a password field",
-  "Anything but your own words in this chat: a schedule, a guest, work another chat passed on",
-  "A device's own ask for a session, and its time limits",
+  "Anything KOS refuses outright. Stop and Halt KOS always win, and Halt KOS turns Auto off",
+  "Secrets, and any step set to ask every time",
+  "Buying or paying for anything",
+  "Deleting for good, or deleting outside the workspace",
+  "Commands that do more than read, build or test, and any that could reach the internet",
+  "Changing another project's or a blob's files",
+  "Messages or posts other people see, sending data to a site you have not allowed, and sharing anything",
+  "Changing KOS itself or what runs on its own: skills, modules, apps, sites, schedules, builds",
+  "Running code inside a web page",
+  "Typing into a password field",
+  "Anything you did not ask for yourself in this chat, such as a schedule's or another chat's work",
+  "Starting a session on your Mac or Chrome when that device asks you itself",
 ];
 
 /** The sessions setting, as the menu says it. */
 export const AUTO_SESSIONS = {
   label: "Start sessions too",
-  hint: "On a Mac or Chrome that leaves its sessions to KOS. One that asks on itself still asks there.",
+  hint: "Lets KOS start working your Mac or Chrome without asking, unless that device is set to ask you itself.",
 } as const;
 
 /** The name an auto-approved call is decided by, in the audit and the Inbox. */

@@ -105,7 +105,8 @@ export function shapeOf(expr: string): ScheduleShape {
     const n = Number(everyMin[1]);
     return n >= 1 && n <= 59 ? { kind: "minutes", every: n } : custom;
   }
-  const everyHour = /^\*\/(\d+)$/.exec(hour);
+  // "15 * * * *" is every hour at :15, as "15 */1 * * *" is.
+  const everyHour = hour === "*" ? ["*", "1"] : /^\*\/(\d+)$/.exec(hour);
   if (everyHour && /^\d{1,2}$/.test(min) && dom === "*" && dow === "*") {
     const n = Number(everyHour[1]);
     const m = Number(min);
@@ -143,7 +144,7 @@ export function exprOf(shape: ScheduleShape): string {
       return f && days.length ? `${f.min} ${f.hour} * * ${days.join(",")}` : "";
     }
     case "hourly":
-      return `${shape.minute} */${shape.every} * * *`;
+      return `${shape.minute} ${shape.every === 1 ? "*" : `*/${shape.every}`} * * *`;
     case "minutes":
       return `*/${shape.every} * * * *`;
     case "monthly": {

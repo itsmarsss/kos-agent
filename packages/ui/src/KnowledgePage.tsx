@@ -1,4 +1,4 @@
-import { kindWord, slugWords, timeWords } from "@kos/shared";
+import { kindWord, slugWords, surfaceName, timeWords } from "@kos/shared";
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { Chips, CloseIcon, Count, EditIcon, EmptyState, Field, GroupHead, IconButton, PinIcon, SheetFoot, Tag, UnpinIcon } from "@kos/kit";
@@ -69,13 +69,15 @@ export function describeScope(scope: string | undefined): string {
 
 /** Who wrote a claim, in words rather than the id the store keeps. */
 export function describeSource(source: string | null | undefined): string {
-  if (!source) return "unknown";
-  if (source === "dashboard") return "you, here";
-  if (source === "chat") return "a chat";
-  if (source.startsWith("cron:")) return "a schedule";
-  if (source.startsWith("caller:")) return `the app ${source.slice("caller:".length)}`;
-  if (source.startsWith("project:")) return `the ${source.slice("project:".length)} orchestrator`;
-  return source.replace(/:owner$/, "");
+  if (!source) return "Not known";
+  if (source === "dashboard") return "You added it on this page";
+  if (source === "chat") return "A chat";
+  if (source.startsWith("cron:")) return "A schedule";
+  if (source.startsWith("caller:")) return `The app ${source.slice("caller:".length)}`;
+  if (source.startsWith("project:")) return `The ${slugWords(source.slice("project:".length))} orchestrator`;
+  if (source.startsWith("agent:")) return `${slugWords(source.slice("agent:".length))}, a blob`;
+  const surface = source.replace(/:owner$/, "");
+  return /^[a-z]+$/.test(surface) ? `You, on ${surfaceName(surface)}` : "A chat";
 }
 
 export interface ScopeGroup {
@@ -391,7 +393,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
           <Field label="Name" required hint="A short name KOS finds it by, such as home city. Saying it again under the same name updates it.">
             <input className="kos-input" autoFocus placeholder="Home city" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
           </Field>
-          <Field label="What to remember" required>
+          <Field label="What to remember" required hint="A fact, or a standing rule such as “never message me after 10pm”. Pin it afterwards to have every chat read it.">
             <input className="kos-input" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
           </Field>
           <Field label="Tags" hint="Comma separated.">
@@ -400,7 +402,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
         </form>
       </Modal>
 
-      {loading && facts.length === 0 && <EmptyState loading className="know-empty" />}
+      {loading && facts.length === 0 && <EmptyState loading itemHeight={58} className="know-empty" />}
       {!loading && facts.length === 0 && (
         <EmptyState title="Nothing remembered yet." className="know-empty">
           KOS keeps what you tell it and what its agents work out, for every chat to read. Pin what should be in every conversation.{" "}
@@ -432,7 +434,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
                 </>
               }
             />
-            <ul className="know-list">
+            <ul className="know-list arrive">
               {shown.map((f) => (
                 <li key={f.key} data-claim={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={(e) => claimRowKeys(e, { pin: () => togglePin(f), edit: () => startEdit(f) })}>
                   <button type="button" className="know-open" aria-keyshortcuts="ArrowRight P E Delete" onClick={() => setOpen(f)}>
@@ -584,7 +586,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
               </dd>
               <dt>Where it applies</dt>
               <dd>{describeScope(open.scope)}</dd>
-              <dt>Written by</dt>
+              <dt>Where it came from</dt>
               <dd>{describeSource(open.source)}</dd>
               <dt>Pinned</dt>
               <dd>{open.pinned ? "yes, in every conversation" : "no"}</dd>

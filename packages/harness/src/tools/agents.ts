@@ -3,6 +3,7 @@ import cron from "node-cron";
 import { agentConversationId, parseFaceLook, ROLE_NAME, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import { guestCannot } from "../kernel/caller.js";
 import { reachesAll } from "../kernel/caretaker.js";
+import type { RunStatus } from "../ops/runs.js";
 import type { Conversation } from "../kernel/conversations.js";
 import { whenWords } from "../kernel/when.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
@@ -31,6 +32,8 @@ export interface BlobJob {
   lastRunAt: number | null;
   /** Null while paused: nothing is coming. */
   nextRunAt: number | null;
+  /** How its last finished run went, judged by its steps; absent before it has run. */
+  lastOutcome?: { status: RunStatus; error: string | null };
 }
 
 export interface AgentToolDeps {

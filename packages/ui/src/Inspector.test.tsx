@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api.js";
-import { Inspector } from "./Inspector.js";
+import { Inspector, madeIn } from "./Inspector.js";
 
 /**
  * The project drawer was a flat stack of nine equally-weighted sections with
@@ -174,5 +174,28 @@ describe("a failed step's drawer", () => {
     expect(lead).not.toMatch(/ENOENT|\/Users\//);
     const fix = screen.getByRole("button", { name: "Fix in a chat" });
     expect(fix.getAttribute("title")).toMatch(/Opens a chat/);
+  });
+
+  it("names a schedule's missing file from the workspace down, and says a schedule made the step", () => {
+    vi.spyOn(api, "call").mockRejectedValue(new Error("offline"));
+    render(
+      <Inspector
+        workspace="/Users/me/kos-workspace"
+        target={{
+          kind: "tool",
+          data: { id: 8, tool: "files.read", args: '{"path":"notes/todo.md"}', result: "ENOENT: no such file or directory, open '/Users/me/kos-workspace/blobs/recap/notes/todo.md'", isError: true, riskTier: "safe", userId: "owner", conversationId: "agent:recap", createdAt: Date.now() },
+        }}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText("There is no file or folder at “blobs/recap/notes/todo.md”.")).toBeTruthy();
+    expect(document.querySelector("details.insp-details")!.textContent).toContain("Recap, a blob");
+    expect(screen.queryByText("You")).toBeNull();
+  });
+});
+
+describe("where a step was made", () => {
+  it("says a schedule, a blob or a chat, never the owner for a schedule's step", () => {
+    expect([madeIn("cron:3"), madeIn("agent:plant-watcher"), madeIn("c-1"), madeIn(null)]).toEqual(["A schedule's run", "Plant watcher, a blob", "A chat", "—"]);
   });
 });
