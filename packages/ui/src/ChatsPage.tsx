@@ -472,7 +472,6 @@ export function ChatsPage({
     setCut({ earlier: got.earlier ?? 0, ownerAbove: got.ownerAbove ?? 0 });
   };
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  useAutoGrow(inputRef, draft);
 
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   // The server's channels, so "#name" in a chat is coloured and chipped as
@@ -535,6 +534,7 @@ export function ChatsPage({
   const inlineScroll = useOverlayScroll<HTMLDivElement>();
 
   const active = conversations.find((c) => c.id === activeId);
+  useAutoGrow(inputRef, draft, 12, active?.id);
   // Opening a chat puts the cursor in its box: that is what you came to do. Keyed on the chat being drawn, not
   // on its id alone: the box is not there until the list has the chat, and focus was left on the page. Not over
   // something else that has the focus (a dialog, a field), and not on a phone, where it would raise the keyboard.

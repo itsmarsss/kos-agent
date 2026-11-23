@@ -2851,7 +2851,9 @@ li:hover .chats-item-when { opacity: 0; }
 .composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .composer-box .hl-mirror { background: transparent; }
 .composer-box .hl-mirror,
-.composer-box .hl textarea.hl-area { padding: 0.3rem 0.1rem; border-color: transparent; }
+.composer-box .hl textarea.hl-area { padding: 0.3rem 0.1rem; border-color: transparent; min-height: 0; }
+/* The box grows by whole lines from its first (useAutoGrow): a floor taller
+   than one line made the first new line grow it by less than a line. */
 .composer-box .hl textarea.hl-area:focus { border-color: transparent; }
 .composer-box .sheet-composer-bar { margin-top: 0; gap: 0.3rem; }
 /* The row stays one line: in a composer narrower than the whole row, the

@@ -187,6 +187,12 @@ export function useAutoGrow(
   ref: RefObject<HTMLTextAreaElement | null>,
   value: string,
   maxRows = 12,
+  /**
+   * What the box is drawn for (the chat): sized again when it comes, since
+   * a box drawn after the first render was never sized while empty, and its
+   * first line then grew it by less than a line.
+   */
+  drawnFor?: unknown,
 ): void {
   useEffect(() => {
     const el = ref.current;
@@ -195,11 +201,13 @@ export function useAutoGrow(
     el.style.height = "auto";
     const style = getComputedStyle(el);
     const line = parseFloat(style.lineHeight || "20") || 20;
-    const pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    // A border-box's height holds its border too, or one line is drawn a little short of a line.
+    const edge = style.boxSizing === "border-box" ? (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0) : 0;
+    const pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0) + edge;
     const { height, scrolls } = grownHeight(el.scrollHeight, line, pad, maxRows);
     el.style.height = `${height}px`;
     el.style.overflowY = scrolls ? "auto" : "hidden";
-  }, [ref, value, maxRows]);
+  }, [ref, value, maxRows, drawnFor]);
 }
 
 /**
