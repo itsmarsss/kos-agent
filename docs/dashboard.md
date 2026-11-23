@@ -257,11 +257,25 @@ opening another.
 
 An approval does not wait forever. A turn holds for the minutes Settings >
 Behaviour gives it and then treats the silence as a refusal; the ask
-lapses with it. An ask nobody is waiting on, from a scheduled job or from
-a turn a restart cut, keeps for the hours set there (a day by default) and
-then lapses too. Either way it leaves the Inbox, the prompt for it on
-Discord or iMessage settles as lapsed, and the chat that asked is told
-nothing was done. Each card says when it lapses.
+lapses with it. An ask nobody ever waited on, from a scheduled job, keeps
+for the hours set there (a day by default) and then lapses too. Either
+way it leaves the Inbox, the prompt for it on Discord or iMessage settles
+as lapsed, and the chat that asked is told nothing was done. Each card
+says when it lapses.
+
+An ask whose turn has gone (a restart or shutdown under it, a Stop, the
+kill switch) never runs later for nobody: it lapses, and its chat is told
+("its chat stopped before you decided"). The exceptions are tools whose
+effect is the point on their own (`ToolRisk.detached: "runs"`: a
+notification to someone else, a schedule made, a channel's audience),
+whose ask stays with a warning on its card: "The chat that asked has
+stopped; approving runs it now and the result goes to its chat." A
+schedule's ask, which nothing ever waited on, carries the same kind of
+warning. A Stop or the kill switch lapses every ask its turn held,
+whatever its tool; a tool marked `detached: "never"` (the clipboard read)
+and a secret's use never run detached at all. A yes pressed after the
+turn went lapses the ask the same way, so an orphan missed by the boot
+pass still runs nothing.
 
 From the keys: a card you went to (Tab) takes Enter as Approve and ⌘⌫ as
 Deny; Escape never denies. Decided, the focus goes to the next card, not
@@ -275,8 +289,16 @@ choice in its menu, which says what Auto does.
 
 An approval is a reference like anything else: `@approval:290` in a chat
 is a chip that opens it here, and the Inbox keeps every approval after it
-is decided, approved, denied or lapsed, with who decided and when, so the
-link still lands. Decided comes last, under everything still waiting: the
+is decided, approved, denied or lapsed, with where it was decided and
+when ("Approved on Discord, 2:11 PM", "Approved by a typed command on SMS",
+"Lapsed: nobody decided in 30 minutes"), and the paired device that
+pressed it, so the link still lands. Every path that settles an ask keeps
+its place (`pending_actions.decided_via`, `decided_device`): a surface, a
+typed command on one, Auto, a remembered rule, the clock, a Stop, the
+kill switch, a deleted chat, a restart or shutdown. A row from before this
+was kept says where is unknown. The audit of a call an ask let run keeps
+the same place and the ask's number, and a step's drawer says it under
+Allowed. Decided comes last, under everything still waiting: the
 latest five, one line each, older ones a page at a time (Load older),
 filtered by outcome with each one counted, and searched once there are
 many; a row opens to its tool, times and the chat, and a link to one reads

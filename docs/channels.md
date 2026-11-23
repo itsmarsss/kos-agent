@@ -47,7 +47,9 @@ dashboard, KOS for Chrome and KOS for Mac draw theirs: what KOS was
 saying when it reached for the tool, quoted; a title saying what the call
 acts on ("Act on the page", "Run"), the asker's name in it; KOS's own
 words for the step, small, as "KOS says"; the place line ("In your Chrome
-on docs.google.com", "In /w"); the command in a code block, or each step
+on docs.google.com", "In /w"); for an ask nothing waits on (a schedule's),
+a line warning that a yes runs it now and the result goes to its chat; the
+command in a code block, or each step
 numbered with the keys it presses as inline code; and a small line with
 why it asks, the tool, the number and when it lapses, a relative time
 Discord itself keeps counting down. Anything the card cuts goes with it
