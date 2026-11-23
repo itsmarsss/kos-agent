@@ -23,7 +23,7 @@ type MoreAction = "refresh" | "snapshot" | "open" | "copy";
 /** The More menu's everyday items, each with a line saying what it does; Halt stands apart below them. */
 const MORE_ITEMS: { action: MoreAction; label: string; hint: string }[] = [
   { action: "refresh", label: "Refresh", hint: "Read everything on this page again" },
-  { action: "snapshot", label: "Back up now", hint: "Save a copy of the workspace now, as the nightly Backup does. The dashboard can't bring a copy back yet." },
+  { action: "snapshot", label: "Back up now", hint: "Save a copy of the workspace now. The dashboard cannot restore one yet." },
   { action: "open", label: "Open workspace folder", hint: "Show KOS's folder in Finder" },
   { action: "copy", label: "Copy workspace path", hint: "Copy where KOS's folder is" },
 ];

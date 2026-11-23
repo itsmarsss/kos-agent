@@ -43,7 +43,7 @@ describe("the sidebar", () => {
   it("says what each More item does, Halt apart from the rest", () => {
     show({ name: "chats" }, 0);
     fireEvent.click(screen.getByText("More…"));
-    expect(screen.getByText("Save a copy of the workspace you can roll back to")).toBeTruthy();
+    expect(screen.getByText("Save a copy of the workspace now. The dashboard cannot restore one yet.")).toBeTruthy();
     const halt = screen.getByRole("menuitem", { name: /Halt KOS/ });
     expect(halt.classList.contains("is-divided")).toBe(true);
     expect(halt.classList.contains("is-danger")).toBe(true);
