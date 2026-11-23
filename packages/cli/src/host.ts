@@ -906,6 +906,9 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   // A turn the last process was running when it stopped is said to be cut
   // short in its chat, before any surface can start a turn of its own.
   kernel.markInterrupted();
+  // A schedule deleted before its going let its thread go left one nothing could put away.
+  const retired = kernel.retireOrphanThreads();
+  if (retired.length) console.log(`chats: archived ${retired.length} thread${retired.length === 1 ? "" : "s"} whose schedule is gone (${retired.join(", ")})`);
   // Off unless the owner set an interval; the timer re-reads it, so turning
   // it on in settings does not need a restart.
   kernel.startHeartbeat();
@@ -1374,6 +1377,21 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
         if (!threadId || !adapter) return;
         await adapter.renameThread(threadId, title).catch((err: unknown) => console.warn(`[discord] thread ${threadId} not renamed: ${err instanceof Error ? err.message : String(err)}`));
       });
+      /*
+       * A deleted schedule's thread is closed on Discord too, and let go:
+       * left bound, it went on answering under a schedule nothing carried
+       * any more. Swept at start for any the last process left, and again
+       * whenever a schedule goes.
+       */
+      const closeRetired = async (): Promise<void> => {
+        for (const [threadId, conversationId] of Object.entries(kernel.threadBindings())) {
+          if (!adapter || !kernel.isRetiredSchedule(conversationId)) continue;
+          await adapter.closeThread(threadId).catch((err: unknown) => console.warn(`[discord] thread ${threadId} for ${conversationId} not closed: ${err instanceof Error ? err.message : String(err)}`));
+          kernel.unbindThread(threadId);
+        }
+      };
+      void closeRetired();
+      kernel.bus.on("chat:retired", () => closeRetired());
       // A chat deleted on the dashboard takes its thread with it.
       kernel.bus.on("chat:deleted", async ({ conversationId }) => {
         if (!adapter) return;

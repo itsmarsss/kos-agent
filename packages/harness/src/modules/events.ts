@@ -56,6 +56,8 @@ export type KernelEvent =
   | { kind: "chat:renamed"; conversationId: string; title: string }
   /** A chat deleted for good; whatever stood for it on a surface goes with it. */
   | { kind: "chat:deleted"; conversationId: string }
+  /** A deleted schedule's thread was archived; whatever stood for it on a surface is closed. */
+  | { kind: "chat:retired"; conversationId: string }
   | { kind: "tool:end"; tool: string; isError: boolean; conversationId: string | null }
   | { kind: "approval:requested"; id: number; tool: string; conversationId: string | null }
   /** Every settle: approved, denied, or lapsed unanswered (`expired`). */

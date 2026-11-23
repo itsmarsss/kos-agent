@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { CronExecResult } from "../cron/executor.js";
+import type { CronExecResult, SelfPromptResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import type { CronJob } from "../cron/types.js";
 import { Workspace } from "../store/workspace.js";
@@ -72,8 +72,8 @@ describe("CronService", () => {
 
   it("keeps a run open while its turn waits on the owner, and judges it on how the turn ended", async () => {
     const j = job("digest", { type: "self_prompt", prompt: "Post it with notify." });
-    let end!: (r: CronExecResult & { type: "self_prompt" }) => void;
-    const later = new Promise<CronExecResult & { type: "self_prompt" }>((r) => { end = r; });
+    let end!: (r: SelfPromptResult) => void;
+    const later = new Promise<SelfPromptResult>((r) => { end = r; });
     const steps = { total: 1, failed: 0, firstError: null };
     runResult = async () => ({ ran: true, type: "self_prompt", finalText: "Waiting on you", steps, later });
     const res = await service().fire(j.id);

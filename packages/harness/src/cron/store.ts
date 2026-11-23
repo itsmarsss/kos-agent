@@ -73,6 +73,8 @@ function toJob(row: Row): CronJob {
 
 /** Persistence for cron jobs. Jobs are data, portable and inspectable. */
 export class CronStore {
+  private readonly removedListeners: ((id: number) => void)[] = [];
+
   constructor(
     private readonly db: Db,
     private readonly now: () => number = Date.now,
@@ -198,8 +200,15 @@ export class CronStore {
       .run(enabled ? 1 : 0, this.now(), id);
   }
 
+  /** Told after a job is deleted, by any path, so what stood for it (its thread) can be let go. */
+  onRemoved(listener: (id: number) => void): void {
+    this.removedListeners.push(listener);
+  }
+
   delete(id: number): boolean {
-    return this.db.prepare(`DELETE FROM crons WHERE id = ?`).run(id).changes > 0;
+    const removed = this.db.prepare(`DELETE FROM crons WHERE id = ?`).run(id).changes > 0;
+    if (removed) for (const listener of this.removedListeners) listener(id);
+    return removed;
   }
 
   /**

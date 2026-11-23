@@ -47,6 +47,8 @@ async function harness(
     hide?: string[];
     /** No conversation is dispatching, as from a bare registry call. */
     anonymous?: boolean;
+    /** The schedules that still exist, by id; every project and blob does. */
+    schedules?: number[];
   } = {},
 ): Promise<Harness> {
   const conversations = new ConversationStore(ws.db);
@@ -68,6 +70,7 @@ async function harness(
       conversations,
       sessions,
       ownerId: OWNER,
+      standing: () => ({ project: () => true, blob: () => true, schedule: (id) => (options.schedules ?? []).includes(id) }),
       dispatch: (id, text) => {
         asked.push({ id, text });
         return dispatch(id, text);
@@ -151,6 +154,33 @@ describe("chats.archive and chats.delete", () => {
   });
 });
 
+describe("a schedule's thread", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-chatjob-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("is fixed while its schedule exists, and an ordinary chat once the schedule is deleted", async () => {
+    const live = await harness(ws, { schedules: [28] });
+    live.conversations.create({ id: "cron:28", userId: OWNER, title: "School Morning Digest" });
+    live.conversations.create({ id: "cron:22", userId: OWNER, title: "School Weekly Plan" });
+    const fixed = await live.registry.execute("chats.archive", { id: "cron:28" });
+    expect(fixed.isError).toBe(true);
+    expect(fixed.content).toContain("a schedule's thread");
+    // Schedule 22 is gone: its thread is the owner's to put away, or delete.
+    expect(JSON.parse((await live.registry.execute("chats.archive", { id: "cron:22" })).content as string)).toMatchObject({ id: "cron:22", archived: true });
+    expect(JSON.parse((await live.registry.execute("chats.delete", { id: "cron:22" })).content as string)).toMatchObject({ id: "cron:22", removed: true });
+  });
+});
+
 describe("chats.handoff", () => {
   let root: string;
   let ws: Workspace;
@@ -176,6 +206,7 @@ describe("chats.handoff", () => {
         conversations,
         sessions,
         ownerId: OWNER,
+        standing: () => ({ project: () => true, blob: () => true, schedule: () => true }),
         dispatch: async (id, text) => ({ reply: text, conversationId: id }),
         handoff: async (input) => {
           handed.push(input);

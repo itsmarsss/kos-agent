@@ -177,7 +177,7 @@ import { assertFits, attachmentBlocks, readAttachments, type Attachment, type Ke
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId, primarySessionId, upkeepSessionId } from "./session.js";
 import type { TurnMade } from "./turnmade.js";
-import { ConversationStore, type Conversation, conversationKind, projectConversationId } from "./conversations.js";
+import { ConversationStore, type Conversation, conversationKind, projectConversationId, standingKind, type Standing } from "./conversations.js";
 import {
   needsKernel,
   parseChatCommand,
@@ -835,6 +835,8 @@ export class Kernel {
     this.mcp = args.mcp;
     this.review = args.review;
     this.roles = args.roles;
+    // A schedule deleted by any path (the dashboard, cron.remove) lets its thread go.
+    this.crons.onRemoved((id) => this.retireScheduleThread(id));
     this.suggestions = args.suggestions;
     this.callers = args.callers;
     this.secretUses = args.secretUses;
@@ -2739,6 +2741,56 @@ export class Kernel {
     const job = existing ? this.crons.update(existing.id, input)! : this.crons.create(input);
     this.reloadCron();
     return job;
+  }
+
+  /** Whether what each fixed thread stands for is still there: its project, its blob, its schedule. */
+  readonly standing: Standing = {
+    project: (slug) => this.manifest.get(slug) !== undefined,
+    blob: (name) => this.roles.exists(name),
+    schedule: (id) => this.crons.get(id) !== undefined,
+  };
+
+  /** A thread's kind as it stands: a deleted schedule's (or project's, or blob's) thread is an ordinary chat. */
+  kindOf(conversation: Pick<Conversation, "id" | "channel">): ReturnType<typeof conversationKind> {
+    return standingKind(conversation, this.profile.ownerId, this.standing);
+  }
+
+  /** Whether a chat is a deleted schedule's thread: an ordinary chat now, whose surfaces still speak for the schedule. */
+  isRetiredSchedule(conversationId: string): boolean {
+    const chat = this.conversations.get(conversationId);
+    return chat !== undefined && conversationKind(chat, this.profile.ownerId) === "schedule" && this.kindOf(chat) === "chat";
+  }
+
+  /**
+   * A deleted schedule's thread, archived and on the record.
+   *
+   * Kept, since what its runs said outlives the job, but put away: left
+   * open it stayed in the list as a schedule's, refused archive and delete,
+   * and its Discord thread went on answering under the schedule's name.
+   * Surfaces hear, so the thread that stood for it there is closed too.
+   */
+  private retireScheduleThread(jobId: number): void {
+    const id = cronSessionId(jobId);
+    const thread = this.conversations.get(id);
+    if (!thread) return;
+    if (!thread.archived) {
+      this.conversations.setArchived(id, true);
+      this.audit.record({ tool: "chats.archive", args: { id }, result: `archived ${thread.title}: its schedule was deleted`, isError: false, riskTier: "safe", approvedBy: "kos", conversationId: id });
+    }
+    this.bus.emit({ kind: "chat:retired", conversationId: id });
+  }
+
+  /**
+   * At boot: every schedule thread whose schedule is gone, archived. Jobs
+   * deleted before deleting one let its thread go (cron.remove never did)
+   * left threads nothing could put away; once each, and on the record.
+   */
+  retireOrphanThreads(): string[] {
+    const orphans = this.conversations
+      .list(this.profile.ownerId)
+      .filter((c) => !c.archived && this.isRetiredSchedule(c.id));
+    for (const c of orphans) this.retireScheduleThread(Number(c.id.slice("cron:".length)));
+    return orphans.map((c) => c.id);
   }
 
   /** A blob's job as the scheduler sees it, when its file gave it one. */
