@@ -29,6 +29,8 @@ import { primarySessionId } from "./session.js";
  * because nothing exercised the wiring between them.
  */
 
+type RunLike = { kind: string; status: string; error: string | null };
+
 interface Recorded {
   task: Task;
   request: GenerateRequest;
@@ -387,6 +389,44 @@ describe("KOS end-to-end flows", () => {
     expect(after.filter((t) => t === "and what day is it?")).toHaveLength(1);
     expect(after.filter((t) => t === "remove the build folder")).toHaveLength(1);
     expect(kernel.isWorking(c.id)).toBe(false);
+  });
+
+  it("keeps a schedule's run open while its turn waits, and fails it when what it was to post never went", async () => {
+    const model = scripted([toolCall("c1", "shell", { command: "rm -rf build" }), text("Not posted: the owner said no.")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({ name: "Digest", schedule: "0 7 * * *", type: "self_prompt", prompt: "Clear the build, then post it with notify.", enabled: true });
+    const fired = await kernel.fireCron(job.id);
+    expect(fired.ok).toBe(true);
+    const cronRun = (): RunLike | undefined => kernel.runs.recent(10).find((r) => r.kind === "cron");
+    const chatRun = (): RunLike | undefined => kernel.runs.recent(10).find((r) => r.kind === "chat");
+    // Asked, not done: neither run is over while the owner has not decided.
+    expect(cronRun()?.status).toBe("running");
+    expect(chatRun()?.status).toBe("running");
+    const ask = kernel.approvals.pending()[0]!;
+    await kernel.deny(ask.id);
+    await vi.waitFor(() => expect(cronRun()?.status).toBe("error"));
+    expect(cronRun()?.error).toBe("It was written to post with notify, and posted nothing: shell: the owner said no");
+    expect(chatRun()?.status).not.toBe("running");
+  });
+
+  it("says in the chat that a turn resumed after a decision stopped before it finished", async () => {
+    let calls = 0;
+    const inference: Inference = {
+      async generate(): Promise<ModelResponse> {
+        calls += 1;
+        if (calls === 1) return toolCall("c1", "shell", { command: "rm -rf build" });
+        throw new Error("the model went away");
+      },
+    };
+    kernel = await boot(inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Cut" });
+    const first = await kernel.handleMessage("remove the build folder", { sessionId: c.id });
+    expect(first.suspended).toBe(true);
+    await kernel.approve(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
+    await expect(first.ended).resolves.toEqual({ stopped: "the model went away" });
+    const texts = kernel.sessions.get(c.id).flatMap((m) => m.content).flatMap((b) => (b.type === "text" ? [b.text] : []));
+    expect(texts.at(-1)).toBe("Stopped before it finished: the model went away");
+    expect(kernel.runs.recent(1)[0]).toMatchObject({ kind: "chat", status: "error", error: "the model went away" });
   });
 
   it("keeps the turn alive while it waits on the owner", async () => {

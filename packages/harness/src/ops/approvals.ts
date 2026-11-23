@@ -354,6 +354,19 @@ export class ApprovalQueue {
     return { total, latest: last?.id ?? null };
   }
 
+  /**
+   * A chat's asks since a moment that ended without running: denied, or
+   * lapsed with nobody deciding. Such a call is never in the audit log, so
+   * a run judged by its steps alone read as clean when what it was for
+   * never happened.
+   */
+  unrunSince(conversationId: string, since: number): PendingAction[] {
+    const rows = this.db
+      .prepare(`SELECT ${LIST_COLUMNS} FROM pending_actions WHERE conversation_id = ? AND requested_at >= ? AND status IN ('denied', 'expired') ORDER BY id`)
+      .all(conversationId, since) as Row[];
+    return rows.map(toAction);
+  }
+
   pending(): PendingAction[] {
     const rows = this.db
       .prepare(

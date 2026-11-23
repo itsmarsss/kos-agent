@@ -70,6 +70,33 @@ describe("CronService", () => {
     expect(lanes).toEqual(["agent:recap", `cron:${own.id}`]);
   });
 
+  it("keeps a run open while its turn waits on the owner, and judges it on how the turn ended", async () => {
+    const j = job("digest", { type: "self_prompt", prompt: "Post it with notify." });
+    let end!: (r: CronExecResult & { type: "self_prompt" }) => void;
+    const later = new Promise<CronExecResult & { type: "self_prompt" }>((r) => { end = r; });
+    const steps = { total: 1, failed: 0, firstError: null };
+    runResult = async () => ({ ran: true, type: "self_prompt", finalText: "Waiting on you", steps, later });
+    const res = await service().fire(j.id);
+    expect(res.ok).toBe(true);
+    // Asked, not done: nothing on the record yet.
+    expect(log).toEqual(["start:cron:1", "run:digest"]);
+    end({ ran: true, type: "self_prompt", finalText: "Not posted.", steps, undelivered: "It was written to post with notify, and posted nothing." });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log.slice(2)).toEqual([
+      "finish:7:error:It was written to post with notify, and posted nothing.",
+      "report:cron:1:digest:fail:It was written to post with notify, and posted nothing.",
+    ]);
+  });
+
+  it("fails a run whose waiting turn was stopped short of its end", async () => {
+    const j = job("digest", { type: "self_prompt", prompt: "Sum up." });
+    const steps = { total: 0, failed: 0, firstError: null };
+    runResult = async () => ({ ran: true, type: "self_prompt", finalText: "", steps, later: Promise.resolve({ ran: true, type: "self_prompt", finalText: "", steps, stopped: "the SDK process exited" }) });
+    await service().fire(j.id);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log).toContain("finish:7:error:Stopped before it finished: the SDK process exited");
+  });
+
   it("puts a run on the record and tells the caretaker it went well", async () => {
     const j = job("tidy");
     const s = service();

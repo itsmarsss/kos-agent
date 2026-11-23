@@ -209,6 +209,14 @@ export class AuditLog {
     return { total: row.total, failed: row.failed, firstError: first ? `${first.tool}: ${first.result}` : null };
   }
 
+  /** How many calls of one tool a chat made after a mark that ran and worked: what a turn actually delivered. */
+  worked(conversationId: string, afterId: number, tool: string): number {
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE conversation_id = ? AND id > ? AND tool = ? AND is_error = 0`)
+      .get(conversationId, afterId, tool) as { n: number };
+    return row.n;
+  }
+
   /** One call in full, for a reader who opened it. */
   get(id: number): AuditRecord | undefined {
     const row = this.db

@@ -7,7 +7,7 @@ import { BindingGoneError, LATE_RUN_MS, OWNER_THREAD_PREFIX, channelName, roomCo
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
-import { type CronActionResult, runCronJob, type CronExecResult } from "../cron/executor.js";
+import { type CronActionResult, runCronJob, type CronExecResult, type JobTurn } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import type { McpModule } from "../tools/mcp.js";
 import type { PermissionContext } from "../ops/permissions.js";
@@ -229,11 +229,16 @@ export interface HandleResult {
   sessionId?: string;
   /** The turn is waiting on an approval: the reply says so, and the rest of it runs behind. */
   suspended?: boolean;
+  /** How a suspended turn ended, once it did. */
+  ended?: Promise<TurnEnd>;
   /** Taken into the turn already running in this chat, whose answer answers it too. */
   steered?: boolean;
   /** Dropped or forked away while it waited, so it did not run here. */
   dropped?: boolean;
 }
+
+/** How a turn that answered "waiting on you" ended: with its reply, or stopped short of it, and why. */
+export type TurnEnd = { reply: string } | { stopped: string };
 
 /** What became of words said while a turn ran: heard by it, left for a turn of their own, or dropped while they waited. */
 type Heard = "heard" | "left" | "dropped";
@@ -1717,9 +1722,10 @@ export class Kernel {
           // Same bargain as the other engine: the call stays suspended inside
           // the turn, and the caller is answered rather than held for as long
           // as the owner takes to decide.
-          const outcome = await this.raceWithApproval(sdkRun, waiting, (r, resumed) => settleSdk(r, resumed), { sessionId, runId, signal: stop.signal });
-          suspended = outcome.suspended;
-          return { reply: outcome.reply, halted: false, sessionId, ...(outcome.suspended ? { suspended: true } : {}) };
+          // A failed SDK turn that took steps closes its chat with a line of its own (above).
+          const outcome = await this.raceWithApproval(sdkRun, waiting, (r, resumed) => settleSdk(r, resumed), { sessionId, runId, signal: stop.signal, closesOwnFailure: useSession });
+          suspended = outcome.ended !== undefined;
+          return { reply: outcome.reply, halted: false, sessionId, ...(outcome.ended ? { suspended: true, ended: outcome.ended } : {}) };
         }
 
         const running = runAgent(this.inference, tools, input, {
@@ -1773,10 +1779,10 @@ export class Kernel {
               remembers: remembersTurn(opts),
               ...(saidHere ? { said: saidHere } : {}),
             }),
-          { sessionId, runId, signal: stop.signal },
+          { sessionId, runId, signal: stop.signal, closesOwnFailure: false },
         );
-        suspended = outcome.suspended;
-        return { reply: outcome.reply, halted: false, sessionId, ...(outcome.suspended ? { suspended: true } : {}) };
+        suspended = outcome.ended !== undefined;
+        return { reply: outcome.reply, halted: false, sessionId, ...(outcome.ended ? { suspended: true, ended: outcome.ended } : {}) };
       } catch (err) {
         const why = err instanceof Error ? err.message : String(err);
         this.runs.finish(runId, "error", why);
@@ -1822,8 +1828,8 @@ export class Kernel {
     run: Promise<T>,
     waiting: Promise<PendingAction>,
     settle: (result: T, resumed: boolean) => Promise<string> | string,
-    ctx: { sessionId: string; runId: number; signal: AbortSignal },
-  ): Promise<{ reply: string; suspended: boolean }> {
+    ctx: { sessionId: string; runId: number; signal: AbortSignal; closesOwnFailure: boolean },
+  ): Promise<{ reply: string; ended?: Promise<TurnEnd> }> {
     const first = await Promise.race([
       run.then((result) => ({ kind: "done" as const, result })),
       waiting.then((action) => ({ kind: "waiting" as const, action })),
@@ -1839,29 +1845,34 @@ export class Kernel {
         resumedAt();
         this.working.add(ctx.sessionId);
       });
-      void run
-        .then(async (result) => {
-          if (this.closed) return;
+      // A process that stopped under the turn closed its run as it went (close()), and its chat hears at the next boot.
+      const ended = run
+        .then(async (result): Promise<TurnEnd> => {
+          if (this.closed) return { stopped: SHUT_DOWN };
           // Settled as resumed: the surface the words came from answered
           // "waiting on you" and has nothing left to post this answer with.
-          await settle(result, true);
+          const reply = await settle(result, true);
           this.finishTurnRun(ctx.runId, ctx.sessionId);
+          return { reply };
         })
-        .catch((err: unknown) => {
-          if (this.closed) return;
+        .catch((err: unknown): TurnEnd => {
+          if (this.closed) return { stopped: SHUT_DOWN };
           const why = err instanceof Error ? err.message : String(err);
           this.runs.finish(ctx.runId, "error", why);
           if (!ctx.signal.aborted) this.failed.set(ctx.sessionId, why);
+          // Its steps stand in the chat with no answer under them: a line says it stopped, and why.
+          if (!ctx.closesOwnFailure) this.noteIn(ctx.sessionId, `${STOPPED_BEFORE} ${why}`);
+          return { stopped: why };
         })
         .finally(() => this.endTurn(ctx.sessionId, String(ctx.runId)));
       return {
         reply: `Waiting on you: ${first.action.tool} needs approval (@approval:${first.action.id}). I will carry on as soon as you decide.`,
-        suspended: true,
+        ended,
       };
     }
     const reply = await settle(first.result, false);
     this.finishTurnRun(ctx.runId, ctx.sessionId);
-    return { reply, suspended: false };
+    return { reply };
   }
 
   /**
@@ -2027,9 +2038,10 @@ export class Kernel {
     }
   }
 
-  private async runJobTurn(prompt: string, job: CronJob): Promise<{ reply: string; steps: StepTally }> {
+  private async runJobTurn(prompt: string, job: CronJob): Promise<JobTurn & { later?: Promise<JobTurn> }> {
     const id = this.jobThread(job);
     const mark = this.audit.lastId();
+    const since = Date.now();
     /*
      * Not enqueued again: fire() is already running inside the work queue,
      * and handleMessage enqueues on the conversation's own lane, so this
@@ -2044,12 +2056,32 @@ export class Kernel {
       via: "schedule",
       from: { kind: "schedule", name: job.name, id: String(job.id) },
     });
-    // A blob that reports hands each run's answer to the owner, tagged as
-    // its own; otherwise the answer stays in its thread and the brief says
-    // what to tell.
-    const role = job.agent ? this.roles.get(job.agent) : undefined;
-    if (role?.report === "always" && res.reply.trim()) this.caretaker.tell(res.reply, { from: this.senderFor(id) });
-    return { reply: res.reply, steps: this.audit.tally(id, mark) };
+    const turn = (end: TurnEnd): JobTurn => {
+      const reply = "reply" in end ? end.reply : "";
+      // A blob that reports hands each run's answer to the owner, tagged as
+      // its own; otherwise the answer stays in its thread and the brief says
+      // what to tell.
+      const role = job.agent ? this.roles.get(job.agent) : undefined;
+      if (role?.report === "always" && reply.trim()) this.caretaker.tell(reply, { from: this.senderFor(id) });
+      return { reply, steps: this.jobSteps(id, mark, since), delivered: this.audit.worked(id, mark, "notify"), ...("stopped" in end ? { stopped: end.stopped } : {}) };
+    };
+    if (!res.ended) return turn({ reply: res.reply });
+    // Waiting on the owner: what it did so far now, and the rest when the turn ends.
+    return { reply: res.reply, steps: this.jobSteps(id, mark, since), delivered: 0, later: res.ended.then(turn) };
+  }
+
+  /**
+   * A job turn's steps: the calls it made, and the ones it asked for that
+   * never ran, denied or left undecided. Those are never in the audit log,
+   * so a digest whose post lapsed counted its reads and read as clean.
+   */
+  private jobSteps(conversationId: string, mark: number, since: number): StepTally {
+    const steps = this.audit.tally(conversationId, mark);
+    const unrun = this.approvals.unrunSince(conversationId, since);
+    if (!unrun.length) return steps;
+    const [first] = unrun;
+    const why = `${first!.tool}: ${first!.status === "denied" ? "the owner said no" : "its approval was left undecided"}`;
+    return { total: steps.total + unrun.length, failed: steps.failed + unrun.length, firstError: steps.firstError ?? why };
   }
 
 
@@ -5814,7 +5846,11 @@ export class Kernel {
     // Lines held for a turn that will not end in this process go in now, while the store is open.
     for (const id of [...this.heldNotes.keys()]) this.releaseNotes(id);
     // Runs this process will not finish are closed as such; their chats are told at the next boot, which knows them still open.
-    this.runs.interruptRunning(SHUT_DOWN);
+    try {
+      this.runs.interruptRunning(SHUT_DOWN);
+    } catch {
+      // A store already closed (a second close) has nothing left to close.
+    }
     this.workspace.close();
   }
 }
