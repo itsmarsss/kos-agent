@@ -1927,7 +1927,7 @@ select {
 }
 
 .card-top { display: flex; align-items: center; gap: 0.5rem; }
-.card-name { font-weight: 600; letter-spacing: -0.01em; }
+.card-name { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; }
 /* Only shown when the status is worth remarking on: a green dot on every
    card is decoration, and decoration that looks like a signal is worse. */
 .dot {
@@ -6483,6 +6483,10 @@ a.health {
 .inbox-suggestion { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; }
 .inbox-suggestion + .inbox-suggestion { border-top: 1px solid var(--line); }
 .inbox-suggestion-main { min-width: 0; }
+/* A suggestion's title reads like a row's, on the scale; it had no size and fell to the browser's 16px. */
+/* The ask's number, by which the owner names it in a chat ("deny #742"). */
+.inbox-decided-num { flex: none; color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.inbox-suggestion .panel-row-main { display: flex; align-items: center; gap: 0.45rem; font-size: var(--text-md); font-weight: 600; }
 
 /* —— sidebar: wordmark row and collapse to a rail —— */
 .side-brand-row { display: flex; align-items: center; justify-content: space-between; padding: 0.2rem 0.4rem 0.6rem 0.7rem; }
