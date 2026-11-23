@@ -23,12 +23,20 @@ export function keyboardInset(windowHeight: number, visibleHeight: number, visib
   return Math.max(0, Math.round(windowHeight - seen));
 }
 
-/** How far, in px, a finger travels toward the edge before a drawer from that edge shuts. */
-const SWIPE_SHUT = 56;
+/** How far, in px, a finger travels across before a drawer from the left edge shuts or opens. */
+const SWIPE = 56;
+
+/** How near the left edge, in px, a finger comes down for a swipe in to open the drawer from there. */
+const EDGE = 24;
 
 /** Whether a finger's travel (`dx` left is negative) is a swipe back to the left edge: far enough, and more across than down. */
 export function swipedShut(dx: number, dy: number): boolean {
-  return dx <= -SWIPE_SHUT && Math.abs(dx) > 1.5 * Math.abs(dy);
+  return dx <= -SWIPE && Math.abs(dx) > 1.5 * Math.abs(dy);
+}
+
+/** Whether a finger that came down at `startX` and travelled `dx`, `dy` swiped in from the left edge, as a phone's drawer opens. */
+export function swipedOpen(startX: number, dx: number, dy: number): boolean {
+  return startX <= EDGE && dx >= SWIPE && Math.abs(dx) > 1.5 * Math.abs(dy);
 }
 
 const EDITABLE = "input, textarea, select, [contenteditable='true']";
@@ -64,5 +72,31 @@ export function watchKeyboard(win: Window = window): () => void {
     vv?.removeEventListener("resize", settle);
     win.removeEventListener("resize", settle);
     win.document.removeEventListener("focusin", onFocus);
+  };
+}
+
+/** The width under which the shell is a phone's: a bar at the top and the nav a drawer (styles.css, 860px). */
+export const PHONE = "(max-width: 860px)";
+
+/**
+ * Open the menu drawer when a finger swipes in from the window's left edge,
+ * on a phone's frame only. `onOpen` is called once per swipe.
+ */
+export function watchEdgeSwipe(onOpen: () => void, win: Window = window): () => void {
+  let from: { x: number; y: number } | null = null;
+  const down = (e: TouchEvent): void => {
+    const t = e.touches[0];
+    from = e.touches.length === 1 && t && win.matchMedia(PHONE).matches ? { x: t.clientX, y: t.clientY } : null;
+  };
+  const up = (e: TouchEvent): void => {
+    const t = e.changedTouches[0];
+    if (from && t && swipedOpen(from.x, t.clientX - from.x, t.clientY - from.y)) onOpen();
+    from = null;
+  };
+  win.document.addEventListener("touchstart", down, { passive: true });
+  win.document.addEventListener("touchend", up, { passive: true });
+  return () => {
+    win.document.removeEventListener("touchstart", down);
+    win.document.removeEventListener("touchend", up);
   };
 }

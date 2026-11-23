@@ -288,7 +288,7 @@ describe("the palette", () => {
     release("memory", []);
     release("run", []);
     release("secret", [], true);
-    await waitFor(() => expect(screen.getByText(/^Secrets did not answer in time/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Secrets did not answer in time. Try again, or start with “secret:” to search only there.")).toBeTruthy());
 
     fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowUp" });
     fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });

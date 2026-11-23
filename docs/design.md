@@ -240,9 +240,14 @@ fingertip does not scale with the density setting.
 - **Targets.** Nothing to press is under 44 square. Both button heights
   (`--control-h`, `--control-h-sm`) become `--tap`; an icon button is a 44
   circle; a row, a tab, a chip, a menu row and an option are at least 44
-  high. A mark that would break its line grown (a switch, a bare ×, a
-  disclosure chevron, a head's All, a colour) keeps its look and takes a 44
-  area round it.
+  high. A mark that would break its line grown keeps its look: a switch, a
+  disclosure chevron and a link in a line are a 44 box themselves, drawn as
+  before inside it (a clear border or padding, taken back by as much
+  margin, so the line does not move); a bare ×, a head's All and a colour
+  take a 44 area round them. An attachment's × is a small circle on its
+  tile's corner, its 44 box over a corner of the picture, not half of it.
+  A tap flashes nothing of the engine's own (`--tap-highlight`); the press
+  is the answer.
 - **Fields.** Every field's words are at least 16, or iOS zooms the page in
   on focus and leaves it there. The one `!important` in the sheets.
 - **No hover.** What the pointer reveals is shown: a chat row's ⋯, a
@@ -253,12 +258,29 @@ fingertip does not scale with the density setting.
 - **The keyboard on screen.** A sheet ends above it (`--kb-inset`, kept by
   `watchKeyboard` in `touch.ts`), and the field typed into is scrolled into
   sight as it comes up. A dialog whose point is a list (Move) does not open
-  the keyboard over it. Typing into a chat, its head keeps only its title.
-  Return in the composer starts a new line, as in a phone's messages; the
-  Send button sends.
+  the keyboard over it. Typing into a chat, the bar at the top goes, its
+  head keeps only its title, and the composer folds to one row: the field,
+  then attach and Send (and the mode, where there is room); the model, the
+  dictation and the memory meter are back when the keyboard goes. Return in
+  the composer starts a new line, as in a phone's messages; the Send button
+  sends. A field whose name is suggested opens with it selected, and Return
+  in a one-field dialog does what its primary button does.
+- **A short window.** Under 500 tall (a phone on its side, or upright with
+  Android's keyboard up), one rule set in `touch.css`: the composer is one
+  row with the keyboard down too; on its side the chat's head is one line
+  (the list toggle and crumbs, the title, its actions) and goes while
+  typing; a settings card's Save is at the card's foot rather than pinned
+  across a form with 300 px to show itself in. The messages kept 32 to
+  163 px of such a window; they keep most of it.
 - **A phone's frame.** The bar at the top is under every sheet, drawer and
-  panel, which bring their own ×; the menu drawer shuts by a swipe back to
-  the edge; notes come in under the bar, off what is pinned to the bottom;
+  panel, which bring their own ×; the menu drawer opens by a swipe in from
+  the left edge (`watchEdgeSwipe`) and shuts by a swipe back to it, and
+  holds Refresh as a row of its own (the pages update live, so there is no
+  pull to refresh); notes come in under the bar, off what is pinned to the
+  bottom; a page's tabs wrap to a second line; Settings picks its section
+  from a list rather than a strip of fifteen; Back lands where you were on
+  a page that reads its data again (`keepScroll`), and a reload with
+  settings not yet saved asks first;
   a list table is a card of two lines (`stackOnPhone`), its title and
   actions over its facts, a time said with its column's name.
 

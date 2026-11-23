@@ -890,7 +890,8 @@ export function App(): React.ReactElement {
         <Drawer
           open={editingCron !== null}
           title={editingCron?.job ? jobTitle(editingCron.job.name) : "New schedule"}
-          subtitle={editingCron?.job ? scheduleWords(editingCron.job.schedule) : "Runs on its own, on a schedule you set"}
+          // What is saved, said as saved: the line in the form says the time being set, and this one read as stale beside it.
+          subtitle={editingCron?.job ? `Saved to run ${scheduleWords(editingCron.job.schedule).replace(/^./, (c) => c.toLowerCase())}` : "Runs on its own, on a schedule you set"}
           onClose={closeCron}
         >
           {editingCron && (

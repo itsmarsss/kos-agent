@@ -14,6 +14,7 @@ import { ModelSettings } from "./ModelSettings.js";
 import { PageHead } from "./PageHead.js";
 import { useEdgeFade } from "./edgefade.js";
 import { FieldRow } from "./kit.js";
+import { useLeaveGuard } from "./leaveguard.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
@@ -647,6 +648,22 @@ export function SettingsPage({
     (Object.keys(a) as (keyof Behaviour)[]).every((k) => a[k] === b[k]);
   const changed = !same(how, savedHow);
   const atDefaults = same(how, defaults);
+  /** What each card holds that is not saved yet. Save is per card; a reload would lose every card's at once. */
+  const unsaved = {
+    you: !!data && (profile.name !== (data.profile?.name ?? "") || profile.timezone !== (data.profile?.timezone ?? "")),
+    providers: Object.keys(keys).length > 0,
+    models: !!data && (how.engine !== savedHow.engine || modelsDirty || buildModel !== (data.buildModel ?? "")),
+    behaviour: changed,
+    conversation:
+      !!data &&
+      (retention.maxChars !== String(data.retention.maxChars) ||
+        retention.maxToolResultChars !== String(data.retention.maxToolResultChars) ||
+        retention.maxExchanges !== String(data.retention.maxExchanges) ||
+        retention.autoTrim !== (data.retention.autoTrim === false ? "off" : "on")),
+    network: Object.keys(ports).length > 0,
+    browser: browserDirty,
+  };
+  useLeaveGuard(Object.values(unsaved).some(Boolean));
 
   const saveEnv = (
     section: SectionId,
@@ -730,6 +747,20 @@ export function SettingsPage({
             }}
           />
         </div>
+        {/* A narrow window picks the section from a list: fifteen tabs made a strip four times the phone's width. */}
+        {!query.trim() && (
+          <Select
+            className="set-pick"
+            label="Settings section"
+            value={active}
+            options={SECTIONS.map((s) => ({ value: s.id, label: `${s.group} · ${s.label}`, hint: s.blurb }))}
+            onChange={(id) => {
+              if (!isSettingsSection(id)) return;
+              setFound(null);
+              setActive(id);
+            }}
+          />
+        )}
         <nav className={`set-rail${query.trim() ? " set-rail--found" : ""}`} aria-label="Settings sections" ref={railScroll}>
         {query.trim() ? (
           <div className="set-results" role="listbox" aria-label="Settings found">
@@ -807,8 +838,7 @@ export function SettingsPage({
             blurb="Used in the system prompt and to decide what today means for a schedule."
             {...saveBar(
               "you",
-              profile.name !== (data.profile?.name ?? "") ||
-                profile.timezone !== (data.profile?.timezone ?? ""),
+              unsaved.you,
               () =>
                 run(
                   "you",
@@ -857,7 +887,7 @@ export function SettingsPage({
           <Section
             title="Providers"
             blurb="Stored outside the workspace, readable only by you. KOS shows the last four characters so you can tell two keys apart; it never sends the value back."
-            {...saveBar("providers", Object.keys(keys).length > 0, () =>
+            {...saveBar("providers", unsaved.providers, () =>
               saveEnv("providers", keys, () => setKeys({})),
             )}
           >
@@ -926,9 +956,7 @@ export function SettingsPage({
             blurb="Which model KOS thinks with. The model chip under a chat's box opens this page."
             {...saveBar(
               "models",
-              how.engine !== savedHow.engine ||
-                modelsDirty ||
-                buildModel !== (data.buildModel ?? ""),
+              unsaved.models,
               () => {
                 // One press writes all three, in the order that matters: the
                 // engine decides whether the model choices below apply.
@@ -1028,7 +1056,7 @@ export function SettingsPage({
             blurb="How KOS acts when you are not watching."
             {...saveBar(
               "behaviour",
-              changed,
+              unsaved.behaviour,
               saveHow,
               <button
                 type="button"
@@ -1248,12 +1276,7 @@ export function SettingsPage({
             blurb="How much of a chat KOS rereads with each new message. Past these limits the oldest messages drop off; type /compact in a chat to fold them into a short summary instead. 0 means no limit, but then a long chat gets slower and costs more with every message."
             {...saveBar(
               "conversation",
-              retention.maxChars !== String(data.retention.maxChars) ||
-                retention.maxToolResultChars !==
-                  String(data.retention.maxToolResultChars) ||
-                retention.maxExchanges !== String(data.retention.maxExchanges) ||
-                retention.autoTrim !==
-                  (data.retention.autoTrim === false ? "off" : "on"),
+              unsaved.conversation,
               () =>
                 run(
                   "conversation",
@@ -1330,7 +1353,7 @@ export function SettingsPage({
           <Section
             title="Network"
             blurb="Where KOS listens and what it may reach. Applied the next time the host starts."
-            {...saveBar("network", Object.keys(ports).length > 0, () =>
+            {...saveBar("network", unsaved.network, () =>
               saveEnv("network", ports, () => setPorts({})),
             )}
           >
@@ -1690,8 +1713,8 @@ export function SettingsPage({
             title="KOS's browser"
             blurb="KOS keeps a Chrome of its own on this computer, apart from yours. Each chat that browses gets a tab there, shown as for that chat; a tab you open there is shown as opened by you. You watch it in the Browser window from the sidebar, where Take over lets you click and type in a tab. A change here applies when it next starts."
             saving={busy === "browser"}
-            saved={browserDirty ? "Not saved yet" : (saved["browser"] ?? null)}
-            canSave={browserDirty}
+            saved={unsaved.browser ? "Not saved yet" : (saved["browser"] ?? null)}
+            canSave={unsaved.browser}
             onSave={saveBrowser}
             extra={
               <button type="button" className="btn" disabled={busy === "browser" || !browser} onClick={restartBrowser} title="Close Chrome and start it again with these settings; sign-ins stay">

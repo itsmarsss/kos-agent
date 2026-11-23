@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
-import { applySuggestion, readTrigger, splitQuery } from "./Autocomplete.js";
+import { applySuggestion, readTrigger, splitQuery, withKinds } from "./Autocomplete.js";
 
 const pick = { insert: "@file:notes.md", label: "notes.md", kind: "file" };
 
@@ -149,5 +149,25 @@ describe("a command's argument", () => {
     expect(out.text).toBe("/dispatch Tiles: ");
     // The caret sits where the task goes.
     expect(out.caret).toBe(out.text.length);
+  });
+});
+
+describe("withKinds", () => {
+  const things = [{ insert: "@project:home_lab", label: "Home lab", kind: "project" }];
+  it("leads a bare @ with the things themselves, the kinds after", () => {
+    const out = withKinds(undefined, "", things);
+    expect(out[0]).toBe(things[0]);
+    expect(out.slice(1).every((s) => s.partial)).toBe(true);
+  });
+  it("leads with the kinds a typed word could be", () => {
+    expect(withKinds(undefined, "fi", things).map((s) => s.insert)).toEqual(["@file:", "@project:home_lab"]);
+  });
+  it("offers blob: once, not agent: beside it", () => {
+    const kinds = withKinds(undefined, "", []).map((s) => s.label);
+    expect(kinds).toContain("blob:");
+    expect(kinds).not.toContain("agent:");
+  });
+  it("offers no kinds once one is chosen", () => {
+    expect(withKinds("file", "no", things)).toEqual(things);
   });
 });
