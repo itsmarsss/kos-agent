@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { api, type ChatEvent, type Conversation } from "./api.js";
 import { ChatsPage } from "./ChatsPage.js";
+import { ToastHost } from "./Toast.js";
 
 /**
  * The chat as a screen reader and a keyboard meet it: a log of who said
@@ -44,12 +45,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function page(): ReturnType<typeof render> {
+function page(activeId: string | undefined = "c1"): ReturnType<typeof render> {
   return render(
     <ChatsPage
       conversations={[chat]}
       projects={[]}
-      activeId="c1"
+      {...(activeId ? { activeId } : {})}
       pendingApprovals={new Set()}
       approvals={[]}
       deciding={new Set()}
@@ -134,5 +135,32 @@ describe("the chat's box", () => {
     expect(leaving).toBe(true);
     expect(screen.getByRole("button", { name: /^Mode: Ask/ })).toBeTruthy();
     expect(setMode).not.toHaveBeenCalled();
+  });
+});
+
+describe("the chat list's menu", () => {
+  it("renames from the list, with no chat open", async () => {
+    serve(() => ({ events: [] }));
+    const renamed = vi.spyOn(api, "renameConversation").mockResolvedValue({} as never);
+    page(undefined);
+    fireEvent.click(await screen.findByRole("button", { name: "Actions for Garden" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Rename/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Rename chat" });
+    const title = within(dialog).getByRole("textbox", { name: "Title" });
+    fireEvent.change(title, { target: { value: "Vegetable garden" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(renamed).toHaveBeenCalledWith("c1", "Vegetable garden"));
+  });
+
+  it("says an archive, and offers Undo", async () => {
+    serve(() => ({ events: [] }));
+    const archive = vi.spyOn(api, "archiveConversation").mockResolvedValue({} as never);
+    render(<ToastHost />);
+    page(undefined);
+    fireEvent.click(await screen.findByRole("button", { name: "Actions for Garden" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Archive/ }));
+    expect(await screen.findByText("Archived “Garden”.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(archive).toHaveBeenLastCalledWith("c1", false));
   });
 });

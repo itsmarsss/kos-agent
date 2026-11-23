@@ -68,7 +68,7 @@ import { Thinking } from "./Thinking.js";
 import { MessageEditor } from "./MessageActions.js";
 import { MessageTurn, type TurnAction } from "./MessageTurn.js";
 import { UnsentNote } from "./UnsentNote.js";
-import { Toast } from "./Toast.js";
+import { toast, Toast } from "./Toast.js";
 import { EarlierButton, JumpToLatest, useAwayFromLatest } from "./ThreadEnds.js";
 import { useReach } from "./reach.js";
 import { useStable } from "./stable.js";
@@ -385,7 +385,8 @@ export function ChatsPage({
   useDismiss(listOpen, () => setListOpen(false), { away: false, scroll: false, resize: false, escape: "dialog" });
   const [showArchived, setShowArchived] = useState(false);
   /** A chat just archived from its header, offered back for a moment. */
-  const [undo, setUndo] = useState<{ id: string; title: string } | null>(null);
+  /** The chat just archived, for its toast's Undo; `reopen` when it was open, so Undo brings the owner back to it. */
+  const [undo, setUndo] = useState<{ id: string; title: string; reopen?: boolean } | null>(null);
   useEffect(() => {
     if (!undo) return;
     const t = setTimeout(() => setUndo(null), 8000);
@@ -1506,7 +1507,16 @@ export function ChatsPage({
                     .catch(() => undefined),
               },
               { label: "Hand off…", act: () => setHandingOff({ id: c.id, title: c.title }) },
-              { label: showArchived ? "Unarchive" : "Archive", act: () => void api.archiveConversation(c.id, !showArchived).then(onChanged) },
+              {
+                label: showArchived ? "Unarchive" : "Archive",
+                // Said, with Undo, as Archive in the chat's head is: the row going was all there was to see.
+                act: () =>
+                  void api.archiveConversation(c.id, !showArchived).then(() => {
+                    onChanged();
+                    if (!showArchived) setUndo({ id: c.id, title: c.title });
+                    else toast({ kind: "ok", text: `Unarchived “${c.title}”` });
+                  }),
+              },
             ]}
           >
             {/* Asked once, beside the item: delete is the one thing here that cannot be undone, and a menu item that does it on one click is a trap beside Archive. */}
@@ -2075,12 +2085,56 @@ export function ChatsPage({
                   setUndo(null);
                   void api.archiveConversation(back.id, false).then(() => {
                     onChanged();
-                    onOpen(back.id);
+                    if (back.reopen) onOpen(back.id);
                   });
                 },
               }
             }
           />
+          {/* Renaming is the one thing about a chat an owner changes most,
+              and it was reachable only by knowing to type /rename. */}
+          <Modal
+            open={renaming !== null}
+            title="Rename chat"
+            size="sm"
+            onClose={() => setRenaming(null)}
+          >
+            <form
+              className="rename-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const next = renaming?.title.trim();
+                if (!renaming || !next) return;
+                void api
+                  .renameConversation(renaming.id, next)
+                  .then(() => {
+                    setRenaming(null);
+                    onChanged();
+                  })
+                  .catch(() => setRenaming(null));
+              }}
+            >
+              <Field label="Title">
+                <input
+                  className="kos-input"
+                  autoFocus
+                  value={renaming?.title ?? ""}
+                  onChange={(e) =>
+                    setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
+                  }
+                />
+              </Field>
+              <SheetFoot
+                inline
+                onCancel={() => setRenaming(null)}
+                primary={
+                  <button type="submit" className="btn btn--primary" disabled={!renaming?.title.trim()}>
+                    Save
+                  </button>
+                }
+              />
+            </form>
+          </Modal>
           {!active && loading && (activeId || project || agent) ? (
             <>
               <div className="chats-view-path">{listToggle}</div>
@@ -2298,7 +2352,7 @@ export function ChatsPage({
                       type="button"
                       className="head-act"
                       onClick={() => {
-                        const was = { id: active.id, title: active.title };
+                        const was = { id: active.id, title: active.title, reopen: true };
                         void api.archiveConversation(active.id).then(() => {
                           onChanged();
                           setUndo(was);
@@ -2343,51 +2397,6 @@ export function ChatsPage({
                     }}
                   />
                 )}
-              </Modal>
-
-              {/* Renaming is the one thing about a chat an owner changes most,
-                  and it was reachable only by knowing to type /rename. */}
-              <Modal
-                open={renaming !== null}
-                title="Rename chat"
-                size="sm"
-                onClose={() => setRenaming(null)}
-              >
-                <form
-                  className="rename-form"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const next = renaming?.title.trim();
-                    if (!renaming || !next) return;
-                    void api
-                      .renameConversation(renaming.id, next)
-                      .then(() => {
-                        setRenaming(null);
-                        onChanged();
-                      })
-                      .catch(() => setRenaming(null));
-                  }}
-                >
-                  <Field label="Title">
-                    <input
-                      className="kos-input"
-                      autoFocus
-                      value={renaming?.title ?? ""}
-                      onChange={(e) =>
-                        setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
-                      }
-                    />
-                  </Field>
-                  <SheetFoot
-                    inline
-                    onCancel={() => setRenaming(null)}
-                    primary={
-                      <button type="submit" className="btn btn--primary" disabled={!renaming?.title.trim()}>
-                        Save
-                      </button>
-                    }
-                  />
-                </form>
               </Modal>
 
               {/* The thread knows the chats and agents by name, so a chip can
