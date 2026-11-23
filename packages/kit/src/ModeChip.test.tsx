@@ -4,14 +4,14 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState, type ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isModeKey, ModeChip } from "./ModeChip.js";
+import { ModeChip } from "./ModeChip.js";
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
 
-/** The chip as a composer holds it: the mode in state, Shift+Tab in its box cycling it. */
+/** The chip as a composer holds it: the mode in state, beside its box. */
 function Composer({ start, told }: { start: ChatMode; told: (m: ChatMode) => void }): ReactElement {
   const [mode, setMode] = useState(start);
   const set = (m: ChatMode): void => {
@@ -20,14 +20,7 @@ function Composer({ start, told }: { start: ChatMode; told: (m: ChatMode) => voi
   };
   return (
     <>
-      <textarea
-        aria-label="box"
-        onKeyDown={(e) => {
-          if (!isModeKey(e)) return;
-          e.preventDefault();
-          set(mode.mode === "ask" ? { mode: "auto" } : { mode: "ask" });
-        }}
-      />
+      <textarea aria-label="box" />
       <ModeChip mode={mode} onChange={set} />
     </>
   );
@@ -38,7 +31,7 @@ describe("ModeChip", () => {
     const told = vi.fn();
     render(<Composer start={{ mode: "ask" }} told={told} />);
     const main = screen.getByRole("button", { name: /Mode: Ask/ });
-    expect(main.getAttribute("title")).toMatch(/^Ask: KOS asks you before anything risky in this chat\. Shift\+Tab/);
+    expect(main.getAttribute("title")).toBe("Ask: KOS asks you before anything risky in this chat. Press to choose a mode.");
     // One tap in Ask opens the menu, which says what Auto does; it does not switch.
     fireEvent.click(main);
     expect(told).not.toHaveBeenCalled();
@@ -50,18 +43,6 @@ describe("ModeChip", () => {
     expect(screen.getByRole("button", { name: /Mode: Auto/ }).getAttribute("title")).toMatch(/^Auto: KOS goes ahead without asking/);
     fireEvent.click(screen.getByRole("button", { name: /Mode: Auto/ }));
     expect(told).toHaveBeenLastCalledWith({ mode: "ask" });
-  });
-
-  it("cycles on Shift+Tab in the box and on no other Tab", () => {
-    const told = vi.fn();
-    render(<Composer start={{ mode: "ask" }} told={told} />);
-    const box = screen.getByLabelText("box");
-    fireEvent.keyDown(box, { key: "Tab" });
-    fireEvent.keyDown(box, { key: "Tab", shiftKey: true, metaKey: true });
-    expect(told).not.toHaveBeenCalled();
-    fireEvent.keyDown(box, { key: "Tab", shiftKey: true });
-    expect(told).toHaveBeenLastCalledWith({ mode: "auto" });
-    expect(document.querySelector(".mode-chip")?.getAttribute("data-mode")).toBe("auto");
   });
 
   it("counts Auto down, and reads as Ask once it has run out", () => {

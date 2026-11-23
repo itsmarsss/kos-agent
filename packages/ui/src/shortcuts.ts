@@ -31,7 +31,6 @@ export const SHORTCUTS: readonly ShortcutGroup[] = [
       { keys: "↵", does: "Send" },
       { keys: "⇧↵", does: "A new line" },
       { keys: "⌘↵", does: "Stop the turn that is running" },
-      { keys: "⇧Tab", does: "Ask or Auto" },
       { keys: "/  @", does: "Commands, and name things" },
     ],
   },

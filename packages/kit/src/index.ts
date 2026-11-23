@@ -47,7 +47,7 @@ export { PlacePicker, type Place } from "./PlacePicker.js";
 export { ASK_SETTLE_MS, AskCard, AskDetails, AskSecretBlock, AskStepList, type AskCardProps } from "./AskCard.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";
 export { Menu, menuPlace, type MenuItem, type MenuProps, type MenuSide } from "./Menu.js";
-export { isModeKey, ModeChip } from "./ModeChip.js";
+export { ModeChip } from "./ModeChip.js";
 export { restoreFocus, tabStops, useFocusTrap, type FocusTrapOptions } from "./useFocusTrap.js";
 export { sheetOpen } from "./layers.js";
 export { useSteadyPress } from "./useSteadyPress.js";

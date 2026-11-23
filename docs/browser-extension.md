@@ -209,7 +209,7 @@ While KOS works in your Chrome:
 - acting on a page asks you, trusted per site apart from KOS's own Chrome
   (a site trusted there is asked about again here, where you are signed in);
   in the side panel an approval offers **Always on** the site, and the
-  mode chip beside the model (Shift+Tab in the box cycles it) sets the
+  mode chip beside the model (Auto only from its menu, never by a key) sets the
   chat to **Ask** or **Auto**: in Auto, KOS goes ahead without asking for
   the risky steps of turns you start in that chat, in your Chrome and
   everywhere else, within what Auto never covers ([The chat's
@@ -518,7 +518,8 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 ### The chat's mode
 
 Every chat is in one of two modes, set from any surface's composer (a chip
-beside the model, cycled by a press or Shift+Tab, with a menu) and kept
+beside the model: a press in Auto goes back to Ask, a press in Ask opens
+its menu, the one place Auto is chosen; no key changes it) and kept
 per chat on KOS, which alone decides what it lets through:
 
 - **Ask**, the default: a risky step asks the owner, as it always has.

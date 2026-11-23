@@ -10,8 +10,8 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { cycled, kindWord, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
-import { isModeKey, Menu, ModeChip } from "@kos/kit";
+import { kindWord, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { Menu, ModeChip } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
@@ -2676,12 +2676,6 @@ export function ChatsPage({
                       }
                     }}
                     onKeyDown={(e) => {
-                      // Shift+Tab cycles the chat's mode, as on every surface.
-                      if (isModeKey(e)) {
-                        e.preventDefault();
-                        setChatMode(cycled(chatMode));
-                        return;
-                      }
                       // An input method's keys (a candidate picked with Enter, its list walked with the arrows) are its own.
                       if (suggestions.length > 0 && !e.nativeEvent.isComposing) {
                         if (e.key === "ArrowDown") {

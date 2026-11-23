@@ -3,13 +3,14 @@
  *
  * Ask, the default, asks the owner before each one, as the approval queue
  * always has. Auto goes ahead without asking, for the owner's own turns in
- * that chat, within what Auto never covers. Every surface cycles it from its
- * composer, and the harness alone decides what it lets through.
+ * that chat, within what Auto never covers. Every surface sets it from its
+ * composer's chip, Auto only as a choice in its menu, never by a key; the
+ * harness alone decides what it lets through.
  */
 
 export type ChatModeName = "ask" | "auto";
 
-/** The order Shift+Tab and a press on the chip go through. */
+/** The order a press on the chip goes through. */
 export const CHAT_MODES: readonly ChatModeName[] = ["ask", "auto"];
 
 export interface ChatMode {
@@ -27,7 +28,7 @@ export function nextMode(mode: ChatModeName): ChatModeName {
   return CHAT_MODES[(CHAT_MODES.indexOf(mode) + 1) % CHAT_MODES.length]!;
 }
 
-/** What a press on the chip (or Shift+Tab) makes of a mode: the next one, Auto with no bounds; the menu sets those. */
+/** What a press on the chip makes of a mode: the next one, Auto with no bounds; the menu sets those. */
 export function cycled(mode: ChatMode): ChatMode {
   return nextMode(mode.mode) === "auto" ? { mode: "auto" } : ASK;
 }
@@ -115,7 +116,8 @@ export const MODE_WORDS: Record<ChatModeName, { label: string; does: string; sho
 /** The tooltip on the chip: the mode, what it does, and how to change it. */
 export function modeTip(mode: ChatMode, now: number): string {
   const live = liveMode(mode, now);
-  return `${modeLabel(live, now)}: ${MODE_WORDS[live.mode].does} Shift+Tab or press to change; more in the menu.`;
+  const change = live.mode === "auto" ? "Press for Ask; more in the menu." : "Press to choose a mode.";
+  return `${modeLabel(live, now)}: ${MODE_WORDS[live.mode].does} ${change}`;
 }
 
 /** What Auto never covers: it asks as Ask does, or refuses, whatever the chat is set to. Enforced in the harness. */
