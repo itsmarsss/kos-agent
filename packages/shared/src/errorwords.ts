@@ -12,8 +12,19 @@ function fileOf(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-const RULES: readonly [RegExp, (m: RegExpExecArray) => string][] = [
-  [/ENOENT[^']*'([^']+)'/, (m) => `There is no file or folder called “${fileOf(m[1]!)}”.`],
+/**
+ * Where a missing path was looked for: from the workspace down when the
+ * workspace is known and holds it ("blobs/recap/notes/todo.md", which says
+ * it looked in the blob's folder), else its last part alone.
+ */
+function missing(path: string, root: string | undefined): string {
+  const base = root?.replace(/[\\/]+$/, "");
+  const inside = base && path.startsWith(`${base}/`) ? path.slice(base.length + 1) : null;
+  return inside && inside.includes("/") ? `There is no file or folder at “${inside}”.` : `There is no file or folder called “${fileOf(path)}”.`;
+}
+
+const RULES: readonly [RegExp, (m: RegExpExecArray, root?: string) => string][] = [
+  [/ENOENT[^']*'([^']+)'/, (m, root) => missing(m[1]!, root)],
   [/ENOENT/, () => "That file or folder is not there."],
   [/EACCES|EPERM/, () => "KOS isn't allowed to change that file."],
   [/EISDIR/, () => "That is a folder, not a file."],
@@ -37,13 +48,14 @@ const PREFIX = /^(?:tool error|error|uncaught|typeerror|rangeerror)\s*:\s*/i;
 /**
  * The sentence for an error: a known kind in plain words, else the text with
  * its machinery prefix gone and any absolute path cut to its last part.
+ * Given the workspace's folder, a missing path is named from it down.
  */
-export function errorWords(raw: string | null | undefined): string {
+export function errorWords(raw: string | null | undefined, opts: { root?: string } = {}): string {
   const text = (raw ?? "").trim();
   if (!text) return "Something went wrong.";
   for (const [re, say] of RULES) {
     const m = re.exec(text);
-    if (m) return say(m);
+    if (m) return say(m, opts.root);
   }
   let plain = text;
   while (PREFIX.test(plain)) plain = plain.replace(PREFIX, "");

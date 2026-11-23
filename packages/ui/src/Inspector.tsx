@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
-import { errorWords, formatDuration, hexOfHsl, hueOfHex, isState, kindWord, momentWords, STATE_WORDS, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
+import { errorWords, formatDuration, hexOfHsl, hueOfHex, isState, kindWord, momentWords, slugWords, STATE_WORDS, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
 import { Card, ease, Field, lookOf, SheetFoot, StatusPill, Tag, When } from "@kos/kit";
 
 import type {
@@ -54,6 +54,22 @@ function Stat({ label, value }: { label: string; value: string }): React.ReactEl
   );
 }
 
+/**
+ * Where a step was made, by the chat it ran in. A schedule's step runs under
+ * the owner's id, so "asked by you" was wrong for every one of them.
+ */
+export function madeIn(conversationId: string | null | undefined): string {
+  if (!conversationId) return "—";
+  if (conversationId.startsWith("cron:")) return "A schedule's run";
+  if (conversationId.startsWith("agent:")) return `${slugWords(conversationId.slice(6))}, a blob`;
+  return "A chat";
+}
+
+/** A run's raw error, only when it says more than the sentence over it. */
+function rawSaysMore(raw: string, said: string): boolean {
+  return raw.trim().replace(/\.$/, "").toLowerCase() !== said.replace(/\.$/, "").toLowerCase();
+}
+
 export function Inspector(props: {
   target: InspectTarget | null;
   onClose: () => void;
@@ -71,6 +87,8 @@ export function Inspector(props: {
   }) => void;
   /** So a run can name the job it belongs to rather than its id. */
   crons?: CronJob[];
+  /** The workspace's folder, so a missing file is named from the workspace down. */
+  workspace?: string;
   onSaved?: () => void;
   onSetProjectStatus?: (slug: string, status: string) => Promise<void>;
   /** Gone for good, after a second press. */
@@ -175,7 +193,7 @@ export function Inspector(props: {
       // raw result are the machinery, there for the curious under Details.
       body = (
         <>
-          <p className={`insp-lead${t.isError ? " insp-lead--bad" : ""}`}>{t.isError ? errorWords(t.result) : (line.detail ?? summarizeAction(t.tool, t.args))}</p>
+          <p className={`insp-lead${t.isError ? " insp-lead--bad" : ""}`}>{t.isError ? errorWords(t.result, { root: props.workspace }) : (line.detail ?? summarizeAction(t.tool, t.args))}</p>
           {!t.isError && <Block label="What it returned" text={t.result || (call ? "Nothing" : "…")} />}
           <Facts rows={[["When", momentWords(t.createdAt)]]} />
           <Details>
@@ -183,7 +201,7 @@ export function Inspector(props: {
               rows={[
                 ["Tool", t.tool],
                 ["Checked as", t.riskTier ?? "—"],
-                ["Asked by", t.userId === "owner" ? "You" : (t.userId ?? "—")],
+                ["Made in", madeIn(t.conversationId)],
               ]}
             />
             {t.isError && <Block label="What it said" text={t.result || "—"} />}
@@ -226,9 +244,11 @@ export function Inspector(props: {
           <div className="insp-cols">
             <div className="insp-main">
               {r.error ? (
-                <Details>
-                  <pre className="insp-pre">{r.error}</pre>
-                </Details>
+                rawSaysMore(r.error, errorWords(r.error)) && (
+                  <Details>
+                    <pre className="insp-pre">{r.error}</pre>
+                  </Details>
+                )
               ) : (
                 <p className="ops-muted">This run finished without an error.</p>
               )}

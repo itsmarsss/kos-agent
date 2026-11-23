@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
-import { AUTO_DECIDER, momentWords, STATE_WORDS, timeCard, timeWords } from "@kos/shared";
+import { AUTO_DECIDER, momentWords, STATE_WORDS, timeCard, timeWords, toolWords } from "@kos/shared";
 import { ChevronDown, Chips, Collapse, Count, EmptyState, ListHead, SearchField, spring, StatusPill, Tag } from "@kos/kit";
 
 import { api, type DecidedAction, type DecidedStatus, type InboxData } from "./api.js";
@@ -290,10 +290,8 @@ export function InboxDecided({
                   <div className="inbox-decided-detail">
                     {cut.has(a.id) && <p className="inbox-decided-full">{a.summary}</p>}
                     <dl className="inbox-decided-facts">
-                      <dt>Tool</dt>
-                      <dd>
-                        <code title={`Ask #${a.id}`}>{a.tool}</code>
-                      </dd>
+                      <dt>Step</dt>
+                      <dd>{toolWords(a.tool)}</dd>
                       {a.asker && (
                         <>
                           <dt>Asked by</dt>

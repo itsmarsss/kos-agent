@@ -206,8 +206,9 @@ describe("the decided list", () => {
     expect(first.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(first);
     expect(first.getAttribute("aria-expanded")).toBe("true");
-    // Its number is an id: the tool's tooltip, not a word on the page.
-    expect(screen.getByTitle("Ask #1000")).toBeTruthy();
+    // The step in words; neither the tool's name nor the ask's number is on the page.
+    expect(screen.getByText("Run a command")).toBeTruthy();
+    expect(screen.queryByText("shell.run")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open the chat" }));
     expect(open).toHaveBeenCalledWith("c1");
   });

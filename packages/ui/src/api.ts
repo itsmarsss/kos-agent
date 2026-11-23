@@ -515,6 +515,8 @@ export interface AuditRecord {
   isError: boolean;
   riskTier?: string | null;
   userId?: string | null;
+  /** The chat whose turn made the call; absent from an older host. */
+  conversationId?: string | null;
   createdAt: number;
 }
 

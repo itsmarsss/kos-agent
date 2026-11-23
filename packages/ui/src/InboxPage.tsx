@@ -10,7 +10,8 @@ import { MemoryDecision } from "./MemoryPage.js";
 import { PictureGallery } from "./Lightbox.js";
 import { PageHead } from "./PageHead.js";
 import { PendingAsk } from "./PendingAsk.js";
-import { kindWord } from "@kos/shared";
+import { jobTitle } from "./schedulewords.js";
+import { errorWords, kindWord } from "@kos/shared";
 import { ActivityDot, fixLabel } from "./StatusDot.js";
 import { Signed } from "./signed.js";
 
@@ -179,8 +180,8 @@ export function InboxPage({
               <li key={f.key} className="inbox-failure">
                 <button type="button" className="panel-row is-error" onClick={() => onOpenFailure(f.key)}>
                   <span className="panel-row-main">
-                    <span className="fail-label">{f.label}</span>
-                    <span className="fail-why">{f.error ?? "failed"}</span>
+                    <span className="fail-label">{f.key.startsWith("cron:") ? jobTitle(f.label) : f.label}</span>
+                    <span className="fail-why">{f.error ? errorWords(f.error) : "Failed"}</span>
                   </span>
                   <span className="panel-row-side">
                     {f.streak > 1 ? `${f.streak}x · ` : ""}
