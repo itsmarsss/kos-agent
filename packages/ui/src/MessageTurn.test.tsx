@@ -32,7 +32,7 @@ describe("a message's time in the thread", () => {
     const el = turn({ kind: "message", role: "kos", text: "Under the help tray.", at: AT });
     const row = el.querySelector(".acts")!;
     expect(row.lastElementChild?.className).toBe("msg-time");
-    fireEvent.focus(screen.getByRole("button", { name: "Copy" }));
+    fireEvent.focus(screen.getByRole("button", { name: /^Copy KOS.s reply/ }));
     expect(el.classList.contains("is-timed")).toBe(true);
   });
 
