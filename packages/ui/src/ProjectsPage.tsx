@@ -178,9 +178,9 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
       {query.trim() && groups.length === 0 && <EmptyState query={{ noun: "projects", onClear: () => setQuery("") }} />}
 
       {groups.map(([status, items]) => (
-        <section key={status} className="projects-group" aria-label={status === "system" ? "KOS's own" : several ? status : "Projects"}>
+        <section key={status} className="projects-group" aria-label={status === "system" ? "KOS's upkeep" : several ? status : "Projects"}>
           {(several || status === "system") && (
-            <GroupHead title={status === "system" ? "KOS's own" : isState(status) ? STATE_WORDS[status].word : kindWord(status)} count={items.length} />
+            <GroupHead title={status === "system" ? "KOS's upkeep" : isState(status) ? STATE_WORDS[status].word : kindWord(status)} count={items.length} />
           )}
           <m.div className="project-grid" variants={stagger} initial="hidden" animate="show">
             {items.map(cardOf)}
