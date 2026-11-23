@@ -1,8 +1,8 @@
-import { useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease, useDismiss } from "@kos/kit";
+import { ease, useDismiss, useFocusTrap } from "@kos/kit";
 
 /**
  * The small parts every page is built from, so they are built the same way.
@@ -136,6 +136,9 @@ export function ConfirmButton({ label, text, confirmLabel, onConfirm, className 
   // and has no box, which put the window at the top left of the page.
   const button = useRef<HTMLButtonElement>(null);
   const { at, open, toggle, close, wrap, pop } = useAnchoredPop({ width: 280, height: 96 }, button);
+  const textId = useId();
+  // A modal choice while it is up: the keys stay in it, and go back to the button as it shuts.
+  useFocusTrap(pop, at !== null, { onEscape: close });
   return (
     <div className="confirm-wrap" ref={wrap}>
       <button ref={button} type="button" role={role} className={className} disabled={disabled} title={title ?? (icon ? label : undefined)} aria-label={icon ? label : undefined} aria-expanded={open} tabIndex={tabIndex} onClick={toggle}>
@@ -148,28 +151,32 @@ export function ConfirmButton({ label, text, confirmLabel, onConfirm, className 
               className="kos-pop confirm-pop"
               ref={pop}
               role="alertdialog"
+              aria-modal="true"
               aria-label={label}
+              aria-describedby={textId}
               style={{ top: at.top, left: at.left }}
               initial={{ opacity: 0, scale: 0.96, y: -4 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.97, y: -3 }}
               transition={ease}
             >
-              <p className="confirm-text">{text}</p>
+              <p className="confirm-text" id={textId}>
+                {text}
+              </p>
+              {/* Cancel first and with the focus, what it confirms last in danger: one stray Enter never destroys. */}
               <div className="confirm-acts">
+                <button type="button" className="btn btn--sm btn--ghost" autoFocus onClick={close}>
+                  Cancel
+                </button>
                 <button
                   type="button"
                   className="btn btn--sm btn--danger"
-                  autoFocus
                   onClick={() => {
                     close();
                     onConfirm();
                   }}
                 >
                   {confirmLabel ?? label}
-                </button>
-                <button type="button" className="btn btn--sm btn--ghost" onClick={close}>
-                  Cancel
                 </button>
               </div>
             </m.div>

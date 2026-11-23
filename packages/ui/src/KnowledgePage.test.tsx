@@ -195,7 +195,13 @@ describe("the claims list", () => {
     expect(forget).not.toHaveBeenCalled();
     // The row's actions stay drawn while it asks.
     expect(button.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Forget" }));
+    const ask = screen.getByRole("alertdialog");
+    // A modal ask, its consequence read with it, the safe choice first and with the focus.
+    expect(ask.getAttribute("aria-modal")).toBe("true");
+    expect(document.getElementById(ask.getAttribute("aria-describedby")!)?.textContent).toMatch(/cannot be undone/);
+    expect(within(ask).getAllByRole("button").map((b) => b.textContent)).toEqual(["Cancel", "Forget"]);
+    expect(document.activeElement?.textContent).toBe("Cancel");
+    fireEvent.click(within(ask).getByRole("button", { name: "Forget" }));
     expect(forget).toHaveBeenCalledWith("monthly_budget");
     await waitFor(() => expect(changed).toHaveBeenCalled());
   });
