@@ -482,18 +482,22 @@ function Uses({ handle }: { handle: string }): ReactElement {
 
 /**
  * A value shown on purpose: a step-up first (the passphrase, or the label
- * typed when there is none), then the value for 30 s with Copy. The value
- * is written into the page directly and wiped, never kept in state.
+ * typed when there is none), then the value for 30 s. The value is written
+ * into the page directly and wiped, never kept in state.
+ *
+ * There is no Copy. A page writes the clipboard as plain text alone, with
+ * no way to mark it concealed or transient, so a clipboard history app
+ * would keep the value for good and another device's Universal Clipboard
+ * would get it; nor can a page clear it once it loses focus. The owner's
+ * password manager is the place to copy a secret from.
  */
 function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus | null }): ReactElement {
   const fields = secret.fields.filter((f): f is Exclude<SecretFieldName, "billing"> => f !== "billing");
   const [field, setField] = useState<Exclude<SecretFieldName, "billing">>(fields.find((f) => MAIN.has(f)) ?? fields[0] ?? "password");
   const [until, setUntil] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
   const out = useRef<HTMLElement>(null);
   const value = useRef("");
-  const copied = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const live = useRef(true);
   const byPassphrase = status?.slots.includes("passphrase") ?? false;
@@ -503,12 +507,8 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
     if (out.current) out.current.textContent = "";
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
-    // What was copied goes with it, while the page can still write the clipboard.
-    if (copied.current && document.hasFocus()) void navigator.clipboard.writeText("").catch(() => undefined);
-    copied.current = false;
     if (!live.current) return;
     setUntil(null);
-    setCopy("idle");
   };
   useEffect(() => {
     live.current = true;
@@ -552,22 +552,6 @@ function Reveal({ secret, status }: { secret: SecretSummary; status: VaultStatus
             <span className="secret-line-meta">
               <Countdown until={until} lead="Hidden in" />
             </span>
-            {copy === "failed" && <span className="field-error">Could not copy</span>}
-            <button
-              type="button"
-              className="btn btn--sm"
-              onClick={() =>
-                void navigator.clipboard.writeText(value.current).then(
-                  () => {
-                    copied.current = true;
-                    if (live.current) setCopy("copied");
-                  },
-                  () => live.current && setCopy("failed"),
-                )
-              }
-            >
-              {copy === "copied" ? "Copied" : "Copy"}
-            </button>
             <button type="button" className="btn btn--sm" onClick={clear}>
               Hide
             </button>
