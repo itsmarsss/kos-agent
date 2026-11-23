@@ -30,13 +30,13 @@ public struct ChatMode: Codable, Equatable, Sendable {
 
   public static let ask = ChatMode(.ask)
 
-  /// The mode after this one, round the cycle Shift+Tab and a press on the chip go through.
+  /// The mode after this one, round the cycle.
   public var next: Name {
     let all = Name.allCases
     return all[(all.firstIndex(of: mode)! + 1) % all.count]
   }
 
-  /// What a press on the chip or Shift+Tab makes of it: Ask to Auto with no bounds, Auto back to Ask.
+  /// The mode after this one: Ask to Auto with no bounds, Auto back to Ask. The chip goes into Auto only from its menu.
   /// Only the menu sets Auto's bounds.
   public var cycled: ChatMode {
     next == .auto ? ChatMode(.auto) : .ask
@@ -75,10 +75,12 @@ public struct ChatMode: Codable, Equatable, Sendable {
     }
   }
 
-  /// The chip's tooltip: the mode, what it does, and how to change it; `keys` where Shift+Tab reaches it.
+  /// The chip's tooltip: the mode, what it does, and how to change it; `keys` for a pointer's press, else a tap.
   public func tip(now: Date, keys: Bool = true) -> String {
     let live = live(now: now)
-    return "\(live.label(now: now)): \(Self.does(live.mode)) \(keys ? "Shift+Tab or press" : "Tap") to change; more in the menu."
+    let press = keys ? "Press" : "Tap"
+    let change = live.mode == .auto ? "\(press) for Ask; more in the menu." : "\(press) to choose a mode."
+    return "\(live.label(now: now)): \(Self.does(live.mode)) \(change)"
   }
 
   /// Time left, as a person says it: "45m", "7h", "7h 40m", "under a minute".

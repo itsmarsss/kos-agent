@@ -286,14 +286,10 @@ public struct ChatView: View {
     model.usable && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  /// Shift+Tab cycles the chat's mode, as on the dashboard and in the side panel; Escape closes the mode's menu. With
+  /// Escape closes the mode's menu; no key changes the mode, so Shift+Tab moves the focus back as anywhere. With
   /// the / or @ menu open, the arrows move through it, Tab takes the line picked and Escape closes it; with neither,
   /// the keys are the box's.
   private func menuKey(_ press: KeyPress) -> KeyPress.Result {
-    if press.key == .tab && press.modifiers.contains(.shift) {
-      model.cycleMode()
-      return .handled
-    }
     if modeMenu && press.key == .escape {
       modeMenu = false
       return .handled

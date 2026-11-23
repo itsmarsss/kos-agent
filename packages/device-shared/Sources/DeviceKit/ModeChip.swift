@@ -2,8 +2,8 @@ import DeviceCore
 import SwiftUI
 
 /// The chat's mode in the composer, as the dashboard's and the side panel's mode chip: the hand in Ask, the bolt
-/// and the accent in Auto, with how long Auto has left. A press on the words cycles it, as Shift+Tab does; the
-/// chevron opens `ModeMenu`. The words count down each half minute, and an Auto whose time ran out reads as Ask.
+/// and the accent in Auto, with how long Auto has left. A press on the words in Auto goes back to Ask, and in Ask
+/// opens `ModeMenu`, as the chevron does: going into Auto is a choice made in the menu, never one press or a key. The words count down each half minute, and an Auto whose time ran out reads as Ask.
 public struct ModeChip: View {
   private let mode: ChatMode
   private let open: Bool
@@ -13,7 +13,7 @@ public struct ModeChip: View {
   private let menu: () -> Void
   @State private var hovering = false
 
-  /// `keys`: Shift+Tab reaches it, and the tooltip says so. `height`: the row's, where the composer's controls are
+  /// `keys`: a pointer's, so the tooltip says press rather than tap. `height`: the row's, where the composer's controls are
   /// taller than a chip (the phone's).
   public init(mode: ChatMode, open: Bool = false, keys: Bool = true, height: CGFloat = 24, cycle: @escaping () -> Void, menu: @escaping () -> Void) {
     self.mode = mode
@@ -29,7 +29,7 @@ public struct ModeChip: View {
       let live = mode.live(now: context.date)
       let lit = live.mode == .auto
       HStack(spacing: 0) {
-        Button(action: cycle) {
+        Button(action: lit ? cycle : menu) {
           HStack(spacing: 4) {
             Image(systemName: lit ? "bolt.fill" : "hand.raised").font(.system(size: height > 30 ? 13 : 10, weight: .semibold))
             Text(live.label(now: context.date)).lineLimit(1).fixedSize()
@@ -41,7 +41,7 @@ public struct ModeChip: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Mode: \(live.label(now: context.date))")
-        .accessibilityHint(keys ? "Changes the mode; Shift+Tab does too" : "Changes the mode")
+        .accessibilityHint(lit ? "Goes back to Ask" : "Opens the modes to choose from")
         Button(action: menu) {
           Image(systemName: "chevron.down").font(.system(size: height > 30 ? 10 : 8, weight: .bold))
             .rotationEffect(.degrees(open ? 180 : 0))

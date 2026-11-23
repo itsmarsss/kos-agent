@@ -339,7 +339,7 @@ public final class ChatModel: ObservableObject {
     setMode(mode)
   }
 
-  /// A press on the chip or Shift+Tab: Ask to Auto with no bounds, Auto (or one whose time ran out) back round.
+  /// A press on the chip: Auto (or one whose time ran out) back round; the chip calls it only in Auto.
   public func cycleMode(now: Date = Date()) {
     choose(mode.live(now: now).cycled)
   }
