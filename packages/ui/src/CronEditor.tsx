@@ -473,6 +473,16 @@ export function CronEditor({
         )}
       </div>
 
+      {/* The only delete lived in a panel the schedule list does not open, so
+          from here a schedule could be paused forever and never removed. At
+          the form's end, apart from Save: in the foot beside it, it sat where
+          a phone's thumb rests. It asks once. */}
+      {job && onDelete && (
+        <div className="cron-delete">
+          <ConfirmButton label="Delete schedule" className="btn btn--danger" text={`Delete “${job.name}” and its runs?`} onConfirm={() => onDelete(job.id)} />
+        </div>
+      )}
+
       {error && (
         <p className="ops-alert ops-alert--err" role="alert">
           {error}
@@ -482,10 +492,6 @@ export function CronEditor({
       <SheetFoot
           inline
           onCancel={onCancel}
-          /* The only delete lived in a panel the schedule list does not
-             open, so from here a schedule could be paused forever and never
-             removed. Apart, at the far left. */
-          danger={job && onDelete && <ConfirmButton label="Delete" className="btn btn--danger" text={`Delete “${job.name}” and its runs?`} onConfirm={() => onDelete(job.id)} />}
           primary={
             <button type="submit" className="btn btn--primary" disabled={!canSave || blocked} aria-keyshortcuts="Meta+Enter">
               {saving ? "Saving…" : job ? "Save" : "Create"}

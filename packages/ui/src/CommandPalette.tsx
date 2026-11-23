@@ -563,7 +563,8 @@ export function CommandPalette({
   const everywhereNote = waiting.length > 0
     ? shownEverywhere ? null : `Searching ${sourcesWords(waiting)}…`
     : late.length > 0
-      ? `${sourcesWords(late).replace(/^./, (c) => c.toUpperCase())} did not answer in time; try again or narrow with ${late.map((k) => `${k}:`).join(" ")}`
+      ? // The kind as a quoted prefix and a full stop after: a bare "text:" at the end read as a line cut short.
+        `${sourcesWords(late).replace(/^./, (c) => c.toUpperCase())} did not answer in time. Try again, or start with ${late.map((k) => `“${k}:”`).join(" or ")} to search only there.`
       : searchedEverywhere && !shownEverywhere
         ? "No message, file, memory, run or secret holds it."
         : null;

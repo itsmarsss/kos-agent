@@ -7,6 +7,7 @@ import { AudienceWindow } from "./AudienceWindow.js";
 import { audienceRoute } from "./presentlink.js";
 import { TokenGate } from "./TokenGate.js";
 import { applyDensity, applyTheme, followOtherTabs, readDensity, readTheme } from "./theme.js";
+import { keepScroll } from "./scrollmemory.js";
 import { watchKeyboard } from "./touch.js";
 // The kit's pieces first, so the dashboard's own sheet says where a piece differs in its place; KaTeX's for typeset maths.
 import "@kos/kit/kit.css";
@@ -21,6 +22,8 @@ applyDensity(readDensity());
 followOtherTabs();
 // A field typed into on a phone stays above the keyboard on screen.
 watchKeyboard();
+// Back to a page lands where you were on it, though it reads its data again.
+keepScroll();
 
 // A deck's audience window is the dashboard's own page, drawn alone: no shell, no nav, the slide.
 const audience = audienceRoute(window.location.hash);
