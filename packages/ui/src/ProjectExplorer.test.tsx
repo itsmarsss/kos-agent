@@ -117,7 +117,7 @@ describe("the project explorer", () => {
     const big = new File(["x"], "big.bin");
     Object.defineProperty(big, "size", { value: 101 * 1024 * 1024 });
     fireEvent.change(screen.getByLabelText("Upload files"), { target: { files: [big, new File(["x"], "small.txt")] } });
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("big.bin: over the 100 MB a file can be · small.txt: the disk is full"));
+    expect(await screen.findByText((t) => t.includes("big.bin: over the 100 MB a file can be · small.txt: the disk is full"))).toBeTruthy();
     expect(upload).toHaveBeenCalledTimes(1);
   });
 

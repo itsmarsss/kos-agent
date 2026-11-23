@@ -1569,15 +1569,20 @@ export const api = {
       text,
       ...(attachments?.length ? { attachments } : {}),
     }),
-  conversation: (id: string) =>
+  /** A chat's transcript; with `last`, only its newest that many events, cut at a turn's start. */
+  conversation: (id: string, last?: number) =>
     get<{
       id: string;
       messages: ChatTurn[];
       events: ChatEvent[];
       /** Sent while a turn was running, waiting its turn. */
       pending: PendingMessage[];
+      /** Events before the ones sent, for a "Show earlier" to ask for. */
+      earlier?: number;
+      /** The owner's messages KOS still holds above the ones sent, so the rest are numbered as a rewind counts them. */
+      ownerAbove?: number;
     }>(
-      `/api/conversations/${encodeURIComponent(id)}/messages`,
+      `/api/conversations/${encodeURIComponent(id)}/messages${last ? `?last=${last}` : ""}`,
     ),
   tools: () => get<ToolInfo[]>("/api/tools"),
   files: (path = ".") =>

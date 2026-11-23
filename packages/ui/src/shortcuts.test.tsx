@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useCreateParam } from "./hashparams.js";
 import { KeysSheet } from "./KeysSheet.js";
-import { isLooseKey, SHORTCUTS } from "./shortcuts.js";
+import { isLooseKey, keyWords, SHORTCUTS } from "./shortcuts.js";
 
 afterEach(cleanup);
 
@@ -37,6 +37,16 @@ function Page({ open }: { open: () => void }): null {
   useCreateParam(open);
   return null;
 }
+
+describe("a keycap in words", () => {
+  it("says each symbol as its key's name", () => {
+    expect(keyWords("⌘⇧K")).toBe("Command Shift K");
+    expect(keyWords("⌘⌫")).toBe("Command Delete");
+    expect(keyWords("⇧F10")).toBe("Shift F10");
+    expect(keyWords("Esc")).toBe("Esc");
+    expect(keyWords("Home")).toBe("Home");
+  });
+});
 
 describe("a page's create, asked for by its address", () => {
   it("opens once and comes off the address", () => {

@@ -54,7 +54,7 @@ function Head({
         {...(count !== undefined && count > 0 ? { count } : {})}
         action={
           onMore && (
-            <button type="button" className="link panel-more" onClick={onMore}>
+            <button type="button" className="link panel-more" aria-label={`All of ${title}`} onClick={onMore}>
               All
             </button>
           )

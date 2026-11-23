@@ -555,6 +555,7 @@ export function CronEditor({
       <SheetFoot
           inline
           onCancel={onCancel}
+          {...(!saving && (!canSave || blocked) ? { held: name.trim() ? "Fix what is marked above first." : "Give it a name first." } : {})}
           primary={
             <button type="submit" className="btn btn--primary" disabled={!canSave || blocked} aria-keyshortcuts="Meta+Enter">
               {saving ? "Saving…" : job ? "Save" : "Create"}

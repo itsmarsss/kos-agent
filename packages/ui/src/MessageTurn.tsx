@@ -1,5 +1,6 @@
 import { memo, type ReactElement } from "react";
 
+import { clockWords } from "@kos/shared";
 import { type BlockActions, MessageTime, QuoteLine, Timed } from "@kos/kit";
 
 import type { ChatEvent } from "./api.js";
@@ -11,6 +12,36 @@ import { OriginLine } from "./OriginLine.js";
 
 /** What the owner can do to one of their own turns. */
 export type TurnAction = "edit" | "retry" | "fork";
+
+const SAID: Record<"you" | "kos" | "system", { said: string; thing: string }> = {
+  you: { said: "You said", thing: "your message" },
+  kos: { said: "KOS said", thing: "KOS's reply" },
+  system: { said: "Note", thing: "the note" },
+};
+
+/**
+ * Who said a message and when, as a screen reader hears it ("KOS said,
+ * 6:52 PM"), and what its buttons act on ("KOS's reply, 6:52 PM"), so a
+ * list of buttons is not a column of Copy, Copy, Copy.
+ */
+export function turnWords(role: "you" | "kos" | "system", at?: number, text = ""): { label: string; of: string } {
+  const when = at ? `, ${clockWords(at)}` : "";
+  const start = excerpt(text);
+  return { label: `${SAID[role].said}${when}`, of: `${SAID[role].thing}${start ? ` “${start}”` : ""}${when}` };
+}
+
+/** A message's first words, plain, for telling its buttons from the next message's said in the same minute. */
+export function excerpt(text: string, most = 32): string {
+  const plain = text.replace(/[`*_#>[\]()]/g, "").replace(/\s+/g, " ").trim();
+  if (plain.length <= most) return plain;
+  const cut = plain.slice(0, most);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > most / 2 ? cut.lastIndexOf(" ") : most)}…`;
+}
+
+/** A message sent before ones above it, answered after them: its turn waited (on an approval, say) while they went through. */
+export function answeredLate(at: number | undefined, before: number | undefined): boolean {
+  return at !== undefined && before !== undefined && at < before;
+}
 
 /**
  * One message in the thread: the owner's bubble, KOS's words or a note,
@@ -26,6 +57,7 @@ export const MessageTurn = memo(function MessageTurn({
   busy,
   onTurn,
   found = false,
+  lateAfter,
 }: {
   event: Extract<ChatEvent, { kind: "message" }>;
   /** Which of the owner's turns it is, by position, or -1 for one that is not theirs to change. */
@@ -38,7 +70,10 @@ export const MessageTurn = memo(function MessageTurn({
   onTurn: (what: TurnAction, turn: number) => void;
   /** The message a search opened the chat at: lit where it sits. */
   found?: boolean;
+  /** When the message above it was said, to tell one sent earlier and answered late. */
+  lateAfter?: number;
 }): ReactElement {
+  const words = turnWords(e.role, e.at, e.text);
   const bubble = e.text && (
     <div className={`bubble bubble--${e.role}${found ? " is-found" : ""}`}>
       {e.quote && <QuoteLine text={e.quote.text} from={e.quote.from} />}
@@ -46,7 +81,7 @@ export const MessageTurn = memo(function MessageTurn({
     </div>
   );
   return (
-    <Timed className={`turn turn--${e.role}`}>
+    <Timed className={`turn turn--${e.role}`} label={words.label}>
       {bubble && e.role !== "kos" ? (
         <div className="turn-said">
           {e.role === "you" && e.at ? <MessageTime at={e.at} /> : null}
@@ -55,6 +90,9 @@ export const MessageTurn = memo(function MessageTurn({
         </div>
       ) : (
         bubble
+      )}
+      {e.role === "you" && answeredLate(e.at, lateAfter) && (
+        <span className="turn-late">Sent {clockWords(e.at!)}, before the messages above; answered after them.</span>
       )}
       {e.origin && <OriginLine origin={e.origin} {...(linkFor ? { linkFor } : {})} />}
       {/* Outside the bubble, under it: an attachment is a thing that came
@@ -65,6 +103,7 @@ export const MessageTurn = memo(function MessageTurn({
       {e.text && e.role !== "system" && (
         <MessageActions
           text={e.text}
+          of={words.of}
           busy={busy}
           {...(e.role === "kos" && e.at ? { at: e.at } : {})}
           {...(turn >= 0

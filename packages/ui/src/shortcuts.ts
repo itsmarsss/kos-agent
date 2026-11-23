@@ -31,7 +31,6 @@ export const SHORTCUTS: readonly ShortcutGroup[] = [
       { keys: "↵", does: "Send" },
       { keys: "⇧↵", does: "A new line" },
       { keys: "⌘↵", does: "Stop the turn that is running" },
-      { keys: "⇧Tab", does: "Ask or Auto" },
       { keys: "/  @", does: "Commands, and name things" },
     ],
   },
@@ -89,4 +88,43 @@ export const SHORTCUTS: readonly ShortcutGroup[] = [
 export function isLooseKey(e: KeyboardEvent): boolean {
   const t = e.target instanceof Element ? e.target : null;
   return !e.metaKey && !e.ctrlKey && !e.altKey && !t?.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']");
+}
+
+const SYMBOL_WORDS: Record<string, string> = {
+  "⌘": "Command",
+  "⇧": "Shift",
+  "⌥": "Option",
+  "⌃": "Control",
+  "↵": "Return",
+  "⌫": "Delete",
+  "↑": "Up",
+  "↓": "Down",
+  "←": "Left",
+  "→": "Right",
+  "/": "Slash",
+  "?": "Question mark",
+  ">": "Greater than",
+  "@": "At",
+};
+
+/**
+ * A keycap as words, for a screen reader: "⌘⇧K" is "Command Shift K".
+ * Read as they are drawn, the symbols came out as "place of interest sign"
+ * and "erase to the left".
+ */
+export function keyWords(cap: string): string {
+  const words: string[] = [];
+  let run = "";
+  for (const ch of cap) {
+    const word = SYMBOL_WORDS[ch];
+    if (word === undefined) {
+      run += ch;
+      continue;
+    }
+    if (run.trim()) words.push(run.trim());
+    run = "";
+    words.push(word);
+  }
+  if (run.trim()) words.push(run.trim());
+  return words.join(" ");
 }

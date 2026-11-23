@@ -115,12 +115,6 @@ struct Composer: View {
           .focused($typing)
           .submitLabel(.send)
           .onSubmit(sendDraft)
-          // A keyboard's Shift+Tab cycles the mode, as on the dashboard and the Mac.
-          .onKeyPress(keys: [.tab]) { press in
-            guard press.modifiers.contains(.shift) else { return .ignored }
-            chat.cycleMode()
-            return .handled
-          }
           .overlay(alignment: .leading) {
             if chat.draft.isEmpty {
               Text("Message KOS").font(.kos(.body)).foregroundStyle(Theme.faint).allowsHitTesting(false)

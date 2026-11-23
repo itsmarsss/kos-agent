@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
 import { MENTION_SOURCE } from "@kos/shared";
-import { AlertIcon, CheckIcon, CloseIcon, IconButton, InfoIcon, spring, WorkingDots } from "@kos/kit";
+import { AlertIcon, announce, CheckIcon, CloseIcon, IconButton, InfoIcon, spring, WorkingDots } from "@kos/kit";
 
 /**
  * How it went: `ok` it was done (a check), `info` it was done and is a no
@@ -57,12 +57,33 @@ export function toast(note: ToastNote, ms: number | null = note.undo ? UNDO_MS :
   const list = [...shown, { ...note, id }];
   for (const gone of list.slice(0, Math.max(0, list.length - MOST))) clearTimer(gone.id);
   changed(list.slice(-MOST));
-  if (ms !== null) timers.set(id, setTimeout(() => dismissToast(id), ms));
+  if (ms !== null) {
+    spans.set(id, ms);
+    timers.set(id, setTimeout(() => dismissToast(id), ms));
+  }
+  // Heard as well as seen, through the one announcer: a node that speaks for itself as it is made is not heard by many readers.
+  announce(`${toastWords(note.text)}${note.undo ? ". Undo is in the note." : ""}`, note.kind === "err" ? "assertive" : "polite");
   return id;
+}
+
+/** How long each note was given, so one held under the pointer or the keys gets all of it again once let go. */
+const spans = new Map<number, number>();
+
+/** A note being read (the pointer on it, or the focus in it, as on its Undo) stays until it is let go. */
+function hold(id: number): void {
+  clearTimer(id);
+}
+
+function letGo(id: number): void {
+  const ms = spans.get(id);
+  if (ms === undefined || !shown.some((e) => e.id === id)) return;
+  clearTimer(id);
+  timers.set(id, setTimeout(() => dismissToast(id), ms));
 }
 
 export function dismissToast(id: number): void {
   clearTimer(id);
+  spans.delete(id);
   if (shown.some((e) => e.id === id)) changed(shown.filter((e) => e.id !== id));
 }
 
@@ -119,16 +140,20 @@ export function Toast({ note }: { note: ToastNote | null | undefined | false }):
   return null;
 }
 
-/** Above the composer when one is on screen, so a note never covers the box being typed in. */
-function useLift(): number {
-  const [lift, setLift] = useState(0);
+/**
+ * Above the composer when one is on screen, so a note never covers the box
+ * being typed in, and centred on it: on the column it lifts over, not on the
+ * window, which beside the chat list put it off to one side of the box.
+ */
+function useLift(): { lift: number; centre: number | null } {
+  const [lift, setLift] = useState<{ lift: number; centre: number | null }>({ lift: 0, centre: null });
   const list = useSyncExternalStore(subscribe, () => shown);
   useLayoutEffect(() => {
     if (list.length === 0) return;
     const measure = (): void => {
       const box = document.querySelector<HTMLElement>(".composer");
-      const top = box && box.offsetParent !== null ? box.getBoundingClientRect().top : null;
-      setLift(top !== null && top < window.innerHeight ? Math.max(0, window.innerHeight - top) : 0);
+      const at = box && box.offsetParent !== null ? box.getBoundingClientRect() : null;
+      setLift(at && at.top < window.innerHeight ? { lift: Math.max(0, window.innerHeight - at.top), centre: at.left + at.width / 2 } : { lift: 0, centre: null });
     };
     measure();
     window.addEventListener("resize", measure);
@@ -151,10 +176,13 @@ const MARK: Record<ToastTone, () => ReactElement> = {
  */
 export function ToastHost(): ReactElement {
   const list = useSyncExternalStore(subscribe, () => shown);
-  const lift = useLift();
+  const { lift, centre } = useLift();
+  // Centred on the composer's column: the stack is as wide as twice the room on the box's nearer side.
+  const half = centre === null ? null : Math.min(centre, window.innerWidth - centre);
+  const place = lift ? { bottom: `calc(${lift}px + 0.75rem)`, ...(half !== null ? { left: `${centre! - half}px`, right: `${window.innerWidth - centre! - half}px` } : {}) } : undefined;
   // On the body: a pane that is hidden (the thread, on a phone showing the list) hides what is fixed inside it too.
   return createPortal(
-    <div className="ops-toasts" style={lift ? { bottom: `calc(${lift}px + 0.75rem)` } : undefined}>
+    <div className="ops-toasts" style={place}>
       <AnimatePresence initial={false}>
         {list.map((note) => {
           const Mark = MARK[note.kind];
@@ -163,7 +191,12 @@ export function ToastHost(): ReactElement {
               key={note.id}
               layout
               className={`ops-toast ops-toast--${note.kind}`}
-              role={note.kind === "err" ? "alert" : "status"}
+              onPointerEnter={() => hold(note.id)}
+              onPointerLeave={() => letGo(note.id)}
+              onFocus={() => hold(note.id)}
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) letGo(note.id);
+              }}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 8 }}

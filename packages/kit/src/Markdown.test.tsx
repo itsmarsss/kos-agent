@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Markdown, MentionNames } from "./Markdown.js";
 
@@ -366,6 +366,26 @@ describe("the side panel's cases", () => {
     expect(nested.querySelector(".md > ol > li ul li")?.textContent).toBe("brew");
     expect(nested.querySelector(".md > ol > li pre code")?.textContent).toBe("brew install x");
     const flat = render(<Markdown text={"Install\n- brew\n```\nbrew install x\n```"} />).container;
-    expect([...flat.querySelector(".md")!.children].map((c) => c.tagName)).toEqual(["P", "UL", "PRE"]);
+    expect([...flat.querySelector(".md")!.children].map((c) => c.tagName)).toEqual(["P", "UL", "DIV"]);
+  });
+});
+
+describe("a code block", () => {
+  afterEach(cleanup);
+
+  it("offers Copy, and folds a long one under Show all", () => {
+    const long = "```ts\n" + Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n") + "\n```";
+    render(<Markdown text={long} />);
+    expect(screen.getByRole("button", { name: "Copy the ts code" })).toBeTruthy();
+    const fold = screen.getByRole("button", { name: "Show all 40 lines" });
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(fold);
+    expect(screen.getByRole("button", { name: "Show less" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("leaves a short one whole", () => {
+    render(<Markdown text={"```\nshort\n```"} />);
+    expect(screen.queryByRole("button", { name: /Show all/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy the code" })).toBeTruthy();
   });
 });

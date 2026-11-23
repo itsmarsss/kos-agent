@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { askView } from "@kos/shared";
@@ -435,6 +435,27 @@ describe("the focus after a decision", () => {
     two.focus();
     fireEvent.keyDown(two, { key: "Enter" });
     expect(next).toHaveBeenCalledWith(true);
+  });
+  it("goes to the card after the one decided, not the first on the page", async () => {
+    const titles = ["Run: ls", "Run: pwd", "Run: date"];
+    const List = ({ gone }: { gone: string | null }) => (
+      <>
+        {titles.filter((t) => t !== gone).map((t) => (
+          <AskCard key={t} view={{ title: t }} tool="shell.run" onDecide={vi.fn()} />
+        ))}
+      </>
+    );
+    // A hand-on left queued by the test before, done with first.
+    await frame();
+    const { rerender, container } = render(<List gone={null} />);
+    settle();
+    const middle = container.querySelectorAll<HTMLElement>(".kos-ask")[1]!;
+    const deny = within(middle).getByRole("button", { name: "Deny" });
+    deny.focus();
+    fireEvent.click(deny);
+    rerender(<List gone="Run: pwd" />);
+    await frame();
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("KOS asks: Run: date");
   });
 });
 

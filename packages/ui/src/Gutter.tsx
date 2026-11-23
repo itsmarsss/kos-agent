@@ -70,9 +70,10 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
       role="separator"
       aria-orientation={vertical ? "horizontal" : "vertical"}
       aria-label={`Resize ${label}`}
-      aria-valuenow={value}
+      aria-valuenow={collapsed ? min : value}
       aria-valuemin={min}
       aria-valuemax={max}
+      aria-valuetext={collapsed ? "Folded" : `${Math.round(value)} pixels`}
       title="Drag to resize. Double-click to reset."
       onPointerDown={(e) => {
         if (e.button !== 0) return;

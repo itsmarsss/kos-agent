@@ -137,10 +137,10 @@ export function useTimeReveal(): { shown: boolean; props: TimeRevealProps } {
 }
 
 /** A message that shows its time on hover, focus or a tap: `.is-timed` while it does. */
-export function Timed({ className, children }: { className: string; children: ReactNode }): ReactElement {
+export function Timed({ className, label, children }: { className: string; /** Who said it and when, for a screen reader: the message is then an article by that name. */ label?: string; children: ReactNode }): ReactElement {
   const { shown, props } = useTimeReveal();
   return (
-    <div className={shown ? `${className} is-timed` : className} {...props}>
+    <div className={shown ? `${className} is-timed` : className} {...(label ? { role: "article", "aria-label": label } : {})} {...props}>
       {children}
     </div>
   );

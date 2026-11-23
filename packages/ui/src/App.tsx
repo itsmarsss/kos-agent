@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, pageArrive, sheetOpen, StatusPill, When } from "@kos/kit";
+import { AgentFaces, Announcer, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, pageArrive, sheetOpen, StatusPill, When } from "@kos/kit";
 import { errorWords, momentWords, slugWords, timeCard } from "@kos/shared";
 
 import {
@@ -23,7 +23,8 @@ import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
 import { m } from "motion/react";
 
-import { chatShown, frameOf, hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
+import { chatShown, frameOf, hrefFor, pageKeyOf, pageName, pageTitle, parseRoute, type Route } from "./routes.js";
+import { landOnHeading } from "./landing.js";
 import { Drawer } from "./Drawer.js";
 import { useFound } from "./found.js";
 import { isSettingsSection } from "./settingsindex.js";
@@ -58,6 +59,8 @@ import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { Refreshes } from "./refreshes.js";
 import { HostBanner } from "./HostBanner.js";
 import { toast, ToastHost, type ToastTone } from "./Toast.js";
+import { decidedWords } from "./decidedwords.js";
+import { useAnnounceArrivals } from "./arrivals.js";
 import { KeysSheet } from "./KeysSheet.js";
 import { isLooseKey } from "./shortcuts.js";
 import { useReach } from "./reach.js";
@@ -82,6 +85,9 @@ export function App(): React.ReactElement {
   // The page's own scrolling, the main column's on most pages, under the overlay thumb the chats and settings panes have.
   useEffect(() => overlayScroll(document.documentElement), []);
   const [approvals, setApprovals] = useState<PendingAction[]>([]);
+  // Read at least once, so the asks already waiting on the first read are not said as new.
+  const [approvalsRead, setApprovalsRead] = useState(false);
+  useAnnounceArrivals(approvals, approvalsRead);
   const [projects, setProjects] = useState<Project[]>([]);
   /** Whether the manifest has been read yet: before it, no slug can be said to be no project. */
   // Which feeds have answered once: a page says it is empty only after its feed has, and shows where its rows will be before.
@@ -303,7 +309,10 @@ export function App(): React.ReactElement {
     });
     apply(ib, setInbox);
     apply(br, (v) => setBrowserTabs(v.tabs));
-    apply(a, setApprovals);
+    apply(a, (list) => {
+      setApprovals(list);
+      setApprovalsRead(true);
+    });
     apply(ag, (v) => setAgents(v.builds));
     apply(p, setProjects);
     apply(c, setCrons);
@@ -443,6 +452,9 @@ export function App(): React.ReactElement {
     // buttons for this action agrees about what is happening.
     setDeciding((current) => new Set(current).add(id));
     setBusy(approved ? `approving #${id}` : `denying #${id}`);
+    // Named by what it asked, never its number: "Declined #9." named an ask by an id the owner never saw.
+    const ask = approvals.find((a) => a.id === id);
+    const what = ask?.title ?? ask?.summary ?? "the ask";
     try {
       const res = await (approved ? api.approve(id, remember, code) : api.deny(id));
       // The agent's continuation shows in the conversation it belongs to,
@@ -453,12 +465,12 @@ export function App(): React.ReactElement {
       const kept = remember && !("remembered" in res && res.remembered === false);
       // The decision stood, and the chat that asked could not carry on from it: said in the warn tone, apart.
       if (res.resumed === false) {
-        flash("warn", `${approved ? "Approved" : "Denied"} #${id}. The chat could not carry on: ${res.resumeError ?? "it stopped"}`);
+        flash("warn", `${approved ? "Approved" : "Denied"}: ${what}. The chat could not carry on: ${res.resumeError ?? "it stopped"}`);
         await refresh();
         return;
       }
       // A no is said in the quiet tone: the green check is for what was done, not for what was refused.
-      flash(approved ? "ok" : "info", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
+      flash(approved ? "ok" : "info", decidedWords(approved, what, { remember, kept, held: /still waiting/.test(res.message ?? "") }));
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
@@ -710,7 +722,19 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (inspectPage.current !== null && inspectPage.current !== pageKey) setInspect(null);
   }, [pageKey]);
-  // Arrived on a page, the keys go with you rather than back to the top of the document: a chat's box, else the page's region.
+  /** What the page shows by name, when it shows one thing: a chat's title, a project's name. */
+  const shownId = chatShown(route);
+  const named =
+    route.name === "project"
+      ? projects.find((p) => p.slug === route.slug)?.name
+      : shownId
+        ? conversations.find((c) => c.id === shownId)?.title
+        : undefined;
+  const title = pageTitle(route, named);
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
+  // Arrived on a page, the keys go with you rather than back to the top of the document: a chat's box, else the page's heading, else its region.
   useEffect(() => {
     let tries = 0;
     let frame = 0;
@@ -721,7 +745,7 @@ export function App(): React.ReactElement {
       if (box) box.focus({ preventScroll: true });
       // A chat's box comes with its thread, a moment after the page.
       else if (chatShown(route) && ++tries < 30) frame = requestAnimationFrame(land);
-      else document.querySelector<HTMLElement>("[data-focus-home]")?.focus({ preventScroll: true });
+      else landOnHeading();
     };
     frame = requestAnimationFrame(land);
     return () => cancelAnimationFrame(frame);
@@ -812,8 +836,9 @@ export function App(): React.ReactElement {
         onCopyWorkspace={() => void copyWorkspace()}
         onToggleKill={() => void toggleKill()}
       />
-      <main className="ops" tabIndex={-1} data-focus-home>
+      <main className="ops" tabIndex={-1} data-focus-home aria-label={pageName(route, named)}>
         <HostBanner reach={reach} />
+        <Announcer />
         <ToastHost />
         {/* Keyed on what it shows, and still keyed on it while it shuts, so
             the drawer leaves with what it held rather than vanishing. */}
@@ -1405,6 +1430,7 @@ export function App(): React.ReactElement {
                   className="btn btn--sm"
                   disabled={firing === c.id}
                   title="Fire it now, the way the schedule would"
+                  aria-label={`Run ${jobTitle(c.name)} now`}
                   onClick={(e) => {
                     e.stopPropagation();
                     void runCronNow(c.id, c.name);

@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 
 import { Modal } from "./Modal.js";
-import { SHORTCUTS } from "./shortcuts.js";
+import { keyWords, SHORTCUTS } from "./shortcuts.js";
 
 /** The "?" sheet: every key there is, by where it works. */
 export function KeysSheet({ open, onClose }: { open: boolean; onClose: () => void }): ReactElement {
@@ -16,8 +16,9 @@ export function KeysSheet({ open, onClose }: { open: boolean; onClose: () => voi
                 <div key={k.keys + k.does} className="keys-row">
                   <dt>
                     {k.keys.split(/\s{2,}/).map((cap) => (
-                      <kbd key={cap}>{cap}</kbd>
+                      <kbd key={cap} aria-hidden="true">{cap}</kbd>
                     ))}
+                    <span className="sr-only">{k.keys.split(/\s{2,}/).map(keyWords).join(", ")}</span>
                   </dt>
                   <dd>{k.does}</dd>
                 </div>

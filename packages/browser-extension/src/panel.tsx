@@ -1,6 +1,6 @@
-import { askRisk, cycled, KOS_SEED, timeMarks, type AskView, type ChatMode } from "@kos/shared";
+import { askRisk, KOS_SEED, timeMarks, type AskView, type ChatMode } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskCard, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, isModeKey, Markdown, MessageTime, ModeChip, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StepTime, StopIcon, TimeLine, type Tone, useDismiss, useOverlayScroll, useTimeReveal, WorkingDots } from "@kos/kit";
+import { AskCard, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, MessageTime, ModeChip, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StepTime, StopIcon, TimeLine, type Tone, useDismiss, useOverlayScroll, useTimeReveal, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -1056,12 +1056,6 @@ function Composer({
     requestAnimationFrame(() => box.current?.setSelectionRange(at, at));
   };
   const keys = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    // Shift+Tab cycles the chat's mode, as on every surface.
-    if (online && isModeKey(e)) {
-      e.preventDefault();
-      setMode(cycled(mode));
-      return;
-    }
     // Cmd or Ctrl with Enter stops, as on the dashboard; Enter alone sends, which a running turn takes in.
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();

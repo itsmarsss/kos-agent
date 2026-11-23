@@ -8,7 +8,7 @@ import { FileIcon } from "../FileIcon.js";
 import { FILES_LAYOUT, useColumns, type ColumnLayout } from "./columns.js";
 import { levelStyle, treeStyle } from "./indent.js";
 import { dateWords, kindOf, parentOf, sortBy, type Sort, type SortKey } from "./model.js";
-import { EntryName, rowProps, stateClass, type RowHandlers } from "./rows.js";
+import { EntryName, rowId, rowProps, stateClass, type RowHandlers } from "./rows.js";
 
 /**
  * The list: a row per thing, sortable by any column, a folder opening in
@@ -42,7 +42,7 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
     <div className="finder-list" role="grid" aria-multiselectable="true" aria-label="Files" aria-rowcount={rows.length} style={{ ...cols.style, ...treeStyle(rows) }}>
       <div className="finder-list-head" role="row" ref={cols.headRef}>
         {keys.map((key) => (
-          <div key={key} role="columnheader" data-head={key} className={`finder-col finder-col--${key}`} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : "none"}>
+          <div key={key} role="columnheader" aria-label={LABELS[key]} data-head={key} className={`finder-col finder-col--${key}`} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : "none"}>
             {cols.divider(key)}
             <button type="button" className="finder-col-label" data-col={key} onClick={() => onSort(sortBy(sort, key))}>
               {LABELS[key]}
@@ -65,6 +65,9 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
         <div
           key={entry.path}
           role="row"
+          id={rowId(entry.path)}
+          // Its name first, then its facts: read from its cells, the folder's disclosure led ("Open artifacts here artifacts").
+          aria-label={[entry.name, ...keys.slice(1).map((key) => cell(key, entry))].filter((w) => typeof w === "string" && w !== "--").join(", ")}
           className={`finder-row${stateClass(entry, h)}`}
           {...rowProps(entry, h)}
           {...h.drag(entry)}

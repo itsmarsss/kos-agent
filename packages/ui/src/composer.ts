@@ -50,6 +50,9 @@ export function composerKeyDown(
  * lands partway up. Watching the content's size instead of guessing at timing
  * survives all of that.
  */
+/** How long an opened card is kept in view as it grows: its opening's spring, and a little more. */
+const REVEAL_MS = 600;
+
 export function useStickToBottom<T extends HTMLElement>(
   ref: RefObject<T | null>,
   deps: unknown[],
@@ -97,8 +100,33 @@ export function useStickToBottom<T extends HTMLElement>(
     // Opening something in the thread (a tool call, a reply's steps) is
     // reading it: it opens downward where it is. Followed, the box was
     // snapped to the bottom in steps as it grew, a stutter at each one.
+    //
+    // It is not left to open out of sight either: a card opened at the foot
+    // grew under the composer, its words and KOS's after it hidden. While it
+    // grows, the thread scrolls just enough to keep its foot in view, and
+    // never so far that its head goes off the top.
+    let reveal = 0;
     const onOpen = (e: MouseEvent): void => {
-      if (e.target instanceof Element && e.target.closest("[aria-expanded]")) stick.current = false;
+      const toggle = e.target instanceof Element ? e.target.closest("[aria-expanded]") : null;
+      if (!toggle) return;
+      stick.current = false;
+      let row: Element | null = toggle;
+      while (row && row.parentElement !== el) row = row.parentElement;
+      if (!row) return;
+      const opened = row;
+      cancelAnimationFrame(reveal);
+      const until = performance.now() + REVEAL_MS;
+      const keep = (): void => {
+        const box = el.getBoundingClientRect();
+        const at = opened.getBoundingClientRect();
+        const below = at.bottom - box.bottom;
+        if (below > 0.5) {
+          snapping = true;
+          el.scrollTop += Math.min(below, Math.max(0, at.top - box.top));
+        }
+        if (performance.now() < until) reveal = requestAnimationFrame(keep);
+      };
+      reveal = requestAnimationFrame(keep);
     };
     el.addEventListener("click", onOpen, true);
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -133,6 +161,7 @@ export function useStickToBottom<T extends HTMLElement>(
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("touchmove", onTouch);
       el.removeEventListener("click", onOpen, true);
+      cancelAnimationFrame(reveal);
       observer.disconnect();
       mutations.disconnect();
     };
@@ -158,6 +187,12 @@ export function useAutoGrow(
   ref: RefObject<HTMLTextAreaElement | null>,
   value: string,
   maxRows = 12,
+  /**
+   * What the box is drawn for (the chat): sized again when it comes, since
+   * a box drawn after the first render was never sized while empty, and its
+   * first line then grew it by less than a line.
+   */
+  drawnFor?: unknown,
 ): void {
   useEffect(() => {
     const el = ref.current;
@@ -166,11 +201,13 @@ export function useAutoGrow(
     el.style.height = "auto";
     const style = getComputedStyle(el);
     const line = parseFloat(style.lineHeight || "20") || 20;
-    const pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    // A border-box's height holds its border too, or one line is drawn a little short of a line.
+    const edge = style.boxSizing === "border-box" ? (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0) : 0;
+    const pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0) + edge;
     const { height, scrolls } = grownHeight(el.scrollHeight, line, pad, maxRows);
     el.style.height = `${height}px`;
     el.style.overflowY = scrolls ? "auto" : "hidden";
-  }, [ref, value, maxRows]);
+  }, [ref, value, maxRows, drawnFor]);
 }
 
 /**

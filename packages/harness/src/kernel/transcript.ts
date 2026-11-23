@@ -296,6 +296,13 @@ export function spokenTurns(
  * a compaction, each under a line saying so, then the chat as the model has
  * it now.
  */
+/** The line under each stretch set aside, saying what became of it. */
+const EARLIER_LINES: Record<EarlierHistory["why"], string> = {
+  compacted: "Compacted here: what is above was folded into the summary below",
+  cleared: "Cleared here: what is above is kept for you, not for KOS",
+  trimmed: "Past chat memory: what is above is kept for you, not for KOS",
+};
+
 export function historyEvents(earlier: EarlierHistory[], current: ModelMessage[], where?: ActionHome): ChatEvent[] {
   const out: ChatEvent[] = [];
   for (const stretch of earlier) {
@@ -303,7 +310,7 @@ export function historyEvents(earlier: EarlierHistory[], current: ModelMessage[]
     out.push({
       kind: "divider",
       at: stretch.at,
-      text: stretch.why === "compacted" ? "Compacted here: what is above was folded into the summary below" : "Cleared here: what is above is kept for you, not for KOS",
+      text: EARLIER_LINES[stretch.why],
     });
   }
   out.push(...conversationEvents(current, where));

@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { Announcer } from "@kos/kit";
 import type { SearchHit, SearchKind, SearchResults } from "@kos/shared";
 
 import { api } from "./api.js";
@@ -257,7 +258,7 @@ describe("the palette", () => {
   }
 
   const typeIn = (text: string): void => {
-    fireEvent.change(screen.getByRole("textbox", { name: /Search everything/ }), { target: { value: text } });
+    fireEvent.change(screen.getByRole("combobox", { name: /Search everything/ }), { target: { value: text } });
   };
   const rows = (): string[] => [...document.querySelectorAll(".pal-item .pal-label")].map((e) => e.textContent ?? "");
   const cursorRow = (): string => document.querySelector(".pal-item.is-cursor .pal-label")?.textContent ?? "";
@@ -270,11 +271,11 @@ describe("the palette", () => {
     typeIn("marigold");
     await waitFor(() => expect(rows()).toContain("Marigold garden"));
     await waitFor(() => expect(asked.length).toBe(5));
-    expect(screen.getByRole("status").textContent).toBe("Searching chats, files, memory, runs and secrets…");
+    expect(screen.getByText("Searching chats, files, memory, runs and secrets…")).toBeTruthy();
 
     release("msg", [hit("msg", "Garden chat", 0.8, { hint: "you" })]);
     await waitFor(() => expect(rows()).toEqual(["Marigold garden", "Garden chat"]));
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowDown" });
     expect(cursorRow()).toBe("Garden chat");
 
     // A better hit arrives above it; the cursor stays on the row it was on.
@@ -282,22 +283,27 @@ describe("the palette", () => {
     await waitFor(() => expect(rows()).toEqual(["Marigold garden", "projects/plan.md", "Garden chat"]));
     expect(cursorRow()).toBe("Garden chat");
     expect(document.querySelector(".pal-item.is-cursor .pal-snippet mark")?.textContent).toBe("Garden chat");
-    expect(screen.getByRole("status").textContent).toBe("searching memory, runs and secrets…");
+    expect(screen.getByText("searching memory, runs and secrets…")).toBeTruthy();
 
     release("memory", []);
     release("run", []);
     release("secret", [], true);
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Secrets did not answer in time. Try again, or start with “secret:” to search only there."));
+    await waitFor(() => expect(screen.getByText("Secrets did not answer in time. Try again, or start with “secret:” to search only there.")).toBeTruthy());
 
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowUp" });
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowUp" });
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
     expect(c.openTarget).toHaveBeenCalledWith({ kind: "file", path: "projects/plan.md", line: 3 });
   });
 
   it("narrows to one source by its prefix, without names, and says when nothing holds it", async () => {
     const mentions = vi.spyOn(api, "mentions").mockResolvedValue({ mentions: [], commands: [] } as never);
     const { release, asked } = sources();
-    render(<CommandPalette open onClose={() => {}} ctx={ctx()} />);
+    render(
+      <>
+        <Announcer />
+        <CommandPalette open onClose={() => {}} ctx={ctx()} />
+      </>,
+    );
     typeIn("msg:zinnia");
     await waitFor(() => expect(asked).toEqual([["msg"]]));
     // Only the list offered before anything was typed.
@@ -305,6 +311,8 @@ describe("the palette", () => {
     expect(screen.getByText("Searching chats…")).toBeTruthy();
     release("msg", []);
     await waitFor(() => expect(screen.getByText("Nothing matches.")).toBeTruthy());
+    // Said as well as shown, through the one announcer.
+    await waitFor(() => expect(document.querySelector('[aria-live="polite"]')?.textContent).toBe("Nothing matches."));
   });
 
   it("draws a snippet's marks as elements, never its words as markup", async () => {
@@ -318,5 +326,28 @@ describe("the palette", () => {
     expect(document.querySelector(".pal-snippet img")).toBeNull();
     expect(document.querySelector(".pal-snippet")?.textContent).toBe('<img src=x onerror="boom">');
     expect(document.querySelector(".pal-snippet mark")?.textContent).toBe("img");
+  });
+
+  it("is a combobox over a listbox, its cursor the active option, each option told apart", async () => {
+    vi.spyOn(api, "mentions").mockResolvedValue({ mentions: [], commands: [] } as never);
+    const { release } = sources();
+    render(<CommandPalette open onClose={() => {}} ctx={ctx()} />);
+    typeIn("msg:plan");
+    await waitFor(() => expect(api.search).toHaveBeenCalled());
+    const same = { snippet: { text: "Here is a plan", marks: [[10, 14]] as [number, number][] } };
+    release("msg", [hit("msg", "m1", 0.9, { ...same, title: "Long history" }), hit("msg", "m2", 0.8, { ...same, title: "Long history" }), hit("msg", "Garden", 0.7)]);
+    const box = screen.getByRole("combobox", { name: /Search everything/ });
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(3));
+    expect(screen.getByRole("dialog").getAttribute("aria-modal")).toBe("true");
+    expect(box.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(box.getAttribute("aria-controls")!)?.getAttribute("role")).toBe("listbox");
+    expect(screen.getByRole("group", { name: "Everywhere" })).toBeTruthy();
+    const names = screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(3);
+    expect(names[0]).toMatch(/1 of 2$/);
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    const active = document.getElementById(box.getAttribute("aria-activedescendant")!);
+    expect(active?.getAttribute("aria-selected")).toBe("true");
+    expect(active?.getAttribute("aria-label")).toMatch(/2 of 2$/);
   });
 });

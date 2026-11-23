@@ -14,9 +14,9 @@ describe("the kit", () => {
         <input />
       </Field>,
     );
-    expect(screen.getByLabelText("required")).toBeTruthy();
+    expect(screen.getByTitle("Required")).toBeTruthy();
     expect(screen.getByText("Short and plain.")).toBeTruthy();
-    expect(screen.getByLabelText(/Name/)).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Name" }).getAttribute("aria-required")).toBe("true");
     rerender(
       <Field label="Name" required hint="Short and plain." error="That name is taken.">
         <input />

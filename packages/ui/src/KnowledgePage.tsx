@@ -141,6 +141,28 @@ export function groupByScope(facts: readonly FactRow[], names?: ReadonlyMap<stri
 type KindFilter = string;
 
 const KIND_WORDS: Record<string, string> = { fact: "Facts", preference: "Preferences", decision: "Decisions" };
+/** A claim's row in the list, by its key. */
+function claimRow(key: string): HTMLElement | null {
+  return [...document.querySelectorAll<HTMLElement>("[data-claim]")].find((row) => row.dataset["claim"] === key) ?? null;
+}
+
+/** Frames to wait for the list to redraw after a change before giving up on moving the keys. */
+const REDRAW_FRAMES = 120;
+
+/** Once `find` gives a place (the list has redrawn), the keys go there: a row's open button, or the place itself. */
+function focusClaimOnce(find: () => HTMLElement | null): void {
+  let frames = 0;
+  const look = (): void => {
+    const at = find();
+    if (at) {
+      const target = at.querySelector<HTMLElement>(".know-open") ?? at;
+      if (!target.hasAttribute("tabindex") && !(target instanceof HTMLButtonElement)) target.tabIndex = -1;
+      target.focus({ preventScroll: false });
+    } else if (++frames < REDRAW_FRAMES) requestAnimationFrame(look);
+  };
+  requestAnimationFrame(look);
+}
+
 const FORGET_TEXT = "KOS stops knowing this in every chat. It cannot be undone.";
 
 /**
@@ -235,10 +257,15 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
     });
   };
   const forget = (f: FactRow): void => {
+    // The claim beside it takes the keys once it has gone, not the top of the page.
+    const row = claimRow(f.key);
+    const beside = (row?.nextElementSibling ?? row?.previousElementSibling) as HTMLElement | null | undefined;
+    const next = beside?.dataset["claim"];
     void api.deleteMemory(f.key).then(() => {
       setOpen(null);
       onChanged();
       onNotice?.(`Forgot ${f.key}`);
+      focusClaimOnce(() => (claimRow(f.key) ? null : next ? claimRow(next) : document.querySelector<HTMLElement>(".know-list")));
     });
   };
 
@@ -273,6 +300,8 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
     setDraft({ key: "", value: "", tags: "" });
     onAdding(false);
     onChanged();
+    // Made, the keys go to it, where it lands in the list.
+    focusClaimOnce(() => claimRow(key));
   }
 
   const kinds = useMemo(() => {
@@ -344,6 +373,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
         footer={
           <SheetFoot
             onCancel={() => onAdding(false)}
+            {...(!draft.key.trim() || !draft.value.trim() ? { held: draft.key.trim() ? "Say what to remember first." : "Give it a name first." } : {})}
             primary={
               <button type="submit" form={ADD_FORM} className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
                 Create
@@ -406,7 +436,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
             />
             <ul className="know-list arrive">
               {shown.map((f) => (
-                <li key={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={(e) => claimRowKeys(e, { pin: () => togglePin(f), edit: () => startEdit(f) })}>
+                <li key={f.key} data-claim={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={(e) => claimRowKeys(e, { pin: () => togglePin(f), edit: () => startEdit(f) })}>
                   <button type="button" className="know-open" aria-keyshortcuts="ArrowRight P E Delete" onClick={() => setOpen(f)}>
                     <span className="know-text">
                       {f.pinned && (

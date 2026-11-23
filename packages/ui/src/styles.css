@@ -600,11 +600,9 @@ select {
   /* The window less its gutters on a phone; a comfortable line on a desk. */
   max-width: min(36rem, 100%);
   padding: 0.45rem 0.95rem 0.45rem 0.55rem;
-  border-radius: var(--r-lg);
+  border-radius: var(--r-md);
   border: 1px solid var(--line-strong);
-  background: color-mix(in srgb, var(--panel-2) 90%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--panel);
   box-shadow: var(--float);
   color: var(--text);
   font-size: var(--text-md);
@@ -2839,6 +2837,24 @@ li:hover .chats-item-when { opacity: 0; }
   min-height: 0;
 }
 .chats-composer { padding: 0.5rem 0.75rem 0.75rem; }
+/* The ends of a long thread (ThreadEnds.tsx): Show earlier atop it, and Jump
+   to latest floating over its foot, on the column's centre, taking no room. */
+.chat-earlier { display: flex; justify-content: center; padding-block: 0.25rem 0.5rem; }
+.chat-jump-dock { position: relative; height: 0; z-index: 2; }
+.chat-jump {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  gap: 0.35rem;
+  border-radius: 999px;
+  border-color: var(--line-strong);
+  background: var(--panel);
+  box-shadow: var(--float);
+}
+.chat-jump:active { transform: translateX(-50%) scale(var(--press-scale)); }
+/* A message sent before the ones above it, answered after them: said under its bubble, not left to read as the newest. */
+.turn-late { align-self: flex-end; color: var(--faint); font-size: var(--text-xs); }
 /* The composer: one box, the field borderless in it, its controls under it
    as capsules and circles, the whole box taking the focus ring
    (docs/design.md, Chat). */
@@ -2855,7 +2871,9 @@ li:hover .chats-item-when { opacity: 0; }
 .composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .composer-box .hl-mirror { background: transparent; }
 .composer-box .hl-mirror,
-.composer-box .hl textarea.hl-area { padding: 0.3rem 0.1rem; border-color: transparent; }
+.composer-box .hl textarea.hl-area { padding: 0.3rem 0.1rem; border-color: transparent; min-height: 0; }
+/* The box grows by whole lines from its first (useAutoGrow): a floor taller
+   than one line made the first new line grow it by less than a line. */
 .composer-box .hl textarea.hl-area:focus { border-color: transparent; }
 .composer-box .sheet-composer-bar { margin-top: 0; gap: 0.3rem; }
 /* The row stays one line: in a composer narrower than the whole row, the
@@ -2945,6 +2963,27 @@ li:hover .chats-item-when { opacity: 0; }
   transition: opacity var(--hover);
 }
 .turn:hover .acts, .acts:focus-within, .turn.is-timed .acts { opacity: 1; }
+/* Under a pointer the actions float over the message's top corner, as a
+   small bar, and take no room: kept as a row under every message they put 30
+   px between messages where the thread's spacing is 10 (docs/design.md,
+   Chat). A finger keeps them as a row, always shown (touch.css). */
+@media (hover: hover) {
+  .turn { position: relative; }
+  .acts {
+    position: absolute;
+    top: -0.85rem;
+    right: 0;
+    z-index: 1;
+    padding: 0.1rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    box-shadow: var(--float);
+    pointer-events: none;
+  }
+  .turn:hover .acts, .acts:focus-within, .turn.is-timed .acts { pointer-events: auto; }
+  .acts .msg-time { margin-inline: 0.4rem 0.5rem; }
+}
 /* KOS's time ends its actions row. */
 .acts .msg-time { align-self: center; margin-left: 0.4rem; }
 
@@ -3781,9 +3820,9 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .ctx-fill { display: block; height: 100%; background: var(--accent); }
 .ctx-text { color: var(--faint); font-size: var(--text-sm); }
-.ctx.is-mid .ctx-fill { background: var(--warn); }
-.ctx.is-high .ctx-fill { background: var(--danger); }
-.ctx.is-high .ctx-text { color: var(--danger); }
+/* Full is how a long chat runs, not a fault: what drops out of KOS's memory
+   stays in the thread for the owner, so the meter stays quiet when it fills. */
+.ctx.is-high .ctx-fill { background: var(--muted); }
 .chats-meta { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 
 /* A project's sites, on its card. */
@@ -3824,6 +3863,7 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .pal-input::placeholder { color: var(--faint); }
 .pal-list { list-style: none; margin: 0; padding: 0.35rem 0; overflow-y: auto; }
+.pal-rows { list-style: none; margin: 0; padding: 0; }
 .pal-group {
   padding: 0.5rem 1.1rem 0.25rem;
 }
@@ -5291,18 +5331,6 @@ a.health {
 .recall-glyph { display: inline-flex; flex: none; margin-right: 0.3rem; vertical-align: -0.12em; }
 .recall-glyph svg { width: 12px; height: 12px; }
 
-/* Present for a screen reader, absent for everyone else. */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 /* A command's answer is a reply to something you did; it can be put away. */
 .chats-note { position: relative; }
 .note-close {
@@ -5894,7 +5922,8 @@ a.health {
 .inbox-group-title { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: var(--text-lg); font-weight: 600; }
 .inbox-box { min-width: 0; padding: 0.25rem 0.9rem; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
 /* Asks in a list, each its own card with the warn edge: the Inbox's and Home's alike. */
-.ask-list { gap: 0.6rem; }
+/* Positioned, so an ask that leaves (popped out of the flow, InboxPage) fades from where it stood rather than jumping. */
+.ask-list { gap: 0.6rem; position: relative; }
 .ask-list > li { border-bottom: 0; }
 .inbox-approval.is-highlit { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
 .inbox-why { display: block; color: var(--muted); font-size: var(--text-sm); }

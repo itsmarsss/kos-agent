@@ -22,7 +22,7 @@ import { useFinderOps } from "./ops.js";
 import { Crumbs, pathWords, type Crumb } from "./Crumbs.js";
 import { PathBar } from "./PathBar.js";
 import { reveal } from "./reveal.js";
-import type { RowHandlers } from "./rows.js";
+import { rowId, type RowHandlers } from "./rows.js";
 import { Sidebar, samePlace, type Place } from "./Sidebar.js";
 import { SORT_CHOICES, Toolbar } from "./Toolbar.js";
 import { TrashView } from "./TrashView.js";
@@ -295,6 +295,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
   for (const c of columns) for (const e of c.entries ?? []) byPath.set(e.path, e);
   const chosen = sel.paths.map((p) => byPath.get(p)).filter((e): e is DirEntry => !!e);
   const lead = sel.lead ? byPath.get(sel.lead) : undefined;
+  /** The list's chosen row, by its id, for a reader to hear as the arrows move it (the list view's rows carry ids). */
+  const activeRow = lead && (view === "list" || found) && order.includes(lead.path) ? rowId(lead.path) : undefined;
   const files = ordered.filter((e) => e.kind === "file").map((e) => e.path);
   /** Where a new folder or an upload goes: the folder shown, or in columns the deepest one open. */
   const here = view === "columns" && place.kind === "folder" ? (leadEntryDir?.path ?? columnDirs[columnDirs.length - 1] ?? folder) : folder;
@@ -783,7 +785,10 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
           ref={mainScroll}
           className={`finder-main${over === here && place.kind === "folder" ? " is-drop" : ""}`}
           tabIndex={0}
+          role="group"
           aria-label={`${title}, ${status}`}
+          // The keys stay here; the chosen row is what a reader hears as they move it.
+          {...(activeRow ? { "aria-activedescendant": activeRow } : {})}
           onKeyDown={onKey}
           onMouseDown={(e) => {
             // A press on the ground clears the choice, as in Finder.

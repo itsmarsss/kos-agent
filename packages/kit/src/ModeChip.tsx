@@ -8,11 +8,6 @@ import { Switch } from "./kit.js";
 import { ease, float } from "./motion.js";
 import { useDismiss } from "./useDismiss.js";
 
-/** Shift+Tab in a composer: the key that cycles the chat's mode. */
-export function isModeKey(event: Pick<ReactKeyboardEvent | KeyboardEvent, "key" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey">): boolean {
-  return event.key === "Tab" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
-}
-
 /** The clock a countdown reads, ticking each half minute while it is shown. */
 function useNow(ticking: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -40,8 +35,8 @@ const ICON: Record<ChatModeName, (p: { size?: number }) => ReactElement> = { ask
  *
  * Going into Auto is a choice made in the menu, where it says what it does:
  * a press on the chip in Ask opens the menu rather than switching, so one
- * stray tap never lets KOS go ahead unasked. Back to Ask is one press.
- * Shift+Tab in the box, a chord no one presses by chance, still cycles.
+ * stray tap never lets KOS go ahead unasked, and no key does it: Shift+Tab
+ * in the box only moves the focus back. Back to Ask is one press.
  */
 export function ModeChip({ mode, onChange, running = false, disabled = false }: { mode: ChatMode; onChange: (mode: ChatMode) => void; running?: boolean; disabled?: boolean }): ReactElement {
   const now = useNow(typeof mode.until === "number");

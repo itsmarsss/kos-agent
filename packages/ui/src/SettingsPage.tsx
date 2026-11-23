@@ -1,6 +1,6 @@
 import { m } from "motion/react";
 import { marksOfLetters, toolWords } from "@kos/shared";
-import { CloseIcon, ease, EmptyState, pageArrive, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, SheetFoot, Switch, Tag, useOverlayScroll } from "@kos/kit";
+import { announce, CloseIcon, ease, EmptyState, pageArrive, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, SheetFoot, Switch, Tag, useOverlayScroll } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -321,8 +321,12 @@ export function SettingsPage({
     try {
       await api.saveKosFace(face);
       setKosFaceNote("Saved. The sidebar and the tab icon follow within a few seconds.");
+      // A swatch saves at one press, for every screen: said, so a stray Enter is not a silent change.
+      announce("KOS's look saved. The sidebar and the tab icon follow within a few seconds.");
     } catch (err) {
-      setKosFaceNote(err instanceof Error ? err.message : String(err));
+      const why = err instanceof Error ? err.message : String(err);
+      setKosFaceNote(why);
+      announce(why, "assertive");
     }
   };
   const [density, setDensityState] = useState<Density>(readDensity);
@@ -561,6 +565,7 @@ export function SettingsPage({
 
   const done = (section: SectionId, message: string): void => {
     setSaved((s) => ({ ...s, [section]: message }));
+    announce(message);
     window.setTimeout(
       () => setSaved((s) => ({ ...s, [section]: undefined })),
       2500,
@@ -793,13 +798,15 @@ export function SettingsPage({
             })}
           </div>
         ) : GROUPS.map((group) => (
-          <div key={group} className="set-rail-group">
-            <h3 className="label set-rail-head">{group}</h3>
+          // A group's name labels its sections; not a heading, so the page's outline starts at its h1.
+          <div key={group} className="set-rail-group" role="group" aria-labelledby={`set-rail-${group}`}>
+            <p className="label set-rail-head" id={`set-rail-${group}`}>{group}</p>
             {SECTIONS.filter((s) => s.group === group).map((s) => (
               <button
                 key={s.id}
                 type="button"
                 className={`set-rail-item ${active === s.id ? "is-on" : ""}`}
+                aria-current={active === s.id ? "true" : undefined}
                 onClick={() => {
                   setFound(null);
                   setActive(s.id);
@@ -854,7 +861,7 @@ export function SettingsPage({
                 ),
             )}
           >
-            <Field group className="set-field" label="Name" hint="What KOS calls you.">
+            <Field className="set-field" label="Name" hint="What KOS calls you.">
               <input
                 className="kos-input"
                 value={profile.name}
@@ -876,6 +883,7 @@ export function SettingsPage({
               ) : (
                 <input
                   className="kos-input"
+                  aria-label="Timezone"
                   value={profile.timezone}
                   onChange={(e) =>
                     setProfile((p) => ({ ...p, timezone: e.target.value }))
@@ -883,7 +891,7 @@ export function SettingsPage({
                 />
               )}
             </Field>
-            <Field group className="set-field" label="Owner id" hint="Identifies you across channels. Set at first run.">
+            <Field className="set-field" label="Owner id" hint="Identifies you across channels. Set at first run.">
               <input className="kos-input" value={data.profile.ownerId} readOnly />
             </Field>
             {/* Not a setting: where a rule the owner states is kept, so "never message me after 10pm" has a home to find. */}

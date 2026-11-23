@@ -145,7 +145,7 @@ export interface FaceProps {
   /** Pixels across. */
   size?: number;
   mood?: Mood;
-  /** For a screen reader; the blob is an image of the agent. */
+  /** What a screen reader hears of the image of the agent; "" when the words beside it already name it, so it is not said twice. */
   label?: string;
 }
 
@@ -189,8 +189,7 @@ export function Face({ seed, look: override, drawing, size = 24, mood = "idle", 
     <span
       className={`blob blob--${mood}`}
       style={style}
-      role="img"
-      aria-label={label ?? `${slugWords(seed)}, ${MOOD_WORDS[mood]}`}
+      {...(label === "" ? { "aria-hidden": true } : { role: "img", "aria-label": label ?? `${slugWords(seed)}, ${MOOD_WORDS[mood]}` })}
       data-mood={mood}
       onPointerEnter={() => handle.current?.hover(true)}
       onPointerLeave={() => handle.current?.hover(false)}

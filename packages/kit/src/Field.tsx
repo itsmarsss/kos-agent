@@ -1,9 +1,9 @@
-import type { ReactElement, ReactNode } from "react";
+import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from "react";
 
-/** The mark on a required field's label. */
+/** The mark on a required field's label: seen, not read; the control itself says it is required. */
 export function Req(): ReactElement {
   return (
-    <span className="field-req" title="Required" aria-label="required">
+    <span className="field-req" title="Required" aria-hidden="true">
       *
     </span>
   );
@@ -27,32 +27,58 @@ export interface FieldProps {
   children: ReactNode;
 }
 
+/** What a field's control is told, so a screen reader hears its name, whether it is required, and its hint or error. */
+interface ControlAria {
+  "aria-labelledby"?: string;
+  "aria-describedby"?: string;
+  "aria-required"?: boolean;
+  "aria-invalid"?: boolean;
+}
+
 /**
  * One labelled control: the label, the control, then a hint or an error.
  * Marked with its label (data-field) so a search can scroll to it.
+ *
+ * A lone control is tied to its parts: named by the label alone (not the
+ * hint and the star the label wraps), described by the hint or the error,
+ * required and invalid as the field is. A control that says these itself
+ * keeps its own.
  */
 export function Field({ label, required = false, hint, error, group = false, badge, meta, className, children }: FieldProps): ReactElement {
+  const id = useId();
+  const labelId = `${id}-label`;
+  const noteId = `${id}-note`;
+  const note = error ? "error" : hint ? "hint" : null;
   const cls = `kos-field${className ? ` ${className}` : ""}`;
+  const aria: ControlAria = {
+    "aria-labelledby": labelId,
+    ...(note ? { "aria-describedby": noteId } : {}),
+    ...(required ? { "aria-required": true } : {}),
+    ...(error ? { "aria-invalid": true } : {}),
+  };
+  const control = !group && isValidElement<ControlAria>(children) ? cloneElement(children, { ...aria, ...definedAria(children.props) }) : children;
   const body = (
     <>
-      <span className="kos-field-label">
+      <span className="kos-field-label" id={labelId}>
         {label}
         {required && <Req />}
         {badge}
       </span>
-      {children}
-      {error ? (
-        <span className="field-error" role="alert">
+      {control}
+      {note === "error" ? (
+        <span className="field-error" id={noteId} role="alert">
           {error}
         </span>
-      ) : hint ? (
-        <span className="hint">{hint}</span>
+      ) : note === "hint" ? (
+        <span className="hint" id={noteId}>
+          {hint}
+        </span>
       ) : null}
       {meta}
     </>
   );
   return group ? (
-    <div className={cls} role="group" aria-label={label} data-field={label}>
+    <div className={cls} role="group" aria-labelledby={labelId} {...(note ? { "aria-describedby": noteId } : {})} data-field={label}>
       {body}
     </div>
   ) : (
@@ -60,4 +86,13 @@ export function Field({ label, required = false, hint, error, group = false, bad
       {body}
     </label>
   );
+}
+
+/** The aria a control was given by hand, which wins over the field's. */
+function definedAria(props: ControlAria): ControlAria {
+  const out: ControlAria = {};
+  for (const key of ["aria-labelledby", "aria-describedby", "aria-required", "aria-invalid"] as const) {
+    if (props[key] !== undefined) (out as Record<string, unknown>)[key] = props[key];
+  }
+  return out;
 }

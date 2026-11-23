@@ -35,14 +35,22 @@ CREATE TABLE IF NOT EXISTS chat_session_earlier (
 CREATE INDEX IF NOT EXISTS chat_session_earlier_id ON chat_session_earlier (id, at);
 `;
 
-/** Why a stretch of a chat was set aside: the owner cleared it, or it was folded into a summary. */
-export type EarlierWhy = "cleared" | "compacted";
+/**
+ * Why a stretch of a chat was set aside: the owner cleared it, it was folded
+ * into a summary, or it fell out of what KOS keeps (the oldest exchanges past
+ * the retention budget), kept for the owner to read all the same.
+ */
+export type EarlierWhy = "cleared" | "compacted" | "trimmed";
 
 /** A stretch of a chat set aside: what was said, when it was set aside, and why. */
 export interface EarlierHistory {
   at: number;
   why: EarlierWhy;
   messages: ModelMessage[];
+}
+
+function earlierWhy(why: string): EarlierWhy {
+  return why === "compacted" || why === "trimmed" ? why : "cleared";
 }
 
 /** Stretches kept per chat; past this the oldest goes. */
@@ -315,7 +323,7 @@ export class SessionStore {
    * keep the most recent whole exchanges that fit. Always keeps at least the
    * latest exchange so a single large turn is never erased entirely.
    */
-  private trim(messages: ModelMessage[]): ModelMessage[] {
+  private trim(sessionId: string, messages: ModelMessage[]): ModelMessage[] {
     /*
      * Zero is off, per budget.
      *
@@ -352,6 +360,7 @@ export class SessionStore {
      */
     if (kept.length < exchanges.length) {
       this.onTrimmed?.(exchanges.length - kept.length, kept.length);
+      this.keepTrimmed(sessionId, exchanges.slice(0, exchanges.length - kept.length).flat());
     }
     return kept.flat();
   }
@@ -372,7 +381,7 @@ export class SessionStore {
 
   /** Replace the full history, trimmed to the retention budget. */
   set(sessionId: string, messages: ModelMessage[]): void {
-    this.write(sessionId, this.trim(withoutPictures(this.stamped(messages))));
+    this.write(sessionId, this.trim(sessionId, withoutPictures(this.stamped(messages))));
   }
 
   /**
@@ -387,7 +396,7 @@ export class SessionStore {
      * result, and then did the identical work over the result. The second
      * pass could only ever agree with the first.
      */
-    const trimmed = this.trim(withoutPictures(this.stamped(messages)));
+    const trimmed = this.trim(sessionId, withoutPictures(this.stamped(messages)));
     this.write(sessionId, trimmed);
     return trimmed;
   }
@@ -423,7 +432,7 @@ export class SessionStore {
   /** Set the chat aside and put these messages in its place: a compaction's summary. */
   replace(sessionId: string, messages: ModelMessage[], why: EarlierWhy): void {
     this.setAside(sessionId, why);
-    this.write(sessionId, this.trim(withoutPictures(this.stamped(messages))));
+    this.write(sessionId, this.trim(sessionId, withoutPictures(this.stamped(messages))));
   }
 
   /** What was set aside, oldest first. */
@@ -436,7 +445,7 @@ export class SessionStore {
     return rows.flatMap((row) => {
       try {
         const messages = JSON.parse(row.messages_json) as ModelMessage[];
-        return Array.isArray(messages) ? [{ at: row.at, why: row.why === "compacted" ? ("compacted" as const) : ("cleared" as const), messages }] : [];
+        return Array.isArray(messages) ? [{ at: row.at, why: earlierWhy(row.why), messages }] : [];
       } catch {
         return [];
       }
@@ -446,7 +455,58 @@ export class SessionStore {
   private setAside(sessionId: string, why: EarlierWhy): void {
     const current = this.get(sessionId);
     if (current.length === 0) return;
-    this.db.prepare(`INSERT INTO chat_session_earlier (id, at, why, messages_json) VALUES (?, ?, ?, ?)`).run(sessionId, this.now(), why, JSON.stringify(current));
+    this.putAside(sessionId, why, current);
+  }
+
+  /**
+   * What a trim let go, kept for the owner: KOS no longer reads it, the chat
+   * still shows it. Trimmed a turn at a time, it joins the stretch trimmed
+   * before it rather than drawing a line under every exchange.
+   */
+  private keepTrimmed(sessionId: string, dropped: ModelMessage[]): void {
+    if (dropped.length === 0) return;
+    const last = this.db.prepare(`SELECT rowid, why, messages_json FROM chat_session_earlier WHERE id = ? ORDER BY at DESC, rowid DESC LIMIT 1`).get(sessionId) as
+      | { rowid: number; why: string; messages_json: string }
+      | undefined;
+    if (last?.why !== "trimmed") {
+      this.putAside(sessionId, "trimmed", dropped);
+      return;
+    }
+    let before: ModelMessage[] = [];
+    try {
+      const parsed = JSON.parse(last.messages_json) as unknown;
+      if (Array.isArray(parsed)) before = parsed as ModelMessage[];
+    } catch {
+      // A stretch that does not read is started afresh rather than lost with what joins it.
+    }
+    this.db.prepare(`UPDATE chat_session_earlier SET at = ?, messages_json = ? WHERE rowid = ?`).run(this.now(), JSON.stringify([...before, ...dropped]), last.rowid);
+  }
+
+  /**
+   * The owner's message said at `at`, taken back out of what a trim kept
+   * for the owner; whether it was there. A turn that waited on the owner
+   * while the chat went past what it keeps ends with its opening again.
+   */
+  takeBackTrimmed(sessionId: string, at: number): boolean {
+    const last = this.db.prepare(`SELECT rowid, messages_json FROM chat_session_earlier WHERE id = ? AND why = 'trimmed' ORDER BY at DESC, rowid DESC LIMIT 1`).get(sessionId) as
+      | { rowid: number; messages_json: string }
+      | undefined;
+    if (!last) return false;
+    let kept: ModelMessage[];
+    try {
+      kept = JSON.parse(last.messages_json) as ModelMessage[];
+    } catch {
+      return false;
+    }
+    const i = kept.findIndex((m) => m.role === "user" && m.at === at);
+    if (i < 0) return false;
+    kept.splice(i, 1);
+    this.db.prepare(`UPDATE chat_session_earlier SET messages_json = ? WHERE rowid = ?`).run(JSON.stringify(kept), last.rowid);
+    return true;
+  }
+
+  private putAside(sessionId: string, why: EarlierWhy, messages: ModelMessage[]): void {
+    this.db.prepare(`INSERT INTO chat_session_earlier (id, at, why, messages_json) VALUES (?, ?, ?, ?)`).run(sessionId, this.now(), why, JSON.stringify(messages));
     // The oldest stretch goes once there are too many; a chat cleared every
     // day is not a chat whose every day is worth keeping on the page.
     this.db

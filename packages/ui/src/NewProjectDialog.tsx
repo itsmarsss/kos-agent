@@ -69,6 +69,7 @@ export function NewProjectDialog({ open, onClose, onCreate, taken = [] }: NewPro
       footer={
         <SheetFoot
           onCancel={onClose}
+          {...(!creating && (check !== null || refused !== null) ? { held: draft.name.trim() ? "Fix the name first." : "Give it a name first." } : {})}
           primary={
             <button type="submit" form={FORM_ID} className="btn btn--primary" disabled={creating || check !== null || refused !== null}>
               {creating ? "Creating…" : "Create"}

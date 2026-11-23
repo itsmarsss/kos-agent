@@ -7,6 +7,8 @@ import { rowKeys } from "./rowkeys.js";
 export interface Column<T> {
   key: string;
   header: string;
+  /** A column with no header to see (a kind's mark, the row's actions) still has one to hear. */
+  srHeader?: string;
   width?: string;
   render: (row: T) => React.ReactNode;
   /** Optional string used for search filtering */
@@ -31,6 +33,8 @@ export function ListPage<T>(props: {
   columns: Column<T>[];
   rowKey: (row: T) => string | number;
   onRowClick: (row: T) => void;
+  /** What a row is called to a screen reader, its what and how it went ("Read a file notes/a.md, Failed, 7:01 PM"); else its cells' words. */
+  rowLabel?: (row: T) => string;
   /** What it says with nothing in it at all; a search that finds nothing says so in the kit's words. */
   empty?: string;
   /** The rows have not been read yet: skeleton rows, never the empty line or "0 of 0". */
@@ -114,6 +118,22 @@ export function ListPage<T>(props: {
   }, [props.rows, props.columns, q]);
 
   const state = listState(!props.loading, props.rows.length, filtered.length);
+  /**
+   * The row the Tab key lands on: the table is one stop, the arrows walk it.
+   * The last row the keys were on, while it is still shown; else the first.
+   */
+  const [current, setCurrent] = useState<string | number | null>(null);
+  const keys = filtered.map(props.rowKey);
+  const tabRow = current !== null && keys.includes(current) ? current : (keys[0] ?? null);
+  const labelOf = (row: T): string =>
+    props.rowLabel?.(row) ??
+    props.columns
+      .map((c) => c.searchText?.(row) ?? (() => {
+        const node = c.render(row);
+        return typeof node === "string" || typeof node === "number" ? String(node) : "";
+      })())
+      .filter(Boolean)
+      .join(", ");
 
   return (
     <section className="list-page">
@@ -133,7 +153,7 @@ export function ListPage<T>(props: {
         <table
           className={`ops-table ${props.fixedLayout ? "ops-table--fixed" : ""}`}
         >
-          <TableHead columns={props.columns.map((c) => ({ label: c.header, ...(c.width ? { width: c.width } : {}) }))} />
+          <TableHead columns={props.columns.map((c) => ({ label: c.header || (c.srHeader ? <span className="sr-only">{c.srHeader}</span> : ""), ...(c.width ? { width: c.width } : {}) }))} />
           {/* Mounted again when the rows arrive, so they come in as every page's content does. */}
           <tbody data-rows="" key={state === "loading" ? "loading" : "read"} className={state === "loading" ? undefined : "arrive"}>
             {state === "loading" && <EmptyState loading variant="row" columns={props.columns.length} />}
@@ -153,7 +173,7 @@ export function ListPage<T>(props: {
                     <tr className={`table-group list-group ${props.collapsible ? "is-foldable" : ""} ${group && folded.has(group) ? "is-folded" : ""}`}>
                       <th colSpan={props.columns.length} scope="colgroup">
                         <GroupHead
-                          as="h3"
+                          as="h2"
                           count={filtered.filter((r) => props.groupBy?.(r) === group).length}
                           title={
                             props.collapsible ? (
@@ -172,8 +192,13 @@ export function ListPage<T>(props: {
                   {!(props.collapsible && group && folded.has(group)) && (
                     <tr
                       className="ops-row-click"
+                      aria-label={labelOf(row)}
                       onClick={() => props.onRowClick(row)}
                       {...rowKeys(() => props.onRowClick(row))}
+                      tabIndex={props.rowKey(row) === tabRow ? 0 : -1}
+                      onFocus={(e) => {
+                        if (e.target === e.currentTarget) setCurrent(props.rowKey(row));
+                      }}
                     >
                       {props.columns.map((c) => (
                         <td key={c.key} data-col={c.key} data-stack={c.stack} data-label={c.stackLabel ? c.header : undefined}>

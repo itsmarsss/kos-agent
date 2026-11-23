@@ -303,7 +303,9 @@ fingertip does not scale with the density setting.
   up at once.
 - Content arrives with a fade and an 8 px rise; something that floats (a
   menu, a popover, a sheet) with a fade and a scale from 0.98.
-- Nothing waits on an animation to finish; reduced motion turns them off.
+- Nothing waits on an animation to finish; reduced motion turns them off:
+  motion's own through `MotionConfig reducedMotion="user"` at each app's
+  root, and every CSS animation and transition by one rule in `kit.css`.
 
 ## Words
 
@@ -393,6 +395,10 @@ the window draws it natively, and shows LaTeX as written.
   the chat's name 12. KOS for Mac keeps them in `ChatType`.
 - **Spacing:** 10 between messages, 16 at the column's sides, 8 between
   blocks of a reply; a list indents 19.
+- **A long chat:** KOS rereads its newest messages (chat memory); what it
+  lets go stays in the thread for the owner, above a line, and a full chat
+  memory is a quiet meter, not a warning. The thread opens on its newest
+  stretch, Show earlier at its top and Jump to latest at its foot.
 
 - **The owner's message:** a bubble on the right, at most 88% of the
   column, padded 9 by 12, the accent at the strong tint over `panel-2`,
@@ -404,10 +410,11 @@ the window draws it natively, and shows LaTeX as written.
   that nest (disc, circle, square; a, b under numbers), code spans at nine
   tenths of the words on `panel-2` at radius 4 (KOS for Mac gives them the
   tint alone), code blocks on `panel` with a line at radius 10, padded 10
-  by 11, links in the accent and underlined, quotes with a `line-strong`
+  by 11, their language and Copy over them, a long one folded with Show
+  all, links in the accent and underlined, quotes with a `line-strong`
   rule, LaTeX typeset, references as `violet` chips, tables with a `muted`
-  head and a `line` under each row, scrolling sideways when wider than the
-  column. A grid without a head line stays as the text it is.
+  head and a `line` under each row, words broken between words and never
+  inside one, scrolling sideways when wider than the column. A grid without a head line stays as the text it is.
 - **Steps:** a turn's tool calls are quiet rows under its words. The side
   panel and KOS for Mac fold them to one "N steps" chip, drawn as the
   composer's chips are, being narrow; the dashboard shows each as a row

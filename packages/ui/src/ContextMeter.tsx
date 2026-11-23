@@ -74,7 +74,7 @@ export function ContextMeter({
   // explain it.
   const fraction = Math.min(1, Math.max(byChars, byExchanges));
   const over = byChars > 1 || byExchanges > 1;
-  const level = fraction > 0.85 ? " is-high" : fraction > 0.6 ? " is-mid" : "";
+  const level = fraction > 0.85 ? " is-high" : "";
 
   const window = use.window;
   const windowPart =
@@ -91,11 +91,11 @@ export function ContextMeter({
       title={
         // Never "keeping X of Y" with X past Y: past the budget, it says what is over.
         `How much of this chat KOS rereads with each message. ` +
-        `${over ? "It is past the limit, so the oldest messages are dropping off: " : "Now "}` +
+        `${over ? "It is past the limit, so KOS no longer rereads the oldest messages, which stay in the chat for you: " : "Now "}` +
         `${Math.min(historyChars, maxChars).toLocaleString()} of ${maxChars.toLocaleString()} characters ` +
         `and ${Math.min(exchanges, maxExchanges)} of ${maxExchanges} messages.` +
         `${pictures > 0 ? ` ${pictureWords(pictures)} counted at a fixed allowance each, not by their bytes.` : ""}` +
-        ` Past either, the oldest messages drop off; type /compact to fold them into a summary instead.${windowPart}`
+        ` Past either, KOS stops rereading the oldest messages (they stay in the chat for you); type /compact to fold them into a summary instead.${windowPart}`
       }
     >
       <span className="ctx-track" aria-hidden="true">
@@ -107,7 +107,7 @@ export function ContextMeter({
           {" · "}
           {Math.min(exchanges, maxExchanges)} of {maxExchanges} messages
           {pictures > 0 ? ` · ${pictureWords(pictures)}` : ""}
-          {over ? " · dropping the oldest" : ""}
+          {over ? " · the oldest stay for you" : ""}
         </span>
       </span>
     </div>

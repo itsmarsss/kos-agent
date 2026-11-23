@@ -238,7 +238,8 @@ export function ProjectMap({
       viewBox={`0 0 ${MAP_W} ${H}`}
       width="100%"
       style={{ maxWidth: MAP_W, aspectRatio: `${MAP_W} / ${H}` }}
-      role="img"
+      // A group, not an image: its nodes are links, and an image's insides are not read.
+      role="group"
       aria-label="KOS, its modules and its projects"
     >
       {/* Links first, so nodes sit on top of them. */}

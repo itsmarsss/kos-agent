@@ -49,11 +49,15 @@ export function FilesPage({ path = ".", onOpen, onAsk }: FilesPageProps): ReactE
   if ("gone" in at) return <NotFound what="file or folder" name={at.gone} back={{ label: "Back to Files", onClick: () => onOpen(".") }} />;
   const shown = Number(line);
   return (
-    <Finder
-      path={at.folder}
-      {...(at.focus ? { focus: at.focus, ...(Number.isInteger(shown) && shown > 0 ? { focusLine: shown } : {}) } : {})}
-      onNavigate={onOpen}
-      {...(onAsk ? { onAsk } : {})}
-    />
+    <>
+      {/* The page's heading, for its outline and for the keys to land on; the path bar says where you are to the eye. */}
+      <h1 className="sr-only">Files</h1>
+      <Finder
+        path={at.folder}
+        {...(at.focus ? { focus: at.focus, ...(Number.isInteger(shown) && shown > 0 ? { focusLine: shown } : {}) } : {})}
+        onNavigate={onOpen}
+        {...(onAsk ? { onAsk } : {})}
+      />
+    </>
   );
 }

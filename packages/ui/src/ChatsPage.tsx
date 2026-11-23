@@ -10,8 +10,8 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { cycled, kindWord, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
-import { isModeKey, Menu, ModeChip, NotFound } from "@kos/kit";
+import { kindWord, runningTail, timeWords, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { announce, Menu, ModeChip, NotFound, rise } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
@@ -68,7 +68,8 @@ import { Thinking } from "./Thinking.js";
 import { MessageEditor } from "./MessageActions.js";
 import { MessageTurn, type TurnAction } from "./MessageTurn.js";
 import { UnsentNote } from "./UnsentNote.js";
-import { Toast } from "./Toast.js";
+import { toast, Toast } from "./Toast.js";
+import { EarlierButton, JumpToLatest, useAwayFromLatest } from "./ThreadEnds.js";
 import { useReach } from "./reach.js";
 import { useStable } from "./stable.js";
 
@@ -220,6 +221,18 @@ function liveLabel(l: Live | undefined): string {
  * over the one thing that needed a hand. Then what the live view knows,
  * because it is ahead of the list's poll; then what the server said.
  */
+/**
+ * A chat row as a screen reader hears it: the title first, then its state
+ * once, then when ("Fetch the status page, needs you, 1m ago"). The dot's
+ * own label led and the text said the state again; "read" said nothing.
+ */
+export function chatRowWords(title: string, chat: Pick<Conversation, "activity" | "unread" | "updatedAt">, opts: { waiting?: boolean; working?: boolean; queued?: number } = {}): string {
+  const state =
+    opts.waiting || chat.activity === "needs-you" ? "needs you" : opts.working || chat.activity === "working" ? "working" : chat.activity === "error" ? "failed" : chat.unread ? "unread" : null;
+  const queued = opts.queued ? `${opts.queued} queued` : null;
+  return [title, state, queued, timeWords(chat.updatedAt)].filter(Boolean).join(", ");
+}
+
 function ThreadDot({
   live,
   chat,
@@ -416,7 +429,8 @@ export function ChatsPage({
   useDismiss(listOpen, () => setListOpen(false), { away: false, scroll: false, resize: false, escape: "dialog" });
   const [showArchived, setShowArchived] = useState(false);
   /** A chat just archived from its header, offered back for a moment. */
-  const [undo, setUndo] = useState<{ id: string; title: string } | null>(null);
+  /** The chat just archived, for its toast's Undo; `reopen` when it was open, so Undo brings the owner back to it. */
+  const [undo, setUndo] = useState<{ id: string; title: string; reopen?: boolean } | null>(null);
   useEffect(() => {
     if (!undo) return;
     const t = setTimeout(() => setUndo(null), 8000);
@@ -485,6 +499,11 @@ export function ChatsPage({
   }, [showArchived, conversations]);
   const drop = useDropZone((l) => void attachments.add(l));
   const live = activeId ? progress[activeId] : undefined;
+  // Said once as a turn starts here: the thread is busy until it ends, and its reply is then read as it lands.
+  const workingSince = live && !live.ended ? live.since : undefined;
+  useEffect(() => {
+    if (workingSince !== undefined) announce("KOS is working");
+  }, [workingSince]);
   // A finished turn keeps its steps on screen until the transcript arrives,
   // so "there is a live view" and "work is happening" are no longer the same
   // question.
@@ -492,8 +511,19 @@ export function ChatsPage({
   const running = working || sendingIn === activeId;
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+  /**
+   * How much of a long chat is read: its newest `CHAT_WINDOW` events, more
+   * at each Show earlier, back to that on opening another chat; and what is
+   * left above them.
+   */
+  const shownRef = useRef(CHAT_WINDOW);
+  const [cut, setCut] = useState<{ earlier: number; ownerAbove: number }>({ earlier: 0, ownerAbove: 0 });
+  const readChat = (id: string): ReturnType<typeof api.conversation> => api.conversation(id, shownRef.current);
+  const showChat = (got: Awaited<ReturnType<typeof api.conversation>>): void => {
+    setEvents(got.events);
+    setCut({ earlier: got.earlier ?? 0, ownerAbove: got.ownerAbove ?? 0 });
+  };
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  useAutoGrow(inputRef, draft);
 
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   // The server's channels, so "#name" in a chat is coloured and chipped as
@@ -556,6 +586,7 @@ export function ChatsPage({
   const inlineScroll = useOverlayScroll<HTMLDivElement>();
 
   const active = conversations.find((c) => c.id === activeId);
+  useAutoGrow(inputRef, draft, 12, active?.id);
   // A chat the address names that is in no list, archived included: said so, not the landing in its place.
   const strayKey = activeId && !active && !loading && !project && !agent ? `chat:${activeId}` : null;
   const stray = useFound(strayKey, () => api.conversations(true).then((all) => all.some((c) => c.id === activeId)));
@@ -683,15 +714,17 @@ export function ChatsPage({
     if (!mine) {
       // Nothing from the previous conversation stays visible while this one
       // loads.
+      shownRef.current = CHAT_WINDOW;
+      setCut({ earlier: 0, ownerAbove: 0 });
       setEvents([]);
       setEditing(false);
       setEditingIndex(null);
     }
     let cancelled = false;
     const id = activeId;
-    void api
-      .conversation(id)
-      .then(({ events: got, pending: waiting }) => {
+    void readChat(id)
+      .then((got) => {
+        const waiting = got.pending;
         if (cancelled) return;
         /*
          * Queued messages land first, always.
@@ -711,7 +744,7 @@ export function ChatsPage({
          * the fetch happens again once the turn is over.
          */
         if (holdTranscript) return;
-        setEvents(got);
+        showChat(got);
         setLoadedFor({ id, stamp });
         // The transcript now holds what the live view was holding, so the
         // handover is done and the steps can go. Doing this on turn-end
@@ -739,10 +772,17 @@ export function ChatsPage({
   useEffect(() => setFoundAt(null), [activeId]);
   useEffect(() => {
     if (at === undefined || !activeId || loadedFor?.id !== activeId) return;
-    clearAt();
     const index = Number(at);
-    if (Number.isInteger(index) && index >= 0 && index < events.length) setFoundAt(index);
-  }, [at, activeId, loadedFor, events.length, clearAt]);
+    if (!Number.isInteger(index) || index < 0) return void clearAt();
+    // Above what is read: read back to it first, and come here again when it is in.
+    if (index < cut.earlier) {
+      shownRef.current = cut.earlier + events.length - index + CHAT_WINDOW / 4;
+      void readChat(activeId).then((got) => activeIdRef.current === activeId && showChat(got)).catch(() => clearAt());
+      return;
+    }
+    clearAt();
+    if (index - cut.earlier < events.length) setFoundAt(index - cut.earlier);
+  }, [at, activeId, loadedFor, events.length, cut.earlier, clearAt]);
   useEffect(() => {
     if (foundAt === null) return;
     // Again a frame on, after the thread has followed its newest message down.
@@ -1157,9 +1197,9 @@ export function ChatsPage({
       // calls, and those belong in the transcript too. A turn suspended on an
       // approval answers here too, and the reload is what puts its approval
       // card on screen.
-      const { events: got, pending: waiting } = await api.conversation(target);
-      if (target === activeIdRef.current) setEvents(got);
-      showPending(target, waiting);
+      const got = await readChat(target);
+      if (target === activeIdRef.current) showChat(got);
+      showPending(target, got.pending);
       // Every path that replaces the transcript is a handover: leaving the
       // finished steps up as well shows each tool call twice until something
       // else happens to clear them.
@@ -1173,7 +1213,7 @@ export function ChatsPage({
        * the same, and that one shows as its row. Put back as well, it would
        * be sent twice.
        */
-      const waiting = await api.conversation(target).then((r) => r.pending).catch(() => undefined);
+      const waiting = await readChat(target).then((r) => r.pending).catch(() => undefined);
       if (waiting) showPending(target, waiting);
       const unsent = !waiting || !queuedAnyway(waiting, before, text);
       // The owner's own bubble stays, marked as not sent and why, where KOS's reply would have gone before.
@@ -1207,7 +1247,7 @@ export function ChatsPage({
 
   const reloadPending = async (id: string): Promise<void> => {
     try {
-      const { pending: waiting } = await api.conversation(id);
+      const { pending: waiting } = await readChat(id);
       showPending(id, waiting);
     } catch {
       // The list is refreshed on the next turn either way.
@@ -1370,11 +1410,11 @@ export function ChatsPage({
           return;
         }
         // The turn is over, so the transcript is the authority again.
-        const { events: got, pending: waiting } = await api.conversation(target);
+        const got = await readChat(target);
         settleProgress(target);
-        showPending(target, waiting);
+        showPending(target, got.pending);
         if (target !== activeIdRef.current) return;
-        setEvents(got);
+        showChat(got);
       })
       .catch((err: unknown) =>
         setEvents((e) => [
@@ -1403,7 +1443,21 @@ export function ChatsPage({
     else rewind(turn, what === "fork" ? { forkTitle: "" } : {});
   });
 
-  const renderEvent = (e: ChatEvent, i: number, turn: number): ReactElement => {
+  /** Reads the chat back another window's worth; how many more events it shows. */
+  const showEarlier = async (): Promise<number> => {
+    if (!activeId) return 0;
+    const id = activeId;
+    const had = events.length;
+    shownRef.current += CHAT_WINDOW;
+    const got = await readChat(id);
+    if (id !== activeIdRef.current) return 0;
+    showChat(got);
+    return Math.max(0, got.events.length - had);
+  };
+  const away = useAwayFromLatest(boxRef);
+  const threadWho = active ? (active.kind === "orchestrator" ? "KOS" : active.title) : "KOS";
+
+  const renderEvent = (e: ChatEvent, i: number, turn: number, lastAt?: number): ReactElement => {
     if (e.kind === "tool") {
       return (
         <ToolCall
@@ -1438,7 +1492,7 @@ export function ChatsPage({
       );
     }
 
-    const said = <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} found={i === foundAt} />;
+    const said = <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} found={i === foundAt} {...(lastAt !== undefined ? { lateAfter: lastAt } : {})} />;
     if (e.kind !== "message" || e.unsent === undefined) return said;
     return (
       <Fragment key={i}>
@@ -1507,7 +1561,16 @@ export function ChatsPage({
                     .catch(() => undefined),
               },
               { label: "Hand off…", act: () => setHandingOff({ id: c.id, title: c.title }) },
-              { label: showArchived ? "Unarchive" : "Archive", act: () => void api.archiveConversation(c.id, !showArchived).then(onChanged) },
+              {
+                label: showArchived ? "Unarchive" : "Archive",
+                // Said, with Undo, as Archive in the chat's head is: the row going was all there was to see.
+                act: () =>
+                  void api.archiveConversation(c.id, !showArchived).then(() => {
+                    onChanged();
+                    if (!showArchived) setUndo({ id: c.id, title: c.title });
+                    else toast({ kind: "ok", text: `Unarchived “${c.title}”` });
+                  }),
+              },
             ]}
           >
             {/* Asked once, beside the item: delete is the one thing here that cannot be undone, and a menu item that does it on one click is a trap beside Archive. */}
@@ -1525,6 +1588,8 @@ export function ChatsPage({
           <a
           className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
           href={hrefOf(c)}
+          aria-current={c.id === activeId ? "page" : undefined}
+          aria-label={chatRowWords(label ?? c.title, c, { waiting: waitingOn.has(c.id), working: Boolean(progress[c.id] && !progress[c.id]!.ended), ...(c.queued ? { queued: c.queued } : {}) })}
           onClick={(e) => {
             e.preventDefault();
             onOpen(c.id);
@@ -1579,7 +1644,7 @@ export function ChatsPage({
         {project ? (
           /* The project's own rail: its orchestrator above, its agents below,
              and nothing from outside it. Back is the way out. */
-          <aside className="chats-list chats-list--project" onKeyDown={railRowKeys}>
+          <aside className="chats-list chats-list--project" aria-label="Chats in this project" onKeyDown={railRowKeys}>
             <div className="chats-list-head">
               <button type="button" className="chats-back" onClick={project.onBack}>
                 <ChevronLeft size={14} />
@@ -1720,7 +1785,7 @@ export function ChatsPage({
         ) : agent ? (
           /* The agent's own rail: its thread above, the chats it runs inside
              projects below. Back is the way out. */
-          <aside className="chats-list chats-list--project" onKeyDown={railRowKeys}>
+          <aside className="chats-list chats-list--project" aria-label="Chats in this project" onKeyDown={railRowKeys}>
             <div className="chats-list-head">
               <button type="button" className="chats-back" onClick={agent.onBack}>
                 <ChevronLeft size={14} />
@@ -1766,7 +1831,7 @@ export function ChatsPage({
             </div>
           </aside>
         ) : (
-          <aside className="chats-list chats-list--root" onKeyDown={railRowKeys}>
+          <aside className="chats-list chats-list--root" aria-label="Chats" onKeyDown={railRowKeys}>
             <div className="chats-list-head chats-list-head--root">
               <SearchField className="chats-find" noun={showArchived ? "archived chats" : "chats"} value={query} onChange={setQuery} onKeyDown={railSearchKeys} />
               {/* New chat opens the landing, where you choose a chat, a project,
@@ -2080,12 +2145,56 @@ export function ChatsPage({
                   setUndo(null);
                   void api.archiveConversation(back.id, false).then(() => {
                     onChanged();
-                    onOpen(back.id);
+                    if (back.reopen) onOpen(back.id);
                   });
                 },
               }
             }
           />
+          {/* Renaming is the one thing about a chat an owner changes most,
+              and it was reachable only by knowing to type /rename. */}
+          <Modal
+            open={renaming !== null}
+            title="Rename chat"
+            size="sm"
+            onClose={() => setRenaming(null)}
+          >
+            <form
+              className="rename-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const next = renaming?.title.trim();
+                if (!renaming || !next) return;
+                void api
+                  .renameConversation(renaming.id, next)
+                  .then(() => {
+                    setRenaming(null);
+                    onChanged();
+                  })
+                  .catch(() => setRenaming(null));
+              }}
+            >
+              <Field label="Title">
+                <input
+                  className="kos-input"
+                  autoFocus
+                  value={renaming?.title ?? ""}
+                  onChange={(e) =>
+                    setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
+                  }
+                />
+              </Field>
+              <SheetFoot
+                inline
+                onCancel={() => setRenaming(null)}
+                primary={
+                  <button type="submit" className="btn btn--primary" disabled={!renaming?.title.trim()}>
+                    Save
+                  </button>
+                }
+              />
+            </form>
+          </Modal>
           {!active && loading && (activeId || project || agent) ? (
             <>
               <div className="chats-view-path">{listToggle}</div>
@@ -2134,7 +2243,7 @@ export function ChatsPage({
                   <Face seed={KOS_SEED} look={faceLookOf(kos)} size={56} mood={moodOf(orchestrator?.activity)} label="KOS" />
                 </m.span>
                 <m.div className="chats-welcome-head" variants={card}>
-                  <p className="chats-welcome-title">{LANDING_WORDS[mode].title}</p>
+                  <h1 className="chats-welcome-title" tabIndex={-1}>{LANDING_WORDS[mode].title}</h1>
                   <p className="chats-welcome-sub">{LANDING_WORDS[mode].sub}</p>
                 </m.div>
                 {/* The question has to be answerable here. A button that leads
@@ -2244,12 +2353,12 @@ export function ChatsPage({
                       ) : null;
                     })()}
                   </div>
-                  <h1>
-                    {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} />}
-                    {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
+                  <h1 tabIndex={-1}>
+                    {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} label="" />}
+                    {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="" />}
                     {active.title}
-                    {active.kind === "project" && <span className="chats-role">Orchestrator</span>}
-                    {(active.kind === "agent" || active.role) && <span className="chats-role">Blob</span>}
+                    {active.kind === "project" && <span className="chats-role"><span className="sr-only">, </span>Orchestrator</span>}
+                    {(active.kind === "agent" || active.role) && <span className="chats-role"><span className="sr-only">, </span>Blob</span>}
                   </h1>
                   {/* Inside the project the rail lists the agents, so the count
                       would say what is already in view. */}
@@ -2303,7 +2412,7 @@ export function ChatsPage({
                       type="button"
                       className="head-act"
                       onClick={() => {
-                        const was = { id: active.id, title: active.title };
+                        const was = { id: active.id, title: active.title, reopen: true };
                         void api.archiveConversation(active.id).then(() => {
                           onChanged();
                           setUndo(was);
@@ -2350,69 +2459,36 @@ export function ChatsPage({
                 )}
               </Modal>
 
-              {/* Renaming is the one thing about a chat an owner changes most,
-                  and it was reachable only by knowing to type /rename. */}
-              <Modal
-                open={renaming !== null}
-                title="Rename chat"
-                size="sm"
-                onClose={() => setRenaming(null)}
-              >
-                <form
-                  className="rename-form"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const next = renaming?.title.trim();
-                    if (!renaming || !next) return;
-                    void api
-                      .renameConversation(renaming.id, next)
-                      .then(() => {
-                        setRenaming(null);
-                        onChanged();
-                      })
-                      .catch(() => setRenaming(null));
-                  }}
-                >
-                  <Field label="Title">
-                    <input
-                      className="kos-input"
-                      autoFocus
-                      value={renaming?.title ?? ""}
-                      onChange={(e) =>
-                        setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
-                      }
-                    />
-                  </Field>
-                  <SheetFoot
-                    inline
-                    onCancel={() => setRenaming(null)}
-                    primary={
-                      <button type="submit" className="btn btn--primary" disabled={!renaming?.title.trim()}>
-                        Save
-                      </button>
-                    }
-                  />
-                </form>
-              </Modal>
-
               {/* The thread knows the chats and agents by name, so a chip can
                   read "Lane A" rather than the id it is addressed by. */}
               <MentionNames resolve={nameFor} hrefOf={channelHref}>
               {/* Its step pictures open in the Lightbox, the turn's others a step away. */}
               <PictureGallery>
-              <div className="chats-thread" ref={threadScroll}>
+              <div className="chats-thread" ref={threadScroll} role="log" aria-live="polite" aria-relevant="additions" aria-busy={live !== undefined || sendingIn === activeId} aria-label={`Messages with ${threadWho}`}>
+                {cut.earlier > 0 && <EarlierButton count={cut.earlier} scroller={boxRef} onShow={showEarlier} />}
                 {visible.length === 0 && <EmptyState variant="inline">Nothing said yet.</EmptyState>}
                 {(() => {
                   // Owner turns are numbered in order, because rewind addresses
-                  // them by position rather than by any id a transcript keeps.
-                  let owner = -1;
+                  // them by position rather than by any id a transcript keeps;
+                  // counted as KOS holds them, from the last line the chat was
+                  // set aside under. Those above it are kept for the owner to
+                  // read, not to change.
+                  let lastLine = -1;
+                  visible.forEach((e, i) => {
+                    if (e.kind === "divider") lastLine = i;
+                  });
+                  let owner = lastLine >= 0 ? -1 : cut.ownerAbove - 1;
+                  // The latest time said so far, to tell a message sent before the ones above it.
+                  let lastAt: number | undefined;
                   return visible.map((e, i) => {
-                    const turn = e.kind === "message" && e.role === "you" ? ++owner : -1;
+                    const turn = e.kind === "message" && e.role === "you" && i > lastLine ? ++owner : -1;
                     const mark = marks[i];
+                    const before = lastAt;
+                    if (e.kind === "message" && e.at) lastAt = Math.max(lastAt ?? 0, e.at);
                     return (
                       <Fragment key={i}>
                         {mark && <TimeLine mark={mark} />}
-                        {renderEvent(e, i, turn)}
+                        {renderEvent(e, i, turn, before)}
                       </Fragment>
                     );
                   });
@@ -2488,11 +2564,12 @@ export function ChatsPage({
                   <m.div
                     className="loose-approval"
                     key={a.id}
-                    layout
-                    initial={{ opacity: 0, scale: 0.98, y: 6 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
-                    transition={spring}
+                    layout="position"
+                    variants={rise}
+                    initial="hidden"
+                    animate="show"
+                    exit="exit"
+                    transition={ease}
                   >
                     <PendingAsk ask={a} deciding={deciding} onDecide={(id, ok, remember, code) => (code !== undefined ? onDecide(String(id), ok, false, code) : remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} />
                   </m.div>
@@ -2664,6 +2741,8 @@ export function ChatsPage({
               </div>
               </PictureGallery>
               </MentionNames>
+              {/* Outside the log, so showing it is not read as a new message. */}
+              {away && <JumpToLatest scroller={boxRef} onJumped={() => inputRef.current?.focus({ preventScroll: true })} />}
 
               <div
                 className={`chats-composer composer ${drop.over ? "is-over" : ""}`}
@@ -2692,6 +2771,7 @@ export function ChatsPage({
                     ref={inputRef}
                     // Where the focus goes after the last ask here is decided from the keyboard.
                     data-after-ask=""
+                    aria-label={`Message ${active.title}`}
                     rows={1}
                     value={draft}
                     // On a narrow window the hints ran out of the box: who it goes to is the part to keep.
@@ -2717,12 +2797,6 @@ export function ChatsPage({
                       }
                     }}
                     onKeyDown={(e) => {
-                      // Shift+Tab cycles the chat's mode, as on every surface.
-                      if (isModeKey(e)) {
-                        e.preventDefault();
-                        setChatMode(cycled(chatMode));
-                        return;
-                      }
                       // An input method's keys (a candidate picked with Enter, its list walked with the arrows) are its own.
                       if (suggestions.length > 0 && !e.nativeEvent.isComposing) {
                         if (e.key === "ArrowDown") {
@@ -2912,6 +2986,8 @@ interface ColumnSpec {
 }
 /** How long a turn the stream announced is believed over a list that still says idle: three polls. */
 const FRESH_TURN_MS = 15_000;
+/** Events of a chat read at a time: a long chat opens on its newest, the rest a Show earlier away. */
+const CHAT_WINDOW = 200;
 
 const RAIL_W: ColumnSpec = { key: "kos.chats.rail", min: 120, max: 420, fallback: 240 };
 const PANEL_W: ColumnSpec = { key: "kos.project.panel.w", min: 160, max: 640, fallback: 300 };

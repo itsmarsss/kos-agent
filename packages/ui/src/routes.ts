@@ -229,3 +229,33 @@ export function frameOf(route: Route): PageFrame {
       return "list";
   }
 }
+
+/** What each route is called where a name for the page is needed: its tab's title, its main's name. */
+const PAGE_NAMES: Record<Route["name"], string> = {
+  home: "Overview",
+  inbox: "Inbox",
+  projects: "Projects",
+  project: "Project",
+  crons: "Schedule",
+  memory: "Memory",
+  history: "Runs",
+  chats: "Chats",
+  files: "Files",
+  settings: "Settings",
+  secrets: "Secrets",
+  blobs: "Blobs",
+  builds: "Builds",
+  page: "Page",
+  artifacts: "Artifacts",
+  missing: "Not found",
+};
+
+/** A page's own name: the thing it shows when it shows one (a chat's title, a project's name), else the page's. */
+export function pageName(route: Route, named?: string): string {
+  return named?.trim() || PAGE_NAMES[route.name];
+}
+
+/** The tab's title for a page, "Inbox · KOS"; KOS alone read as "K-OS" on every page, "K dash O S" to a screen reader. */
+export function pageTitle(route: Route, named?: string): string {
+  return `${pageName(route, named)} · KOS`;
+}
