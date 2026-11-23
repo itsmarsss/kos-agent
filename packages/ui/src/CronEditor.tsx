@@ -485,6 +485,7 @@ export function CronEditor({
           /* The only delete lived in a panel the schedule list does not
              open, so from here a schedule could be paused forever and never
              removed. Apart, at the far left. */
+          {...(!saving && (!canSave || blocked) ? { held: name.trim() ? "Fix what is marked above first." : "Give it a name first." } : {})}
           danger={job && onDelete && <ConfirmButton label="Delete" className="btn btn--danger" text={`Delete “${job.name}” and its runs?`} onConfirm={() => onDelete(job.id)} />}
           primary={
             <button type="submit" className="btn btn--primary" disabled={!canSave || blocked} aria-keyshortcuts="Meta+Enter">

@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from "react";
+import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from "react";
 
 import { CloseIcon } from "./icons.js";
 import { IconButton } from "./kit.js";
@@ -39,6 +39,12 @@ export interface SheetFootProps {
   /** A quiet word before the buttons: where it goes, why it cannot yet. */
   note?: ReactNode;
   /**
+   * Why the primary is off, while it is: shown as the note, and tied to the
+   * button, so a held Create says what it waits for ("Give it a name first.")
+   * rather than sitting grey.
+   */
+  held?: string;
+  /**
    * Drawn at the end of the sheet's body by a form that keeps its own state
    * (a chat's settings, a blob's file): the same foot, stuck to the bottom
    * of the body as it scrolls, edge to edge as the sheet's own foot is.
@@ -46,17 +52,21 @@ export interface SheetFootProps {
   inline?: boolean;
 }
 
-export function SheetFoot({ primary, onCancel, cancelLabel = "Cancel", danger, note, inline = false }: SheetFootProps): ReactElement {
+export function SheetFoot({ primary, onCancel, cancelLabel = "Cancel", danger, note, held, inline = false }: SheetFootProps): ReactElement {
+  const heldId = useId();
+  const action = held && isValidElement<{ "aria-describedby"?: string }>(primary) ? cloneElement(primary, { "aria-describedby": heldId }) : primary;
   return (
     <footer className={inline ? "sheet-foot sheet-foot--inline" : "sheet-foot"}>
       {danger && <span className="sheet-foot-danger">{danger}</span>}
-      <span className="sheet-foot-note">{note}</span>
+      <span className="sheet-foot-note" {...(held ? { id: heldId } : {})}>
+        {held ?? note}
+      </span>
       {onCancel && (
         <button type="button" className="btn" onClick={onCancel}>
           {cancelLabel}
         </button>
       )}
-      {primary}
+      {action}
     </footer>
   );
 }

@@ -342,6 +342,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
         footer={
           <SheetFoot
             onCancel={() => onAdding(false)}
+            {...(!draft.key.trim() || !draft.value.trim() ? { held: draft.key.trim() ? "Say what to remember first." : "Give it a name first." } : {})}
             primary={
               <button type="submit" form={ADD_FORM} className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
                 Create
