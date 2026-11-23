@@ -256,7 +256,7 @@ export function HistoryPage({
           render: (r) => (
             <span className="ops-muted hist-when">
               {clockWords(r.at)}
-              {r.kind === "run" && r.run.durationMs ? <span className="hist-took"> · {formatDuration(r.run.durationMs)}</span> : null}
+              {r.kind === "run" && r.run.durationMs ? <span className="hist-took"> · took {formatDuration(r.run.durationMs)}</span> : null}
             </span>
           ),
         },
