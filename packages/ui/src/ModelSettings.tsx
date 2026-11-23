@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
+import { providerWord } from "@kos/shared";
 
 import { api, type ModelSettings as Settings, type TaskModelSetting } from "./api.js";
 import { Select } from "./Select.js";
@@ -129,8 +130,8 @@ export function ModelSettings({
                 label="Provider"
                 value={setting.provider ?? ""}
                 options={[
-                  { value: "", label: route?.provider ? `As now (${route.provider})` : "The usual one" },
-                  ...providers.map((p) => ({ value: p, label: p === "custom" ? "your own server" : p })),
+                  { value: "", label: route?.provider ? `As now (${providerWord(route.provider)})` : "The usual one" },
+                  ...providers.map((p) => ({ value: p, label: providerWord(p) })),
                 ]}
                 onChange={(provider) => update(key, { provider: provider || undefined })}
               />
@@ -189,7 +190,7 @@ export function ModelSettings({
                 rather than only written. */}
             {route && (
               <div className="settings-now">
-                In use now: <code>{route.provider}</code> <code>{route.model}</code>
+                In use now: {providerWord(route.provider)}, <code>{route.model}</code>
                 {route.effort ? ` · ${route.effort} thinking` : ""}
                 {route.maxTokens ? ` · ${route.maxTokens} tokens` : ""}
               </div>
@@ -223,7 +224,7 @@ export function ModelSettings({
         </label>
         <p className="hint">
           Saved on its own and used at once. If the server needs a key, set it under Providers.
-          Then pick "your own server" as a provider above and type the name of the model it serves.
+          Then pick "Your own server" as a provider above and type the name of the model it serves.
         </p>
         <div className="settings-actions">
           <button
@@ -251,7 +252,7 @@ export function ModelSettings({
       <section className="settings-group">
         <div className="settings-group-head">
           <strong>Classifier</strong>
-          <span className="hint">a small model that sorts a message into kinds, and says how sure it is; without one, the cheap model does it</span>
+          <span className="hint">optional: a small model of your own that sorts messages</span>
         </div>
         <label className="kos-field">
           <span className="kos-field-label">Endpoint URL</span>
@@ -263,7 +264,7 @@ export function ModelSettings({
           />
         </label>
         <p className="hint">
-          KOS asks it first whether a message is worth remembering, so a passing remark never costs a call to the thinking model. If it needs a key, set it under Providers.
+          KOS asks it whether a message is worth remembering. Without one, the cheap model decides; the thinking model never does. If it needs a key, set it under Providers.
         </p>
         <div className="settings-actions">
           <button

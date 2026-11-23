@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isState, STATE_WORDS, stateOfRun } from "./states.js";
-import { KIND_WORDS, kindWord, slugWords, SYSTEM_SCHEDULES } from "./words.js";
+import { KIND_WORDS, kindWord, providerWord, slugWords, SYSTEM_SCHEDULES } from "./words.js";
 
 describe("the state words", () => {
   it("say each state in one sentence-case word or two, in a tone that means it", () => {
@@ -37,5 +37,11 @@ describe("the kind words", () => {
     expect([SYSTEM_SCHEDULES["kos.memory"], SYSTEM_SCHEDULES["kos.dream"], SYSTEM_SCHEDULES["kos.observe"]]).toEqual(["Memory: Read", "Memory: Tidy", "Memory: Condense"]);
     expect(slugWords("plant-watcher")).toBe("Plant watcher");
     expect(slugWords("recap")).toBe("Recap");
+  });
+});
+
+describe("a provider's word", () => {
+  it("calls custom the owner's own server, and known ones by their names", () => {
+    expect(["custom", "anthropic", "openai", "groq"].map(providerWord)).toEqual(["Your own server", "Anthropic", "OpenAI", "groq"]);
   });
 });

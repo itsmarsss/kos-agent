@@ -75,3 +75,15 @@ export function slugWords(slug: string): string {
   const plain = slug.replace(/[-_]+/g, " ").trim();
   return plain ? plain[0]!.toUpperCase() + plain.slice(1) : slug;
 }
+
+/** Providers by the names they go by; "custom" is the owner's own server, never the store's word for it. */
+const PROVIDER_WORDS: Readonly<Record<string, string>> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  custom: "Your own server",
+};
+
+/** A model provider as the owner reads it: "Your own server" for custom, a known one by its name, any other as stored. */
+export function providerWord(provider: string): string {
+  return PROVIDER_WORDS[provider] ?? provider;
+}
