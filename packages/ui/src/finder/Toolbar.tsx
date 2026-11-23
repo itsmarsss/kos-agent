@@ -41,9 +41,9 @@ export interface ToolbarProps {
 }
 
 const VIEW_CHOICES: Record<FinderView, [FinderView, ReactNode, string]> = {
-  list: ["list", <ListIcon key="list" />, "as List (Cmd+1)"],
-  columns: ["columns", <ColumnsIcon key="columns" />, "as Columns (Cmd+2)"],
-  gallery: ["gallery", <GridIcon key="gallery" />, "as Icons (Cmd+3)"],
+  list: ["list", <ListIcon key="list" />, "View as a list (Cmd+1)"],
+  columns: ["columns", <ColumnsIcon key="columns" />, "View as columns (Cmd+2)"],
+  gallery: ["gallery", <GridIcon key="gallery" />, "View as icons (Cmd+3)"],
 };
 
 export const SORT_CHOICES: { value: SortKey; label: string }[] = [

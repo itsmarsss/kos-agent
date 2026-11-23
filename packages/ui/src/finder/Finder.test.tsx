@@ -228,7 +228,7 @@ describe("the finder", () => {
   it("shows columns with the chosen file's facts at the end, and remembers the view per folder", async () => {
     vi.spyOn(api, "fileInfo").mockImplementation(async (path) => ({ ...d(path), createdAt: 1, project: { slug: "garden", name: "Garden" } }));
     await openGarden();
-    fireEvent.click(screen.getByRole("button", { name: "as Columns (Cmd+2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "View as columns (Cmd+2)" }));
     fireEvent.mouseDown(row("projects/garden/beds"));
     expect(await screen.findByText("bed-1.md")).toBeTruthy();
     fireEvent.mouseDown(row("projects/garden/beds/bed-1.md"));
@@ -425,7 +425,7 @@ describe("the finder", () => {
     await openGarden();
     expect(document.querySelector(".finder--narrow")).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Locations" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "as Columns (Cmd+2)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "View as columns (Cmd+2)" })).toBeNull();
     expect(screen.getByRole("button", { name: /Go to/ })).toBeTruthy();
   });
 });
