@@ -123,7 +123,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
       {/* The rows come in as the project cards do: staggered, lifting on
           hover. Mounted once the rows are known: a list that mounted empty
           and filled later had already played its entrance to nobody. */}
-      {agents === null && !error && <EmptyState loading shape="cards" />}
+      {agents === null && !error && <EmptyState loading shape="cards" itemHeight={110} />}
       {agents !== null && (
       <m.ul className="agents-list agents-list--index" variants={stagger} initial={firstVisit ? "hidden" : false} animate="show">
         {agents.length === 0 && <li><EmptyState variant="inline">No blobs yet. Ask KOS to look after something for you, or make one with New blob.</EmptyState></li>}
