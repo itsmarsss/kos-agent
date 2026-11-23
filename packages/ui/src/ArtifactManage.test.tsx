@@ -162,13 +162,13 @@ describe("managing an artifact from its viewer", () => {
     vi.spyOn(api, "agents").mockResolvedValue({ agents: many, invalid: [] });
     fireEvent.click(await menuItem("Move to…"));
     const dialog = await screen.findByRole("dialog", { name: "Move “Q4 brief”" });
-    fireEvent.click(await within(dialog).findByRole("radio", { name: /blob3/ }));
+    fireEvent.click(await within(dialog).findByRole("radio", { name: /blob3/i }));
     const move = within(dialog).getByRole("button", { name: "Move" }) as HTMLButtonElement;
     expect(move.disabled).toBe(false);
     fireEvent.change(within(dialog).getByLabelText("Search places"), { target: { value: "garden" } });
     await waitFor(() => expect(move.disabled).toBe(true));
     fireEvent.change(within(dialog).getByLabelText("Search places"), { target: { value: "" } });
-    expect(within(dialog).getByRole("radio", { name: /blob3/ }).getAttribute("aria-checked")).toBe("false");
+    expect(within(dialog).getByRole("radio", { name: /blob3/i }).getAttribute("aria-checked")).toBe("false");
   });
 
   it("makes a copy and offers to open it", async () => {
@@ -326,7 +326,7 @@ describe("the gallery's trash", () => {
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete forever" }));
     await waitFor(() => expect(gone).toHaveBeenCalledWith("old"));
     expect(await screen.findByText("The trash is empty")).toBeTruthy();
-    expect(screen.getByText(/Nothing is deleted on its own/)).toBeTruthy();
+    expect(screen.getByText(/Nothing here is deleted until you empty the trash/)).toBeTruthy();
   });
 
   it("brings one back from its row in the trash, into the gallery", async () => {

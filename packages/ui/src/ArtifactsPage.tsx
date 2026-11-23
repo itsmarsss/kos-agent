@@ -335,7 +335,7 @@ export function ArtifactsPage({
       <PageHead
         title={inTrash ? "Trash" : "Artifacts"}
         {...(source ? { count: source.length } : {})}
-        subtitle={inTrash ? "Nothing is deleted on its own. Each stays as it was until you restore it or delete it forever." : "The pages, docs, decks and sheets KOS has made for you."}
+        subtitle={inTrash ? "Nothing here is deleted until you empty the trash or delete it forever." : "The pages, docs, decks and sheets KOS has made for you."}
         search={{ value: query, onChange: setQuery, noun: inTrash ? "the trash" : "artifacts" }}
         actions={actions}
       />

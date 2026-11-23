@@ -177,7 +177,7 @@ export function Chips<V extends string | number>({
   return (
     <div className={`chips${small ? " chips--sm" : ""}${scroll ? " chips--scroll" : ""}${round ? " chips--round" : ""}`} role={label ? "group" : undefined} aria-label={label}>
       {options.map(([value, text, title]) => (
-        <button key={String(value)} type="button" aria-pressed={value === selected} title={title} {...(typeof text !== "string" && title ? { "aria-label": title } : {})} onClick={() => onChoose(value)}>
+        <button key={String(value)} type="button" aria-pressed={value === selected} title={title} onClick={() => onChoose(value)}>
           {text}
         </button>
       ))}
