@@ -112,6 +112,15 @@ hoc.
 - A session ends at its time limit, after the idle limit, on Stop, on Quit,
   or the moment the line to the KOS that owns it drops.
 
+## The clipboard
+
+- Send Clipboard to KOS, in the menu or at the top of the chat window, sends
+  what you copied as your message: its text, or a picture.
+- KOS asks before it reads your clipboard itself, every time, with the start
+  of it on the card.
+- Neither reads past a password manager's copy, or anything else marked
+  concealed, transient or auto-generated (docs/computer.md, The clipboard).
+
 ## Settings
 
 Behind the gear, kept on this Mac, and nothing KOS sends can change them:
