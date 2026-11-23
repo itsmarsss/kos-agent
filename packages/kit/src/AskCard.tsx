@@ -228,6 +228,12 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           <Tag tone="warn">{view.risk}</Tag>
         </span>
       )}
+      {/* Before any yes: no turn waits on this one, so its result goes to its chat unread. */}
+      {view.detached && (
+        <p className="kos-ask-detached" role="note">
+          {view.detached}
+        </p>
+      )}
       {children}
       {asksCode && (
         <form

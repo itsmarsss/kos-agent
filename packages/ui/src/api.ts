@@ -99,6 +99,8 @@ export interface PendingAction {
   alwaysTip?: string;
   /** The secret a secrets tool's ask places, and where; never a value. */
   secret?: AskSecret;
+  /** The host's warning that a yes runs it for no waiting turn, its result going to its chat. */
+  detached?: string;
 }
 
 export interface Project {
@@ -515,6 +517,10 @@ export interface AuditRecord {
   isError: boolean;
   riskTier?: string | null;
   userId?: string | null;
+  /** Where the yes that let a risky call run came from (DecidedVia); null for a safe call or an older row. */
+  decidedVia?: string | null;
+  /** The ask whose yes ran it, when there was one. */
+  approvalId?: number | null;
   /** The chat whose turn made the call; absent from an older host. */
   conversationId?: string | null;
   createdAt: number;
@@ -1355,6 +1361,10 @@ export interface DecidedAction extends Omit<PendingAction, "args" | "summary"> {
   summary: string;
   decidedAt: number | null;
   decidedBy: string | null;
+  /** Where the decision came from (DecidedVia); null for a row from before this was kept. */
+  decidedVia?: string | null;
+  /** The paired device it was pressed on, by id. */
+  decidedDevice?: string | null;
   asker?: string;
 }
 

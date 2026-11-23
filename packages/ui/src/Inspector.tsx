@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
-import { errorWords, formatDuration, hexOfHsl, hueOfHex, isState, kindWord, momentWords, slugWords, STATE_WORDS, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
+import { decidedWords, errorWords, formatDuration, hexOfHsl, hueOfHex, isState, kindWord, momentWords, slugWords, STATE_WORDS, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
 import { Card, ease, Field, lookOf, SheetFoot, StatusPill, Tag, When } from "@kos/kit";
 
 import type {
@@ -67,6 +67,12 @@ export function madeIn(conversationId: string | null | undefined): string {
 }
 
 /** A run's raw error, only when it says more than the sentence over it. */
+/** Who let a risky call run, and where: the ask's place ("Approved on Discord, 2:11 PM, #742"), a rule or Auto. */
+export function allowedWords(t: Pick<AuditRecord, "decidedVia" | "approvalId" | "createdAt">): string {
+  const words = decidedWords({ status: "approved", decidedVia: t.decidedVia ?? null, decidedAt: t.createdAt, requestedAt: t.createdAt });
+  return t.approvalId ? `${words}, #${t.approvalId}` : words;
+}
+
 function rawSaysMore(raw: string, said: string): boolean {
   return raw.trim().replace(/\.$/, "").toLowerCase() !== said.replace(/\.$/, "").toLowerCase();
 }
@@ -200,7 +206,7 @@ export function Inspector(props: {
         <>
           <p className={`insp-lead${t.isError ? " insp-lead--bad" : ""}`}>{t.isError ? errorWords(t.result, { root: props.workspace }) : (line.detail ?? summarizeAction(t.tool, t.args))}</p>
           {!t.isError && <Block label="What it returned" text={t.result || (call ? "Nothing" : "…")} />}
-          <Facts rows={[["When", momentWords(t.createdAt)]]} />
+          <Facts rows={[["When", momentWords(t.createdAt)], ...(t.riskTier === "risky" ? [["Allowed", allowedWords(t)] as [string, string]] : [])]} />
           <Details>
             <Facts
               rows={[
