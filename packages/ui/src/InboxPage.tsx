@@ -94,7 +94,8 @@ export function InboxPage({
                   onDecide={onDecide}
                   meta={
                     <>
-                      Asked <When at={a.requestedAt} />
+                      {/* The number is how the owner names an ask elsewhere ("deny #742"), so it stays on the card. */}
+                      #{a.id} · Asked <When at={a.requestedAt} />
                       {a.conversationId && (
                         <>
                           {" · "}

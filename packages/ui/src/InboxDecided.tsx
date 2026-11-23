@@ -273,6 +273,7 @@ export function InboxDecided({
                   <span className="inbox-decided-outcome">
                     <StatusPill state={a.status} />
                   </span>
+                  <span className="inbox-decided-num">#{a.id}</span>
                   <span className="inbox-decided-what" data-id={a.id}>
                     {a.summary}
                   </span>
