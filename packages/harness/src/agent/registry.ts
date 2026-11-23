@@ -137,9 +137,9 @@ export class ToolRegistry {
     return this.tools.get(name)?.risk.audited !== undefined;
   }
 
-  /** Whether a tool's ask lapses once its turn no longer waits on it (ToolRisk.awaitedOnly). */
-  awaitedOnly(name: string): boolean {
-    return this.tools.get(name)?.risk.awaitedOnly === true;
+  /** What a tool's ask becomes once no turn waits on it (ToolRisk.detached). */
+  detached(name: string): ToolRisk["detached"] {
+    return this.tools.get(name)?.risk.detached;
   }
 
   /** Where a tool's arguments may carry a secret reference; undefined for a tool that takes none. */

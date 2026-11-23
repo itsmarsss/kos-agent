@@ -1,3 +1,5 @@
+import type { DecidedVia } from "@kos/shared";
+
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
 import type { RiskTier } from "../risk/tiers.js";
@@ -13,6 +15,10 @@ export interface AuditEntry {
   userId?: string;
   /** Who let a risky call run when the owner was not asked: "auto mode" for a chat set to Auto. */
   approvedBy?: string;
+  /** Where the yes that let a risky call run came from (see DecidedVia): a surface, a rule, Auto. */
+  decidedVia?: DecidedVia | null;
+  /** The ask whose yes ran it, when there was one. */
+  approvalId?: number;
   /** The conversation whose turn made the call; the calling turn's when not said. */
   conversationId?: string;
 }
@@ -26,6 +32,9 @@ export interface AuditRecord {
   riskTier: RiskTier | null;
   userId: string | null;
   approvedBy: string | null;
+  /** Null for a safe call, and for a risky one from before this was kept. */
+  decidedVia: DecidedVia | null;
+  approvalId: number | null;
   conversationId: string | null;
   createdAt: number;
 }
@@ -60,6 +69,8 @@ interface Row {
   risk_tier: string | null;
   user_id: string | null;
   approved_by: string | null;
+  decided_via: string | null;
+  approval_id: number | null;
   conversation_id: string | null;
   created_at: number;
 }
@@ -74,6 +85,8 @@ function toRecord(row: Row): AuditRecord {
     riskTier: row.risk_tier as RiskTier | null,
     userId: row.user_id,
     approvedBy: row.approved_by ?? null,
+    decidedVia: row.decided_via ?? null,
+    approvalId: row.approval_id ?? null,
     conversationId: row.conversation_id ?? null,
     createdAt: row.created_at,
   };
@@ -91,6 +104,9 @@ export function ensureAuditSchema(db: Db): void {
   if (!columns.some((c) => c.name === "conversation_id")) db.exec(`ALTER TABLE audit_log ADD COLUMN conversation_id TEXT`);
   // Who let a risky call run unasked: Auto's own runs are then told apart.
   if (!columns.some((c) => c.name === "approved_by")) db.exec(`ALTER TABLE audit_log ADD COLUMN approved_by TEXT`);
+  // Where the yes that let a risky call run came from, and the ask it answered.
+  if (!columns.some((c) => c.name === "decided_via")) db.exec(`ALTER TABLE audit_log ADD COLUMN decided_via TEXT`);
+  if (!columns.some((c) => c.name === "approval_id")) db.exec(`ALTER TABLE audit_log ADD COLUMN approval_id INTEGER`);
 }
 
 /**
@@ -115,8 +131,8 @@ export class AuditLog {
     const result = this.redact(entry.result);
     const info = this.db
       .prepare(
-        `INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, approved_by, conversation_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, approved_by, decided_via, approval_id, conversation_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         entry.tool,
@@ -126,6 +142,8 @@ export class AuditLog {
         entry.riskTier ?? null,
         entry.userId ?? null,
         entry.approvedBy ?? null,
+        entry.decidedVia ?? null,
+        entry.approvalId ?? null,
         entry.conversationId ?? caller.getStore() ?? null,
         this.now(),
       );

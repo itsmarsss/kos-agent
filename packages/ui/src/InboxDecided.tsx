@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
-import { AUTO_DECIDER, momentWords, STATE_WORDS, timeCard, timeWords, toolWords } from "@kos/shared";
+import { AUTO_DECIDER, decidedWords, momentWords, timeCard, timeWords, toolWords } from "@kos/shared";
 import { ChevronDown, Chips, Collapse, Count, EmptyState, ListHead, SearchField, spring, StatusPill, Tag } from "@kos/kit";
 
 import { api, type DecidedAction, type DecidedStatus, type InboxData } from "./api.js";
@@ -301,11 +301,14 @@ export function InboxDecided({
                       )}
                       <dt>Asked</dt>
                       <dd>{momentWords(a.requestedAt)}</dd>
-                      <dt>{STATE_WORDS[a.status].word}</dt>
-                      <dd>
-                        {a.decidedAt ? momentWords(a.decidedAt) : "unknown"}
-                        {a.decidedBy ? ` by ${a.decidedBy}` : ""}
-                      </dd>
+                      <dt>Decided</dt>
+                      <dd>{decidedWords({ status: a.status, decidedVia: a.decidedVia ?? null, decidedAt: a.decidedAt, requestedAt: a.requestedAt })}</dd>
+                      {a.decidedDevice && (
+                        <>
+                          <dt>Device</dt>
+                          <dd>{a.decidedDevice}</dd>
+                        </>
+                      )}
                       {a.reason && (
                         <>
                           <dt>Why it asked</dt>

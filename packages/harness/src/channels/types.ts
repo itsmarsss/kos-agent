@@ -1,4 +1,4 @@
-import type { ActionHome, AskSecret } from "@kos/shared";
+import type { ActionHome, AskDetached, AskSecret } from "@kos/shared";
 
 import type { Attachment } from "../kernel/attachments.js";
 import type { MessageRoom, Quote } from "../models/types.js";
@@ -409,6 +409,8 @@ export interface ApprovalRequest {
   beyondAuto?: boolean;
   /** The secret a secrets tool's ask places, and where, for a card's secret block; never a value. */
   secret?: AskSecret;
+  /** No turn waits on the answer: a yes runs it and its result goes to its chat, which the card warns of. */
+  detached?: AskDetached;
 }
 
 /** Who settled an ask and when, as a settled prompt says it. */

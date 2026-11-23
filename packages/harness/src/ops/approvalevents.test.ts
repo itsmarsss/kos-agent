@@ -36,25 +36,25 @@ describe("approval decisions as events", () => {
     const heard: string[] = [];
     queue.onDecided((a) => heard.push(`${a.id}:${a.status}`));
     const id = queued();
-    queue.approve(id, "owner");
+    queue.approve(id, "owner", { via: "dashboard" });
     expect(heard).toEqual([`${id}:approved`]);
   });
 
   it("tells them about a denial too", () => {
     const heard: string[] = [];
     queue.onDecided((a) => heard.push(a.status));
-    queue.deny(queued(), "owner");
+    queue.deny(queued(), "owner", { via: "dashboard" });
     expect(heard).toEqual(["denied"]);
   });
 
   it("says nothing for an action that was already decided", () => {
     const id = queued();
-    queue.approve(id, "owner");
+    queue.approve(id, "owner", { via: "dashboard" });
     const heard = vi.fn();
     queue.onDecided(heard);
     // Deciding it twice is a no-op, so there is nothing to announce and a
     // waiter must not be woken by it.
-    queue.approve(id, "owner");
+    queue.approve(id, "owner", { via: "dashboard" });
     expect(heard).not.toHaveBeenCalled();
   });
 
@@ -62,7 +62,7 @@ describe("approval decisions as events", () => {
     const heard = vi.fn();
     const off = queue.onDecided(heard);
     off();
-    queue.approve(queued(), "owner");
+    queue.approve(queued(), "owner", { via: "dashboard" });
     expect(heard).not.toHaveBeenCalled();
   });
 
@@ -76,7 +76,7 @@ describe("approval decisions as events", () => {
       throw new Error("bad waiter");
     });
     queue.onDecided(good);
-    queue.approve(queued(), "owner");
+    queue.approve(queued(), "owner", { via: "dashboard" });
     expect(good).toHaveBeenCalled();
   });
 });

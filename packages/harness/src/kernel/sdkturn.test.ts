@@ -244,7 +244,7 @@ describe("a turn on the SDK engine", () => {
     expect(ask.reason).toBe("outside this project, in the resume project");
     expect(ask.reached).toBe(true);
     expect(ask.rule).toBeNull();
-    await kernel.deny(ask.id, "owner");
+    await kernel.deny(ask.id, "owner", { surface: "dashboard" });
     expect(existsSync(join(root, "projects", "resume", "cv.md"))).toBe(false);
   });
 
@@ -269,7 +269,7 @@ describe("a turn on the SDK engine", () => {
     kernel.noteIn(chat, "The backup finished.");
     expect(kernel.sessions.get(chat).map(shape)).toEqual(["user tidy up", "use sdk-t-1", "result sdk-t-1"]);
     const ask = kernel.approvals.pending().find((a) => a.conversationId === chat)!;
-    await kernel.deny(ask.id, "owner");
+    await kernel.deny(ask.id, "owner", { surface: "dashboard" });
     await vi.waitFor(() => expect(kernel.sessions.get(chat).map(shape).at(-1)).toBe("assistant The backup finished."));
     expect(kernel.sessions.get(chat).map(shape)).toEqual(["user tidy up", "use sdk-t-1", "result sdk-t-1", "assistant Left it.", "assistant The backup finished."]);
   });

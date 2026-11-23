@@ -65,12 +65,12 @@ describe("clipboard.read", () => {
 
   it("asks every time, past Auto and a remembered rule, and never offers to remember", async () => {
     expect(registry.classify("clipboard.read", {})).toMatchObject({ tier: "risky", asksAlways: true });
-    expect(registry.awaitedOnly("clipboard.read")).toBe(true);
+    expect(registry.detached("clipboard.read")).toBe("never");
     const running = guarded({ chatMode: () => ({ mode: "auto" }), permissions: { allows: () => true, ruleFor: () => ({ tool: "clipboard.read", scope: null, project: null }) } }).execute("clipboard.read", { intent: "the link you copied" });
     const ask = await asked();
     expect(ask.rule).toBeNull();
     expect(askView({ tool: ask.tool, args: ask.args, reason: ask.reason })).toMatchObject({ alwaysNote: "Asks every time" });
-    approvals.deny(ask.id, "owner");
+    approvals.deny(ask.id, "owner", { via: "dashboard" });
     expect((await running).content).not.toContain("Deploy");
     expect(mac.reads).toEqual([{ preview: true }]);
   });
@@ -88,14 +88,14 @@ describe("clipboard.read", () => {
     expect(view.place).toBe("On your Mac, Studio MacBook");
     expect(JSON.stringify(view.steps)).toContain("Deploy with token");
     expect(JSON.stringify(view)).not.toContain(KEY);
-    approvals.deny(ask.id, "owner");
+    approvals.deny(ask.id, "owner", { via: "dashboard" });
     await running;
   });
 
   it("reads what the card showed, scrubbed, and keeps only that it read on the record", async () => {
     const running = guarded().execute("clipboard.read", { intent: "the deploy note" });
     const ask = await asked();
-    approvals.approve(ask.id, "owner");
+    approvals.approve(ask.id, "owner", { via: "dashboard" });
     const result = await running;
     expect(result.isError).toBe(false);
     expect(result.content).toContain("tell Sam the build is out");
@@ -114,7 +114,7 @@ describe("clipboard.read", () => {
     const running = guarded().execute("clipboard.read", {});
     const ask = await asked();
     mac.change = 8;
-    approvals.approve(ask.id, "owner");
+    approvals.approve(ask.id, "owner", { via: "dashboard" });
     const result = await running;
     expect(result.content).toMatch(/Something else was copied/);
     expect(JSON.stringify(auditRows())).not.toMatch(/Deploy/);

@@ -110,7 +110,7 @@ describe("the secrets tools", () => {
       handleMessage: async () => ({ reply: "" }),
     });
     if (yes) await decisions.approve(ask.id, "owner", { surface: "dashboard", ...(remember ? { remember: true } : {}) });
-    else await decisions.deny(ask.id, "owner");
+    else await decisions.deny(ask.id, "owner", { surface: "dashboard" });
   };
   const usesOf = (handle: string): string[] => uses.list(handle).map((u) => `${u.outcome}${u.origin ? ` ${u.origin}` : ""}`);
 

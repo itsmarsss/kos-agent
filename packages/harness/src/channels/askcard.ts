@@ -68,6 +68,7 @@ function viewOf(req: ApprovalRequest & { tool: string }): AskView {
     ...(req.asksAlways !== undefined ? { asksAlways: req.asksAlways } : {}),
     ...(req.secret ? { secret: req.secret } : {}),
     ...(req.beyondAuto ? { beyondAuto: true } : {}),
+    ...(req.detached ? { detached: req.detached } : {}),
     ...(req.names ? { names: req.names } : {}),
     ...(req.where ? { where: req.where } : {}),
     platform: HOST_KEYS,
@@ -121,6 +122,8 @@ export function approvalCard(req: ApprovalRequest, options: { dashboardUrl?: str
     // KOS's account of the step, smaller than what the step does.
     ...(view.said ? [`-# KOS says: “${words(view.said)}”`] : []),
     ...(view.place ? [`-# ${literal(view.place)}`] : []),
+    // Said before any yes: nobody is waiting on this one's result.
+    ...(view.detached ? [`⚠ ${literal(view.detached)}`] : []),
   ];
   // Offered only by the one rule every surface keeps; said why when it is not.
   const note = offersAlways(req) ? undefined : view.alwaysNote;

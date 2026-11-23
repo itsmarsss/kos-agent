@@ -59,7 +59,7 @@ describe("deciding a build's permission request", () => {
     const approved = await kernel.approve(queue("build.Bash"), undefined, { surface: "dashboard" });
     expect(approved.reply).toBeUndefined();
 
-    const denied = await kernel.deny(queue("build.Read"));
+    const denied = await kernel.deny(queue("build.Read"), undefined, { surface: "dashboard" });
     expect(denied.ok).toBe(true);
     expect(denied.reply).toBeUndefined();
     expect(denied.message).toContain("Read");

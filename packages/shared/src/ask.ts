@@ -44,6 +44,8 @@ export interface AskView {
   alwaysNote?: string;
   /** The secret a secrets tool would place, and where: drawn as its own block on the card. */
   secret?: AskSecret;
+  /** Approving runs it for no waiting turn, and why: said on the card in a warning before any yes. */
+  detached?: string;
   /**
    * Set by the host on a device's copy of an ask too big to send whole: its
    * arguments and steps are left out, so the card offers no Approve and
@@ -65,12 +67,23 @@ export interface AskInput {
   secret?: AskSecret | null;
   /** Asked though the chat is in Auto, for what Auto never covers: no remembered yes, and the card says why. */
   beyondAuto?: boolean;
+  /** No turn waits on the answer: the chat that asked has stopped, or nothing ever waited (a schedule's ask). */
+  detached?: AskDetached;
   names?: ActionNames;
   /** Where the asking turn's paths start, so a file tool's title names the path it really reaches. */
   where?: ActionHome;
   /** Whose keyboard a browser's keys are said for. */
   platform?: KeyPlatform;
 }
+
+/** Why no turn waits on an ask's answer: its chat stopped, or nothing ever waited (a schedule's ask). */
+export type AskDetached = "stopped" | "unwaited";
+
+/** The warning a card shows for an ask that would run with no turn waiting on it. */
+export const DETACHED_WORDS: Readonly<Record<AskDetached, string>> = {
+  stopped: "The chat that asked has stopped; approving runs it now and the result goes to its chat.",
+  unwaited: "Nothing is waiting on this; approving runs it now and the result goes to its chat.",
+};
 
 /** The owner's clipboard read on their Mac, the one approval card that shows part of what the call would bring in. */
 export const CLIPBOARD_READ = "clipboard.read";
@@ -295,6 +308,7 @@ export function askView(input: AskInput): AskView {
     ...(place ? { place: place.words } : {}),
     ...(steps ? { steps } : {}),
     ...(risk ? { risk } : {}),
+    ...(input.detached ? { detached: DETACHED_WORDS[input.detached] } : {}),
     // A call that places a secret is asked about every time: nothing is remembered for it, so nothing is offered.
     // Nor for what a chat's Auto never covers, asked in one: the owner decides it each time.
     ...(secret ? { secret } : {}),

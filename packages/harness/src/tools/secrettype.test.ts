@@ -117,7 +117,7 @@ describe("secrets.type", () => {
     await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
     const ask = approvals.pending()[0]!;
     if (yes) await decisions().approve(ask.id, "owner", { surface: "dashboard", ...(remember ? { remember: true } : {}) });
-    else await decisions().deny(ask.id, "owner");
+    else await decisions().deny(ask.id, "owner", { surface: "dashboard" });
   };
   const usesOf = (handle: string): string[] => uses.list(handle).map((u) => `${u.outcome}${u.app ? ` ${u.app}` : ""}`);
 

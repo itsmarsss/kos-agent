@@ -31,6 +31,15 @@ describe("AuditLog", () => {
     expect([said, called, none].map((id) => log.get(id)?.conversationId)).toEqual(["c1", "c2", null]);
   });
 
+  it("keeps where the yes that ran a call came from, and reads an older table's rows as unknown", () => {
+    ws.db.exec("CREATE TABLE audit_log (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, args TEXT NOT NULL, result TEXT NOT NULL, is_error INTEGER NOT NULL, risk_tier TEXT, user_id TEXT, created_at INTEGER NOT NULL, conversation_id TEXT, approved_by TEXT)");
+    ws.db.exec("INSERT INTO audit_log (tool, args, result, is_error, risk_tier, created_at) VALUES ('sql', '{}', 'deleted', 0, 'risky', 1)");
+    const log = new AuditLog(ws.db);
+    expect(log.recent()[0]).toMatchObject({ tool: "sql", decidedVia: null, approvalId: null });
+    const ran = log.record({ tool: "sql", args: {}, result: "deleted", isError: false, riskTier: "risky", decidedVia: "discord", approvalId: 742 });
+    expect(log.get(ran)).toMatchObject({ decidedVia: "discord", approvalId: 742 });
+  });
+
   it("tallies one chat's calls after a mark, with the first that failed", () => {
     const log = new AuditLog(ws.db);
     log.record({ tool: "files.read", args: {}, result: "old", isError: true, conversationId: "c1" });

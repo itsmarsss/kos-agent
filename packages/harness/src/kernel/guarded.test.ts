@@ -355,7 +355,7 @@ describe("GuardedTools", () => {
     expect(ask.reason).toBe("sends secret openai to api.example.com");
     expect(ask.rule).toBeNull();
     expect(seen).toBeUndefined();
-    approvals.approve(ask.id, "owner");
+    approvals.approve(ask.id, "owner", { via: "dashboard" });
     const res = await call;
     expect(res.isError).toBe(false);
     expect(seen).toEqual({ auth: "Bearer sk-real" }); // injected before execution
@@ -438,7 +438,7 @@ describe("GuardedTools", () => {
     // Anything else is judged as before: risky, so it asks.
     const asked = guarded().execute("open", { path: "notes.md" });
     await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
-    approvals.deny(approvals.pending()[0]!.id, "owner");
+    approvals.deny(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
     await asked;
   });
 
@@ -461,7 +461,7 @@ describe("GuardedTools", () => {
     await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
     expect(ran).toBe(false);
 
-    approvals.approve(approvals.pending()[0]!.id, "owner");
+    approvals.approve(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
     const res = await call;
 
     expect(ran).toBe(true);
@@ -479,7 +479,7 @@ describe("GuardedTools", () => {
     const call = guarded().execute("danger", {});
     await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
 
-    approvals.deny(approvals.pending()[0]!.id, "owner");
+    approvals.deny(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
     const res = await call;
 
     // Told plainly, and told not to try again: a refusal the model reads as a
@@ -545,7 +545,7 @@ describe("GuardedTools", () => {
       }).execute("browser.act", {});
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
       expect(order).toEqual(["prepare", "picture"]);
-      approvals.approve(approvals.pending()[0]!.id, "owner");
+      approvals.approve(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
       expect((await call).content).toMatch(/approved this, and it ran:\nran$/);
     });
 
@@ -555,14 +555,14 @@ describe("GuardedTools", () => {
       const tools = (): GuardedTools => guarded({ prepare: async (t) => void prepared.push(t), permissionContext: () => browserContext });
       const refused = tools().execute("browser.eval", { code: "1" });
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
-      approvals.deny(approvals.pending()[0]!.id, "owner");
+      approvals.deny(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
       expect(isUndone((await refused).content)).toBe(true);
       expect(prepared).toEqual([]);
       // Allowed, the session is asked for, then it runs.
       const allowed = tools().execute("browser.eval", { code: "2" });
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
       expect(prepared).toEqual([]);
-      approvals.approve(approvals.pending()[0]!.id, "owner");
+      approvals.approve(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
       expect((await allowed).content).toMatch(/approved this, and it ran:\nran$/);
       expect(prepared).toEqual(["browser.eval"]);
     });

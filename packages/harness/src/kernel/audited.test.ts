@@ -47,7 +47,7 @@ describe("a call kept less on the record", () => {
       {
         floor: "risky",
         asksAlways: true,
-        awaitedOnly: true,
+        detached: "never",
         stamp: (input) => ({ ...input, shown: SHOWN }),
         audited: (input, result) => ({
           args: Object.fromEntries(Object.entries(input).filter(([key]) => key !== "shown")),
@@ -98,7 +98,7 @@ describe("a call kept less on the record", () => {
     const running = guarded().execute("private.read", {});
     await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
     const ask = approvals.pending()[0]!;
-    await decisions().deny(ask.id, "owner");
+    await decisions().deny(ask.id, "owner", { surface: "dashboard" });
     await running;
     expect(approvals.get(ask.id)!.args).not.toContain(SHOWN);
     expect(ran).toBe(0);
@@ -108,7 +108,7 @@ describe("a call kept less on the record", () => {
     const running = guarded({ chatMode: () => ({ mode: "auto" }), permissions: { allows: () => true, ruleFor: () => ({ tool: "private.read", scope: null, project: null }) } }).execute("private.read", {});
     await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
     expect(ran).toBe(0);
-    await decisions().deny(approvals.pending()[0]!.id, "owner");
+    await decisions().deny(approvals.pending()[0]!.id, "owner", { surface: "dashboard" });
     await running;
   });
 

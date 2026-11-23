@@ -702,6 +702,7 @@ p.list-loading { padding: 4px 0; }
 .kos-ask-steps--one { padding: 0; }
 .keycap { display: inline-block; min-width: 1.5em; margin: 0 1px; padding: 0 0.35em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-xs); background: var(--panel-2); color: var(--text); font: 500 0.88em/1.45 var(--mono); text-align: center; vertical-align: 0.05em; white-space: nowrap; }
 .kos-ask-risk { display: flex; flex-wrap: wrap; gap: 4px; }
+.kos-ask-detached { margin: 0; padding: 6px 8px; border-radius: var(--r-xs); background: var(--warn-dim); color: var(--warn); font-size: var(--text-sm); line-height: 1.4; }
 .kos-ask-secret { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-width: 0; }
 .kos-ask-secret-what { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--text-sm); line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
 .kos-ask-secret-what svg { flex: none; color: var(--faint); }

@@ -160,9 +160,9 @@ import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
 import { modelUnavailable, SDK_PROVIDER, SdkOneShot, sdkModelFor, sdkTurnModel, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
-import { CONTROL_SURFACES, controlElsewhere, Decisions, type DecisionOptions, type DecisionResult } from "./decisions.js";
+import { CONTROL_SURFACES, controlElsewhere, Decisions, orphanFate, type DecisionOptions, type DecisionPlace, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
-import { GuardedTools, finishedAfterStop } from "./guarded.js";
+import { GuardedTools, KILL_SWITCH_STOP, finishedAfterStop } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
@@ -942,7 +942,7 @@ export class Kernel {
     this.killSwitch.onChange((halted) => {
       if (!halted) return;
       for (const id of this.modes.clear()) this.bus.emit({ kind: "chat:mode", conversationId: id, mode: ASK });
-      for (const id of [...this.stops.keys()]) this.stop(id);
+      for (const id of [...this.stops.keys()]) this.stop(id, KILL_SWITCH_STOP);
     });
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -2278,7 +2278,27 @@ export class Kernel {
     );
     this.settings.set(HELD_NOTES_KEY, unwritten);
     for (const id of open) this.noteIn(id, `${STOPPED_BEFORE} ${RESTARTED}`);
+    // No turn outlives its process: what they waited on lapses, or stays to run detached.
+    this.releaseOrphans(this.approvals.orphaned(), "restart");
     return open;
+  }
+
+  /**
+   * Asks whose waiting turn can no longer hear the answer, settled by their
+   * fate (orphanFate): lapsed, its chat told so, or kept pending with a card
+   * that warns a yes runs it for no waiting turn.
+   */
+  private releaseOrphans(asks: PendingAction[], via: "restart" | "shutdown"): void {
+    for (const ask of asks) {
+      if (orphanFate(ask, this.registry.detached(ask.tool)) === "runs") {
+        this.approvals.detach(ask.id);
+        continue;
+      }
+      const lapsed = this.approvals.lapse(ask.id, via);
+      if (lapsed?.conversationId) {
+        this.noteIn(lapsed.conversationId, `@approval:${lapsed.id} (${summarizeAction(lapsed.tool, lapsed.args, (kind, id) => this.labelFor(kind, id), this.actionHome(lapsed.conversationId))}) lapsed: the chat stopped before you decided, so nothing was done. Ask again if it is still wanted.`);
+      }
+    }
   }
 
   /**
@@ -3188,8 +3208,8 @@ export class Kernel {
     return this.decisions.approve(id, decidedBy, options);
   }
 
-  async deny(id: number, decidedBy?: string): Promise<DecisionResult> {
-    return this.decisions.deny(id, decidedBy);
+  async deny(id: number, decidedBy: string | undefined, place: DecisionPlace): Promise<DecisionResult> {
+    return this.decisions.deny(id, decidedBy, place);
   }
 
   async dispatchTo(
@@ -3553,7 +3573,7 @@ export class Kernel {
           };
         }
         const result =
-          command.kind === "approve" ? await this.approve(action.id, userId, { surface: channel, typed: true }) : await this.deny(action.id, userId);
+          command.kind === "approve" ? await this.approve(action.id, userId, { surface: channel, typed: true }) : await this.deny(action.id, userId, { surface: channel, typed: true });
         const what = `@approval:${action.id} ${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(action.conversationId))}`;
         return { reply: result.ok ? `${command.kind === "approve" ? "Approved" : "Denied"} ${what}.` : result.message };
       }
@@ -5383,10 +5403,10 @@ export class Kernel {
    * lapses, and the turn ends with what it had. One waiting on the owner is
    * live too: it is the turn the owner most often wants gone.
    */
-  stop(sessionId: string): boolean {
+  stop(sessionId: string, why?: typeof KILL_SWITCH_STOP): boolean {
     const stops = this.stops.get(sessionId);
     if (!stops?.size) return false;
-    for (const stop of stops.values()) stop.abort();
+    for (const stop of stops.values()) stop.abort(why);
     // A tool mid-call (a long wait on a computer) hears it too, and ends now.
     this.bus.emit({ kind: "turn:stop", conversationId: sessionId });
     return true;
@@ -5896,6 +5916,12 @@ export class Kernel {
     void this.loader.unload();
     this.pageQueryRunner?.close();
     this.artifactChecker?.close();
+    // The turns of this process waiting on the owner end with it: what they asked lapses, or stays to run detached.
+    try {
+      this.releaseOrphans(this.approvals.awaited().flatMap((id) => this.approvals.get(id) ?? []), "shutdown");
+    } catch {
+      // A store already closed (a second close) has no asks left to settle.
+    }
     // Lines held for a turn that will not end in this process go in now, while the store is open.
     for (const id of [...this.heldNotes.keys()]) this.releaseNotes(id);
     // Runs this process will not finish are closed as such; their chats are told at the next boot, which knows them still open.
