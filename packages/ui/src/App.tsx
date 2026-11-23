@@ -23,7 +23,8 @@ import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
 import { m } from "motion/react";
 
-import { chatShown, frameOf, hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
+import { chatShown, frameOf, hrefFor, pageKeyOf, pageName, pageTitle, parseRoute, type Route } from "./routes.js";
+import { landOnHeading } from "./landing.js";
 import { Drawer } from "./Drawer.js";
 import { targetHref, useCreateParam } from "./hashparams.js";
 import { CronEditor } from "./CronEditor.js";
@@ -704,7 +705,19 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (inspectPage.current !== null && inspectPage.current !== pageKey) setInspect(null);
   }, [pageKey]);
-  // Arrived on a page, the keys go with you rather than back to the top of the document: a chat's box, else the page's region.
+  /** What the page shows by name, when it shows one thing: a chat's title, a project's name. */
+  const shownId = chatShown(route);
+  const named =
+    route.name === "project"
+      ? projects.find((p) => p.slug === route.slug)?.name
+      : shownId
+        ? conversations.find((c) => c.id === shownId)?.title
+        : undefined;
+  const title = pageTitle(route, named);
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
+  // Arrived on a page, the keys go with you rather than back to the top of the document: a chat's box, else the page's heading, else its region.
   useEffect(() => {
     let tries = 0;
     let frame = 0;
@@ -715,7 +728,7 @@ export function App(): React.ReactElement {
       if (box) box.focus({ preventScroll: true });
       // A chat's box comes with its thread, a moment after the page.
       else if (chatShown(route) && ++tries < 30) frame = requestAnimationFrame(land);
-      else document.querySelector<HTMLElement>("[data-focus-home]")?.focus({ preventScroll: true });
+      else landOnHeading();
     };
     frame = requestAnimationFrame(land);
     return () => cancelAnimationFrame(frame);
@@ -806,7 +819,7 @@ export function App(): React.ReactElement {
         onCopyWorkspace={() => void copyWorkspace()}
         onToggleKill={() => void toggleKill()}
       />
-      <main className="ops" tabIndex={-1} data-focus-home>
+      <main className="ops" tabIndex={-1} data-focus-home aria-label={pageName(route, named)}>
         <HostBanner reach={reach} />
         <Announcer />
         <ToastHost />
