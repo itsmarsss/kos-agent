@@ -152,7 +152,7 @@ function WidgetOutlineThumb({ outline }: { outline: WidgetOutline[] }): ReactEle
 
 function CardGrid({ items, label, children }: { items: ArtifactSummary[]; label: string; children: (a: ArtifactSummary) => ReactElement }): ReactElement {
   return (
-    <ul className="artifact-grid" aria-label={label}>
+    <ul className="artifact-grid arrive" aria-label={label}>
       {items.map((a) => (
         <li key={a.id}>{children(a)}</li>
       ))}

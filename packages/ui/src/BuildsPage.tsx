@@ -335,6 +335,8 @@ export function BuildsPage({
         </p>
       )}
 
+      {/* Where the builds will be while they are read, never a blank page. */}
+      {builds === null && !error && <EmptyState loading />}
       {builds && builds.length === 0 && (
         <EmptyState title="Nothing running">
           KOS starts one when a piece of work is bigger than editing a file, and it

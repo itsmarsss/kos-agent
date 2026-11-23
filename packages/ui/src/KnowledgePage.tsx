@@ -372,7 +372,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
         </form>
       </Modal>
 
-      {loading && facts.length === 0 && <EmptyState loading className="know-empty" />}
+      {loading && facts.length === 0 && <EmptyState loading itemHeight={58} className="know-empty" />}
       {!loading && facts.length === 0 && (
         <EmptyState title="Nothing remembered yet." className="know-empty">
           KOS keeps what you tell it and what its agents work out, for every chat to read. Pin what should be in every conversation.{" "}
@@ -404,7 +404,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
                 </>
               }
             />
-            <ul className="know-list">
+            <ul className="know-list arrive">
               {shown.map((f) => (
                 <li key={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={(e) => claimRowKeys(e, { pin: () => togglePin(f), edit: () => startEdit(f) })}>
                   <button type="button" className="know-open" aria-keyshortcuts="ArrowRight P E Delete" onClick={() => setOpen(f)}>

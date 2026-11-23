@@ -79,7 +79,7 @@ export function InboxPage({
       )}
 
       {approvals.length > 0 && (
-        <section className="inbox-group inbox-group--asks">
+        <section className="inbox-group inbox-group--asks arrive">
           <GroupHead title="Approvals" count={approvals.length} />
           <PictureGallery>
           <ul className="panel-list ask-list">
@@ -125,7 +125,7 @@ export function InboxPage({
       )}
 
       {decisions.length > 0 && (
-        <section className="inbox-group">
+        <section className="inbox-group arrive">
           <GroupHead title="Memory decisions" count={decisions.length} />
           <p className="hint">Only what KOS was not sure enough to settle itself; each leads with what it leans to. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.</p>
           <div className="inbox-box">
@@ -137,7 +137,7 @@ export function InboxPage({
       )}
 
       {suggestions.length > 0 && (
-        <section className="inbox-group">
+        <section className="inbox-group arrive">
           <GroupHead title="Suggestions" count={suggestions.length} />
           <p className="hint">Things KOS thinks it could make reusable. Nothing happens until you say so; accepting opens a chat that carries it out, with the usual approvals.</p>
           <div className="inbox-box">
@@ -173,7 +173,7 @@ export function InboxPage({
       )}
 
       {failures.length > 0 && (
-        <section className="inbox-group">
+        <section className="inbox-group arrive">
           <GroupHead title="Failing now" count={failures.length} />
           <ul className="panel-list inbox-box">
             {failures.map((f) => (

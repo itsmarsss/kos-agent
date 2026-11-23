@@ -681,7 +681,11 @@ export function SettingsPage({
             {error}
           </p>
         ) : (
-          <p className="hint">Loading…</p>
+          /* The page's two columns while its settings are read, the list and the pane, not a line of text. */
+          <>
+            <EmptyState loading itemHeight={52} />
+            <EmptyState loading itemHeight={140} />
+          </>
         )}
       </div>
     );
