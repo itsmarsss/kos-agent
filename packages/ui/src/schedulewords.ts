@@ -1,4 +1,4 @@
-import { slugWords, SYSTEM_SCHEDULES, timeWords } from "@kos/shared";
+import { scheduleName, timeWords } from "@kos/shared";
 
 /**
  * Small readings of a schedule for a panel: which days of the week a cron
@@ -38,10 +38,7 @@ export function runDays(expr: string): Set<number> | null {
  * the store's, kept for a tooltip.
  */
 export function jobTitle(name: string): string {
-  const own = SYSTEM_SCHEDULES[name];
-  if (own) return own;
-  if (name.startsWith("blob.")) return slugWords(name.slice(5));
-  return name;
+  return scheduleName(name);
 }
 
 /** When a schedule last ran, as its row or panel says it: how long ago, or that it never has. */

@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api.js";
-import { MemoryPage } from "./MemoryPage.js";
+import { MemoryPage, notesEmptyWords } from "./MemoryPage.js";
 
 /** The Memory page's tabs are tabs: one stop, the arrows between them, each naming its panel. */
 
@@ -82,5 +82,12 @@ describe("the Memory page", () => {
     expect(rows[1]!.textContent).toContain("Trip planning");
     expect(rows[1]!.textContent).toContain("travel");
     window.location.hash = "";
+  });
+});
+
+describe("the Notes tab's empty line", () => {
+  it("never promises a tidy that is off", () => {
+    expect(notesEmptyWords({ enabled: false, schedule: "0 4 * * *" })).toBe("No notes yet. Memory: Tidy writes them, and it is off: turn it on or press Run now on the Upkeep tab.");
+    expect(notesEmptyWords({ enabled: true, schedule: "0 4 * * *" })).toMatch(/^No notes yet\. Memory: Tidy writes them \(Every day at 4:00/);
   });
 });

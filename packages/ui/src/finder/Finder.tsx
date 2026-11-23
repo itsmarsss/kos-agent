@@ -374,7 +374,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     items.push({ label: paths.length > 1 ? "Copy paths" : "Copy path", act: () => ops.copyPath(paths) });
     if (onAsk) items.push({ label: "Ask KOS about this", act: () => onAsk(paths), divided: true });
     if (onOpenInFiles && one) items.push({ label: "Show in Files", act: () => onOpenInFiles(one.path), ...(onAsk ? {} : { divided: true }) });
-    if (!kept) items.push({ label: "Move to Trash", act: () => trashChosen(paths), danger: true, divided: true, keys: "⌘⌫" });
+    if (!kept) items.push({ label: "Move to trash", act: () => trashChosen(paths), danger: true, divided: true, keys: "⌘⌫" });
     // Said rather than left out: a menu with no Rename or Trash looked broken.
     else items.push({ label: "KOS's own file: it can't be renamed, moved or trashed", act: () => undefined, disabled: true, divided: true });
     return items;

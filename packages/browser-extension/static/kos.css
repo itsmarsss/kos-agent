@@ -68,10 +68,10 @@
   --ok: #0f6e45;
   --warn: #7d5400;
   --danger: #cf3b47;
-  --accent-dim: rgba(53, 88, 214, 0.1);
-  --ok-dim: rgba(15, 110, 69, 0.1);
-  --warn-dim: rgba(125, 84, 0, 0.1);
-  --danger-dim: rgba(207, 59, 71, 0.1);
+  --accent-dim: rgba(53, 88, 214, 0.14);
+  --ok-dim: rgba(15, 110, 69, 0.14);
+  --warn-dim: rgba(125, 84, 0, 0.14);
+  --danger-dim: rgba(207, 59, 71, 0.14);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }

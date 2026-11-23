@@ -1,10 +1,14 @@
 import {
+  errorWords,
   matchText,
   oneLine,
   queryWords,
+  scheduleName,
   SEARCH_KINDS,
+  slugWords,
   snippetOf,
   summarizeAction,
+  toolWords,
   type MatchQuality,
   type SearchHit,
   type SearchKind,
@@ -219,11 +223,11 @@ export interface MemorySourceDeps {
   readPage: (name: string) => string | undefined;
 }
 
-/** Where a claim applies, in words. */
-function scopeWords(scope: string): string {
-  if (scope === GLOBAL_SCOPE) return "everywhere";
+/** Where a claim applies, in words: every chat, or the project or app it belongs to. */
+export function scopeWords(scope: string): string {
+  if (scope === GLOBAL_SCOPE) return "for every chat";
   const [kind, name] = scope.split(":", 2);
-  return kind === "project" || kind === "caller" ? (name ?? scope) : scope;
+  return kind === "project" || kind === "caller" ? `in ${slugWords(name ?? scope)}` : "in one place";
 }
 
 /** Memory: the claims, by what recall finds for the query, and the pages written from them. */
@@ -241,7 +245,7 @@ export function memorySource(deps: MemorySourceDeps): SearchSource {
         hits.push({
           kind: "memory",
           id: `claim:${fact.id}`,
-          title: fact.key,
+          title: slugWords(fact.key),
           hint: scopeWords(fact.scope),
           snippet: snippetOf(value, inValue?.marks ?? []),
           score: scoreOf(quality, inKey ? "title" : "body", fact.updatedAt) - (inKey || inValue ? 0 : 0.2),
@@ -284,13 +288,13 @@ export interface RunSourceDeps {
   summary: (call: AuditRecord) => string;
 }
 
-/** A run's kind as Runs names it: a chat's turn, a scheduled job, a check, KOS's own work on memory. */
+/** A run's kind as Runs names it: a chat's reply, a schedule's run, a check, KOS's own work on memory. */
 export function runWords(kind: string): string {
-  if (kind === "chat") return "turn";
-  if (kind === "cron") return "job";
-  if (kind === "heartbeat") return "check";
-  if (kind.startsWith("memory.")) return "memory";
-  return kind;
+  if (kind === "chat") return "Chat reply";
+  if (kind === "cron") return "Schedule run";
+  if (kind === "heartbeat") return "Check";
+  if (kind.startsWith("memory.")) return "Memory upkeep";
+  return slugWords(kind);
 }
 
 /** How far back the runs are read: a few weeks of turns and jobs. */
@@ -305,7 +309,8 @@ export function runSource(deps: RunSourceDeps): SearchSource {
       const labelOf = deps.labeller();
       for (const run of deps.runs(RUNS_READ)) {
         const label = labelOf(run);
-        const error = oneLine(run.error ?? "");
+        // What went wrong in words, as Runs says it: never the tool's message or the host's paths.
+        const error = run.error ? oneLine(errorWords(run.error)) : "";
         const named = matchText(`${label} ${run.kind}`, query);
         const failed = error ? matchText(error, query) : undefined;
         if (!named && !failed) continue;
@@ -313,7 +318,7 @@ export function runSource(deps: RunSourceDeps): SearchSource {
           kind: "run",
           id: `run:${run.id}`,
           title: label,
-          hint: run.status === "error" ? `${runWords(run.kind)} · failed` : runWords(run.kind),
+          hint: run.status === "error" ? `${runWords(run.kind)}, failed` : runWords(run.kind),
           snippet: failed ? snippetOf(error, failed.marks) : snippetOf(label, matchText(label, query)?.marks ?? []),
           score: scoreOf((named ?? failed)!.quality, named ? "title" : "body", run.startedAt),
           at: run.startedAt,
@@ -329,8 +334,8 @@ export function runSource(deps: RunSourceDeps): SearchSource {
         hits.push({
           kind: "run",
           id: `call:${call.id}`,
-          title: call.tool,
-          ...(call.isError ? { hint: "failed" } : {}),
+          title: toolWords(call.tool),
+          hint: call.isError ? "Step, failed" : "Step",
           snippet: inArgs ? snippetOf(args, inArgs.marks) : snippetOf(summary, matchText(summary, query)?.marks ?? []),
           score: scoreOf((said ?? inArgs)!.quality, "body", call.createdAt),
           at: call.createdAt,
@@ -382,7 +387,8 @@ export function kernelSources(kernel: Kernel): SearchSource[] {
     // First, so its child is reading while the others answer.
     contentSource(kernel.workspace),
     messageSource({
-      conversations: chats,
+      // Each chat by the name it goes by everywhere: KOS, a project's orchestrator, a blob by its name.
+      conversations: () => chats().map((c) => ({ ...c, title: kernel.nameOf(c.id) })),
       events: (id) => historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id), kernel.actionHome(id)),
       mentioning: (word) => kernel.sessions.mentioning(word),
     }),
@@ -395,11 +401,12 @@ export function kernelSources(kernel: Kernel): SearchSource[] {
       runs: (limit) => kernel.runs.recent(limit),
       labeller: () => {
         const jobs = new Map(kernel.crons.list().map((c) => [String(c.id), c.name]));
-        const titles = new Map(kernel.conversations.list(owner, { includeArchived: true }).map((c) => [c.id, c.title]));
+        const titles = new Set(kernel.conversations.list(owner, { includeArchived: true }).map((c) => c.id));
         return (run) => {
-          if (run.kind === "cron") return (run.ref && jobs.get(run.ref)) || "A job since removed";
-          if (run.kind === "chat") return (run.ref && titles.get(run.ref)) || "A chat";
-          return run.kind;
+          const job = run.kind === "cron" && run.ref ? jobs.get(run.ref) : undefined;
+          if (run.kind === "cron") return job ? scheduleName(job) : "A schedule since removed";
+          if (run.kind === "chat") return run.ref && titles.has(run.ref) ? kernel.nameOf(run.ref) : "A chat";
+          return runWords(run.kind);
         };
       },
       calls: (word, limit) => kernel.audit.search(word, limit),

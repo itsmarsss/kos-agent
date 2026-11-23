@@ -1,6 +1,7 @@
 import type { Db } from "../store/db.js";
 
-export type RunStatus = "running" | "ok" | "error" | "skipped";
+/** "partial": it ran to its end, but some of its steps failed; `error` says how many. */
+export type RunStatus = "running" | "ok" | "partial" | "error" | "skipped";
 
 export interface RunRecord {
   id: number;
@@ -119,6 +120,14 @@ export class RunsLog {
       .prepare(`SELECT COUNT(*) AS n FROM runs_log WHERE kind = ? AND ref = ? AND status != 'running'`)
       .get(kind, ref) as { n: number };
     return row.n;
+  }
+
+  /** The newest finished run of one kind: how the last of it went. */
+  lastOf(kind: string): RunRecord | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM runs_log WHERE kind = ? AND status != 'running' ORDER BY id DESC LIMIT 1`)
+      .get(kind) as Row | undefined;
+    return row ? toRecord(row) : undefined;
   }
 
   failures(limit = 50): RunRecord[] {

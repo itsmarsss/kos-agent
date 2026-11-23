@@ -31,10 +31,18 @@ export interface ColumnLayout {
   storeKey: string;
   specs: readonly ColumnSpec[];
   tail?: number;
+  /** Name's least while another column shows, its icon and padding included; NAME_MIN when not said. */
+  nameMin?: number;
 }
 
 /** Name never goes narrower than this while another column shows: that column hides first. */
 export const NAME_MIN = 160;
+/**
+ * The Files page's Name keeps more: at 160 its icon and padding left a name
+ * about 100 px of text, "quart…n-001.csv", while Date, Size and Kind all
+ * stayed. Kind, then Date, then Size go before Name is cut that far.
+ */
+export const FILES_NAME_MIN = 260;
 /** No column grows past this, however far it is dragged. */
 export const COLUMN_MAX = 480;
 /** A press of an arrow on a divider; Shift moves four times as far. */
@@ -63,7 +71,7 @@ export const LIST_WIDTHS_KEY = "kos.finder.columns";
 export const PANEL_WIDTHS_KEY = "kos.finder.panelColumns";
 export const TRASH_WIDTHS_KEY = "kos.finder.trashColumns";
 
-export const FILES_LAYOUT: ColumnLayout = { storeKey: LIST_WIDTHS_KEY, specs: LIST_COLUMNS };
+export const FILES_LAYOUT: ColumnLayout = { storeKey: LIST_WIDTHS_KEY, specs: LIST_COLUMNS, nameMin: FILES_NAME_MIN };
 export const PANEL_LAYOUT: ColumnLayout = { storeKey: PANEL_WIDTHS_KEY, specs: PANEL_COLUMNS };
 export const TRASH_LAYOUT: ColumnLayout = { storeKey: TRASH_WIDTHS_KEY, specs: TRASH_COLUMNS, tail: 240 };
 
@@ -101,9 +109,9 @@ export function saveWidths(storeKey: string, widths: ColumnWidths): void {
  * lower rank once one does not fit. Every column where nothing is laid out
  * (room 0, as in jsdom).
  */
-export function fitColumns(room: number, specs: readonly ColumnSpec[], widths: ColumnWidths, tail = 0): string[] {
+export function fitColumns(room: number, specs: readonly ColumnSpec[], widths: ColumnWidths, tail = 0, nameMin = NAME_MIN): string[] {
   if (room <= 0) return specs.map((s) => s.key);
-  let used = NAME_MIN + tail;
+  let used = nameMin + tail;
   const shown = new Set<string>();
   for (const spec of [...specs].sort((a, b) => b.rank - a.rank)) {
     const width = widths[spec.key] ?? spec.width;
@@ -119,10 +127,10 @@ export const columnsTemplate = (shown: readonly ColumnSpec[], widths: ColumnWidt
   ["minmax(0, 1fr)", ...shown.map((s) => `${widths[s.key] ?? s.width}px`), ...(tail ? [`${tail}px`] : [])].join(" ");
 
 /** As wide as a column may go in `room`: what Name and the other shown columns leave it. Unbounded where nothing is laid out. */
-export function widestOf(spec: ColumnSpec, room: number, shown: readonly ColumnSpec[], widths: ColumnWidths, tail = 0): number {
+export function widestOf(spec: ColumnSpec, room: number, shown: readonly ColumnSpec[], widths: ColumnWidths, tail = 0, nameMin = NAME_MIN): number {
   if (room <= 0) return COLUMN_MAX;
   const others = shown.filter((s) => s.key !== spec.key).reduce((sum, s) => sum + (widths[s.key] ?? s.width), 0);
-  return clampWidth(room - NAME_MIN - tail - others, spec);
+  return clampWidth(room - nameMin - tail - others, spec);
 }
 
 /** How wide a cell's contents are drawn, its padding included: a Range over them, since a cell that clips (overflow hidden) reports a scroll width no narrower than itself. */
@@ -145,7 +153,7 @@ export interface Columns {
 }
 
 /** A list's resizable columns: the widths, kept under the layout's key, which of them fit, and the dividers that change them. */
-export function useColumns({ storeKey, specs, tail = 0 }: ColumnLayout): Columns {
+export function useColumns({ storeKey, specs, tail = 0, nameMin = NAME_MIN }: ColumnLayout): Columns {
   const [widths, setWidths] = useState<ColumnWidths>(() => readWidths(storeKey, specs));
   const [room, setRoom] = useState(0);
   const headRef = useRef<HTMLDivElement>(null);
@@ -160,7 +168,7 @@ export function useColumns({ storeKey, specs, tail = 0 }: ColumnLayout): Columns
     return () => watch.disconnect();
   }, []);
 
-  const shownKeys = useMemo(() => fitColumns(room, specs, widths, tail), [room, specs, widths, tail]);
+  const shownKeys = useMemo(() => fitColumns(room, specs, widths, tail, nameMin), [room, specs, widths, tail, nameMin]);
   const shown = useMemo(() => specs.filter((s) => shownKeys.includes(s.key)), [specs, shownKeys]);
 
   const commit = useCallback(
@@ -181,7 +189,7 @@ export function useColumns({ storeKey, specs, tail = 0 }: ColumnLayout): Columns
     [shown, tail],
   );
 
-  const maxOf = useCallback((spec: ColumnSpec): number => widestOf(spec, room, shown, kept.current, tail), [room, shown, tail]);
+  const maxOf = useCallback((spec: ColumnSpec): number => widestOf(spec, room, shown, kept.current, tail, nameMin), [room, shown, tail, nameMin]);
 
   /** As wide as the widest thing in the column, its head's words included: narrower or wider. */
   const fit = useCallback(

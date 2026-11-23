@@ -19,6 +19,7 @@ import { fitInside, place, type Placement } from "./popover.js";
 import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
 import { EmptyState, SheetFoot } from "@kos/kit";
+import { providerWord } from "@kos/shared";
 
 /**
  * What KOS has spent.
@@ -395,7 +396,7 @@ export function SpendPanel(): ReactElement {
                 <tr key={`${m.provider}:${m.model}`}>
                   <td>
                     <span className="spend-model">{m.model}</span>
-                    <span className="spend-provider">{m.provider}</span>
+                    <span className="spend-provider">{providerWord(m.provider)}</span>
                   </td>
                   <td>{m.calls}</td>
                   <td>{tokens(m.inputTokens)}</td>
@@ -456,11 +457,8 @@ export function SpendPanel(): ReactElement {
         }
       >
         <p className="hint">
-          Price per million tokens, from your provider&apos;s pricing page, and
-          the model&apos;s context window if KOS does not already know it. A
-          model with no rate shows tokens only rather than a made-up figure,
-          and an unknown window means the chat meter shows a count without a
-          percentage.
+          Prices are in dollars per million tokens, from your provider&apos;s
+          pricing page. Leave one empty and KOS shows tokens, not a guessed cost.
         </p>
         <div className="spend-rate-list">
           {models.map((m) => {
@@ -470,11 +468,11 @@ export function SpendPanel(): ReactElement {
               <div className="spend-rate" key={key}>
                 <div className="spend-rate-name">
                   <strong>{m.model}</strong>
-                  <span className="hint">{m.provider}</span>
+                  <span className="hint">{providerWord(m.provider)}</span>
                 </div>
                 <div className="spend-rate-fields">
                   <label className="spend-rate-field">
-                    <span>$ / M in</span>
+                    <span>$ per million in</span>
                     <input
                       className="kos-input kos-input--num"
                       inputMode="decimal"
@@ -484,7 +482,7 @@ export function SpendPanel(): ReactElement {
                     />
                   </label>
                   <label className="spend-rate-field">
-                    <span>$ / M out</span>
+                    <span>$ per million out</span>
                     <input
                       className="kos-input kos-input--num"
                       inputMode="decimal"
@@ -494,7 +492,7 @@ export function SpendPanel(): ReactElement {
                     />
                   </label>
                   <label className="spend-rate-field">
-                    <span>Context window</span>
+                    <span>Most it can read at once</span>
                     <input
                       className="kos-input kos-input--num"
                       inputMode="numeric"

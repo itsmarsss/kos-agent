@@ -54,7 +54,16 @@ describe("EmptyState", () => {
       </table>,
     );
     expect(container.textContent).not.toContain("match");
-    expect(container.querySelector("tr td")?.getAttribute("colspan")).toBe("3");
+    // A cell per column, so no bar runs across a column's line.
+    expect(container.querySelectorAll("tr:first-child td").length).toBe(3);
+  });
+
+  it("takes the shape of what it stands for: cards in the grid, at their height", () => {
+    const { container } = render(<EmptyState loading shape="cards" itemHeight={117} />);
+    expect(container.querySelector(".list-loading--cards")).toBeTruthy();
+    const bars = [...container.querySelectorAll<HTMLElement>(".skeleton")];
+    expect(bars.length).toBe(6);
+    expect(bars.every((b) => b.style.height === "117px")).toBe(true);
   });
 });
 

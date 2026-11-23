@@ -298,7 +298,7 @@ export class MemoryExtractor {
         return;
       }
       this.save({ lastEventId: this.state().lastEventId, stuck: { id: last, tries, at: this.now() } });
-      throw new Error(`the extractor's reply on event #${last} was cut off or unreadable; it is read again on the next run`);
+      throw new Error(`the memory reader's answer was cut off or unreadable, so it reads those messages (up to #${last}) again next time`);
     }
     const half = Math.ceil(batch.length / 2);
     await this.read(batch.slice(0, half), report);

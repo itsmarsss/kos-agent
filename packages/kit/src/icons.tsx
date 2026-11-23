@@ -173,11 +173,12 @@ export const ForkIcon = ({ size, title = "Fork" }: IconProps = {}): ReactElement
   </Icon>
 );
 
+/** The one overflow mark, across as the sidebar's More is: every ⋯ in the apps is this. */
 export const MoreIcon = ({ size, title = "More" }: IconProps = {}): ReactElement => (
   <Icon title={title} size={size}>
-    <circle cx="12" cy="5" r="1.2" fill="currentColor" />
+    <circle cx="5" cy="12" r="1.2" fill="currentColor" />
     <circle cx="12" cy="12" r="1.2" fill="currentColor" />
-    <circle cx="12" cy="19" r="1.2" fill="currentColor" />
+    <circle cx="19" cy="12" r="1.2" fill="currentColor" />
   </Icon>
 );
 

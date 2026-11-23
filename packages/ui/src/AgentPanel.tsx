@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { Card, Face, lookOf, moodOf, NotFound, PaneHead, StatusPill, Tag, When } from "@kos/kit";
-import { momentWords, timeWords, type State } from "@kos/shared";
+import { errorWords, momentWords, timeWords, type State } from "@kos/shared";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo } from "./api.js";
@@ -49,10 +49,11 @@ export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "nee
   const t = a.thread;
   if (t?.activity === "working") return { tone: "working", text: "Working now" };
   if (t?.activity === "needs-you") return { tone: "needs-you", text: "Waiting on you" };
-  if (t?.activity === "error") return { tone: "error", text: `Last turn failed${t.lastError ? `: ${t.lastError}` : ""}` };
-  if (paused) return { tone: "asleep", text: "Asleep, its schedule is off" };
-  if (t?.lastSaid) return { tone: "idle", text: `Quiet, last spoke ${timeWords(t.updatedAt)}` };
-  return { tone: "idle", text: "Quiet" };
+  if (t?.activity === "error") return { tone: "error", text: `Last turn failed${t.lastError ? `: ${errorWords(t.lastError)}` : ""}` };
+  // The pill beside it says Off or Quiet; the line says what the pill cannot.
+  if (paused) return { tone: "asleep", text: "Its schedule is off" };
+  if (t?.lastSaid) return { tone: "idle", text: `Last spoke ${timeWords(t.updatedAt)}` };
+  return { tone: "idle", text: "Nothing said yet" };
 }
 
 /** What each blob's panel last showed, so opening it again does not pass through "Loading…". */
@@ -124,7 +125,7 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
             </button>
           </>
         ) : (
-          <NotFound what="blob" name={name} back={{ label: "All blobs", href: hrefFor({ name: "blobs" }) }} />
+          <NotFound what="blob" name={name} back={{ label: "Back to Blobs", href: hrefFor({ name: "blobs" }) }} />
         )}
       </aside>
     );
@@ -157,7 +158,7 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
       <Card title="Schedule" pill={agent.job ? <StatusPill state={paused ? "off" : "on"} /> : undefined}>
         {agent.job ? (
           <>
-            <p className="agent-when" title={agent.job.schedule}>
+            <p className="agent-when">
               {scheduleWords(agent.job.schedule)}
             </p>
             {days && (

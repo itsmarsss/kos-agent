@@ -1,4 +1,4 @@
-import { cronFailure, type CronExecResult } from "../cron/executor.js";
+import { cronFailure, cronOutcome, type CronExecResult } from "../cron/executor.js";
 import { CronScheduler, type FireOutcome, type KillSwitch } from "../cron/scheduler.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronJob } from "../cron/types.js";
@@ -145,10 +145,12 @@ export class CronService {
         return { ran: true, type: "actions", results: [] };
       }
       const result = await this.deps.run(job);
-      const problem = cronFailure(result);
       // A job whose condition said "not now" did what it was written to do,
-      // so it is healthy rather than nothing having happened.
-      this.deps.runs.finish(runId, problem ? "error" : result.ran ? "ok" : "skipped", problem);
+      // so it is healthy rather than nothing having happened; one that ran
+      // is judged by its steps, so "Done." over failed steps is not Done.
+      const outcome = cronOutcome(result);
+      this.deps.runs.finish(runId, outcome.status, outcome.error);
+      const problem = outcome.status === "error" ? outcome.error : null;
       this.deps.report(key, job.name, problem === null, problem);
       return result;
     } catch (err) {

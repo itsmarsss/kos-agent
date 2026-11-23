@@ -11,6 +11,7 @@ describe("a schedule as a shape", () => {
       "15 16 * * 1,3,5": { kind: "weekly", days: [1, 3, 5], time: "16:15" },
       "0 */6 * * *": { kind: "hourly", every: 6, minute: 0 },
       "15 */2 * * *": { kind: "hourly", every: 2, minute: 15 },
+      "15 * * * *": { kind: "hourly", every: 1, minute: 15 },
       "*/15 * * * *": { kind: "minutes", every: 15 },
       "0 9 1 * *": { kind: "monthly", day: 1, time: "09:00" },
     };
@@ -50,6 +51,7 @@ describe("describeCron", () => {
     expect(describeCron("0 9 * * 1,3,5", "en-GB")).toBe("Mon, Wed, Fri at 09:00");
     expect(describeCron("0 */6 * * *")).toBe("Every 6 hours, on the hour");
     expect(describeCron("15 */2 * * *")).toBe("Every 2 hours, at 15 past the hour");
+    expect(describeCron("15 * * * *")).toBe("Every hour, at 15 past the hour");
     expect(describeCron("*/15 * * * *")).toBe("Every 15 minutes");
     expect(describeCron("* * * * *")).toBe("Every minute");
     expect(describeCron("0 9 1 * *", "en-GB")).toBe("On day 1 of each month at 09:00");

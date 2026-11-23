@@ -52,13 +52,16 @@ describe("an agent's face", () => {
   });
 
   it("renders as an image of the agent, marked by its mood", () => {
-    render(<Face seed="research" size={32} mood="needs-you" />);
-    const img = screen.getByRole("img", { name: "research, needs you" });
+    render(<Face seed="plant-watcher" size={32} mood="needs-you" />);
+    const img = screen.getByRole("img", { name: "Plant watcher, needs you" });
     expect(img.className).toContain("blob--needs-you");
     expect(img.getAttribute("style")).toContain("--blob-size: 32px");
     expect(img.querySelector("svg")?.getAttribute("width")).toBe("32");
     expect(img.querySelector('[data-part="body"]')?.getAttribute("d")).toMatch(/^M.* Z$/);
     expect(img.textContent).toContain("!");
+    cleanup();
+    render(<Face seed="plant-watcher" />);
+    expect(screen.getByRole("img", { name: "Plant watcher, quiet" })).toBeTruthy();
     cleanup();
     render(<Face seed="research" mood="asleep" label="Research, paused" />);
     const asleep = screen.getByRole("img", { name: "Research, paused" });

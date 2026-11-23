@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type DirEntry } from "../api.js";
-import { columnsTemplate, fitColumns, LIST_COLUMNS, LIST_WIDTHS_KEY, NAME_MIN, PANEL_COLUMNS, PANEL_LAYOUT, PANEL_WIDTHS_KEY, readWidths, saveWidths, TRASH_COLUMNS, TRASH_WIDTHS_KEY, widestOf } from "./columns.js";
+import { columnsTemplate, FILES_NAME_MIN, fitColumns, LIST_COLUMNS, LIST_WIDTHS_KEY, NAME_MIN, PANEL_COLUMNS, PANEL_LAYOUT, PANEL_WIDTHS_KEY, readWidths, saveWidths, TRASH_COLUMNS, TRASH_WIDTHS_KEY, widestOf } from "./columns.js";
 import { ListView } from "./ListView.js";
 import type { RowHandlers } from "./rows.js";
 import { TrashView } from "./TrashView.js";
@@ -98,6 +98,13 @@ describe("the columns that fit", () => {
   it("counts a fixed tail, and shows everything where nothing is laid out", () => {
     expect(fitColumns(NAME_MIN + 240 + 88, TRASH_COLUMNS, { trashed: 184, size: 88 }, 240)).toEqual(["size"]);
     expect(at(0)).toEqual(["modified", "size", "kind"]);
+  });
+
+  it("keeps the Files page's Name wider before it drops Kind, then Date, then Size", () => {
+    const at = (room: number): string[] => fitColumns(room, LIST_COLUMNS, { modified: 184, size: 88, kind: 152 }, 0, FILES_NAME_MIN);
+    expect(at(600)).toEqual(["modified", "size"]);
+    expect(at(FILES_NAME_MIN + 184 + 88 + 152)).toEqual(["modified", "size", "kind"]);
+    expect(at(FILES_NAME_MIN + 88)).toEqual(["size"]);
   });
 
   it("gives a panel beside a chat its narrower widths: Size alone in a narrow one, Date and then Kind as it widens", () => {

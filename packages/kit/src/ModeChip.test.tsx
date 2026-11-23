@@ -80,8 +80,8 @@ describe("ModeChip", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mode options" }));
     const menu = screen.getByRole("menu");
     expect(menu.textContent).toContain("What Auto never does");
-    expect(menu.textContent).toContain("Purchases and payments");
-    expect(menu.textContent).toContain("A device's own ask for a session");
+    expect(menu.textContent).toContain("Buying or paying for anything");
+    expect(menu.textContent).toContain("Starting a session on your Mac or Chrome");
     // Sessions are Auto's; in Ask the switch waits.
     expect((screen.getByRole("switch") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("menuitemradio", { name: /Until this task finishes/ }));

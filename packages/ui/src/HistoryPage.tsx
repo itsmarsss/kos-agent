@@ -115,11 +115,11 @@ function RunName({ label, project }: { label: string; project: Project | undefin
   );
 }
 
-/** A step's row: what it did, and what to when its arguments say. */
+/** A step's row: what it did, and what to when its arguments say; its tool and arguments are in the drawer it opens. */
 function StepWhat({ tool, args }: { tool: string; args: unknown }): ReactElement {
   const line = stepLine(tool, args);
   return (
-    <span className="hist-what" title={tool}>
+    <span className="hist-what">
       <span>{line.title}</span>
       {line.detail && <span className="ops-muted">{line.detail}</span>}
     </span>
@@ -256,7 +256,7 @@ export function HistoryPage({
           render: (r) => (
             <span className="ops-muted hist-when">
               {clockWords(r.at)}
-              {r.kind === "run" && r.run.durationMs ? <span className="hist-took"> · {formatDuration(r.run.durationMs)}</span> : null}
+              {r.kind === "run" && r.run.durationMs ? <span className="hist-took"> · took {formatDuration(r.run.durationMs)}</span> : null}
             </span>
           ),
         },

@@ -11,7 +11,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { cycled, kindWord, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
-import { isModeKey, Menu, ModeChip } from "@kos/kit";
+import { isModeKey, Menu, ModeChip, NotFound } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
@@ -88,6 +88,7 @@ import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Modal } from "./Modal.js";
 import { HandoffForm } from "./HandoffForm.js";
+import { useFound } from "./found.js";
 import { hrefFor } from "./routes.js";
 import { useHashParam } from "./hashparams.js";
 import { fileMention } from "./finder/model.js";
@@ -232,6 +233,37 @@ function ThreadDot({
   if (waiting || chat.activity === "needs-you") return <StatusDot state="needs-you" label="needs you" />;
   if (live && !live.ended) return <StatusDot state="working" label={liveLabel(live)} />;
   return <ActivityDot activity={chat.activity} error={chat.lastError} unread={chat.unread} />;
+}
+
+/** What the landing's Send does with what was typed. */
+export type LandingMode = "kos" | "chat" | "project";
+
+/** The rail's New chat starts a chat of the owner's own; Chats opened bare is KOS's front door. */
+export function landingMode(composing: boolean): LandingMode {
+  return composing ? "chat" : "kos";
+}
+
+/** The landing's heading for each choice, so it never promises KOS's routing for a chat of the owner's own. */
+export const LANDING_WORDS: Readonly<Record<LandingMode, { title: string; sub: string }>> = {
+  kos: { title: "What do you want done?", sub: "KOS finds the chat, project or blob it belongs in, or starts one." },
+  chat: { title: "Start a new chat", sub: "A chat of its own, empty until you write. KOS answers here." },
+  project: { title: "Start a project", sub: "Describe it, and KOS makes the project and its chat." },
+};
+
+/** What KOS's own chat is for, in place of the prompt it runs on. */
+export const KOS_CHAT_LINE = "Tell KOS what you want done. It finds the chat, project or blob the work belongs in, or starts one.";
+
+/**
+ * The one line under a chat's title. KOS's chat, a project's orchestrator
+ * and Maintenance carry KOS's own prompt as their brief, written for the
+ * model: KOS's line says what it is for, a project's is the project's
+ * description, or none. Any other chat's brief is the owner's own, set in
+ * Configure.
+ */
+export function chatLine(chat: Pick<Conversation, "kind" | "brief" | "projectSlug">, projects: readonly Pick<Project, "slug" | "description">[]): string | null {
+  if (chat.kind === "orchestrator") return KOS_CHAT_LINE;
+  if (chat.kind === "project") return projects.find((p) => p.slug === chat.projectSlug)?.description ?? null;
+  return chat.brief ?? null;
 }
 
 export function ChatsPage({
@@ -398,7 +430,9 @@ export function ChatsPage({
    * - chat: a plain conversation that does the work itself.
    * - project: stand up a project and its orchestrator, with this as the goal.
    */
-  const [mode, setMode] = useState<"kos" | "chat" | "project">("kos");
+  const [mode, setMode] = useState<LandingMode>(landingMode(composing));
+  // New chat means a chat of the owner's own; opening Chats bare means KOS's front door.
+  useEffect(() => setMode(landingMode(composing)), [composing]);
   const startFromLanding = async (): Promise<void> => {
     const text = opening.trim();
     if (!text || creating) return;
@@ -522,6 +556,9 @@ export function ChatsPage({
   const inlineScroll = useOverlayScroll<HTMLDivElement>();
 
   const active = conversations.find((c) => c.id === activeId);
+  // A chat the address names that is in no list, archived included: said so, not the landing in its place.
+  const strayKey = activeId && !active && !loading && !project && !agent ? `chat:${activeId}` : null;
+  const stray = useFound(strayKey, () => api.conversations(true).then((all) => all.some((c) => c.id === activeId)));
   // Opening a chat puts the cursor in its box: that is what you came to do. Keyed on the chat being drawn, not
   // on its id alone: the box is not there until the list has the chat, and focus was left on the page. Not over
   // something else that has the focus (a dialog, a field), and not on a phone, where it would raise the keyboard.
@@ -1576,7 +1613,7 @@ export function ChatsPage({
                       <ThreadDot live={progress[projectOrchestrator.id]} chat={projectOrchestrator} waiting={waitingOn.has(projectOrchestrator.id)} />
                       <QueuedMark n={projectOrchestrator.queued} />
                     </span>
-                    <span className="chats-root-sub">Plans the project's work and hands it to its chats</span>
+                    <span className="chats-root-sub">Plans the project's work and hands it to its agents</span>
                   </span>
                 </a>
               ) : (
@@ -1591,7 +1628,7 @@ export function ChatsPage({
               )}
             </div>
             <div className="label chats-group-head">
-              <span>Chats</span>
+              <span>Agents</span>
               {/* Like New chat: the thread opens empty and the first message
                   names it. A form asking for a name, a brief and a task first
                   was three fields in the way of saying what you wanted. */}
@@ -1599,7 +1636,7 @@ export function ChatsPage({
                 type="button"
                 className="chats-group-add"
                 aria-label="New agent"
-                title="Start an agent: a thread of this project, named by its first message"
+                title="Start an agent: a chat for one piece of this project's work, named by its first message"
                 disabled={creating}
                 onClick={() => void startAgent()}
               >
@@ -1611,9 +1648,9 @@ export function ChatsPage({
               {shownAgents.length === 0 && (
                 <li>
                   {q ? (
-                    <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} />
+                    <EmptyState variant="inline" className="chats-empty" query={{ noun: "agents", onClear: () => setQuery("") }} />
                   ) : (
-                    <EmptyState variant="inline" loading={loading} className="chats-empty">No chats yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
+                    <EmptyState variant="inline" loading={loading} className="chats-empty">No agents yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
                   )}
                 </li>
               )}
@@ -1691,7 +1728,7 @@ export function ChatsPage({
               </button>
               <div className="chats-project-head">
                 <span className="chats-project-name">{agentThread?.title ?? agent.name}</span>
-                <span className="chats-project-sub">A blob · blobs/{agent.name}/</span>
+                <span className="chats-project-sub">A blob</span>
               </div>
             </div>
             <div className="chats-pinned">
@@ -1711,7 +1748,7 @@ export function ChatsPage({
                       <ThreadDot live={progress[agentThread.id]} chat={agentThread} waiting={waitingOn.has(agentThread.id)} />
                       <QueuedMark n={agentThread.queued} />
                     </span>
-                    <span className="chats-root-sub">Its home thread: talk to it here, and its schedule runs here</span>
+                    <span className="chats-root-sub">Its own chat: talk to it here, and its schedule runs here</span>
                   </span>
                 </a>
               )}
@@ -1723,7 +1760,7 @@ export function ChatsPage({
                     named for the project it is in: that is what tells them apart. */}
                 {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
                 {agentInstances.length === 0 && (
-                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</EmptyState></li>
+                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">Not working in any project. A project's orchestrator can give it work there.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -1767,6 +1804,10 @@ export function ChatsPage({
                     {shownArchived.length === 0 && <li>{q ? <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} /> : <EmptyState variant="inline" className="chats-empty">Nothing archived.</EmptyState>}</li>}
                   </ul>
                 </section>
+              ) : loading ? (
+                /* The rail's rows' places until its chats and projects are both read: drawn group by group as each
+                   arrived, the Projects group grew under the pointer and pushed Chats down a hundred pixels. */
+                <EmptyState loading itemHeight={34} className="chats-rail-loading" />
               ) : (
                 <>
                   {/* The streams: KOS, which routes the work, and each surface's
@@ -2052,6 +2093,11 @@ export function ChatsPage({
                 <EmptyState loading className="chats-loading" />
               </div>
             </>
+          ) : !active && stray === "gone" ? (
+            <>
+              <div className="chats-view-path">{listToggle}</div>
+              <NotFound what="chat" name={activeId!} back={{ label: "Back to Chats", href: hrefFor({ name: "chats" }) }} />
+            </>
           ) : !active && (project || agent) ? (
             /* Inside a project there is no landing: the thread is the
                orchestrator's by default, and it is being stood up if it is not
@@ -2088,10 +2134,8 @@ export function ChatsPage({
                   <Face seed={KOS_SEED} look={faceLookOf(kos)} size={56} mood={moodOf(orchestrator?.activity)} label="KOS" />
                 </m.span>
                 <m.div className="chats-welcome-head" variants={card}>
-                  <p className="chats-welcome-title">What do you want done?</p>
-                  <p className="chats-welcome-sub">
-                    KOS routes it to the right project or blob, or stands a new one up.
-                  </p>
+                  <p className="chats-welcome-title">{LANDING_WORDS[mode].title}</p>
+                  <p className="chats-welcome-sub">{LANDING_WORDS[mode].sub}</p>
                 </m.div>
                 {/* The question has to be answerable here. A button that leads
                     to an empty chat is a detour; typing is the way in. */}
@@ -2215,10 +2259,7 @@ export function ChatsPage({
                     </p>
                   )}
                   {(() => {
-                    // A project's orchestrator and Maintenance carry KOS's own prompt as their brief, written for
-                    // the model: their line is the project's description, or none. Any other chat's brief is the
-                    // owner's own, set in Configure.
-                    const line = active.kind === "project" ? (projects.find((p) => p.slug === active.projectSlug)?.description ?? null) : active.brief;
+                    const line = chatLine(active, projects);
                     return line ? <p className="chats-brief">{line}</p> : null;
                   })()}
                   {/* Counts are not something anyone came here to read. Only

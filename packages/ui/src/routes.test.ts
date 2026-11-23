@@ -87,7 +87,7 @@ describe("parseRoute", () => {
     });
     expect(hrefFor({ name: "project", slug: "kitchen_redo", id: "c9:owner" })).toBe("#/project/kitchen_redo/c9%3Aowner");
     // The list and a workspace are different routes; a bare /project is neither.
-    expect(parseRoute("#/project")).toEqual({ name: "home" });
+    expect(parseRoute("#/project")).toEqual({ name: "missing", path: "/project" });
   });
 
   it("names the landing New chat asks for, which a phone shows in the list's place", () => {

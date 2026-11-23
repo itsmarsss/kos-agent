@@ -150,7 +150,11 @@ export function HomePage({
             {error}
           </p>
         ) : (
-          <p className="hint">Loading…</p>
+          <>
+            {/* The page's head and its panels' places while they are read, not a line of text. */}
+            <PageHead title="Overview" subtitle="Drag a panel by its title to move it." />
+            <EmptyState loading shape="cards" itemHeight={220} />
+          </>
         )}
       </div>
     );

@@ -189,7 +189,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
       </PaneHead>
 
       <ProjectExplorer
-        label={slug}
+        label={project.name}
         root={detail.folder}
         upload={(file, dir) => api.uploadProjectFile(slug, file, dir)}
         onOpenInFiles={onOpenFile}

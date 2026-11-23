@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { SkillInfo } from "./api.js";
-import { matchesSkillView, skillViews } from "./skillviews.js";
+import { matchesSkillView, skillSummary, skillViews } from "./skillviews.js";
 
 const skill = (over: Partial<SkillInfo>): SkillInfo => ({ name: "x", description: "", kind: "prompt", file: "skills/x/SKILL.md", enabled: true, ...over });
 
@@ -26,5 +26,20 @@ describe("which skills to show", () => {
     expect(names("promoted")).toEqual(["board"]);
     expect(names("off")).toEqual(["sync"]);
     expect(names("nonsense")).toHaveLength(4);
+  });
+});
+
+describe("a skill's summary", () => {
+  it("is its own words, never the rules a model reads to trigger it", () => {
+    const api = "Reference for the Claude API / Anthropic SDK \u2014 model ids, pricing, params, streaming, tool use. TRIGGER \u2014 read BEFORE opening the target file. SKIP only when another provider is used: grep -rE 'openai|langchain'.";
+    expect(skillSummary(api)).toBe("Reference for the Claude API / Anthropic SDK \u2014 model ids, pricing, params, streaming, tool use.");
+  });
+
+  it("takes the first sentence, and cuts a long one at a word", () => {
+    expect(skillSummary("Makes slides. Use it for decks.")).toBe("Makes slides.");
+    const long = skillSummary(`Does ${"many things ".repeat(30)}`);
+    expect(long.length).toBeLessThanOrEqual(161);
+    expect(long.endsWith("…")).toBe(true);
+    expect(skillSummary("")).toBe("");
   });
 });

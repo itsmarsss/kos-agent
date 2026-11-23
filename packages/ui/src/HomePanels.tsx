@@ -1,12 +1,13 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
-import { errorWords, momentWords, stepLine, timeWords } from "@kos/shared";
+import { errorWords, momentWords, STATE_WORDS, stateOfRun, stepLine, timeWords } from "@kos/shared";
 import { CloseIcon, ease, EmptyState, Face, GroupHead, IconButton, moodOf, RefChip, rise, StatusDot, type Tone } from "@kos/kit";
 import { AnimatePresence, m } from "motion/react";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
 import { dayLabel, hourLabel, padDays, padHours } from "./chartdata.js";
+import { runKind } from "./HistoryPage.js";
 import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick } from "./charts.js";
 import { PendingAsk } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
@@ -67,13 +68,23 @@ function fmt(n: number): string {
   return n < 1000 ? String(n) : n < 1_000_000 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(2)}M`;
 }
 
-const RUN_TONE: Record<string, Tone> = { ok: "ok", error: "danger", running: "accent", skipped: "muted" };
+/**
+ * What reads memory now, in one line that never contradicts the counts
+ * beside it: a background read that keeps failing is said, not "reading".
+ */
+export function memoryNote(mem: HomeData["memory"], on: string[], latest: number | null): string {
+  const failing = mem.lastRead?.failed === true;
+  if (on.length > 0) return `${on.join(", ")} on${latest ? `, last ran ${timeWords(latest)}` : ", never ran"}.`;
+  if (!mem.extraction) return mem.unread > 0 ? "Its schedules are off, and nothing reads what was said." : "Its schedules are off.";
+  if (failing) return "Its schedules are off. The background read failed last time, so those messages stay unread; see Runs.";
+  return "Its schedules are off. A background read takes what was said once enough is unread.";
+}
 
-/** One run as a tick: its colour is its outcome, its title the rest. */
-function runTick(r: RunRecord): Tick {
-  const what = r.kind === "cron" ? "schedule" : r.kind === "chat" ? "turn" : r.kind;
-  const how = r.error ? `${r.status}: ${r.error}` : r.status;
-  return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${timeWords(r.startedAt)}` };
+/** One run as a tick: its colour is its outcome, its title the rest, in the words Runs uses. */
+export function runTick(r: RunRecord): Tick {
+  const { word, tone } = STATE_WORDS[stateOfRun(r.status)];
+  const how = r.error ? `${word}: ${errorWords(r.error)}` : word;
+  return { tone, title: `${runKind(r.kind)} · ${how} · ${timeWords(r.startedAt)}` };
 }
 
 const SHARE_TONES: Tone[] = ["accent", "ok", "warn", "muted"];
@@ -254,7 +265,7 @@ export function Panel({
               {report.recent.total === 0 && steps === 0
                 ? "Nothing has run yet."
                 : stepsFailed > 0 || report.recent.errors > 0
-                  ? "Nothing is failing now."
+                  ? "Nothing is still failing. What failed earlier is counted below."
                   : "Everything is working."}
             </EmptyState>
           ) : (
@@ -271,7 +282,7 @@ export function Panel({
                       className="panel-row-open"
                       onClick={() => onOpenFailure(f.key)}
                     >
-                      <span className="fail-label">{f.label}</span>
+                      <span className="fail-label">{f.key.startsWith("cron:") ? jobTitle(f.label) : f.label}</span>
                       <span className="fail-why">{f.error ? errorWords(f.error) : "Failed"}</span>
                     </button>
                     <span className="panel-row-side">
@@ -498,7 +509,7 @@ export function Panel({
                           <span className="panel-row-project"> {data.projects.find((p) => p.slug === c.projectSlug)?.name ?? c.projectSlug}</span>
                         )}
                       </span>
-                      <span className="panel-row-side" title={c.schedule}>
+                      <span className="panel-row-side" title={next.has(c.id) ? scheduleWords(c.schedule) : undefined}>
                         {next.has(c.id) ? momentWords(next.get(c.id)!) : scheduleWords(c.schedule)}
                       </span>
                     </span>
@@ -591,13 +602,7 @@ export function Panel({
               <span className="panel-stat-label">to decide</span>
             </div>
           </div>
-          <p className="panel-note panel-memory-jobs">
-            {mem.jobs.length === 0
-              ? "No memory schedules yet."
-              : on.length === 0
-                ? `Its schedules are off${mem.extraction ? "; reading after each turn" : "; nothing reads the log"}.`
-                : `${on.map((j) => jobTitle(j.name)).join(", ")} on${latest ? `, last ran ${timeWords(latest)}` : ", never ran"}.`}
-          </p>
+          <p className="panel-note panel-memory-jobs">{memoryNote(mem, on.map((j) => jobTitle(j.name)), latest)}</p>
         </div>
       );
     }
@@ -667,11 +672,11 @@ export function Panel({
   }
 }
 
-/** A step in a panel's row: what it did, then what to in a quieter tone; its tool's name is the tooltip. */
+/** A step in a panel's row: what it did, then what to in a quieter tone. */
 function StepRow({ tool, args }: { tool: string; args: unknown }): ReactElement {
   const line = stepLine(tool, args);
   return (
-    <span className="panel-row-main" title={tool}>
+    <span className="panel-row-main">
       {line.title}
       {line.detail && <span className="panel-row-project"> {line.detail}</span>}
     </span>

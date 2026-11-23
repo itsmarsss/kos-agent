@@ -41,7 +41,7 @@ export function TrashView({ onChanged, onDone, onError, onCount, rootName }: { o
   return (
     <div className="finder-trash">
       <div className="finder-trash-bar">
-        <span className="hint">{items === null ? "Reading…" : items.length === 0 ? "The trash is empty." : `${items.length} item${items.length === 1 ? "" : "s"}. Nothing here is deleted until you empty it.`}</span>
+        <span className="hint">{items === null ? "Reading…" : items.length === 0 ? "The trash is empty." : `${items.length} item${items.length === 1 ? "" : "s"}. Nothing here is deleted until you empty the trash or delete it forever.`}</span>
         <button type="button" className="btn btn--sm btn--danger" disabled={!items?.length} onClick={() => setAsking(true)}>
           Empty trash
         </button>

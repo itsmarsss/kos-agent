@@ -228,7 +228,7 @@ describe("the finder", () => {
   it("shows columns with the chosen file's facts at the end, and remembers the view per folder", async () => {
     vi.spyOn(api, "fileInfo").mockImplementation(async (path) => ({ ...d(path), createdAt: 1, project: { slug: "garden", name: "Garden" } }));
     await openGarden();
-    fireEvent.click(screen.getByRole("button", { name: "as Columns (Cmd+2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "View as columns" }));
     fireEvent.mouseDown(row("projects/garden/beds"));
     expect(await screen.findByText("bed-1.md")).toBeTruthy();
     fireEvent.mouseDown(row("projects/garden/beds/bed-1.md"));
@@ -315,7 +315,7 @@ describe("the finder", () => {
     fireEvent.contextMenu(own, { clientX: 5, clientY: 5 });
     const items = screen.getAllByRole("menuitem").map((el) => el.textContent ?? "");
     expect(items.some((t) => t.startsWith("Get Info"))).toBe(true);
-    for (const word of ["Rename", "Duplicate", "Move to", "Move to Trash"]) expect(items.some((t) => t.startsWith(word))).toBe(false);
+    for (const word of ["Rename", "Duplicate", "Move to", "Move to trash"]) expect(items.some((t) => t.startsWith(word))).toBe(false);
     expect(items).toContain("KOS's own file: it can't be renamed, moved or trashed");
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.mouseDown(own);
@@ -359,7 +359,7 @@ describe("the finder", () => {
     key("ContextMenu");
     expect(screen.getByRole("menu", { name: "Actions for a.md" })).toBeTruthy();
     const items = screen.getAllByRole("menuitem").map((el) => el.textContent ?? "");
-    for (const word of ["Rename", "Move to", "Move to Trash"]) expect(items.some((t) => t.startsWith(word))).toBe(true);
+    for (const word of ["Rename", "Move to", "Move to trash"]) expect(items.some((t) => t.startsWith(word))).toBe(true);
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     key("F10", { shiftKey: true });
@@ -439,7 +439,7 @@ describe("the finder", () => {
     await openGarden();
     expect(document.querySelector(".finder--narrow")).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Locations" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "as Columns (Cmd+2)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "View as columns" })).toBeNull();
     expect(screen.getByRole("button", { name: /Go to/ })).toBeTruthy();
   });
 });

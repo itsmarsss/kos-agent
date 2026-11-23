@@ -25,7 +25,9 @@ export type Route =
   | { name: "builds"; id?: number }
   | { name: "page"; id: string }
   /** Every artifact; `id` opens one full size. */
-  | { name: "artifacts"; id?: string };
+  | { name: "artifacts"; id?: string }
+  /** An address that names no page: said so, never another page in its place. */
+  | { name: "missing"; path: string };
 
 /**
  * What the page transition is keyed on: the page that is open, not only
@@ -76,6 +78,8 @@ export function parseRoute(hash: string): Route {
   if (path === "/builds") return { name: "builds" };
   const build = path.match(/^\/builds\/(\d+)$/);
   if (build?.[1]) return { name: "builds", id: Number(build[1]) };
+  const inboxOrBuild = path.match(/^\/(?:inbox|builds)\/[^/]+$/);
+  if (inboxOrBuild) return { name: "missing", path };
   if (path === "/blobs" || path === "/agents") return { name: "blobs" };
   // A build's log was at /agents/<id> before builds had a page of their own;
   // a number there still opens that log.
@@ -111,7 +115,7 @@ export function parseRoute(hash: string): Route {
   if (artifact?.[1]) return { name: "artifacts", id: decodeURIComponent(artifact[1]) };
   const page = path.match(/^\/page\/([^/]+)$/);
   if (page?.[1]) return { name: "page", id: decodeURIComponent(page[1]) };
-  return { name: "home" };
+  return { name: "missing", path };
 }
 
 export function hrefFor(route: Route): string {
@@ -140,6 +144,8 @@ export function hrefFor(route: Route): string {
       return route.id !== undefined ? `#/inbox/${route.id}` : "#/inbox";
     case "settings":
       return route.section ? `#/settings/${route.section}` : "#/settings";
+    case "missing":
+      return `#${route.path}`;
     default:
       return `#/${route.name}`;
   }
