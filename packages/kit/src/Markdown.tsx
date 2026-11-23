@@ -28,6 +28,7 @@ import {
 } from "@kos/shared";
 
 import { TimeCard } from "./ChatTime.js";
+import { CodeBlock } from "./CodeBlock.js";
 import { Face } from "./Face.js";
 import { KosBlockView, type BlockText } from "./KosBlock.js";
 import { Tex } from "./Tex.js";
@@ -412,9 +413,7 @@ function blocks(source: string): Block[] {
           block ? (
             <KosBlockView key={k} block={block} closed={fence.closed} text={BLOCK_TEXT} />
           ) : (
-            <pre key={k} className="md-code" data-lang={lang || undefined}>
-              <code>{body}</code>
-            </pre>
+            <CodeBlock key={k} code={body} {...(lang ? { lang } : {})} />
           ),
       });
       continue;
