@@ -42,6 +42,15 @@ describe("a schedule's last runs", () => {
   });
 });
 
+describe("a blob's schedule", () => {
+  it("shows its name as the lists do, never the store's id, and not to be changed", () => {
+    sheet({ id: 6, name: "blob.recap", schedule: "0 17 * * 5", type: "self_prompt", enabled: true, prompt: "recap" });
+    const field = screen.getByDisplayValue("Recap") as HTMLInputElement;
+    expect(field.readOnly).toBe(true);
+    expect(screen.queryByDisplayValue("blob.recap")).toBeNull();
+  });
+});
+
 describe("KOS's own schedule", () => {
   it("opens read-only, saying what it does, with no fields to break it", () => {
     sheet({ id: 9, name: "kos.improve", schedule: "0 5 * * 1", type: "self_prompt", enabled: false, prompt: "You are looking at your own work" });

@@ -209,7 +209,7 @@ export function CronEditor({
   const [projectSlug, setProjectSlug] = useState(job?.projectSlug ?? defaultProject ?? "");
   // KOS's own jobs are nobody's project; the field would only mislead.
   const system = (job?.name ?? "").startsWith("kos.");
-  // A blob's schedule is named for its blob, which owns the name; its field would show the store's id.
+  // A blob's schedule is named for its blob, which owns the name: shown by the blob's name, read-only.
   const blobs = (job?.name ?? "").startsWith("blob.");
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
   const [actions, setActions] = useState(
@@ -399,7 +399,12 @@ export function CronEditor({
             />
           </Field>
         )}
-        {!blobs && (
+        {blobs ? (
+          /* Named for its blob, which owns the name: shown as the lists show it, and not changed here, or the blob would lose its schedule. */
+          <Field label="Name" hint="A blob's schedule is named for the blob. Rename the blob to change it.">
+            <input className="kos-input" value={jobTitle(name)} readOnly aria-readonly="true" />
+          </Field>
+        ) : (
         <Field label="Name" required hint="How it is named in lists, and in a message if it fails." {...(nameError ? { error: nameError } : {})}>
           <input
             className="kos-input"
