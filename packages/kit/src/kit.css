@@ -325,7 +325,8 @@ button.chip-ref:hover, a.chip-ref:hover { border-color: color-mix(in srgb, curre
 
 /* —— what a list says when there is nothing in it —— */
 .empty { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 1.4rem 1rem; text-align: center; border: 1px dashed var(--line); border-radius: var(--r-md); }
-.empty-title { font-size: var(--text-md); }
+/* A heading over its line: a head's size and weight, not body text in bold. */
+.empty-title { font-size: var(--text-lg); font-weight: 600; }
 .empty-text { margin: 0; color: var(--muted); font-size: var(--text-base); max-width: 48ch; }
 .empty-line { margin: 0; color: var(--muted); font-size: var(--text-base); }
 .empty-line:has(.empty-clear) { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; }

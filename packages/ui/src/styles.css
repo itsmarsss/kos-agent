@@ -3078,6 +3078,8 @@ li:hover .chats-item-when { opacity: 0; }
    within a box: the one tab that did not read like the others. A rule and a
    heading carry the same grouping without the second frame. */
 .set-card-body .settings-group {
+  /* Fields as far apart as a settings row's are, on every tab. */
+  gap: 1.125rem;
   padding: 0;
   background: none;
   border-radius: 0;
@@ -3119,7 +3121,8 @@ li:hover .chats-item-when { opacity: 0; }
   align-items: baseline;
   gap: 0.5rem;
 }
-.settings-group-head strong { font-size: var(--text-lg); }
+/* A subject under a section's head, a step below it: the section's 15/600 over this 14/600. */
+.settings-group-head strong { font-size: var(--text-md); font-weight: 600; }
 .settings-row { display: flex; gap: 0.6rem; }
 .settings-row .kos-field { flex: 1; min-width: 0; }
 .settings-now {
