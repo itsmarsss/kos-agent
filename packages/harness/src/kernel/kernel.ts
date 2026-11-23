@@ -3,7 +3,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import { BindingGoneError, INTERRUPTED_LINE, LATE_RUN_MS, OWNER_THREAD_PREFIX, channelName, roomConversationId, roomPlaceOf, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type RoomSeed, type Sender } from "../channels/types.js";
+import { BindingGoneError, LATE_RUN_MS, OWNER_THREAD_PREFIX, channelName, roomConversationId, roomPlaceOf, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type RoomSeed, type Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
@@ -449,6 +449,18 @@ export function remembersTurn(opts: { origin?: "owner" | "system"; guest?: unkno
 
 /** How a turn on the SDK engine that failed after taking steps ends in its chat. */
 export const SDK_FAILED = "I hit an error and stopped:";
+
+/** How a turn that ended without its reply ends in its chat, before the reason. */
+export const STOPPED_BEFORE = "Stopped before it finished:";
+
+/** Why a run left open by the last process never finished. */
+export const RESTARTED = "KOS restarted while it was running.";
+
+/** How recent a cut run is for its chat to be told at boot. */
+const CUT_TOLD_WITHIN_MS = 24 * 60 * 60_000;
+
+/** Why a run open when this process stopped never finished. */
+export const SHUT_DOWN = "KOS stopped while it was running.";
 
 const PICTURES_PER_QUERY = Number(process.env["KOS_PICTURES_PER_QUERY"] ?? 8);
 
@@ -2218,7 +2230,11 @@ export class Kernel {
    * if the turn had simply said nothing.
    */
   markInterrupted(): string[] {
-    const open = Object.keys(this.settings.get<Record<string, number>>(OPEN_TURNS_KEY) ?? {});
+    // A run the last process left open (or closed as it stopped) belongs to a turn that can never finish.
+    // Its chat is told when the run is recent; a line about a turn from weeks ago would read as news.
+    const recent = Date.now() - CUT_TOLD_WITHIN_MS;
+    const cut = this.runs.interruptRunning(RESTARTED).flatMap((r) => (r.kind === "chat" && r.ref && r.startedAt >= recent ? [r.ref] : []));
+    const open = [...new Set([...Object.keys(this.settings.get<Record<string, number>>(OPEN_TURNS_KEY) ?? {}), ...cut])];
     this.settings.set(OPEN_TURNS_KEY, {});
     // What was held for a chat while its turn ran goes in first, before the line that says the turn was cut.
     const held = this.settings.get<Record<string, ModelMessage[]>>(HELD_NOTES_KEY) ?? {};
@@ -2226,7 +2242,7 @@ export class Kernel {
       Object.entries(held).filter(([id, messages]) => Array.isArray(messages) && messages.length > 0 && !this.writeNote(id, messages)),
     );
     this.settings.set(HELD_NOTES_KEY, unwritten);
-    for (const id of open) this.noteIn(id, INTERRUPTED_LINE);
+    for (const id of open) this.noteIn(id, `${STOPPED_BEFORE} ${RESTARTED}`);
     return open;
   }
 
@@ -5797,6 +5813,8 @@ export class Kernel {
     this.artifactChecker?.close();
     // Lines held for a turn that will not end in this process go in now, while the store is open.
     for (const id of [...this.heldNotes.keys()]) this.releaseNotes(id);
+    // Runs this process will not finish are closed as such; their chats are told at the next boot, which knows them still open.
+    this.runs.interruptRunning(SHUT_DOWN);
     this.workspace.close();
   }
 }

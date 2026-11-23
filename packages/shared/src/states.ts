@@ -40,7 +40,7 @@ export function isState(v: unknown): v is State {
 export function stateOfRun(status: string): State {
   if (status === "ok" || status === "success" || status === "done") return "ok";
   if (status === "partial") return "partial";
-  if (status === "error" || status === "failed" || status === "timeout") return "failed";
+  if (status === "error" || status === "failed" || status === "timeout" || status === "interrupted") return "failed";
   if (status === "running" || status === "started") return "running";
   if (status === "waiting" || status === "pending") return "waiting";
   return "skipped";

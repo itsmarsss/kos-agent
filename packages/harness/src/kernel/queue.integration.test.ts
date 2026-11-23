@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { Kernel } from "./kernel.js";
+import { Kernel, RESTARTED, SHUT_DOWN, STOPPED_BEFORE } from "./kernel.js";
 import { handleApiRequest } from "./server.js";
 import type { Inference } from "../agent/loop.js";
 import type { ModelResponse } from "../models/types.js";
@@ -389,7 +389,24 @@ describe("a message sent while a turn is running", () => {
     kernel = await Kernel.boot({ rootDir: root, inference: held });
     expect(kernel.markInterrupted()).toEqual([id]);
     const last = kernel.sessions.get(id).at(-1);
-    expect(last).toMatchObject({ role: "assistant", content: [{ type: "text", text: "-# interrupted by a restart" }] });
+    expect(last).toMatchObject({ role: "assistant", content: [{ type: "text", text: `${STOPPED_BEFORE} ${RESTARTED}` }] });
+    // Its run was closed as the process stopped, never left running.
+    const [run] = kernel.runs.recent(1);
+    expect(run).toMatchObject({ kind: "chat", ref: id, status: "interrupted", error: SHUT_DOWN });
     expect(kernel.markInterrupted()).toEqual([]);
+  });
+
+  it("closes a run the last process left running, and tells its chat", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Killed" }).id;
+    // A process killed outright closes nothing: its row is still running at the next boot.
+    const runId = kernel.runs.start("chat", id);
+    const job = kernel.runs.start("cron", "7");
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    kernel.workspace.db.prepare(`UPDATE runs_log SET status = 'running', error = NULL WHERE id IN (?, ?)`).run(runId, job);
+    expect(kernel.markInterrupted()).toEqual([id]);
+    expect(kernel.runs.get(runId)).toMatchObject({ status: "interrupted", error: RESTARTED });
+    expect(kernel.runs.get(job)).toMatchObject({ status: "interrupted", error: RESTARTED });
+    expect(kernel.sessions.get(id).at(-1)).toMatchObject({ content: [{ type: "text", text: `${STOPPED_BEFORE} ${RESTARTED}` }] });
   });
 });

@@ -297,7 +297,7 @@ export function Inspector(props: {
         </>
       );
       actions =
-        r.status === "error" && props.onFix ? (
+        stateOfRun(r.status) === "failed" && props.onFix ? (
           <button
             type="button"
             className="btn btn--primary"

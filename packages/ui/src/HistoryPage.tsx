@@ -102,7 +102,7 @@ export function merge(
       (r): HistoryRow => ({
         kind: "run",
         at: r.startedAt,
-        failed: r.status === "error",
+        failed: stateOfRun(r.status) === "failed",
         run: r,
       }),
     ),
