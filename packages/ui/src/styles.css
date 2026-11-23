@@ -5412,9 +5412,8 @@ a.health {
 /* The cron line, read back in words. */
 .cron-reads {
   font-size: var(--text-md);
-  color: var(--ok);
+  color: var(--text);
 }
-.cron-reads.is-bad { color: var(--danger); }
 
 /* Actions stay in reach: the form is taller than the drawer and they used to
    scroll off the end of it. */
@@ -6985,6 +6984,7 @@ a.panel-row:hover .panel-row-main { color: var(--accent); }
 
 /* A field that cannot be sent as it is says why, under it, in the danger colour. */
 .kos-input.is-invalid, .kos-input[aria-invalid="true"] { border-color: var(--danger); }
+.kos-input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent); }
 
 /* An empty state: a title and a line, so a blank reads as an answer. */
 
@@ -7021,6 +7021,10 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .sched { display: flex; flex-direction: column; gap: 0.55rem; }
 .sched-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; font-size: var(--text-md); color: var(--muted); }
 .kos-input--time { width: 7.5rem; min-width: max-content; flex: none; font-variant-numeric: tabular-nums; }
+/* The native clock and stepper drawn by the page's colour scheme, quieter than the value they sit beside. */
+.kos-input--time::-webkit-calendar-picker-indicator { opacity: 0.6; cursor: pointer; }
+.kos-input--time::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+.kos-input--n::-webkit-inner-spin-button { opacity: 0.6; }
 .kos-input--n { width: 4.5rem; flex: none; text-align: center; font-variant-numeric: tabular-nums; }
 .daypick { display: inline-flex; gap: 0.25rem; }
 .daypick-day { width: 2rem; height: 2rem; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--panel-2); color: var(--muted); font: inherit; font-size: var(--text-sm); font-weight: 600; cursor: pointer; }

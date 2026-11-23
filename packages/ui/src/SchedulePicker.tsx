@@ -73,7 +73,7 @@ export function SchedulePicker({ value, onChange, allowNone = false }: ScheduleP
   const current: Pick | undefined = none ? "none" : custom ? undefined : shape.kind;
   const expr = none ? "" : raw;
   const problem = none ? null : cronProblem(expr);
-  const words = none ? "Not scheduled: it works when asked." : (problem ?? describeCron(expr) ?? "On a schedule of its own, written as a line below.");
+  const words = none ? "Not scheduled: it works when asked." : (describeCron(expr) ?? "On a schedule of its own, written as a line below.");
   // A line the choices cannot write is only editable as text, so it opens there.
   const lineShown = showRaw || custom;
 
@@ -148,9 +148,8 @@ export function SchedulePicker({ value, onChange, allowNone = false }: ScheduleP
         </div>
       )}
       <div className="sched-foot">
-        <span className={`cron-reads${problem ? " is-bad" : ""}`} {...(problem ? { role: "alert" } : {})}>
-          {words}
-        </span>
+        {/* What the line reads as; a line that does not read is said under the line itself, as a field's error is. */}
+        <span className="cron-reads">{problem ? "" : words}</span>
         {!none && !custom && (
           <button type="button" className="link sched-toggle" aria-expanded={showRaw} onClick={() => setShowRaw((v) => !v)}>
             {showRaw ? "Hide the line" : "Advanced: write the line"}
@@ -160,7 +159,11 @@ export function SchedulePicker({ value, onChange, allowNone = false }: ScheduleP
       {!none && lineShown && (
         <div className="sched-line">
           <input className="kos-input kos-mono sched-raw" value={raw} spellCheck={false} placeholder="0 9 * * 1-5" aria-label="The cron line" aria-invalid={problem ? true : undefined} onChange={(e) => typed(e.target.value)} />
-          <span className="hint">Five parts: minute, hour, day of the month, month, day of the week. Pick a choice above to go back to them.</span>
+          {problem ? (
+            <span className="field-error" role="alert">{problem}</span>
+          ) : (
+            <span className="hint">Five parts: minute, hour, day of the month, month, day of the week. Pick a choice above to go back to them.</span>
+          )}
         </div>
       )}
     </div>
