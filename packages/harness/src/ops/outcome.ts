@@ -36,5 +36,5 @@ export function outcomeOf(steps: StepTally, unattended: boolean): RunOutcome {
     const every = steps.total === 1 ? "Its one step failed" : `All ${steps.total} of its steps failed`;
     return { status: "error", error: steps.firstError ? `${every}. ${steps.firstError}` : `${every}.` };
   }
-  return { status: "partial", error: `${steps.failed} of ${steps.total} steps failed.` };
+  return { status: "partial", error: steps.total === 1 ? "Its one step failed." : `${steps.failed} of ${steps.total} steps failed.` };
 }

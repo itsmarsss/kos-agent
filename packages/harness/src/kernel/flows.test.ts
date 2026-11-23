@@ -1096,7 +1096,7 @@ describe("KOS end-to-end flows", () => {
     expect(cronRun?.error).toMatch(/^Its one step failed\. files\.read: /);
     // The turn in the job's thread finished, with its failed step on the record.
     const [chatRun] = kernel.runs.finishedFor("chat", `cron:${job.id}`, 1);
-    expect(chatRun).toMatchObject({ status: "partial", error: "1 of 1 steps failed." });
+    expect(chatRun).toMatchObject({ status: "partial", error: "Its one step failed." });
   });
 
   it("runs a job's query and condition through the sql fence for its project, and its actions under its maker's tools", async () => {

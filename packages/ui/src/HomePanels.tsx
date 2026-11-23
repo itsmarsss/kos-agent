@@ -282,7 +282,7 @@ export function Panel({
                       className="panel-row-open"
                       onClick={() => onOpenFailure(f.key)}
                     >
-                      <span className="fail-label">{f.label}</span>
+                      <span className="fail-label">{f.key.startsWith("cron:") ? jobTitle(f.label) : f.label}</span>
                       <span className="fail-why">{f.error ? errorWords(f.error) : "Failed"}</span>
                     </button>
                     <span className="panel-row-side">

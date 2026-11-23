@@ -19,6 +19,7 @@ describe("a run's outcome", () => {
   it("finishes with errors when only some failed, or when the owner watched", () => {
     expect(outcomeOf(steps(3, 1), true)).toEqual({ status: "partial", error: "1 of 3 steps failed." });
     expect(outcomeOf(steps(2, 2), false)).toEqual({ status: "partial", error: "2 of 2 steps failed." });
+    expect(outcomeOf(steps(1, 1), false)).toEqual({ status: "partial", error: "Its one step failed." });
   });
 });
 
