@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type Mood, Menu, NavIcon, useDismiss, useKosLook } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type Mood, Menu, NavIcon, useDismiss, useFocusTrap, useKosLook } from "@kos/kit";
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
@@ -18,6 +18,9 @@ import { swipedShut } from "./touch.js";
  * On a phone the column is a drawer behind a menu button in a slim bar, the
  * way every chat product does it.
  */
+/** The drawer's id, for the Menu button that opens it. */
+const DRAWER_ID = "side-drawer";
+
 type MoreAction = "refresh" | "snapshot" | "open" | "copy";
 
 /** The More menu's everyday items, each with a line saying what it does; Halt stands apart below them. */
@@ -94,6 +97,9 @@ export function Sidebar({
   useEffect(() => setOpen(false), [route]);
   // Escape closes the drawer; its backdrop takes the press away.
   useDismiss(open, () => setOpen(false), { away: false, scroll: false, resize: false, escape: "dialog" });
+  // Open, the drawer holds the keys as a sheet does, and gives them back to Menu as it shuts.
+  const drawer = useRef<HTMLElement>(null);
+  useFocusTrap(drawer, open, { onEscape: () => setOpen(false) });
 
   const failing = status?.unhealthy ?? 0;
   // A status read before KOS stopped answering says nothing about now.
@@ -105,12 +111,19 @@ export function Sidebar({
   return (
     <>
       <header className="phonebar">
-        <button type="button" className="phonebar-menu" aria-label="Menu" onClick={() => setOpen(true)}>
+        <button
+          type="button"
+          className="phonebar-menu"
+          aria-label={inboxCount > 0 ? `Menu, ${inboxCount} waiting` : "Menu"}
+          aria-expanded={open}
+          aria-controls={DRAWER_ID}
+          onClick={() => setOpen(true)}
+        >
           <span className="phonebar-menu-lines" aria-hidden="true" />
-          {inboxCount > 0 && <span className="side-badge side-badge--dot" aria-label={`${inboxCount} waiting`} />}
+          {inboxCount > 0 && <span className="side-badge side-badge--dot" aria-hidden="true" />}
         </button>
         <a className="brand" href="#/">
-          <Face seed={KOS_SEED} look={faceLookOf(kos)} size={20} mood={kosMood} label="KOS" />
+          <Face seed={KOS_SEED} look={faceLookOf(kos)} size={20} mood={kosMood} label="" />
           <span>KOS</span>
         </a>
         {/* A touch screen has no ⌘K: the search is its mark. */}
@@ -120,8 +133,11 @@ export function Sidebar({
       </header>
       {open && <div className="side-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />}
       <aside
+        ref={drawer}
+        id={DRAWER_ID}
         className={`side${open ? " is-open" : ""}`}
-        aria-label="Primary"
+        aria-label={open ? "Menu" : "Sidebar"}
+        {...(open ? { role: "dialog", "aria-modal": true } : {})}
         onTouchStart={(e) => {
           const t = e.touches[0];
           swipe.current = t ? { x: t.clientX, y: t.clientY } : null;
@@ -135,7 +151,7 @@ export function Sidebar({
       >
         <div className="side-brand-row">
           <a className="brand side-brand" href="#/">
-            <Face seed={KOS_SEED} look={faceLookOf(kos)} size={22} mood={kosMood} label="KOS" />
+            <Face seed={KOS_SEED} look={faceLookOf(kos)} size={22} mood={kosMood} label="" />
             <span>KOS</span>
           </a>
           {/* Collapse to a rail. Desktop only; on a phone the sidebar is a
@@ -144,7 +160,7 @@ export function Sidebar({
             {railed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </IconButton>
         </div>
-        <nav className="side-nav">
+        <nav className="side-nav" aria-label="Main">
           {NAV.map((item) => (
             <a
               key={item.label}
@@ -156,7 +172,10 @@ export function Sidebar({
               <NavIcon name={item.route.name} />
               <span className="side-label">{item.label}</span>
               {item.route.name === "inbox" && inboxCount > 0 && (
-                <span className={`side-badge${railed ? " side-badge--dot" : ""}`}>{railed ? "" : inboxCount}</span>
+                <>
+                  <span className={`side-badge${railed ? " side-badge--dot" : ""}`} aria-hidden="true">{railed ? "" : inboxCount}</span>
+                  <span className="sr-only">, {inboxCount} waiting</span>
+                </>
               )}
             </a>
           ))}
