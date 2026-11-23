@@ -10,8 +10,8 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { kindWord, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
-import { Menu, ModeChip, rise } from "@kos/kit";
+import { kindWord, runningTail, timeWords, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { announce, Menu, ModeChip, rise } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
@@ -220,6 +220,18 @@ function liveLabel(l: Live | undefined): string {
  * over the one thing that needed a hand. Then what the live view knows,
  * because it is ahead of the list's poll; then what the server said.
  */
+/**
+ * A chat row as a screen reader hears it: the title first, then its state
+ * once, then when ("Fetch the status page, needs you, 1m ago"). The dot's
+ * own label led and the text said the state again; "read" said nothing.
+ */
+export function chatRowWords(title: string, chat: Pick<Conversation, "activity" | "unread" | "updatedAt">, opts: { waiting?: boolean; working?: boolean; queued?: number } = {}): string {
+  const state =
+    opts.waiting || chat.activity === "needs-you" ? "needs you" : opts.working || chat.activity === "working" ? "working" : chat.activity === "error" ? "failed" : chat.unread ? "unread" : null;
+  const queued = opts.queued ? `${opts.queued} queued` : null;
+  return [title, state, queued, timeWords(chat.updatedAt)].filter(Boolean).join(", ");
+}
+
 function ThreadDot({
   live,
   chat,
@@ -453,6 +465,11 @@ export function ChatsPage({
   }, [showArchived, conversations]);
   const drop = useDropZone((l) => void attachments.add(l));
   const live = activeId ? progress[activeId] : undefined;
+  // Said once as a turn starts here: the thread is busy until it ends, and its reply is then read as it lands.
+  const workingSince = live && !live.ended ? live.since : undefined;
+  useEffect(() => {
+    if (workingSince !== undefined) announce("KOS is working");
+  }, [workingSince]);
   // A finished turn keeps its steps on screen until the transcript arrives,
   // so "there is a live view" and "work is happening" are no longer the same
   // question.
@@ -1534,6 +1551,8 @@ export function ChatsPage({
           <a
           className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
           href={hrefOf(c)}
+          aria-current={c.id === activeId ? "page" : undefined}
+          aria-label={chatRowWords(label ?? c.title, c, { waiting: waitingOn.has(c.id), working: Boolean(progress[c.id] && !progress[c.id]!.ended), ...(c.queued ? { queued: c.queued } : {}) })}
           onClick={(e) => {
             e.preventDefault();
             onOpen(c.id);
@@ -1588,7 +1607,7 @@ export function ChatsPage({
         {project ? (
           /* The project's own rail: its orchestrator above, its agents below,
              and nothing from outside it. Back is the way out. */
-          <aside className="chats-list chats-list--project" onKeyDown={railRowKeys}>
+          <aside className="chats-list chats-list--project" aria-label="Chats in this project" onKeyDown={railRowKeys}>
             <div className="chats-list-head">
               <button type="button" className="chats-back" onClick={project.onBack}>
                 <ChevronLeft size={14} />
@@ -1729,7 +1748,7 @@ export function ChatsPage({
         ) : agent ? (
           /* The agent's own rail: its thread above, the chats it runs inside
              projects below. Back is the way out. */
-          <aside className="chats-list chats-list--project" onKeyDown={railRowKeys}>
+          <aside className="chats-list chats-list--project" aria-label="Chats in this project" onKeyDown={railRowKeys}>
             <div className="chats-list-head">
               <button type="button" className="chats-back" onClick={agent.onBack}>
                 <ChevronLeft size={14} />
@@ -1775,7 +1794,7 @@ export function ChatsPage({
             </div>
           </aside>
         ) : (
-          <aside className="chats-list chats-list--root" onKeyDown={railRowKeys}>
+          <aside className="chats-list chats-list--root" aria-label="Chats" onKeyDown={railRowKeys}>
             <div className="chats-list-head chats-list-head--root">
               <SearchField className="chats-find" noun={showArchived ? "archived chats" : "chats"} value={query} onChange={setQuery} onKeyDown={railSearchKeys} />
               {/* New chat opens the landing, where you choose a chat, a project,
@@ -2178,7 +2197,7 @@ export function ChatsPage({
                   <Face seed={KOS_SEED} look={faceLookOf(kos)} size={56} mood={moodOf(orchestrator?.activity)} label="KOS" />
                 </m.span>
                 <m.div className="chats-welcome-head" variants={card}>
-                  <p className="chats-welcome-title">What do you want done?</p>
+                  <h1 className="chats-welcome-title" tabIndex={-1}>What do you want done?</h1>
                   <p className="chats-welcome-sub">
                     KOS routes it to the right project or blob, or stands a new one up.
                   </p>
@@ -2294,8 +2313,8 @@ export function ChatsPage({
                     {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} label="" />}
                     {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="" />}
                     {active.title}
-                    {active.kind === "project" && <span className="chats-role">Orchestrator</span>}
-                    {(active.kind === "agent" || active.role) && <span className="chats-role">Blob</span>}
+                    {active.kind === "project" && <span className="chats-role"><span className="sr-only">, </span>Orchestrator</span>}
+                    {(active.kind === "agent" || active.role) && <span className="chats-role"><span className="sr-only">, </span>Blob</span>}
                   </h1>
                   {/* Inside the project the rail lists the agents, so the count
                       would say what is already in view. */}

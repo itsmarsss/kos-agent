@@ -2,8 +2,10 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { timeWords } from "@kos/shared";
+
 import { api, type ChatEvent, type Conversation } from "./api.js";
-import { ChatsPage } from "./ChatsPage.js";
+import { chatRowWords, ChatsPage } from "./ChatsPage.js";
 import { ToastHost } from "./Toast.js";
 
 /**
@@ -45,7 +47,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function page(activeId: string | undefined = "c1"): ReturnType<typeof render> {
+function page(activeId: string | null = "c1"): ReturnType<typeof render> {
   return render(
     <ChatsPage
       conversations={[chat]}
@@ -142,7 +144,7 @@ describe("the chat list's menu", () => {
   it("renames from the list, with no chat open", async () => {
     serve(() => ({ events: [] }));
     const renamed = vi.spyOn(api, "renameConversation").mockResolvedValue({} as never);
-    page(undefined);
+    page(null);
     fireEvent.click(await screen.findByRole("button", { name: "Actions for Garden" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /Rename/ }));
     const dialog = await screen.findByRole("dialog", { name: "Rename chat" });
@@ -156,11 +158,27 @@ describe("the chat list's menu", () => {
     serve(() => ({ events: [] }));
     const archive = vi.spyOn(api, "archiveConversation").mockResolvedValue({} as never);
     render(<ToastHost />);
-    page(undefined);
+    page(null);
     fireEvent.click(await screen.findByRole("button", { name: "Actions for Garden" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Archive/ }));
     expect(await screen.findByText("Archived “Garden”.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(archive).toHaveBeenLastCalledWith("c1", false));
+  });
+});
+
+describe("a chat row, heard", () => {
+  it("leads with the title, says its state once, then when", () => {
+    const now = Date.now();
+    expect(chatRowWords("Fetch the status page", { activity: "needs-you", updatedAt: now - 60_000 })).toBe("Fetch the status page, needs you, 1m ago");
+    expect(chatRowWords("Main", { activity: "idle", unread: false, updatedAt: now })).toBe(`Main, ${timeWords(now)}`);
+    expect(chatRowWords("Lisbon", { activity: "idle", unread: true, updatedAt: now }, { queued: 2 })).toBe(`Lisbon, unread, 2 queued, ${timeWords(now)}`);
+  });
+
+  it("names the landing's question as the page's heading", async () => {
+    serve(() => ({ events: [] }));
+    page(null);
+    expect(await screen.findByRole("heading", { level: 1, name: "What do you want done?" })).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Chats" })).toBeTruthy();
   });
 });
