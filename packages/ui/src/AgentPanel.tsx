@@ -124,7 +124,7 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
             </button>
           </>
         ) : (
-          <NotFound what="blob" name={name} back={{ label: "All blobs", href: hrefFor({ name: "blobs" }) }} />
+          <NotFound what="blob" name={name} back={{ label: "Back to Blobs", href: hrefFor({ name: "blobs" }) }} />
         )}
       </aside>
     );

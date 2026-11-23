@@ -56,6 +56,19 @@ export const SYSTEM_SCHEDULES: Readonly<Record<string, string>> = {
   "kos.improve": "Improve",
 };
 
+/**
+ * A schedule's name as every list writes it: KOS's own by the one name each
+ * goes by (the memory schedules as "Memory: Read"), a blob's as the blob's
+ * name, the owner's as they named it. The ids (kos.memory, blob.recap) are
+ * the store's, never shown.
+ */
+export function scheduleName(name: string): string {
+  const own = SYSTEM_SCHEDULES[name];
+  if (own) return own;
+  if (name.startsWith("blob.")) return slugWords(name.slice(5));
+  return name;
+}
+
 /** What each of KOS's own schedules does, in a sentence or two, for its sheet and the Memory page. */
 export const SYSTEM_SCHEDULE_ABOUT: Readonly<Record<string, string>> = {
   "kos.memory": "Reads what was said since it last ran and keeps what will still be true months from now in Memory, with the messages each thing came from.",

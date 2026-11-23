@@ -213,12 +213,13 @@ export function settingsHits(parsed: ReturnType<typeof parseQuery>): SearchHit[]
 
 /** What each kind of hit is called on its row. */
 const HIT_WORD: Record<HitKind, string> = {
-  msg: "message",
-  text: "file",
-  memory: "memory",
-  run: "run",
-  secret: "secret",
-  settings: "setting",
+  msg: "Message",
+  text: "File",
+  memory: "Memory",
+  // A run's or a step's hint says which it is.
+  run: "",
+  secret: "Secret",
+  settings: "Setting",
 };
 
 /**
@@ -231,7 +232,7 @@ export function everywhereRows(hits: readonly SearchHit[], open: (target: Search
     .sort((a, b) => b.score - a.score)
     .map((h): Action => {
       const named = h.snippet.text === "" || h.snippet.text === h.title;
-      const word = h.target.kind === "call" ? "tool call" : HIT_WORD[h.kind];
+      const word = HIT_WORD[h.kind];
       return {
         id: `hit:${h.kind}:${h.id}`,
         label: h.title,
@@ -666,7 +667,7 @@ export function CommandPalette({
                   <kbd>&gt;</kbd> commands
                 </span>
                 <span>
-                  <kbd>file:</kbd> <kbd>msg:</kbd> narrow
+                  <kbd>file:</kbd> or <kbd>msg:</kbd> searches only files or chats
                 </span>
               </footer>
             </m.div>

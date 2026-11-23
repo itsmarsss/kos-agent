@@ -219,7 +219,7 @@ export { APPROVED_PREFIX, DENIED_PREFIX, LAPSED_PREFIX, NOT_RUN_PREFIX, OLD_DENI
 export { GAP_MS, clockWords, dayNumber, dayWords, markWords, momentWords, readerTime, timeMarks, type TimeMark } from "./chattime.js";
 export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timeCard, timesInWords, timeWords, withUnixTimes, type TimeStyle } from "./time.js";
 export { isState, STATE_WORDS, stateOfRun, type State, type StateTone } from "./states.js";
-export { KIND_WORDS, kindWord, providerWord, slugWords, SYSTEM_SCHEDULE_ABOUT, SYSTEM_SCHEDULES } from "./words.js";
+export { KIND_WORDS, kindWord, providerWord, scheduleName, slugWords, SYSTEM_SCHEDULE_ABOUT, SYSTEM_SCHEDULES } from "./words.js";
 export { pathsIn, type PathPart } from "./workspacepath.js";
 export { CHANNEL_TOKEN, channelNamesIn, surfaceName } from "./channel.js";
 export { MENTION_KINDS, MENTION_SOURCE, type MentionKind } from "./mentions.js";
