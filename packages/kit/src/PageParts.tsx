@@ -158,7 +158,8 @@ export function TableGroup({ title, count, columns }: { title: ReactNode; count?
   return (
     <tr className="table-group">
       <th colSpan={columns} scope="colgroup">
-        <GroupHead title={title} as="h3" {...(count !== undefined ? { count } : {})} />
+        {/* Under the page's h1 with nothing between: a level down, not two. */}
+        <GroupHead title={title} {...(count !== undefined ? { count } : {})} />
       </th>
     </tr>
   );
