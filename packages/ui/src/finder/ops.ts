@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { announce } from "@kos/kit";
+
 import { api, type Attachment } from "../api.js";
 import { readFile } from "../Attachments.js";
 import { joinPath, nameOf, parentOf, within } from "./model.js";
@@ -86,13 +88,19 @@ export function useFinderOps({ onChanged, send = (file, dir) => api.uploadFile(d
       try {
         const made = await api.makeDir(joinPath(dir, name));
         onChanged();
+        // Seen as a new row; said for a reader, who would otherwise hear nothing happen.
+        announce(`Made the folder ${nameOf(made.path)}`);
         return made.path;
       } catch (err) {
         fail(err);
         return undefined;
       }
     },
-    duplicate: (paths) => each(paths, async (p) => (await api.copyFile(p)).path),
+    duplicate: async (paths) => {
+      const made = await each(paths, async (p) => (await api.copyFile(p)).path);
+      if (made.length) announce(made.length === 1 ? `Duplicated as ${nameOf(made[0]!)}` : `Duplicated ${made.length} items`);
+      return made;
+    },
     move: async (paths, dir) => {
       // Not into itself, and not where it already is.
       const moving = paths.filter((p) => !within(dir, p) && parentOf(p) !== dir);
