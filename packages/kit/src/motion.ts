@@ -83,9 +83,9 @@ export const rise: Variants = {
   exit: { opacity: 0, y: 8 },
 };
 
-/** A row entering or leaving a list. */
+/** A row entering or leaving a list: in on the one 8 px rise. */
 export const listItem: Variants = {
-  hidden: { opacity: 0, y: 6 },
+  hidden: { opacity: 0, y: 8 },
   show: { opacity: 1, y: 0 },
   exit: { opacity: 0, y: -4, transition: { duration: 0.12 } },
 };
@@ -96,8 +96,8 @@ export const stagger: Variants = {
   show: { transition: { staggerChildren: 0.035, delayChildren: 0.02 } },
 };
 
-/** A card lifting into place. */
+/** A card lifting into place, on the one 8 px rise. */
 export const card: Variants = {
-  hidden: { opacity: 0, y: 10 },
+  hidden: { opacity: 0, y: 8 },
   show: { opacity: 1, y: 0, transition: ease },
 };

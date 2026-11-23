@@ -21,6 +21,14 @@ export type EmptyStateProps = {
   title?: string;
   /** The list has not been read yet: draw where it will be, not that it is empty. */
   loading?: boolean;
+  /**
+   * What the list's items are, for the skeleton to take their shape: rows
+   * stacked (the default), or cards in the 280px grid Projects and Blobs
+   * lay out in. With `itemHeight`, each is that tall, so nothing moves when
+   * the items arrive.
+   */
+  shape?: "rows" | "cards";
+  itemHeight?: number;
   /** What was searched for: "claims", "projects". Given, the words are the no-match ones. */
   query?: { noun: string; onClear?: () => void };
   className?: string;
@@ -89,13 +97,17 @@ export function EmptyState(props: EmptyStateProps): ReactElement {
 function Loading(props: EmptyStateProps): ReactElement {
   const cls = `list-loading${props.className ? ` ${props.className}` : ""}`;
   if (props.variant === "row") {
+    // A cell per column, so no bar runs across a column's line.
+    const cells = Array.from({ length: props.columns }, (_, c) => c);
     return (
       <>
         {[0, 1, 2].map((i) => (
-          <tr key={i} className="empty-row list-loading-row" {...(i === 0 ? { role: "status", "aria-label": "Loading" } : { "aria-hidden": "true" })}>
-            <td colSpan={props.columns}>
-              <Skeleton width={`${70 - i * 15}%`} height={14} />
-            </td>
+          <tr key={i} className="list-loading-row" {...(i === 0 ? { role: "status", "aria-label": "Loading" } : { "aria-hidden": "true" })}>
+            {cells.map((c) => (
+              <td key={c}>
+                <Skeleton width={`${(c === 0 ? 70 : 55) - i * 10}%`} height={12} />
+              </td>
+            ))}
           </tr>
         ))}
       </>
@@ -108,10 +120,11 @@ function Loading(props: EmptyStateProps): ReactElement {
       </p>
     );
   }
+  const cards = props.shape === "cards";
   return (
-    <div className={cls} role="status" aria-label="Loading">
-      {[0, 1, 2].map((i) => (
-        <Skeleton key={i} height={44} radius="var(--r-md)" />
+    <div className={`${cls}${cards ? " list-loading--cards" : ""}`} role="status" aria-label="Loading">
+      {Array.from({ length: cards ? 6 : 3 }, (_, i) => (
+        <Skeleton key={i} height={props.itemHeight ?? (cards ? 117 : 44)} radius="var(--r-md)" />
       ))}
     </div>
   );

@@ -620,6 +620,13 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
 /* A list being read: its rows' skeletons where the empty box would be. */
 .list-loading { display: grid; gap: 8px; margin: 0; }
+.list-loading--cards { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+/* A table's loading rows: a cell per column, at a row's own height. */
+.list-loading-row > td { height: 2.75rem; }
+/* Content in where its skeleton was: a fade and an 8px rise, the same on every page. */
+.arrive { animation: kos-arrive 180ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+@keyframes kos-arrive { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .arrive { animation: none; } }
 p.list-loading { padding: 4px 0; }
 
 /* What an ask would do, under the model's words for it: on the row, wrapped, never cut. */
