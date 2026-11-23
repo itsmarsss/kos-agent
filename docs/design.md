@@ -281,7 +281,9 @@ fingertip does not scale with the density setting.
   up at once.
 - Content arrives with a fade and an 8 px rise; something that floats (a
   menu, a popover, a sheet) with a fade and a scale from 0.98.
-- Nothing waits on an animation to finish; reduced motion turns them off.
+- Nothing waits on an animation to finish; reduced motion turns them off:
+  motion's own through `MotionConfig reducedMotion="user"` at each app's
+  root, and every CSS animation and transition by one rule in `kit.css`.
 
 ## Words
 
