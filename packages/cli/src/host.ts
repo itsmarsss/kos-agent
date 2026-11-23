@@ -756,7 +756,11 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
     // The owner's Stop on a device stops the chat's turn, as the dashboard's does.
     stopTurn: (id) => boot.current?.stop(id) ?? false,
     // Each device app kept on the build this checkout holds: packages/cli/dist is two folders down from it.
-    updates: deviceUpdates(fileURLToPath(new URL("../../..", import.meta.url)), (line) => console.error(line)),
+    updates: {
+      ...deviceUpdates(fileURLToPath(new URL("../../..", import.meta.url)), (line) => console.error(line)),
+      // An update that did not take is in the Inbox with why, not only in this log, until the device is current.
+      health: (key, label, ok, error) => boot.when((k) => void k.health.observe(key, label, ok, error)),
+    },
   });
 
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.

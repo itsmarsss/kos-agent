@@ -61,6 +61,8 @@ export interface ComputerUseOptions {
   updates?: {
     expected(kind: BuildKind): Build | undefined;
     mac?: MacInstaller;
+    /** An update that did not take, kept until the device is current: the owner's Inbox. */
+    health?(key: string, label: string, ok: boolean, error: string | null): void;
     log?(line: string): void;
   };
 }
@@ -190,7 +192,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         });
       }
       if (options.updates && !updates) {
-        const { expected, mac: installer, log } = options.updates;
+        const { expected, mac: installer, health, log } = options.updates;
         updates = new DeviceUpdates({
           hub: devices,
           store,
@@ -200,6 +202,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           idle: (device) => !devices.inUse(device) && !mac.busy(),
           ...(localProblem ? { localProblem } : {}),
           ...(options.audit ? { audit: options.audit } : {}),
+          ...(health ? { health } : {}),
           ...(log ? { log } : {}),
         });
         mac.onSettled(() => updates?.poke());

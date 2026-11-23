@@ -556,7 +556,11 @@ starts one itself. `GET /api/devices` lists each device online with its `build`,
 (connected from this computer) and `update` (the frame's fields but
 `action`). Every step is in the audit log as `device.update`, with
 the device, `kind`, `from`, `to`, `outcome` (`reloading`, `installing`,
-`updated`, `failed`, `still_behind`) and `by` (`kos`, `owner`).
+`updated`, `failed`, `still_behind`) and `by` (`kos`, `owner`). A `failed` or
+`still_behind` update is also in the Inbox's failures (key
+`device-update:<device id>`, "KOS for Mac update on <name>", with why) until
+the device connects on KOS's build. A KOS for Mac whose rebuild fails is
+never replaced: the running app stays on its line, and its row says why.
 
 **KOS for Chrome**, connected from this computer, is told `action:
 reload`. It reloads itself (`chrome.runtime.reload()`) from its folder only
@@ -784,7 +788,7 @@ read the secret it would check), `store` (a Chrome installed from the store,
 which Chrome updates), `idle` (waiting for no session and no turn
 on it), `signing` (KOS for Mac's signing key is not set up), `xcode` (a
 phone), `off` (the owner turned updating on their own off), `failed` (with
-`detail`, the build's last line) or `stuck` (updated, and back on the old
+`detail`, the build's first error with no host path, else its last line) or `stuck` (updated, and back on the old
 build). `command` is what the owner runs by hand on a Mac. A Chrome is
 also told `"action": "reload"`, and `"force": true` when the owner pressed
 Update now (see [Builds and updates](#builds-and-updates)). A device that
