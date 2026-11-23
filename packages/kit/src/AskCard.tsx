@@ -69,11 +69,13 @@ const HANDED = "handed";
  * next ask unread. A handed card takes no Enter until the owner has gone to
  * it themselves (Tab to its buttons, or away and back).
  */
-function handFocusOn(): void {
+function handFocusOn(next: HTMLElement | null): void {
   requestAnimationFrame(() => {
     const held = document.activeElement;
     if (held && held !== document.body && held.isConnected) return;
-    const card = document.querySelector<HTMLElement>(".kos-ask");
+    // The one after it in the list (the one before it, at the end), not the page's first: deciding down a
+    // list sent the focus back to the top after each.
+    const card = next?.isConnected ? next : document.querySelector<HTMLElement>(".kos-ask");
     if (card) {
       card.dataset[HANDED] = "1";
       card.focus({ preventScroll: true });
@@ -91,9 +93,10 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
   const box = useRef<HTMLElement>(null);
   // Decided from the keyboard (the focus on the card): when it goes, the focus goes on rather than to the page.
   const handOn = useRef(false);
+  const nextCard = useRef<HTMLElement | null>(null);
   useEffect(
     () => () => {
-      if (handOn.current) handFocusOn();
+      if (handOn.current) handFocusOn(nextCard.current);
     },
     [],
   );
@@ -129,6 +132,9 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
     setCodeReady(false);
     setPressed(which);
     handOn.current = box.current?.contains(document.activeElement) === true;
+    const cards = [...document.querySelectorAll<HTMLElement>(".kos-ask")];
+    const at = box.current ? cards.indexOf(box.current) : -1;
+    nextCard.current = at >= 0 ? (cards[at + 1] ?? cards[at - 1] ?? null) : null;
     if (which === "no") onDecide(false);
     else if (which === "always") onDecide(true, true);
     else if (code !== undefined) onDecide(true, false, code);
