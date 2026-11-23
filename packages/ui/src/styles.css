@@ -5436,6 +5436,7 @@ a.health {
 .cron-editor > .sheet-foot--inline { margin-top: auto; }
 .drawer-body > .cron-editor { min-height: 100%; }
 .cron-editor { gap: 1.3rem; }
+.cron-delete { display: flex; padding-top: 1.1rem; border-top: 1px solid var(--line); }
 /* Sideways resizing pushed the box out of its own drawer, and there is
    nothing to the right of it worth reaching. */
 .cron-editor textarea.kos-input { resize: vertical; min-height: 5rem; }
