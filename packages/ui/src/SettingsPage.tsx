@@ -18,7 +18,7 @@ import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
 import { DashboardTokenField } from "./TokenGate.js";
-import { matchesSkillView, skillViews } from "./skillviews.js";
+import { matchesSkillView, skillSummary, skillViews } from "./skillviews.js";
 import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
 import { chooseTheme, isDensity, isTheme, readDensity, setDensity, useTheme, type Density } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
@@ -1381,7 +1381,7 @@ export function SettingsPage({
               <FieldRow
                 key={sk.name}
                 label={`${sk.name} (${sk.kind}${sk.kind === "script" ? (sk.promoted ? ", promoted" : ", not promoted") : ""})${sk.projects ? ` · ${sk.projects.join(", ")}` : ""}`}
-                hint={sk.description}
+                hint={skillSummary(sk.description)}
                 {...(sk.origin ? { meta: <span className="set-origin ops-mono">{sk.origin}</span> } : {})}
               >
                 <Switch label={sk.name} on={sk.enabled} disabled={skillBusy === sk.name} onChange={(on) => {

@@ -45,3 +45,20 @@ export function matchesSkillView(skill: SkillInfo, view: string): boolean {
       return view.startsWith("project:") ? (skill.projects ?? []).includes(view.slice("project:".length)) : true;
   }
 }
+
+/** How long a skill's line in the list may run before it is cut at a word. */
+const SUMMARY_MAX = 160;
+
+/**
+ * A skill's own summary, for the list: its description up to the first
+ * TRIGGER or SKIP block (the rules a model reads to decide when to use it,
+ * not words for the owner), then its first sentence, cut at a word.
+ */
+export function skillSummary(description: string): string {
+  const cut = /\b(?:TRIGGER|SKIP)\b/.exec(description);
+  const plain = (cut ? description.slice(0, cut.index) : description).replace(/\s+/g, " ").trim();
+  const sentence = (/^.*?[.!?](?=\s+[A-Z]|$)/.exec(plain)?.[0] ?? plain).replace(/[\s:;,\u2014-]+$/, "");
+  if (sentence.length <= SUMMARY_MAX) return sentence;
+  const head = sentence.slice(0, SUMMARY_MAX);
+  return `${head.slice(0, head.lastIndexOf(" ")).replace(/[\s:;,\u2014-]+$/, "")}…`;
+}
