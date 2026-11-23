@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
-import { swipedShut } from "./touch.js";
+import { swipedShut, watchEdgeSwipe } from "./touch.js";
 
 /**
  * The shell's left edge: where you are, where else you can be, and whether
@@ -90,6 +90,8 @@ export function Sidebar({
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLButtonElement>(null);
+  // A swipe in from the left edge opens it, as a phone's drawers do.
+  useEffect(() => watchEdgeSwipe(() => setOpen(true)), []);
   // Going somewhere closes the drawer; a route change is the signal.
   useEffect(() => setOpen(false), [route]);
   // Escape closes the drawer; its backdrop takes the press away.
