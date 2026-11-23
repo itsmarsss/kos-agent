@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api, type CronJob } from "./api.js";
-import { Inspector, madeIn } from "./Inspector.js";
+import { allowedWords, Inspector, madeIn } from "./Inspector.js";
 
 /**
  * The project drawer was a flat stack of nine equally-weighted sections with
@@ -191,6 +191,22 @@ describe("a failed step's drawer", () => {
     expect(screen.getByText("There is no file or folder at “blobs/recap/notes/todo.md”.")).toBeTruthy();
     expect(document.querySelector("details.insp-details")!.textContent).toContain("Recap, a blob");
     expect(screen.queryByText("You")).toBeNull();
+  });
+});
+
+describe("who let a risky step run", () => {
+  it("says the ask's place and number, a rule or Auto, and unknown for a step from before", () => {
+    const at = Date.now();
+    expect(allowedWords({ decidedVia: "discord", approvalId: 742, createdAt: at })).toMatch(/^Approved on Discord, .+, #742$/);
+    expect(allowedWords({ decidedVia: "rule", approvalId: null, createdAt: at })).toMatch(/^Approved by a remembered rule, /);
+    expect(allowedWords({ decidedVia: null, approvalId: null, createdAt: at })).toMatch(/; where is unknown$/);
+  });
+
+  it("is said in a risky step's drawer", () => {
+    vi.spyOn(api, "call").mockRejectedValue(new Error("offline"));
+    render(<Inspector target={{ kind: "tool", data: { id: 9, tool: "sql", args: "{}", result: "", isError: false, riskTier: "risky", decidedVia: "phone", approvalId: 12, createdAt: Date.now() } }} onClose={() => {}} />);
+    expect(screen.getByText("Allowed")).toBeTruthy();
+    expect(screen.getByText(/^Approved on KOS for iPhone, .+, #12$/)).toBeTruthy();
   });
 });
 

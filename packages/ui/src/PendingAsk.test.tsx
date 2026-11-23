@@ -155,3 +155,12 @@ describe("a request for a secret", () => {
   });
 });
 
+
+describe("an ask no turn waits on", () => {
+  it("warns on its card, before any yes, in the host's words", () => {
+    const warning = "The chat that asked has stopped; approving runs it now and the result goes to its chat.";
+    render(<PendingAsk ask={{ ...ask, detached: warning }} deciding={new Set()} onDecide={() => {}} />);
+    expect(screen.getByRole("note").textContent).toBe(warning);
+    expect(pendingView({ ...ask }).detached).toBeUndefined();
+  });
+});

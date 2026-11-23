@@ -302,6 +302,26 @@ describe("the decided list", () => {
     width.mockRestore();
   });
 
+  it("says in a row's details where it was decided, why it lapsed, and unknown for a row from before", async () => {
+    const at = Date.now() - 60_000;
+    const rows: DecidedAction[] = [
+      { ...decidedRows(1)[0]!, id: 3, status: "approved", decidedAt: at, decidedVia: "discord", decidedDevice: null },
+      { ...decidedRows(1)[0]!, id: 2, status: "expired", requestedAt: at - 30 * 60_000, decidedAt: at, decidedVia: "timeout" },
+      { ...decidedRows(1)[0]!, id: 1, status: "approved", decidedAt: at, decidedVia: null },
+    ];
+    serve(rows);
+    render(<InboxDecided mark={mark(3, 3)} onOpenChat={() => {}} />);
+    await waitFor(() => expect(lines()).toHaveLength(3));
+    for (const line of lines()) fireEvent.click(line);
+    const said = [...document.querySelectorAll(".inbox-decided-facts")].map((dl) => {
+      const dt = [...dl.querySelectorAll("dt")].find((d) => d.textContent === "Decided");
+      return dt?.nextElementSibling?.textContent;
+    });
+    expect(said[0]).toMatch(/^Approved on Discord, /);
+    expect(said[1]).toBe("Lapsed: nobody decided in 30 minutes");
+    expect(said[2]).toMatch(/; where is unknown$/);
+  });
+
   it("draws nothing when nothing was decided", async () => {
     serve([]);
     const { container } = render(<InboxDecided mark={{ total: 0, latest: null }} onOpenChat={() => {}} />);
