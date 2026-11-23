@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactElement } from "react";
 
-import { clockWords, errorWords, formatDuration, kindWord, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
+import { clockWords, errorWords, formatDuration, kindWord, STATE_WORDS, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
 
 import { Chips, StatusPill } from "@kos/kit";
 
@@ -28,6 +28,11 @@ import { jobTitle } from "./schedulewords.js";
 export type HistoryRow =
   | { kind: "tool"; at: number; failed: boolean; tool: AuditRecord }
   | { kind: "run"; at: number; failed: boolean; run: RunRecord };
+
+/** How a row went, as its pill says it. */
+function stateOf(r: HistoryRow): "failed" | "ok" | ReturnType<typeof stateOfRun> {
+  return r.failed ? "failed" : r.kind === "run" ? stateOfRun(r.run.status) : "ok";
+}
 
 /** Which slice of history is on screen. */
 type Filter = "all" | "tools" | "runs" | "failures";
@@ -189,6 +194,13 @@ export function HistoryPage({
     return all;
   }, [tools, runs, filter]);
 
+  /** A row's what in words, for its name to a reader and its Fix button's. */
+  const whatWords = (r: HistoryRow): string => {
+    if (r.kind === "run") return runLabel(r.run);
+    const line = stepLine(r.tool.tool, r.tool.args);
+    return line.detail ? `${line.title} ${line.detail}` : line.title;
+  };
+
   return (
     <ListPage
       title="Runs"
@@ -206,6 +218,7 @@ export function HistoryPage({
       onRowClick={(r) =>
         r.kind === "tool" ? onOpenTool(r.tool) : onOpenRun(r.run)
       }
+      rowLabel={(r) => `${whatWords(r)}, ${STATE_WORDS[stateOf(r)].word}, ${clockWords(r.at)}`}
       filters={
         <Chips options={FILTERS.map((f) => [f.value, f.label, f.title] as const)} selected={filter} onChoose={setFilter} />
       }
@@ -213,6 +226,7 @@ export function HistoryPage({
         {
           key: "kind",
           header: "",
+          srHeader: "Kind",
           width: "7%",
           searchText: (r) => (r.kind === "tool" ? "Step" : runKind(r.run.kind)),
           render: (r) => (
@@ -247,7 +261,7 @@ export function HistoryPage({
           header: "Status",
           width: "10%",
           searchText: (r) => (r.failed ? "failed" : "done"),
-          render: (r) => <StatusPill state={r.failed ? "failed" : r.kind === "run" ? stateOfRun(r.run.status) : "ok"} />,
+          render: (r) => <StatusPill state={stateOf(r)} />,
         },
         {
           key: "when",
@@ -265,6 +279,7 @@ export function HistoryPage({
           // fix, and a button there would be noise on every line.
           key: "fix",
           header: "",
+          srHeader: "Fix",
           stack: "aside",
           width: "10%",
           render: (r) => {
@@ -276,6 +291,7 @@ export function HistoryPage({
                 className="btn btn--sm"
                 disabled={fixing !== null}
                 title="Opens a chat where KOS looks into this and tries to fix it"
+                aria-label={`Fix ${whatWords(r)} in a chat`}
                 onClick={(e) => {
                   e.stopPropagation();
                   setFixing(id);
