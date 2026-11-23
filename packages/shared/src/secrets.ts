@@ -118,6 +118,14 @@ export const SECRET_KINDS: readonly SecretKind[] = ["login", "card", "apikey", "
  */
 export const SECRET_TOOLS: readonly string[] = ["secrets.fill", "secrets.type", "secrets.allow_site", "secrets.request"];
 
+/**
+ * The tools whose ask shows the owner's own private data on its card (the
+ * start of what they copied): decided as a secret's use is, every time and
+ * only on the dashboard or a paired device, so it never lands in a chat
+ * surface's history or a notification.
+ */
+export const PRIVATE_TOOLS: readonly string[] = ["clipboard.read"];
+
 /** What a yes to a secret's ask may be kept as: `site` stops asking on that origin (a grant in the vault). */
 export type SecretRemember = "turn" | "site";
 

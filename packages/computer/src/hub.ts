@@ -720,15 +720,15 @@ export class DeviceHub {
   }
 
   /**
-   * A call to a Chrome outside any session: its side panel's chat, and the
-   * page beside it. The device's answer, or its refusal; offline when it is
-   * not on.
+   * A call to a device outside any session: a panel's chat, the page beside
+   * a Chrome's, a Mac's clipboard. The device's answer, or its refusal;
+   * offline when it is not on.
    */
-  async request(deviceId: string, method: PanelMethod, params: Record<string, unknown>, timeoutMs = PANEL_TIMEOUT_MS): Promise<Record<string, unknown>> {
-    // Showing the chat goes on under the kill switch; reading a page does not.
-    if (method === "page.read" && this.deps.halted()) throw new DeviceError("halted", "KOS is halted by the kill switch");
+  async request(deviceId: string, method: PanelMethod | "clipboard.read", params: Record<string, unknown>, timeoutMs = PANEL_TIMEOUT_MS): Promise<Record<string, unknown>> {
+    // Showing the chat goes on under the kill switch; reading a page or a clipboard does not.
+    if ((method === "page.read" || method === "clipboard.read") && this.deps.halted()) throw new DeviceError("halted", "KOS is halted by the kill switch");
     const link = this.links.get(deviceId);
-    if (!link?.ready) throw new DeviceError("offline", "that Chrome is not connected to KOS");
+    if (!link?.ready) throw new DeviceError("offline", "that device is not connected to KOS");
     return link.call(method, params, timeoutMs);
   }
 

@@ -175,6 +175,7 @@ export type Method =
   | "secret.fill"
   | "secret.picture"
   | "tab.origins"
+  | "clipboard.read"
   | PanelMethod;
 
 /**

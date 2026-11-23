@@ -1,4 +1,4 @@
-import { SECRET_TOOLS } from "./secrets.js";
+import { PRIVATE_TOOLS, SECRET_TOOLS } from "./secrets.js";
 
 /** True if the value holds any `{{secret:<name>}}` reference: a call that places a secret, which always asks. */
 export function hasSecretRef(value: unknown): boolean {
@@ -8,7 +8,12 @@ export function hasSecretRef(value: unknown): boolean {
   return false;
 }
 
-/** True when a call places one of the owner's secrets: a reference in its arguments, or a secrets tool that fills one. */
+/**
+ * True when a call places one of the owner's secrets (a reference in its
+ * arguments, or a secrets tool that fills one) or its ask shows their
+ * private data: either is asked every time and decided only where the
+ * owner is proved.
+ */
 export function usesSecret(tool: string, args: unknown): boolean {
-  return SECRET_TOOLS.includes(tool) || hasSecretRef(args);
+  return SECRET_TOOLS.includes(tool) || PRIVATE_TOOLS.includes(tool) || hasSecretRef(args);
 }

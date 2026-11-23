@@ -82,6 +82,7 @@ export const TOOL_WORDS: Readonly<Record<string, string>> = {
   "secrets.fill": "Fill in a secret",
   "secrets.type": "Type a secret",
   "secrets.allow_site": "Allow a secret on a site",
+  "clipboard.read": "Read your clipboard",
   "vault.fill": "Fill in a secret",
   "skills.list": "List skills",
   "skills.create": "Write a skill",

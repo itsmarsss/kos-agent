@@ -885,7 +885,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       const request = approvalRequest(action);
       // A secret's use is decided on the dashboard or a paired device: the chat surfaces are told, not asked.
       if (usesSecret(action.tool, JSON.parse(action.args))) {
-        const notice = { text: secretAskElsewhere(action.id) };
+        const notice = { text: secretAskElsewhere(action.id, action.tool) };
         if (adapter && creds) void adapter.send(creds.ownerId, notice).catch(() => undefined);
         if (smsAdapter && sms) void smsAdapter.send(sms.owner, notice).catch(() => undefined);
       } else {

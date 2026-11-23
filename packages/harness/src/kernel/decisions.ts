@@ -1,4 +1,4 @@
-import { summarizeAction, toolWords, usesSecret, type ActionHome } from "@kos/shared";
+import { PRIVATE_TOOLS, summarizeAction, toolWords, usesSecret, type ActionHome } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
@@ -141,8 +141,11 @@ export interface DecisionOptions {
   code?: string;
 }
 
-/** Said on a chat surface for an ask that places a secret, in place of its buttons or a typed decision. */
-export function secretAskElsewhere(id: number | string): string {
+/** Said on a chat surface for an ask that places a secret, or shows the owner's private data, in place of its buttons or a typed decision. */
+export function secretAskElsewhere(id: number | string, tool?: string): string {
+  if (tool !== undefined && PRIVATE_TOOLS.includes(tool)) {
+    return `KOS asks: ${toolWords(tool)} (#${id}). Decide on the dashboard or a paired device; what it shows is private, so it is never shown or decided here.`;
+  }
   return `KOS asks to use a secret (#${id}). Decide on the dashboard or a paired device; a secret's use is never decided here.`;
 }
 
@@ -202,11 +205,11 @@ export class Decisions {
     const placing = usesSecret(action.tool, stored);
     // A call that places a secret is approved only where the owner is proved: the dashboard or a paired device, never a chat surface.
     if (!DECIDING_SURFACES.has(options.surface) && placing) {
-      return { ok: false, message: secretAskElsewhere(id) };
+      return { ok: false, message: secretAskElsewhere(id, action.tool) };
     }
     // Typed words are not a press: on a device's own chat they could be KOS's own keys.
     if (options.typed && placing) {
-      return { ok: false, message: `#${id} uses a secret, which is decided with its card's buttons on the dashboard or a paired device, never a typed /approve.` };
+      return { ok: false, message: `#${id} ${PRIVATE_TOOLS.includes(action.tool) ? "shows something private of yours" : "uses a secret"}, which is decided with its card's buttons on the dashboard or a paired device, never a typed /approve.` };
     }
     // Nor from where KOS's own pointer may be: the ask stays, for the owner to decide where KOS is not.
     const handsOn = placing ? d.handsOn?.(options.device, action.conversationId) : undefined;
