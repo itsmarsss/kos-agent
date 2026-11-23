@@ -69,6 +69,7 @@ import { MessageEditor } from "./MessageActions.js";
 import { MessageTurn, type TurnAction } from "./MessageTurn.js";
 import { UnsentNote } from "./UnsentNote.js";
 import { Toast } from "./Toast.js";
+import { EarlierButton, JumpToLatest, useAwayFromLatest } from "./ThreadEnds.js";
 import { useReach } from "./reach.js";
 import { useStable } from "./stable.js";
 
@@ -458,6 +459,18 @@ export function ChatsPage({
   const running = working || sendingIn === activeId;
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+  /**
+   * How much of a long chat is read: its newest `CHAT_WINDOW` events, more
+   * at each Show earlier, back to that on opening another chat; and what is
+   * left above them.
+   */
+  const shownRef = useRef(CHAT_WINDOW);
+  const [cut, setCut] = useState<{ earlier: number; ownerAbove: number }>({ earlier: 0, ownerAbove: 0 });
+  const readChat = (id: string): ReturnType<typeof api.conversation> => api.conversation(id, shownRef.current);
+  const showChat = (got: Awaited<ReturnType<typeof api.conversation>>): void => {
+    setEvents(got.events);
+    setCut({ earlier: got.earlier ?? 0, ownerAbove: got.ownerAbove ?? 0 });
+  };
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useAutoGrow(inputRef, draft);
 
@@ -646,15 +659,17 @@ export function ChatsPage({
     if (!mine) {
       // Nothing from the previous conversation stays visible while this one
       // loads.
+      shownRef.current = CHAT_WINDOW;
+      setCut({ earlier: 0, ownerAbove: 0 });
       setEvents([]);
       setEditing(false);
       setEditingIndex(null);
     }
     let cancelled = false;
     const id = activeId;
-    void api
-      .conversation(id)
-      .then(({ events: got, pending: waiting }) => {
+    void readChat(id)
+      .then((got) => {
+        const waiting = got.pending;
         if (cancelled) return;
         /*
          * Queued messages land first, always.
@@ -674,7 +689,7 @@ export function ChatsPage({
          * the fetch happens again once the turn is over.
          */
         if (holdTranscript) return;
-        setEvents(got);
+        showChat(got);
         setLoadedFor({ id, stamp });
         // The transcript now holds what the live view was holding, so the
         // handover is done and the steps can go. Doing this on turn-end
@@ -702,10 +717,17 @@ export function ChatsPage({
   useEffect(() => setFoundAt(null), [activeId]);
   useEffect(() => {
     if (at === undefined || !activeId || loadedFor?.id !== activeId) return;
-    clearAt();
     const index = Number(at);
-    if (Number.isInteger(index) && index >= 0 && index < events.length) setFoundAt(index);
-  }, [at, activeId, loadedFor, events.length, clearAt]);
+    if (!Number.isInteger(index) || index < 0) return void clearAt();
+    // Above what is read: read back to it first, and come here again when it is in.
+    if (index < cut.earlier) {
+      shownRef.current = cut.earlier + events.length - index + CHAT_WINDOW / 4;
+      void readChat(activeId).then((got) => activeIdRef.current === activeId && showChat(got)).catch(() => clearAt());
+      return;
+    }
+    clearAt();
+    if (index - cut.earlier < events.length) setFoundAt(index - cut.earlier);
+  }, [at, activeId, loadedFor, events.length, cut.earlier, clearAt]);
   useEffect(() => {
     if (foundAt === null) return;
     // Again a frame on, after the thread has followed its newest message down.
@@ -1120,9 +1142,9 @@ export function ChatsPage({
       // calls, and those belong in the transcript too. A turn suspended on an
       // approval answers here too, and the reload is what puts its approval
       // card on screen.
-      const { events: got, pending: waiting } = await api.conversation(target);
-      if (target === activeIdRef.current) setEvents(got);
-      showPending(target, waiting);
+      const got = await readChat(target);
+      if (target === activeIdRef.current) showChat(got);
+      showPending(target, got.pending);
       // Every path that replaces the transcript is a handover: leaving the
       // finished steps up as well shows each tool call twice until something
       // else happens to clear them.
@@ -1136,7 +1158,7 @@ export function ChatsPage({
        * the same, and that one shows as its row. Put back as well, it would
        * be sent twice.
        */
-      const waiting = await api.conversation(target).then((r) => r.pending).catch(() => undefined);
+      const waiting = await readChat(target).then((r) => r.pending).catch(() => undefined);
       if (waiting) showPending(target, waiting);
       const unsent = !waiting || !queuedAnyway(waiting, before, text);
       // The owner's own bubble stays, marked as not sent and why, where KOS's reply would have gone before.
@@ -1170,7 +1192,7 @@ export function ChatsPage({
 
   const reloadPending = async (id: string): Promise<void> => {
     try {
-      const { pending: waiting } = await api.conversation(id);
+      const { pending: waiting } = await readChat(id);
       showPending(id, waiting);
     } catch {
       // The list is refreshed on the next turn either way.
@@ -1333,11 +1355,11 @@ export function ChatsPage({
           return;
         }
         // The turn is over, so the transcript is the authority again.
-        const { events: got, pending: waiting } = await api.conversation(target);
+        const got = await readChat(target);
         settleProgress(target);
-        showPending(target, waiting);
+        showPending(target, got.pending);
         if (target !== activeIdRef.current) return;
-        setEvents(got);
+        showChat(got);
       })
       .catch((err: unknown) =>
         setEvents((e) => [
@@ -1366,7 +1388,21 @@ export function ChatsPage({
     else rewind(turn, what === "fork" ? { forkTitle: "" } : {});
   });
 
-  const renderEvent = (e: ChatEvent, i: number, turn: number): ReactElement => {
+  /** Reads the chat back another window's worth; how many more events it shows. */
+  const showEarlier = async (): Promise<number> => {
+    if (!activeId) return 0;
+    const id = activeId;
+    const had = events.length;
+    shownRef.current += CHAT_WINDOW;
+    const got = await readChat(id);
+    if (id !== activeIdRef.current) return 0;
+    showChat(got);
+    return Math.max(0, got.events.length - had);
+  };
+  const away = useAwayFromLatest(boxRef, activeId);
+  const threadWho = active ? (active.kind === "orchestrator" ? "KOS" : active.title) : "KOS";
+
+  const renderEvent = (e: ChatEvent, i: number, turn: number, lastAt?: number): ReactElement => {
     if (e.kind === "tool") {
       return (
         <ToolCall
@@ -1401,7 +1437,7 @@ export function ChatsPage({
       );
     }
 
-    const said = <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} found={i === foundAt} />;
+    const said = <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} found={i === foundAt} {...(lastAt !== undefined ? { lateAfter: lastAt } : {})} />;
     if (e.kind !== "message" || e.unsent === undefined) return said;
     return (
       <Fragment key={i}>
@@ -2200,9 +2236,9 @@ export function ChatsPage({
                       ) : null;
                     })()}
                   </div>
-                  <h1>
-                    {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} />}
-                    {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
+                  <h1 tabIndex={-1}>
+                    {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} label="" />}
+                    {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="" />}
                     {active.title}
                     {active.kind === "project" && <span className="chats-role">Orchestrator</span>}
                     {(active.kind === "agent" || active.role) && <span className="chats-role">Blob</span>}
@@ -2359,19 +2395,31 @@ export function ChatsPage({
               <MentionNames resolve={nameFor} hrefOf={channelHref}>
               {/* Its step pictures open in the Lightbox, the turn's others a step away. */}
               <PictureGallery>
-              <div className="chats-thread" ref={threadScroll}>
+              <div className="chats-thread" ref={threadScroll} role="log" aria-live="polite" aria-relevant="additions" aria-busy={live !== undefined || sendingIn === activeId} aria-label={`Messages with ${threadWho}`}>
+                {cut.earlier > 0 && <EarlierButton count={cut.earlier} scroller={boxRef} onShow={showEarlier} />}
                 {visible.length === 0 && <EmptyState variant="inline">Nothing said yet.</EmptyState>}
                 {(() => {
                   // Owner turns are numbered in order, because rewind addresses
-                  // them by position rather than by any id a transcript keeps.
-                  let owner = -1;
+                  // them by position rather than by any id a transcript keeps;
+                  // counted as KOS holds them, from the last line the chat was
+                  // set aside under. Those above it are kept for the owner to
+                  // read, not to change.
+                  let lastLine = -1;
+                  visible.forEach((e, i) => {
+                    if (e.kind === "divider") lastLine = i;
+                  });
+                  let owner = lastLine >= 0 ? -1 : cut.ownerAbove - 1;
+                  // The latest time said so far, to tell a message sent before the ones above it.
+                  let lastAt: number | undefined;
                   return visible.map((e, i) => {
-                    const turn = e.kind === "message" && e.role === "you" ? ++owner : -1;
+                    const turn = e.kind === "message" && e.role === "you" && i > lastLine ? ++owner : -1;
                     const mark = marks[i];
+                    const before = lastAt;
+                    if (e.kind === "message" && e.at) lastAt = Math.max(lastAt ?? 0, e.at);
                     return (
                       <Fragment key={i}>
                         {mark && <TimeLine mark={mark} />}
-                        {renderEvent(e, i, turn)}
+                        {renderEvent(e, i, turn, before)}
                       </Fragment>
                     );
                   });
@@ -2623,6 +2671,8 @@ export function ChatsPage({
               </div>
               </PictureGallery>
               </MentionNames>
+              {/* Outside the log, so showing it is not read as a new message. */}
+              {away && <JumpToLatest scroller={boxRef} onJumped={() => inputRef.current?.focus({ preventScroll: true })} />}
 
               <div
                 className={`chats-composer composer ${drop.over ? "is-over" : ""}`}
@@ -2651,6 +2701,7 @@ export function ChatsPage({
                     ref={inputRef}
                     // Where the focus goes after the last ask here is decided from the keyboard.
                     data-after-ask=""
+                    aria-label={`Message ${active.title}`}
                     rows={1}
                     value={draft}
                     // On a narrow window the hints ran out of the box: who it goes to is the part to keep.
@@ -2865,6 +2916,8 @@ interface ColumnSpec {
 }
 /** How long a turn the stream announced is believed over a list that still says idle: three polls. */
 const FRESH_TURN_MS = 15_000;
+/** Events of a chat read at a time: a long chat opens on its newest, the rest a Show earlier away. */
+const CHAT_WINDOW = 200;
 
 const RAIL_W: ColumnSpec = { key: "kos.chats.rail", min: 120, max: 420, fallback: 240 };
 const PANEL_W: ColumnSpec = { key: "kos.project.panel.w", min: 160, max: 640, fallback: 300 };

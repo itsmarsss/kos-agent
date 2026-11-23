@@ -2,6 +2,8 @@ import { useState, type ReactElement } from "react";
 
 import { CheckIcon, CopyIcon, EditIcon, ForkIcon, IconButton, MessageTime, RetryIcon } from "@kos/kit";
 
+import { toast } from "./Toast.js";
+
 /**
  * What you can do with a message you sent, or one you got back.
  *
@@ -12,6 +14,8 @@ import { CheckIcon, CopyIcon, EditIcon, ForkIcon, IconButton, MessageTime, Retry
 
 export interface MessageActionProps {
   text: string;
+  /** What the buttons act on, in their names: "KOS's reply, 6:52 PM". */
+  of: string;
   /** Absent on an assistant turn, which can only be copied. */
   onEdit?: (next: string) => void;
   onRetry?: () => void;
@@ -23,6 +27,7 @@ export interface MessageActionProps {
 
 export function MessageActions({
   text,
+  of,
   onEdit,
   onRetry,
   onFork,
@@ -31,33 +36,35 @@ export function MessageActions({
 }: MessageActionProps): ReactElement {
   const [copied, setCopied] = useState(false);
 
+  // Said as well as shown: a tick alone on a phone, where the pointer is not over it, read as nothing happening.
   const copy = (): void => {
     void navigator.clipboard
       .writeText(text)
       .then(() => {
         setCopied(true);
+        toast({ kind: "ok", text: `Copied ${of.replace(/,.*$/, "")}` });
         window.setTimeout(() => setCopied(false), 1200);
       })
-      .catch(() => undefined);
+      .catch(() => toast({ kind: "err", text: "Could not copy: this browser did not allow it" }));
   };
 
   return (
     <div className="acts">
-      <IconButton label="Copy" onClick={copy}>
+      <IconButton label={copied ? `Copied ${of}` : `Copy ${of}`} title={copied ? "Copied" : "Copy"} onClick={copy}>
         {copied ? <CheckIcon /> : <CopyIcon />}
       </IconButton>
       {onEdit && (
-        <IconButton label="Edit" disabled={busy} onClick={() => onEdit(text)}>
+        <IconButton label={`Edit ${of}`} title="Edit" disabled={busy} onClick={() => onEdit(text)}>
           <EditIcon />
         </IconButton>
       )}
       {onRetry && (
-        <IconButton label="Retry" disabled={busy} onClick={onRetry}>
+        <IconButton label={`Retry ${of}`} title="Retry" disabled={busy} onClick={onRetry}>
           <RetryIcon />
         </IconButton>
       )}
       {onFork && (
-        <IconButton label="Fork" disabled={busy} onClick={onFork}>
+        <IconButton label={`Fork from ${of}`} title="Fork" disabled={busy} onClick={onFork}>
           <ForkIcon />
         </IconButton>
       )}

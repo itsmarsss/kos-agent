@@ -2817,6 +2817,24 @@ li:hover .chats-item-when { opacity: 0; }
   min-height: 0;
 }
 .chats-composer { padding: 0.5rem 0.75rem 0.75rem; }
+/* The ends of a long thread (ThreadEnds.tsx): Show earlier atop it, and Jump
+   to latest floating over its foot, on the column's centre, taking no room. */
+.chat-earlier { display: flex; justify-content: center; padding-block: 0.25rem 0.5rem; }
+.chat-jump-dock { position: relative; height: 0; z-index: 2; }
+.chat-jump {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  gap: 0.35rem;
+  border-radius: 999px;
+  border-color: var(--line-strong);
+  background: var(--panel);
+  box-shadow: var(--float);
+}
+.chat-jump:active { transform: translateX(-50%) scale(var(--press-scale)); }
+/* A message sent before the ones above it, answered after them: said under its bubble, not left to read as the newest. */
+.turn-late { align-self: flex-end; color: var(--faint); font-size: var(--text-xs); }
 /* The composer: one box, the field borderless in it, its controls under it
    as capsules and circles, the whole box taking the focus ring
    (docs/design.md, Chat). */
