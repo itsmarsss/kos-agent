@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 
 import { announce, ChevronDown } from "@kos/kit";
 
@@ -41,22 +41,35 @@ export function EarlierButton({ count, scroller, onShow }: { count: number; scro
 /** How far above the bottom, in screens, the reader is before Jump to latest shows. */
 const AWAY_SCREENS = 1;
 
-/** Whether the scroller is a screen or more above its bottom, kept as it scrolls and as it grows. */
-export function useAwayFromLatest(scroller: RefObject<HTMLElement | null>, key: unknown): boolean {
+/**
+ * Whether the scroller is a screen or more above its bottom, kept as it
+ * scrolls and as it grows. Checked after every render for the element the
+ * ref holds now: the thread is drawn anew as a chat loads, and a watch set
+ * on the first render's element (or on none) never heard the new one.
+ */
+export function useAwayFromLatest(scroller: RefObject<HTMLElement | null>): boolean {
   const [away, setAway] = useState(false);
+  const watched = useRef<{ el: HTMLElement; stop: () => void } | null>(null);
   useEffect(() => {
     const el = scroller.current;
-    if (!el) return undefined;
+    if (watched.current?.el === el) return;
+    watched.current?.stop();
+    watched.current = null;
+    if (!el) return;
     const check = (): void => setAway(el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight * AWAY_SCREENS);
     check();
     el.addEventListener("scroll", check, { passive: true });
     const sized = new ResizeObserver(check);
     sized.observe(el);
-    return () => {
-      el.removeEventListener("scroll", check);
-      sized.disconnect();
+    watched.current = {
+      el,
+      stop: () => {
+        el.removeEventListener("scroll", check);
+        sized.disconnect();
+      },
     };
-  }, [scroller, key]);
+  });
+  useEffect(() => () => watched.current?.stop(), []);
   return away;
 }
 

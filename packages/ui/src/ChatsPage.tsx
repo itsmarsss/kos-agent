@@ -1417,7 +1417,7 @@ export function ChatsPage({
     showChat(got);
     return Math.max(0, got.events.length - had);
   };
-  const away = useAwayFromLatest(boxRef, activeId);
+  const away = useAwayFromLatest(boxRef);
   const threadWho = active ? (active.kind === "orchestrator" ? "KOS" : active.title) : "KOS";
 
   const renderEvent = (e: ChatEvent, i: number, turn: number, lastAt?: number): ReactElement => {
