@@ -595,14 +595,9 @@ export function App(): React.ReactElement {
         res.excluded.length > 0
           ? ` · ${res.excluded.length} folder${
               res.excluded.length === 1 ? "" : "s"
-            } with own repo not included`
+            } with a history of their own left out`
           : "";
-      flash(
-        "ok",
-        res.sha
-          ? `Snapshot ${res.sha.slice(0, 10)}${omitted}`
-          : `Nothing to snapshot${omitted}`,
-      );
+      flash("ok", res.sha ? `Backed up the workspace${omitted}` : `Nothing changed since the last backup${omitted}`);
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
     } finally {
@@ -865,7 +860,7 @@ export function App(): React.ReactElement {
         <Drawer
           open={editingCron !== null}
           title={editingCron?.job ? jobTitle(editingCron.job.name) : "New schedule"}
-          subtitle={editingCron?.job ? scheduleWords(editingCron.job.schedule) : "Runs on its own, on a schedule you set"}
+          subtitle={editingCron?.job ? scheduleWords(editingCron.job.schedule) : "Pick when it runs and what it does"}
           onClose={closeCron}
         >
           {editingCron && (

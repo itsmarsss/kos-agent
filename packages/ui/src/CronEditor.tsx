@@ -1,9 +1,9 @@
 import { useEffect, useState, type KeyboardEvent, type ReactElement } from "react";
 
-import { checkName } from "@kos/shared";
-import { Field, SheetFoot, StatusPill } from "@kos/kit";
+import { checkName, errorWords, formatDuration, momentWords, stateOfRun, SYSTEM_SCHEDULE_ABOUT } from "@kos/shared";
+import { Field, SheetFoot, StatusPill, When } from "@kos/kit";
 
-import { api, fieldErrorOf, type CronJob, type JobSpend, type SkillInfo } from "./api.js";
+import { api, fieldErrorOf, type CronJob, type JobSpend, type RunRecord, type SkillInfo } from "./api.js";
 import { scriptIn, withScript } from "./cronscript.js";
 import { ConfirmButton } from "./kit.js";
 import { cronProblem, describeCron } from "./schedule.js";
@@ -109,15 +109,61 @@ export const TEMPLATES: {
  * the last run on its own. A job that runs a script makes no model call,
  * and the line says so: that is the saving over a job that thinks.
  */
-export function spendWords(spend: JobSpend): string {
+export function spendWords(spend: JobSpend, thinks = false): string {
   const runs = `${spend.runs} run${spend.runs === 1 ? "" : "s"}`;
-  if (spend.calls === 0) return `${runs}, no model turn: they cost no tokens.`;
+  // A job that asks KOS thinks on every run: none on record is a gap in the record, not a saving.
+  if (spend.calls === 0) return thinks ? `${runs}; no model use is on record for them.` : `${runs}, no model turn: they cost no tokens.`;
   const each = (s: { inputTokens: number; outputTokens: number; cost?: number }): string =>
     `${tokens(s.inputTokens)} in, ${tokens(s.outputTokens)} out${s.cost !== undefined ? `, ${money(s.cost)}` : ""}`;
   const perRun = spend.cost !== undefined ? `, about ${money(spend.cost / spend.runs)} a run` : "";
   const last = spend.last && spend.last.calls > 0 ? ` Last run: ${each(spend.last)}.` : "";
   const unpriced = spend.cost === undefined ? " Set the model's rate under Settings for a figure." : "";
   return `${runs}: ${each(spend)}${perRun}.${last}${unpriced}`;
+}
+
+/**
+ * Why a schedule has no run to show: off, or waiting for its first time.
+ * Its runs, once it has some, say the rest.
+ */
+export function notRunWords(job: Pick<CronJob, "enabled" | "nextRunAt">): string {
+  if (!job.enabled) return "It is off, so it does not run. Resume turns it back on.";
+  return job.nextRunAt ? `It has not run yet. Its first run is ${momentWords(job.nextRunAt)}.` : "It has not run yet.";
+}
+
+/** A run's line on its sheet: why it did not run, or what went wrong, in words. */
+export function runWhy(run: RunRecord): string | null {
+  if (run.status === "skipped") return "Its condition said not now, so it did nothing.";
+  return run.error ? errorWords(run.error) : null;
+}
+
+/** A schedule's last runs, newest first: when, how each went, and why, so nobody has to wait for the next to find out. */
+function JobRuns({ job }: { job: CronJob }): ReactElement {
+  const runs = job.lastRuns ?? [];
+  return (
+    <section className="set-group cron-runs" aria-label="Last runs">
+      <h3>Last runs</h3>
+      {runs.length === 0 ? (
+        <p className="hint">{notRunWords(job)}</p>
+      ) : (
+        <ul className="cron-runs-list">
+          {runs.map((r) => {
+            const why = runWhy(r);
+            return (
+              <li key={r.id} className="cron-run">
+                <StatusPill state={stateOfRun(r.status)} />
+                <span className="cron-run-when">
+                  <When at={r.startedAt} />
+                  {r.durationMs ? ` · took ${formatDuration(r.durationMs)}` : ""}
+                </span>
+                {why && <span className="cron-run-why">{why}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {runs.length > 0 && (job.enabled ? job.nextRunAt && <p className="hint">Next run {momentWords(job.nextRunAt)}.</p> : <p className="hint">It is off now, so no run is coming. Resume turns it back on.</p>)}
+    </section>
+  );
 }
 
 export function CronEditor({
@@ -297,11 +343,25 @@ export function CronEditor({
               no model turn. */}
           {job.spend && (
             <p className="cron-spend" title="From the thread its runs are written into">
-              {spendWords(job.spend)}
+              {spendWords(job.spend, job.type === "self_prompt")}
             </p>
           )}
         </div>
       )}
+      {job && <JobRuns job={job} />}
+      {system && job ? (
+        /* KOS's own: what it does, in words, and nothing to edit. Its brief
+           is KOS's, and its fields would only invite breaking it. */
+        <>
+          <section className="set-group">
+            <h3>What it does</h3>
+            <p className="hint">{SYSTEM_SCHEDULE_ABOUT[job.name] ?? "Part of how KOS looks after itself."}</p>
+            <p className="hint">One of KOS's own schedules: it can be paused or run now, and nothing else here changes it.</p>
+          </section>
+          <SheetFoot inline onCancel={onCancel} cancelLabel="Close" />
+        </>
+      ) : (
+        <>
 
       <div className="set-group">
         <h3>When it runs</h3>
@@ -435,12 +495,6 @@ export function CronEditor({
               onKeyDown={submitKeys}
             />
           </Field>
-        ) : job?.name === "kos.backup" ? (
-          <p className="hint">
-            The built-in workspace backup: a git snapshot of the whole
-            workspace, taken outside the tool path. It has no tool calls to
-            edit; its schedule above is the only setting.
-          </p>
         ) : (
           <>
             <Field
@@ -492,6 +546,8 @@ export function CronEditor({
             </button>
           }
         />
+        </>
+      )}
     </form>
   );
 }

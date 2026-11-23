@@ -5462,6 +5462,11 @@ a.health {
   font-size: var(--text-sm);
   color: var(--muted);
 }
+/* A job's last runs: a pill, when, and why on a line of its own under them. */
+.cron-runs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.cron-run { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 0.6rem; row-gap: 0.15rem; }
+.cron-run-when { font-size: var(--text-sm); color: var(--muted); }
+.cron-run-why { grid-column: 2; font-size: var(--text-sm); color: var(--text); overflow-wrap: anywhere; }
 
 .chats-item--job .chats-item-title { color: var(--muted); }
 /* The opened section, above the chats. Capped and scrolling on its own, so

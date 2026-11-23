@@ -2694,12 +2694,14 @@ export class Kernel {
   agentJob(name: string): BlobJob | undefined {
     const job = this.crons.list().find((j) => j.agent === name);
     if (!job) return undefined;
+    const [last] = this.runs.finishedFor("cron", String(job.id), 1);
     return {
       id: job.id,
       schedule: job.schedule,
       enabled: job.enabled,
       lastRunAt: job.lastRunAt ?? null,
       nextRunAt: job.enabled ? (this.cronNextRuns(job.id, 1)[0] ?? null) : null,
+      ...(last ? { lastOutcome: { status: last.status, error: last.error } } : {}),
     };
   }
 

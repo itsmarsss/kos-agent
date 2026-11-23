@@ -296,10 +296,10 @@ export function buildActions(ctx: PaletteContext): Action[] {
     },
     {
       id: "snapshot",
-      label: "Snapshot now",
-      hint: "commit the workspace as it stands",
+      label: "Back up now",
+      hint: "save a copy of the workspace, as the nightly Backup does",
       group: "Actions",
-      keywords: "backup git commit save",
+      keywords: "snapshot backup copy save",
       run: ctx.snapshot,
     },
     {

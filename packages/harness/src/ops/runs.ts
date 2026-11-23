@@ -122,6 +122,14 @@ export class RunsLog {
     return row.n;
   }
 
+  /** The newest finished run of one kind: how the last of it went. */
+  lastOf(kind: string): RunRecord | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM runs_log WHERE kind = ? AND status != 'running' ORDER BY id DESC LIMIT 1`)
+      .get(kind) as Row | undefined;
+    return row ? toRecord(row) : undefined;
+  }
+
   failures(limit = 50): RunRecord[] {
     const rows = this.db
       .prepare(`SELECT * FROM runs_log WHERE status = 'error' ORDER BY id DESC LIMIT ?`)

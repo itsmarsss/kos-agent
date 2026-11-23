@@ -1041,7 +1041,7 @@ export function SettingsPage({
               </p>
               <FieldRow
                 label="Extract memory in the background"
-                hint="Off at first. On, the cheap model reads new chat now and then and notes what seems worth remembering, with where it heard it. Its notes show in Memory, marked as its own. Try it once from the Memory page first."
+                hint="When on, the cheap model reads new messages once enough have built up, and notes what seems worth remembering and where it heard it. Its notes show in Memory, marked as its own. New workspaces start with it off."
               >
                 <Switch label="Extract memory in the background" on={how.memoryExtraction} onChange={(on) => setHow({ ...how, memoryExtraction: on })} />
               </FieldRow>

@@ -333,7 +333,7 @@ export interface AgentInfo extends AgentDraft {
     lastError?: string;
   };
   /** Its schedule as a job, when it has one. */
-  job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null; nextRunAt: number | null };
+  job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null; nextRunAt: number | null; lastOutcome?: { status: string; error: string | null } };
 }
 
 /** A file under blobs/ that does not read as a role, with the reason. */
@@ -492,6 +492,8 @@ export interface CronJob {
   task?: "reasoning" | "cheap";
   /** What its runs have cost, once it has run at all. */
   spend?: JobSpend;
+  /** Its last few finished runs, newest first. Absent from an older host. */
+  lastRuns?: RunRecord[];
 }
 
 export interface RunRecord {
@@ -937,6 +939,8 @@ export interface HomeMemory {
   extraction: boolean;
   decisions: number;
   jobs: { id: number; name: string; enabled: boolean; lastRunAt: number | null }[];
+  /** The background read's last go; absent from an older host, null before it has read. */
+  lastRead?: { at: number; failed: boolean } | null;
 }
 
 export interface BuiltinInfo {

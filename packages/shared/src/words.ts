@@ -56,6 +56,16 @@ export const SYSTEM_SCHEDULES: Readonly<Record<string, string>> = {
   "kos.improve": "Improve",
 };
 
+/** What each of KOS's own schedules does, in a sentence or two, for its sheet and the Memory page. */
+export const SYSTEM_SCHEDULE_ABOUT: Readonly<Record<string, string>> = {
+  "kos.memory": "Reads what was said since it last ran and keeps what will still be true months from now in Memory, with the messages each thing came from.",
+  "kos.dream": "Tidies Memory: joins two entries that say the same thing, puts away ones that are over, and asks you about any that disagree. Then it rewrites the pages that sum up what KOS knows.",
+  "kos.observe": "Keeps long chats readable: writes a dated note of the older part of a long chat, and that note takes the older part's place in what KOS rereads.",
+  "kos.backup": "Saves a copy of the workspace, so a file KOS changed or removed can be brought back.",
+  "kos.face": "Draws the faces KOS and its blobs show.",
+  "kos.improve": "Looks over KOS's recent work for things worth making reusable, and suggests them to you in the Inbox. It never makes anything itself.",
+};
+
 /**
  * A name as the owner gave it or would say it, for something stored by a
  * slug: "plant-watcher" as "Plant watcher". Only for a slug with no name of

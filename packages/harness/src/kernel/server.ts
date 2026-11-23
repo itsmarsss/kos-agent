@@ -414,6 +414,9 @@ function projectMap(
   });
 }
 
+/** How many of a job's last runs its sheet lists. */
+const JOB_RUNS_SHOWN = 5;
+
 /** How many of a blob job's runs its spend is summed over. */
 const JOB_SPEND_RUNS = 200;
 
@@ -541,7 +544,9 @@ function memoryReport(kernel: Kernel): {
   extraction: boolean;
   decisions: number;
   jobs: { id: number; name: string; enabled: boolean; lastRunAt: number | null }[];
+  lastRead: { at: number; failed: boolean } | null;
 } {
+  const read = kernel.runs.lastOf("memory.extract");
   const mine = new Set([MEMORY_JOB, DREAM_JOB, OBSERVE_JOB]);
   return {
     claims: kernel.facts.all(kernel.profile.ownerId).length,
@@ -552,6 +557,8 @@ function memoryReport(kernel: Kernel): {
       .list()
       .filter((j) => mine.has(j.name))
       .map((j) => ({ id: j.id, name: j.name, enabled: j.enabled, lastRunAt: j.lastRunAt ?? null })),
+    // The background read's last go, so "reading" is never said beside a pile it keeps failing on.
+    lastRead: read ? { at: read.startedAt, failed: read.status === "error" } : null,
   };
 }
 
@@ -1461,6 +1468,8 @@ export async function handleApiRequest(
             : {}),
           ...(nextRunAt !== undefined ? { nextRunAt } : {}),
           ...(spend ? { spend } : {}),
+          // Its last few runs, newest first, so its sheet says how each went and why.
+          lastRuns: kernel.runs.finishedFor("cron", String(job.id), JOB_RUNS_SHOWN),
         };
       }),
     );
