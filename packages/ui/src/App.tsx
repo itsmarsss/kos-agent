@@ -58,6 +58,7 @@ import { Refreshes } from "./refreshes.js";
 import { HostBanner } from "./HostBanner.js";
 import { toast, ToastHost, type ToastTone } from "./Toast.js";
 import { decidedWords } from "./decidedwords.js";
+import { useAnnounceArrivals } from "./arrivals.js";
 import { KeysSheet } from "./KeysSheet.js";
 import { isLooseKey } from "./shortcuts.js";
 import { useReach } from "./reach.js";
@@ -82,6 +83,9 @@ export function App(): React.ReactElement {
   // The page's own scrolling, the main column's on most pages, under the overlay thumb the chats and settings panes have.
   useEffect(() => overlayScroll(document.documentElement), []);
   const [approvals, setApprovals] = useState<PendingAction[]>([]);
+  // Read at least once, so the asks already waiting on the first read are not said as new.
+  const [approvalsRead, setApprovalsRead] = useState(false);
+  useAnnounceArrivals(approvals, approvalsRead);
   const [projects, setProjects] = useState<Project[]>([]);
   /** Whether the manifest has been read yet: before it, no slug can be said to be no project. */
   // Which feeds have answered once: a page says it is empty only after its feed has, and shows where its rows will be before.
@@ -294,7 +298,10 @@ export function App(): React.ReactElement {
     });
     apply(ib, setInbox);
     apply(br, (v) => setBrowserTabs(v.tabs));
-    apply(a, setApprovals);
+    apply(a, (list) => {
+      setApprovals(list);
+      setApprovalsRead(true);
+    });
     apply(ag, (v) => setAgents(v.builds));
     apply(p, setProjects);
     apply(c, setCrons);
