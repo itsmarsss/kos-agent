@@ -43,7 +43,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
       </Field>
       <FieldRow
         label="Work you did not start may use a computer"
-        hint="Off by default: a schedule, a blob's own timer or a guest in a channel cannot start a session. On, they can ask, and the computer still asks you first, or your approval queue does if you set it to."
+        hint="Off by default: a schedule, a blob's own timer or a guest in a channel cannot start a session. On, they can ask, and the computer still asks you first, or the Inbox does if you set it to."
       >
         <Switch label="Work you did not start may use a computer" on={settings.unattended} onChange={(on) => onChange({ unattended: on })} />
       </FieldRow>
@@ -339,11 +339,14 @@ function GetTheApps(): ReactElement {
   return (
     <div className="set-group device-get">
       <h2>Get the apps</h2>
-      <p className="hint">KOS for Mac lets KOS work a Mac. Build it once, in Terminal, from KOS's folder:</p>
+      <p className="hint">
+        Neither app is in a store yet: each is made from KOS's own folder, once. Do this first, then pair below.
+      </p>
+      <p className="hint">KOS for Mac lets KOS work a Mac. Open Terminal in KOS's folder and paste this; it builds the app and puts it in Applications:</p>
       <CommandLine command="packages/device-macos/scripts/bundle.sh --install" />
       <p className="hint">
-        KOS for Chrome lets KOS work in tabs of your own Chrome. Open chrome://extensions, turn on Developer mode, press Load unpacked, and pick the
-        packages/browser-extension/dist folder in KOS's folder.
+        KOS for Chrome lets KOS work in tabs of your own Chrome. In Chrome, open chrome://extensions, turn on Developer mode, press Load unpacked, and
+        pick this folder inside KOS's folder: packages/browser-extension/dist.
       </p>
     </div>
   );
