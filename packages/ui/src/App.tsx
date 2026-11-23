@@ -57,6 +57,7 @@ import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { Refreshes } from "./refreshes.js";
 import { HostBanner } from "./HostBanner.js";
 import { toast, ToastHost, type ToastTone } from "./Toast.js";
+import { decidedWords } from "./decidedwords.js";
 import { KeysSheet } from "./KeysSheet.js";
 import { isLooseKey } from "./shortcuts.js";
 import { useReach } from "./reach.js";
@@ -433,6 +434,9 @@ export function App(): React.ReactElement {
     // buttons for this action agrees about what is happening.
     setDeciding((current) => new Set(current).add(id));
     setBusy(approved ? `approving #${id}` : `denying #${id}`);
+    // Named by what it asked, never its number: "Declined #9." named an ask by an id the owner never saw.
+    const ask = approvals.find((a) => a.id === id);
+    const what = ask?.title ?? ask?.summary ?? "the ask";
     try {
       const res = await (approved ? api.approve(id, remember, code) : api.deny(id));
       // The agent's continuation shows in the conversation it belongs to,
@@ -443,12 +447,12 @@ export function App(): React.ReactElement {
       const kept = remember && !("remembered" in res && res.remembered === false);
       // The decision stood, and the chat that asked could not carry on from it: said in the warn tone, apart.
       if (res.resumed === false) {
-        flash("warn", `${approved ? "Approved" : "Denied"} #${id}. The chat could not carry on: ${res.resumeError ?? "it stopped"}`);
+        flash("warn", `${approved ? "Approved" : "Denied"}: ${what}. The chat could not carry on: ${res.resumeError ?? "it stopped"}`);
         await refresh();
         return;
       }
       // A no is said in the quiet tone: the green check is for what was done, not for what was refused.
-      flash(approved ? "ok" : "info", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
+      flash(approved ? "ok" : "info", decidedWords(approved, what, { remember, kept, held: /still waiting/.test(res.message ?? "") }));
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
