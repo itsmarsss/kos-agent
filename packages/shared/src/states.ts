@@ -24,7 +24,8 @@ export const STATE_WORDS = {
   archived: { word: "Archived", tone: "muted" },
   held: { word: "Held", tone: "warn" },
   approved: { word: "Approved", tone: "ok" },
-  denied: { word: "Denied", tone: "danger" },
+  // A no is the owner's own decision, not something that went wrong: quiet, as its toast is, never in the colour of a failure.
+  denied: { word: "Denied", tone: "muted" },
   expired: { word: "Lapsed", tone: "muted" },
 } as const satisfies Record<string, { word: string; tone: StateTone }>;
 
