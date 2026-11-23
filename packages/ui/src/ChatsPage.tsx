@@ -1613,7 +1613,7 @@ export function ChatsPage({
                       <ThreadDot live={progress[projectOrchestrator.id]} chat={projectOrchestrator} waiting={waitingOn.has(projectOrchestrator.id)} />
                       <QueuedMark n={projectOrchestrator.queued} />
                     </span>
-                    <span className="chats-root-sub">Plans the project's work and hands it to its chats</span>
+                    <span className="chats-root-sub">Plans the project's work and hands it to its agents</span>
                   </span>
                 </a>
               ) : (
@@ -1628,7 +1628,7 @@ export function ChatsPage({
               )}
             </div>
             <div className="label chats-group-head">
-              <span>Chats</span>
+              <span>Agents</span>
               {/* Like New chat: the thread opens empty and the first message
                   names it. A form asking for a name, a brief and a task first
                   was three fields in the way of saying what you wanted. */}
@@ -1636,7 +1636,7 @@ export function ChatsPage({
                 type="button"
                 className="chats-group-add"
                 aria-label="New agent"
-                title="Start an agent: a thread of this project, named by its first message"
+                title="Start an agent: a chat for one piece of this project's work, named by its first message"
                 disabled={creating}
                 onClick={() => void startAgent()}
               >
@@ -1648,9 +1648,9 @@ export function ChatsPage({
               {shownAgents.length === 0 && (
                 <li>
                   {q ? (
-                    <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} />
+                    <EmptyState variant="inline" className="chats-empty" query={{ noun: "agents", onClear: () => setQuery("") }} />
                   ) : (
-                    <EmptyState variant="inline" loading={loading} className="chats-empty">No chats yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
+                    <EmptyState variant="inline" loading={loading} className="chats-empty">No agents yet. The orchestrator starts them as work comes up, or start one with +.</EmptyState>
                   )}
                 </li>
               )}
@@ -1728,7 +1728,7 @@ export function ChatsPage({
               </button>
               <div className="chats-project-head">
                 <span className="chats-project-name">{agentThread?.title ?? agent.name}</span>
-                <span className="chats-project-sub">A blob · blobs/{agent.name}/</span>
+                <span className="chats-project-sub">A blob</span>
               </div>
             </div>
             <div className="chats-pinned">
@@ -1748,7 +1748,7 @@ export function ChatsPage({
                       <ThreadDot live={progress[agentThread.id]} chat={agentThread} waiting={waitingOn.has(agentThread.id)} />
                       <QueuedMark n={agentThread.queued} />
                     </span>
-                    <span className="chats-root-sub">Its home thread: talk to it here, and its schedule runs here</span>
+                    <span className="chats-root-sub">Its own chat: talk to it here, and its schedule runs here</span>
                   </span>
                 </a>
               )}
@@ -1760,7 +1760,7 @@ export function ChatsPage({
                     named for the project it is in: that is what tells them apart. */}
                 {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
                 {agentInstances.length === 0 && (
-                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</EmptyState></li>
+                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">Not working in any project. A project's orchestrator can give it work there.</EmptyState></li>
                 )}
               </ul>
             </div>

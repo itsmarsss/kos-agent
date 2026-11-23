@@ -147,7 +147,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
               <Field
                 label="Name"
                 required
-                hint={isNew ? "Letters, digits and dashes, such as price-watch. It can't change later." : undefined}
+                hint={isNew ? "Letters, digits and dashes, such as price-watch; it shows as Price watch. It can't change later." : undefined}
                 error={nameError ?? undefined}
               >
                 <input

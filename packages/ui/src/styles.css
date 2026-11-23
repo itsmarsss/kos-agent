@@ -235,7 +235,7 @@ select {
 }
 
 .ops-metric-value {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xl);
   font-weight: 500;
   margin-top: 0.1rem;
@@ -1755,7 +1755,7 @@ select {
   white-space: nowrap;
 }
 .health--model {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-base);
   color: var(--muted);
 }
@@ -2482,7 +2482,7 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 .sel-option.is-cursor { background: var(--panel-2); }
 .sel-option.is-on { color: var(--accent); background: var(--accent-dim); }
 .sel-option.is-on.is-cursor { background: color-mix(in srgb, var(--accent) 24%, transparent); }
-.sel-option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.sel-option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sel-option-hint { color: var(--muted); font-size: var(--text-sm); }
 
 /* —— chat row actions —— */
@@ -2633,7 +2633,7 @@ li:hover .chats-item-when { opacity: 0; }
   flex-shrink: 0;
   width: 4.5rem;
   color: var(--faint);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -3690,7 +3690,7 @@ li:hover .chats-item-when { opacity: 0; }
 .spend-window { min-width: 9rem; }
 .spend-totals { display: flex; gap: 1.75rem; margin-bottom: 0.85rem; }
 .spend-stat { display: flex; flex-direction: column; gap: 0.1rem; }
-.spend-stat-value { font-size: var(--text-2xl); font-family: var(--mono); }
+.spend-stat-value { font-size: var(--text-2xl); font-variant-numeric: tabular-nums; }
 .spend-stat-label { color: var(--faint); font-size: var(--text-sm); }
 .spend-trend {
   display: flex;
@@ -3726,7 +3726,7 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .spend-table td { padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--line); }
 .spend-table tr:last-child td { border-bottom: 0; }
-.spend-table td:not(:first-child) { font-family: var(--mono); }
+.spend-table td:not(:first-child) { font-variant-numeric: tabular-nums; }
 .spend-model { display: block; }
 .spend-provider { display: block; color: var(--faint); font-size: var(--text-sm); }
 .spend-rates { margin-top: 0.85rem; }
@@ -4109,7 +4109,7 @@ li:hover .chats-item-when { opacity: 0; }
   border-radius: var(--r-sm);
 }
 .insp-stat { display: flex; flex-direction: column; gap: 0.1rem; }
-.insp-stat-value { font-family: var(--mono); font-size: var(--text-xl); }
+.insp-stat-value { font-variant-numeric: tabular-nums; font-size: var(--text-xl); }
 .insp-stat-label { color: var(--faint); font-size: var(--text-xs); }
 .insp-table { width: 100%; border-collapse: collapse; font-size: var(--text-base); }
 .insp-table td { padding: 0.3rem 0; border-bottom: 1px solid var(--line); }
@@ -4560,7 +4560,7 @@ body.is-arranging { user-select: none; }
 }
 .chart-legend li { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
 .chart-legend-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 12rem; }
-.chart-legend-value { color: var(--faint); font-family: var(--mono); font-size: var(--text-xs); }
+.chart-legend-value { color: var(--faint); font-variant-numeric: tabular-nums; font-size: var(--text-xs); }
 .chart-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 /* The next day as a line, a dot wherever something is due. */
 .chart-dayline { margin: 0.4rem 0 0.9rem; }
@@ -4646,7 +4646,7 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 .panel-approval-actions { display: flex; gap: 0.4rem; flex: none; }
 .panel-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .panel-stats { display: flex; gap: 1.5rem; }
-.panel-stat { display: block; font-family: var(--mono); font-size: var(--text-2xl); }
+.panel-stat { display: block; font-variant-numeric: tabular-nums; font-size: var(--text-2xl); }
 .panel-stat-label { color: var(--faint); font-size: var(--text-xs); }
 .panel-note { margin: 0; font-size: var(--text-base); line-height: 1.55; white-space: pre-wrap; }
 .panel-note-edit { font-size: var(--text-base); }
@@ -4914,7 +4914,7 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 .toolpick-count {
   flex: none;
   color: var(--faint);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
 }
 
@@ -4996,7 +4996,7 @@ a.health {
   padding: 0.1rem 0.4rem;
   border-radius: var(--r-xs);
   font-size: var(--text-xs);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.04);
 }
@@ -5150,7 +5150,7 @@ a.health {
 }
 
 .spend-pop-num {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -5729,7 +5729,7 @@ a.health {
   border-radius: 999px;
   background: var(--warn);
   color: var(--on-accent);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   line-height: 1.3rem;
   text-align: center;
@@ -5769,7 +5769,7 @@ a.health {
 .side-health-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
 .side-model {
   color: var(--faint);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6689,7 +6689,7 @@ a.health {
   letter-spacing: 0.06em;
 }
 .project-panel-count {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
@@ -6735,7 +6735,7 @@ a.health {
 .preview-meta { flex: none; color: var(--faint); font-size: var(--text-sm); white-space: nowrap; }
 .preview-acts { margin-left: auto; display: inline-flex; align-items: center; gap: 0.3rem; flex: none; }
 .preview-step { display: inline-flex; align-items: center; gap: 0.1rem; margin-right: 0.3rem; color: var(--faint); }
-.preview-count { font-family: var(--mono); font-size: var(--text-xs); padding: 0 0.2rem; }
+.preview-count { font-variant-numeric: tabular-nums; font-size: var(--text-xs); padding: 0 0.2rem; }
 .preview-close { margin-left: 0.2rem; }
 
 .preview-step .icon-btn:disabled { opacity: 0.35; cursor: default; }
