@@ -175,6 +175,7 @@ export function CronEditor({
   onRunNow,
   onToggle,
   onDelete,
+  onOpenChat,
   onNotice,
   hooks = false,
   taken = [],
@@ -195,6 +196,8 @@ export function CronEditor({
   onToggle?: (id: number, enabled: boolean) => void;
   /** Remove it, and the thread its runs were written into. */
   onDelete?: (id: number) => void;
+  /** Open the thread its runs are written into, once it has one. */
+  onOpenChat?: (conversationId: string) => void;
   /** The other schedules' names, so a taken one is said as it is typed. */
   taken?: readonly string[];
   /** Says it was made or saved, for a toast. */
@@ -330,6 +333,12 @@ export function CronEditor({
                 onClick={() => onToggle(job.id, !job.enabled)}
               >
                 {job.enabled ? "Pause" : "Resume"}
+              </button>
+            )}
+            {/* What its runs said, step by step: the thread they are written into. */}
+            {onOpenChat && job.conversationId && (
+              <button type="button" className="btn btn--sm" onClick={() => onOpenChat(job.conversationId!)}>
+                Open its chat
               </button>
             )}
           </span>

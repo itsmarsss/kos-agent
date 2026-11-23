@@ -145,20 +145,48 @@ export class CronService {
         return { ran: true, type: "actions", results: [] };
       }
       const result = await this.deps.run(job);
-      // A job whose condition said "not now" did what it was written to do,
-      // so it is healthy rather than nothing having happened; one that ran
-      // is judged by its steps, so "Done." over failed steps is not Done.
-      const outcome = cronOutcome(result);
-      this.deps.runs.finish(runId, outcome.status, outcome.error);
-      const problem = outcome.status === "error" ? outcome.error : null;
-      this.deps.report(key, job.name, problem === null, problem);
+      if (result.ran && result.type === "self_prompt" && result.later) {
+        /*
+         * Its turn is waiting on the owner, and its run with it.
+         *
+         * Judged here, the run was done the moment the turn asked: a digest
+         * whose post went undecided read as ok half an hour before its turn
+         * had even ended. The lane is not held for the decision; the row is.
+         */
+        void result.later
+          .then(
+            (ended) => this.settle(runId, job, ended),
+            (err: unknown) => this.fail(runId, job, err),
+          )
+          // A store closed under it keeps nothing more; the next boot closes the row.
+          .catch(() => undefined);
+        return result;
+      }
+      this.settle(runId, job, result);
       return result;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.deps.runs.finish(runId, "error", message);
-      this.deps.report(key, job.name, false, message);
+      this.fail(runId, job, err);
       throw err;
     }
+  }
+
+  /**
+   * A run's end, on the record. A job whose condition said "not now" did
+   * what it was written to do, so it is healthy rather than nothing having
+   * happened; one that ran is judged by its steps, so "Done." over failed
+   * steps is not Done.
+   */
+  private settle(runId: number, job: CronJob, result: CronExecResult): void {
+    const outcome = cronOutcome(result);
+    this.deps.runs.finish(runId, outcome.status, outcome.error);
+    const problem = outcome.status === "error" ? outcome.error : null;
+    this.deps.report(`cron:${job.id}`, job.name, problem === null, problem);
+  }
+
+  private fail(runId: number, job: CronJob, err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    this.deps.runs.finish(runId, "error", message);
+    this.deps.report(`cron:${job.id}`, job.name, false, message);
   }
 
   /**

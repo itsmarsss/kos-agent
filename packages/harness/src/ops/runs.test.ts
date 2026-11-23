@@ -78,4 +78,17 @@ describe("RunsLog", () => {
     expect(rec?.status).toBe("running");
     expect(rec?.finishedAt).toBeNull();
   });
+
+  it("closes every open run as interrupted, and counts it among the failures", () => {
+    const open = runs.start("chat", "cron:28");
+    const done = runs.start("cron", "28");
+    runs.finish(done, "ok");
+    clock = 4000;
+    const cut = runs.interruptRunning("KOS restarted while it was running.");
+    expect(cut.map((r) => r.id)).toEqual([open]);
+    expect(runs.get(open)).toMatchObject({ status: "interrupted", error: "KOS restarted while it was running.", finishedAt: 4000, durationMs: 3000 });
+    expect(runs.get(done)?.status).toBe("ok");
+    expect(runs.failures().map((r) => r.id)).toEqual([open]);
+    expect(runs.interruptRunning("again")).toEqual([]);
+  });
 });

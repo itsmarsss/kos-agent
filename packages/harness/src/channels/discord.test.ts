@@ -1313,6 +1313,23 @@ describe("DiscordAdapter authorization", () => {
     expect(deleted).toEqual(["t1"]);
   });
 
+  it("closes a deleted schedule's thread: locked, then archived, and archived still without the right to lock", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const did: string[] = [];
+    const thread = (id: string, canLock: boolean) => ({
+      id,
+      isThread: () => true,
+      setLocked: async () => (canLock ? did.push(`${id} locked`) : Promise.reject(new Error("Missing Permissions"))),
+      setArchived: async () => { did.push(`${id} archived`); },
+    });
+    const threads: Record<string, unknown> = { t1: thread("t1", true), t2: thread("t2", false), c1: { id: "c1", isThread: () => false } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async (id: string) => threads[id] ?? null } };
+    expect(await adapter.closeThread("t1")).toBe(true);
+    expect(await adapter.closeThread("t2")).toBe(true);
+    expect(await adapter.closeThread("c1")).toBe(false);
+    expect(did).toEqual(["t1 locked", "t1 archived", "t2 archived"]);
+  });
+
   it("knows the server's channels by name at once, and reads a channel Discord mentioned as its name", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
     adapter.setAuthorizer((senderId) => senderId === "owner-id");

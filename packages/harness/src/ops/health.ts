@@ -1,4 +1,5 @@
 import type { Db } from "../store/db.js";
+import { FAILED_RUNS } from "./runs.js";
 
 /**
  * Whether KOS is well, and telling the owner when it stops being.
@@ -218,7 +219,7 @@ export class HealthMonitor {
       )
       .all(RECENT_RUNS) as { status: string }[];
     const total = rows.length;
-    const errors = rows.filter((r) => r.status === "error").length;
+    const errors = rows.filter((r) => (FAILED_RUNS as readonly string[]).includes(r.status)).length;
     return {
       ok: failing.length === 0,
       failing,

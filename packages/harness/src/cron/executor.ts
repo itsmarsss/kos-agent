@@ -13,10 +13,33 @@ export interface CronActionResult {
   isError: boolean;
 }
 
+/** A self-prompt job's turn, as far as it went. */
+export interface JobTurn {
+  reply: string;
+  steps: StepTally;
+  /** The notify calls it made that ran and worked: what it delivered. */
+  delivered: number;
+  /** Why it ended without its reply, when it did. */
+  stopped?: string;
+}
+
+export interface SelfPromptResult {
+  ran: true;
+  type: "self_prompt";
+  finalText: string;
+  steps: StepTally;
+  /** Why the turn ended without its reply, when it did. */
+  stopped?: string;
+  /** Why the job, written to post with notify, posted nothing. */
+  undelivered?: string;
+  /** The turn is waiting on the owner: how it ends, once it does. The run is judged on that, not on this. */
+  later?: Promise<SelfPromptResult>;
+}
+
 export type CronExecResult =
   | { ran: false; reason: "condition" | "no-agent" }
   | { ran: true; type: "actions"; results: CronActionResult[] }
-  | { ran: true; type: "self_prompt"; finalText: string; steps: StepTally };
+  | SelfPromptResult;
 
 export interface CronExecutorDeps {
   db: Db;
@@ -32,7 +55,7 @@ export interface CronExecutorDeps {
    * Run the prompt as a turn in the job's conversation, and give back what it
    * said. Absent for a caller with no conversations, such as a test.
    */
-  runInConversation?: (prompt: string, job: CronJob) => Promise<{ reply: string; steps: StepTally }>;
+  runInConversation?: (prompt: string, job: CronJob) => Promise<JobTurn & { later?: Promise<JobTurn> }>;
   maxIterations?: number;
 }
 
@@ -83,8 +106,9 @@ export async function runCronJob(
    * questioned and re-read with the machinery that already exists for one.
    */
   if (deps.runInConversation) {
-    const { reply, steps } = await deps.runInConversation(prompt, job);
-    return { ran: true, type: "self_prompt", finalText: reply, steps };
+    const { later, ...turn } = await deps.runInConversation(prompt, job);
+    if (!later) return selfPromptResult(job, turn);
+    return { ran: true, type: "self_prompt", finalText: turn.reply, steps: turn.steps, later: later.then((end) => selfPromptResult(job, end)) };
   }
 
   const system = await deps.buildSystem?.(job);
@@ -94,6 +118,26 @@ export async function runCronJob(
     ...(deps.maxIterations ? { maxIterations: deps.maxIterations } : {}),
   });
   return { ran: true, type: "self_prompt", finalText: result.finalText, steps: NO_STEPS };
+}
+
+/** A job written to post with notify: one that ends having posted nothing did not do what it is for. */
+export function asksToNotify(job: Pick<CronJob, "prompt">): boolean {
+  return /\bnotify\b/i.test(job.prompt ?? "");
+}
+
+/** A finished turn as the job's result: whether it was cut short, and whether it delivered what it was written to. */
+export function selfPromptResult(job: Pick<CronJob, "prompt">, turn: JobTurn): SelfPromptResult {
+  const undelivered = !turn.stopped && asksToNotify(job) && turn.delivered === 0
+    ? `It was written to post with notify, and posted nothing${turn.steps.firstError ? `: ${turn.steps.firstError}` : "."}`
+    : undefined;
+  return {
+    ran: true,
+    type: "self_prompt",
+    finalText: turn.reply,
+    steps: turn.steps,
+    ...(turn.stopped ? { stopped: turn.stopped } : {}),
+    ...(undelivered ? { undelivered } : {}),
+  };
 }
 
 /**
@@ -107,7 +151,11 @@ export async function runCronJob(
  */
 export function cronOutcome(result: CronExecResult): RunOutcome | { status: "skipped"; error: null } {
   if (!result.ran) return { status: "skipped", error: null };
-  if (result.type === "self_prompt") return outcomeOf(result.steps, true);
+  if (result.type === "self_prompt") {
+    if (result.stopped) return { status: "error", error: `Stopped before it finished: ${result.stopped}` };
+    if (result.undelivered) return { status: "error", error: result.undelivered };
+    return outcomeOf(result.steps, true);
+  }
   // A stored action is a step the job was written to take: any that fails, fails the run.
   const failed = result.results.find((r) => r.isError);
   return failed ? { status: "error", error: `${failed.tool}: ${failed.content}` } : { status: "ok", error: null };

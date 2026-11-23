@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api, type CronJob, type RunRecord } from "./api.js";
@@ -60,5 +60,20 @@ describe("KOS's own schedule", () => {
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+  });
+});
+
+describe("a schedule's chat", () => {
+  it("opens the thread its runs are written into, once it has one", () => {
+    vi.spyOn(api, "skills").mockResolvedValue({ skills: [] } as unknown as Awaited<ReturnType<typeof api.skills>>);
+    const opened: string[] = [];
+    const job: CronJob = { id: 28, name: "School Morning Digest", schedule: "32 7 * * *", type: "self_prompt", enabled: true, conversationId: "cron:28" };
+    const { rerender } = render(<CronEditor job={job} onDone={() => {}} onCancel={() => {}} onOpenChat={(id) => opened.push(id)} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open its chat" }));
+    expect(opened).toEqual(["cron:28"]);
+    // Never run: no thread yet, so nothing to open.
+    const { conversationId: _none, ...fresh } = job;
+    rerender(<CronEditor job={fresh} onDone={() => {}} onCancel={() => {}} onOpenChat={(id) => opened.push(id)} />);
+    expect(screen.queryByRole("button", { name: "Open its chat" })).toBeNull();
   });
 });

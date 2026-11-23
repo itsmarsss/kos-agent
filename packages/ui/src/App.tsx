@@ -226,6 +226,8 @@ export function App(): React.ReactElement {
     if (route.name === "crons" && route.job) window.location.hash = hrefFor({ name: "crons" });
   };
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  /** The chats there are, so a run offers the one it was written into. */
+  const chatIds = useMemo(() => new Set(conversations.map((c) => c.id)), [conversations]);
   /** KOS's own look, from the status: every face of KOS and the tab icon use it. */
   const kosLook = useMemo(() => lookOf(KOS_SEED, status?.face ?? {}), [status?.face]);
   /** What the owner set about each agent's face, by role, for faces drawn from a name alone. */
@@ -849,6 +851,11 @@ export function App(): React.ReactElement {
             onClose={() => setInspect(null)}
             onOpenPage={openPage}
             crons={crons}
+            chats={chatIds}
+            onOpenChat={(id) => {
+              setInspect(null);
+              go({ name: "chats", id });
+            }}
             onFix={(detail) => void beginFix(detail)}
             onOpenProjectChat={(slug) => {
               setInspect(null);
@@ -914,6 +921,10 @@ export function App(): React.ReactElement {
                 void refresh();
               }}
               onCancel={closeCron}
+              onOpenChat={(id) => {
+                closeCron();
+                go({ name: "chats", id });
+              }}
               onRunNow={(id) => {
                 const job = crons.find((c) => c.id === id);
                 closeCron();
@@ -1271,6 +1282,7 @@ export function App(): React.ReactElement {
         projects={projects}
         onOpenTool={(t) => openInspect({ kind: "tool", data: t })}
         onOpenRun={(r) => openInspect({ kind: "run", data: r })}
+        onOpenChat={(id) => go({ name: "chats", id })}
         onFix={(row) => void startFix(row)}
       />,
     );

@@ -182,3 +182,40 @@ describe("a chat row, heard", () => {
     expect(screen.getByRole("complementary", { name: "Chats" })).toBeTruthy();
   });
 });
+
+describe("a schedule's thread", () => {
+  const digest: Conversation = { ...chat, id: "cron:28", title: "School Morning Digest", kind: "schedule" };
+
+  it("is in the rail's Schedules, open, and opens as itself rather than as missing", async () => {
+    localStorage.clear();
+    serve(() => ({ events: [kos("The digest was not posted.", 3)] }));
+    vi.spyOn(api, "conversations").mockResolvedValue([chat, digest]);
+    const opened: string[] = [];
+    render(
+      <ChatsPage
+        conversations={[chat, digest]}
+        projects={[]}
+        activeId="cron:28"
+        pendingApprovals={new Set()}
+        approvals={[]}
+        deciding={new Set()}
+        agents={[]}
+        onOpenAgent={() => undefined}
+        crons={[]}
+        onEditCron={() => undefined}
+        onOpen={(id) => opened.push(id)}
+        onOpenProject={() => undefined}
+        onAside={() => undefined}
+        onNotice={() => undefined}
+        onChanged={() => undefined}
+        onDecide={() => undefined}
+      />,
+    );
+    await screen.findByText("The digest was not posted.");
+    expect(document.body.textContent).not.toMatch(/not found/i);
+    const group = screen.getByRole("button", { name: /Schedules/ });
+    expect(group.getAttribute("aria-expanded")).toBe("true");
+    const rows = [...document.querySelectorAll<HTMLAnchorElement>("a.chats-item--job")];
+    expect(rows.map((a) => a.getAttribute("href"))).toEqual(["#/chats/cron%3A28"]);
+  });
+});

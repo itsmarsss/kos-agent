@@ -204,6 +204,35 @@ export function conversationKind(
   return "chat";
 }
 
+/** Whether what a fixed thread stands for is still there: its project, its blob, its schedule. */
+export interface Standing {
+  project(slug: string): boolean;
+  blob(name: string): boolean;
+  schedule(id: number): boolean;
+}
+
+/**
+ * The kind a thread is now. A project's, a blob's or a schedule's thread is
+ * fixed only while that thing exists; once it is gone, the thread is an
+ * ordinary chat, the owner's to keep, archive or delete. Read by id alone,
+ * a deleted schedule's thread stayed a schedule's for good: refused by
+ * archive and delete, listed among the schedules, and answering on Discord
+ * under a name nothing carried any more.
+ */
+export function standingKind(
+  conversation: Pick<Conversation, "id" | "channel">,
+  ownerId: string,
+  standing: Standing,
+): ConversationKind {
+  const kind = conversationKind(conversation, ownerId);
+  const rest = conversation.id.slice(conversation.id.indexOf(":") + 1);
+  const gone =
+    (kind === "project" && !standing.project(rest)) ||
+    (kind === "agent" && !standing.blob(rest)) ||
+    (kind === "schedule" && !standing.schedule(Number(rest)));
+  return gone ? "chat" : kind;
+}
+
 /** Threads the owner cannot rename, archive or delete. */
 export function isFixed(
   conversation: Pick<Conversation, "id" | "channel">,

@@ -70,7 +70,6 @@ import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled, type SkillSettings } from "../skills/settings.js";
 import {
-  conversationKind,
   projectConversationId,
   type Conversation,
   type ConversationKind,
@@ -300,7 +299,7 @@ function conversationLabeller(
           : "idle";
     return {
       ...c,
-      kind: conversationKind(c, kernel.profile.ownerId),
+      kind: kernel.kindOf(c),
       activity,
       // Touched since the owner last opened it, on any surface.
       unread: c.updatedAt > (c.readAt ?? 0),
@@ -1078,7 +1077,7 @@ export async function handleApiRequest(
     try {
       const made = kernel.standUpProject({ name, type });
       const c = kernel.conversations.get(made.conversationId);
-      const conversation = c ? { ...c, kind: conversationKind(c, kernel.profile.ownerId) } : undefined;
+      const conversation = c ? { ...c, kind: kernel.kindOf(c) } : undefined;
       return ok({ slug: made.slug, name: made.name, conversationId: made.conversationId, conversation });
     } catch (err) {
       return refusedWith(err);
@@ -1449,7 +1448,8 @@ export async function handleApiRequest(
     const rates = parseRates(kernel.settings.get(RATES_KEY));
     return ok(
       kernel.crons.list().map((job) => {
-        const thread = threads.get(cronSessionId(job.id));
+        // Where its runs are written: its own thread, or its blob's.
+        const thread = threads.get(kernel.jobPlace(job));
         // What its runs have cost, so the drawer can say it beside Run now.
         const spend = jobSpend(kernel, job, rates);
         /*
@@ -1523,20 +1523,18 @@ export async function handleApiRequest(
     if (!Number.isInteger(id)) {
       return { status: 400, body: { error: "id required" } };
     }
-    const removed = kernel.crons.delete(id);
-    if (removed) {
-      /*
-       * The thread goes with the job.
-       *
-       * It exists to hold that job's runs, and a schedule thread cannot be
-       * renamed or deleted by hand, so left behind it was an orphan the owner
-       * could neither reach from the schedule list nor get rid of. The
-       * confirmation says the runs go too.
-       */
+    /*
+     * The thread goes with the job, here for good: the confirmation says
+     * the runs go too. Removed first, so the job's own going (which archives
+     * a thread it leaves behind, as cron.remove does) finds nothing left.
+     */
+    const exists = kernel.crons.get(id) !== undefined;
+    if (exists) {
       kernel.sessions.clear(cronSessionId(id));
       kernel.conversations.remove(cronSessionId(id));
-      kernel.reloadCron();
     }
+    const removed = exists && kernel.crons.delete(id);
+    if (removed) kernel.reloadCron();
     return ok({ id, removed });
   }
 
@@ -4169,13 +4167,10 @@ function refuseFixed(
 ): { status: number; body: { error: string } } | null {
   const conversation = kernel.conversations.get(id);
   if (!conversation) return null;
-  const kind = conversationKind(conversation, kernel.profile.ownerId);
+  // A project's, a blob's or a schedule's thread is fixed while that thing
+  // exists; once it is gone the thread is an ordinary chat, the owner's to keep or drop.
+  const kind = kernel.kindOf(conversation);
   if (kind === "chat") return null;
-  // A project's thread is fixed while the project is; once the project is
-  // deleted the thread is an ordinary archived chat, the owner's to keep or drop.
-  if (kind === "project" && !kernel.manifest.get(id.slice("project:".length))) return null;
-  // The same for a blob: its thread is fixed while its file exists.
-  if (kind === "agent" && !kernel.roles.exists(id.slice("agent:".length))) return null;
   const what =
     kind === "orchestrator"
       ? "KOS itself"

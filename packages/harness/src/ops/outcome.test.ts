@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cronOutcome } from "../cron/executor.js";
+import { cronOutcome, selfPromptResult } from "../cron/executor.js";
 import { outcomeOf } from "./outcome.js";
 
 const steps = (total: number, failed: number) => ({ total, failed, firstError: failed ? "files.read: ENOENT: no such file" : null });
@@ -27,6 +27,25 @@ describe("a schedule's outcome", () => {
   it("reads an Ask KOS run by its steps, never its reply", () => {
     expect(cronOutcome({ ran: true, type: "self_prompt", finalText: "Done. All good.", steps: steps(2, 2) }).status).toBe("error");
     expect(cronOutcome({ ran: true, type: "self_prompt", finalText: "Done.", steps: steps(2, 0) }).status).toBe("ok");
+  });
+
+  it("fails a job written to post with notify that posted nothing, with why", () => {
+    const digest = { prompt: 'Post the digest: use notify with to="discord:channel:1".' };
+    const lapsed = { total: 5, failed: 1, firstError: "notify: its approval was left undecided" };
+    expect(cronOutcome(selfPromptResult(digest, { reply: "Not posted.", steps: lapsed, delivered: 0 }))).toEqual({
+      status: "error",
+      error: "It was written to post with notify, and posted nothing: notify: its approval was left undecided",
+    });
+    expect(cronOutcome(selfPromptResult(digest, { reply: "Posted.", steps: steps(5, 0), delivered: 1 })).status).toBe("ok");
+    // A job that never said notify is judged by its steps alone.
+    expect(cronOutcome(selfPromptResult({ prompt: "Tidy the table." }, { reply: "Done.", steps: steps(2, 0), delivered: 0 })).status).toBe("ok");
+  });
+
+  it("fails a turn that ended without its reply, with why", () => {
+    expect(cronOutcome(selfPromptResult({ prompt: "notify me" }, { reply: "", steps: steps(1, 0), delivered: 0, stopped: "the SDK process exited" }))).toEqual({
+      status: "error",
+      error: "Stopped before it finished: the SDK process exited",
+    });
   });
 
   it("fails a stored-steps run on any failed step, and skips one its condition held", () => {

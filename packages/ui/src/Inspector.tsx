@@ -19,6 +19,7 @@ import { markInk } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
 import { runKind } from "./HistoryPage.js";
+import { runChat } from "./runchat.js";
 import { scheduleWords } from "./schedule.js";
 import { jobTitle } from "./schedulewords.js";
 
@@ -87,6 +88,10 @@ export function Inspector(props: {
   }) => void;
   /** So a run can name the job it belongs to rather than its id. */
   crons?: CronJob[];
+  /** The chats there are, so a run offers the one it was written into while it is there. */
+  chats?: ReadonlySet<string>;
+  /** Open the chat a run was written into: a schedule's thread, or a turn's own chat. */
+  onOpenChat?: (conversationId: string) => void;
   /** The workspace's folder, so a missing file is named from the workspace down. */
   workspace?: string;
   onSaved?: () => void;
@@ -296,8 +301,9 @@ export function Inspector(props: {
           </div>
         </>
       );
-      actions =
-        r.status === "error" && props.onFix ? (
+      const chat = props.onOpenChat ? runChat(r, props.crons ?? [], props.chats ?? new Set()) : undefined;
+      const fix =
+        stateOfRun(r.status) === "failed" && props.onFix ? (
           <button
             type="button"
             className="btn btn--primary"
@@ -315,6 +321,18 @@ export function Inspector(props: {
           >
             Fix in a chat
           </button>
+        ) : null;
+      // What the run said, step by step, is in the chat it was written into.
+      actions =
+        chat || fix ? (
+          <>
+            {chat && (
+              <button type="button" className="btn" onClick={() => props.onOpenChat?.(chat)}>
+                Open its chat
+              </button>
+            )}
+            {fix}
+          </>
         ) : null;
       break;
     }

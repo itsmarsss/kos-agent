@@ -5,7 +5,7 @@ import { heardWith } from "../models/heard.js";
 import { saidText } from "../models/types.js";
 import { guestOrigin } from "../kernel/caller.js";
 import { reachesAll } from "../kernel/caretaker.js";
-import { conversationKind, isFixed, type Conversation, type ConversationStore } from "../kernel/conversations.js";
+import { standingKind, type Conversation, type ConversationStore, type Standing } from "../kernel/conversations.js";
 import type { CongregationMember } from "../kernel/progress.js";
 import type { SessionStore } from "../kernel/session.js";
 
@@ -76,6 +76,8 @@ export interface ChatToolDeps {
   conversations: ConversationStore;
   sessions: SessionStore;
   ownerId: string;
+  /** Whether what a fixed thread stands for is still there: a deleted schedule's thread is an ordinary chat. */
+  standing: () => Standing;
   /** Conversations the orchestrator should never surface, e.g. itself. */
   hide?: string[];
   /**
@@ -366,14 +368,15 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
 
   /**
    * A chat the caller may put away: one in its reach, and an ordinary one.
-   * A project's own thread, a blob's thread and the owner's chats with KOS
-   * are fixed, and the dashboard refuses them the same way.
+   * A project's own thread, a blob's thread and a schedule's, while that
+   * thing exists, and the owner's chats with KOS are fixed, and the
+   * dashboard refuses them the same way.
    */
   const reachable = (id: string, verb: string): Conversation => {
     const target = conversations.get(id);
     if (!target) throw new Error(`no conversation ${id}`);
-    if (isFixed(target, ownerId)) {
-      const kind = conversationKind(target, ownerId);
+    const kind = standingKind(target, ownerId, deps.standing());
+    if (kind !== "chat") {
       const what = kind === "project" ? "a project's own thread" : kind === "agent" ? "a blob's thread" : kind === "schedule" ? "a schedule's thread" : "a chat of the owner's with KOS";
       throw new Error(`${target.title} is ${what} and cannot be ${verb}`);
     }

@@ -1588,6 +1588,21 @@ export class DiscordAdapter implements ChannelAdapter {
     return true;
   }
 
+  /**
+   * A thread that no longer stands for anything KOS keeps (a deleted
+   * schedule's), closed: locked so nobody posts into it expecting an
+   * answer, and archived out of the channel's list. Its history stays.
+   */
+  async closeThread(threadId: string): Promise<boolean> {
+    const fetched = await this.client.channels.fetch(threadId).catch(() => null);
+    const thread = fetched as { isThread?: () => boolean; setLocked?: (locked: boolean) => Promise<unknown>; setArchived?: (archived: boolean) => Promise<unknown> } | null;
+    if (!thread || !thread.isThread?.() || typeof thread.setArchived !== "function") return false;
+    // Locking needs Manage Threads; without it the thread is still archived.
+    await thread.setLocked?.call(thread, true).catch(() => undefined);
+    await thread.setArchived.call(thread, true);
+    return true;
+  }
+
   /** The channel or thread, by id or by name, as somewhere messages can be read from; one given by id is fetched by that id alone. */
   private async room(channel: ChannelRef): Promise<ReadableChannel> {
     const id = typeof channel === "string" ? (this.known.get(channel.trim().replace(/^#/, "").toLowerCase())?.id ?? channel.trim()) : channel.id;

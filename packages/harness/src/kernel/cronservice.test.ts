@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { CronExecResult } from "../cron/executor.js";
+import type { CronExecResult, SelfPromptResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import type { CronJob } from "../cron/types.js";
 import { Workspace } from "../store/workspace.js";
@@ -68,6 +68,33 @@ describe("CronService", () => {
     await service({ enqueue, place: (j) => (j.agent ? `agent:${j.agent}` : `cron:${j.id}`) }).fire(blob.id);
     await service({ enqueue }).fire(own.id);
     expect(lanes).toEqual(["agent:recap", `cron:${own.id}`]);
+  });
+
+  it("keeps a run open while its turn waits on the owner, and judges it on how the turn ended", async () => {
+    const j = job("digest", { type: "self_prompt", prompt: "Post it with notify." });
+    let end!: (r: SelfPromptResult) => void;
+    const later = new Promise<SelfPromptResult>((r) => { end = r; });
+    const steps = { total: 1, failed: 0, firstError: null };
+    runResult = async () => ({ ran: true, type: "self_prompt", finalText: "Waiting on you", steps, later });
+    const res = await service().fire(j.id);
+    expect(res.ok).toBe(true);
+    // Asked, not done: nothing on the record yet.
+    expect(log).toEqual(["start:cron:1", "run:digest"]);
+    end({ ran: true, type: "self_prompt", finalText: "Not posted.", steps, undelivered: "It was written to post with notify, and posted nothing." });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log.slice(2)).toEqual([
+      "finish:7:error:It was written to post with notify, and posted nothing.",
+      "report:cron:1:digest:fail:It was written to post with notify, and posted nothing.",
+    ]);
+  });
+
+  it("fails a run whose waiting turn was stopped short of its end", async () => {
+    const j = job("digest", { type: "self_prompt", prompt: "Sum up." });
+    const steps = { total: 0, failed: 0, firstError: null };
+    runResult = async () => ({ ran: true, type: "self_prompt", finalText: "", steps, later: Promise.resolve({ ran: true, type: "self_prompt", finalText: "", steps, stopped: "the SDK process exited" }) });
+    await service().fire(j.id);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log).toContain("finish:7:error:Stopped before it finished: the SDK process exited");
   });
 
   it("puts a run on the record and tells the caretaker it went well", async () => {

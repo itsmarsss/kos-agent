@@ -579,6 +579,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       conversations,
       sessions,
       ownerId: profile.ownerId,
+      standing: () => kernelRef!.standing,
       // Bound late: the kernel does not exist yet while modules are built.
       dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
       currentConversationId: () => kernelRef?.callerConversationId,

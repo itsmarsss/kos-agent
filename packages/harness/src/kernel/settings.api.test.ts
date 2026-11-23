@@ -32,6 +32,7 @@ describe("saving settings", () => {
 
   const post = (path: string, body: unknown) =>
     handleApiRequest(kernel, { method: "POST", path, body: body as never });
+  const get = (path: string) => handleApiRequest(kernel, { method: "GET", path, body: {} as never });
 
   describe("retention", () => {
     it("saves what it is given", async () => {
@@ -158,17 +159,27 @@ describe("saving settings", () => {
     });
 
     it("refuses the same for a schedule's thread, which is its run history", async () => {
+      const job = kernel.crons.create({ name: "nightly", schedule: "0 3 * * *", type: "actions", actions: [], enabled: true });
       kernel.conversations.create({
-        id: "cron:1",
+        id: `cron:${job.id}`,
         userId: "owner",
         title: "nightly",
       });
       const res = await post("/api/conversations/rename", {
-        id: "cron:1",
+        id: `cron:${job.id}`,
         title: "something else",
       });
       expect(res.status).toBe(400);
       expect(JSON.stringify(res.body)).toContain("schedule");
+    });
+
+    it("lets a deleted schedule's thread go: an ordinary chat, listed as one, to archive or delete", async () => {
+      kernel.conversations.create({ id: "cron:22", userId: "owner", title: "School Weekly Plan" });
+      const listed = (await get("/api/conversations")).body as { id: string; kind: string }[];
+      expect(listed.find((c) => c.id === "cron:22")?.kind).toBe("chat");
+      expect((await post("/api/conversations/archive", { id: "cron:22" })).status).toBe(200);
+      expect((await post("/api/conversations/delete", { id: "cron:22" })).status).toBe(200);
+      expect(kernel.conversations.get("cron:22")).toBeUndefined();
     });
 
     it("still lets the owner do as they like with their own chats", async () => {
@@ -201,6 +212,29 @@ describe("saving settings", () => {
       expect(kernel.crons.get(job.id)).toBeUndefined();
       expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
       expect(kernel.sessions.get(`cron:${job.id}`)).toEqual([]);
+    });
+
+    it("by any other path archives its thread, on the record, and tells the surfaces", async () => {
+      const job = kernel.crons.create({ name: "digest", schedule: "0 7 * * *", type: "actions", actions: [], enabled: true });
+      kernel.conversations.create({ id: `cron:${job.id}`, userId: "owner", title: "digest" });
+      const retired: string[] = [];
+      kernel.bus.on("chat:retired", ({ conversationId }) => void retired.push(conversationId));
+      // cron.remove deletes through the store alone.
+      expect(kernel.crons.delete(job.id)).toBe(true);
+      expect(kernel.conversations.get(`cron:${job.id}`)?.archived).toBe(true);
+      expect(retired).toEqual([`cron:${job.id}`]);
+      expect(kernel.audit.recent(1)[0]).toMatchObject({ tool: "chats.archive", result: "archived digest: its schedule was deleted" });
+      expect(kernel.isRetiredSchedule(`cron:${job.id}`)).toBe(true);
+    });
+
+    it("archives at boot every thread whose schedule is already gone, once", async () => {
+      const live = kernel.crons.create({ name: "kept", schedule: "0 7 * * *", type: "actions", actions: [], enabled: true });
+      kernel.conversations.create({ id: `cron:${live.id}`, userId: "owner", title: "kept" });
+      kernel.conversations.create({ id: "cron:23", userId: "owner", title: "School Lecture Prep" });
+      expect(kernel.retireOrphanThreads()).toEqual(["cron:23"]);
+      expect(kernel.conversations.get("cron:23")?.archived).toBe(true);
+      expect(kernel.conversations.get(`cron:${live.id}`)?.archived).toBe(false);
+      expect(kernel.retireOrphanThreads()).toEqual([]);
     });
   });
 });

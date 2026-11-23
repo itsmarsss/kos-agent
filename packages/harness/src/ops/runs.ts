@@ -1,7 +1,13 @@
 import type { Db } from "../store/db.js";
 
-/** "partial": it ran to its end, but some of its steps failed; `error` says how many. */
-export type RunStatus = "running" | "ok" | "partial" | "error" | "skipped";
+/**
+ * "partial": it ran to its end, but some of its steps failed; `error` says how many.
+ * "interrupted": KOS stopped under it, so it never reached an end; `error` says why.
+ */
+export type RunStatus = "running" | "ok" | "partial" | "error" | "skipped" | "interrupted";
+
+/** The statuses that say a run did not do what it was for. */
+export const FAILED_RUNS: readonly RunStatus[] = ["error", "interrupted"];
 
 export interface RunRecord {
   id: number;
@@ -86,6 +92,20 @@ export class RunsLog {
       .run(status, error, finishedAt, duration, id);
   }
 
+  /**
+   * Close every run still open as interrupted, and give them back.
+   *
+   * One host runs a workspace, so a row left running when it stops or
+   * starts belongs to a process that can no longer finish it. Left open,
+   * it read as running forever in Runs, and as nothing at all in the
+   * failure count.
+   */
+  interruptRunning(why: string): RunRecord[] {
+    const open = this.db.prepare(`SELECT id FROM runs_log WHERE status = 'running' ORDER BY id`).all() as { id: number }[];
+    for (const { id } of open) this.finish(id, "interrupted", why);
+    return open.map(({ id }) => this.get(id)).filter((r): r is RunRecord => r !== undefined);
+  }
+
   get(id: number): RunRecord | undefined {
     const row = this.db.prepare(`SELECT * FROM runs_log WHERE id = ?`).get(id) as Row | undefined;
     return row ? toRecord(row) : undefined;
@@ -132,7 +152,7 @@ export class RunsLog {
 
   failures(limit = 50): RunRecord[] {
     const rows = this.db
-      .prepare(`SELECT * FROM runs_log WHERE status = 'error' ORDER BY id DESC LIMIT ?`)
+      .prepare(`SELECT * FROM runs_log WHERE status IN ('error', 'interrupted') ORDER BY id DESC LIMIT ?`)
       .all(limit) as Row[];
     return rows.map(toRecord);
   }
