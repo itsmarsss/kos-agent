@@ -79,8 +79,8 @@ describe("the chat, heard", () => {
     await within(log).findByText("Here is a plan.");
     const yours = within(log).getByRole("article", { name: /^You said, / });
     const reply = within(log).getByRole("article", { name: /^KOS said, / });
-    expect(within(yours).getByRole("button", { name: /^Edit your message, / })).toBeTruthy();
-    expect(within(reply).getByRole("button", { name: /^Copy KOS's reply, / })).toBeTruthy();
+    expect(within(yours).getByRole("button", { name: /^Edit your message “Plan the weekend”, / })).toBeTruthy();
+    expect(within(reply).getByRole("button", { name: /^Copy KOS's reply “Here is a plan.”, / })).toBeTruthy();
     expect(within(reply).queryByRole("button", { name: /^Copy$/ })).toBeNull();
   });
 
@@ -109,7 +109,7 @@ describe("a long chat", () => {
     serve(() => ({ events: [you("Message 9", 3), kos("New.", 4)], earlier: 6, ownerAbove: 3 }));
     const rewind = vi.spyOn(api, "rewind").mockResolvedValue({ reply: "", conversationId: "c1" });
     page();
-    fireEvent.click(await screen.findByRole("button", { name: /^Retry your message, / }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Retry your message “[^”]+”, / }));
     await waitFor(() => expect(rewind).toHaveBeenCalledWith("c1", 3, {}));
   });
 
@@ -121,7 +121,7 @@ describe("a long chat", () => {
     await within(log).findByText("New words");
     const old = within(log).getAllByRole("article", { name: /^You said/ })[0]!;
     expect(within(old).queryByRole("button", { name: /^Retry/ })).toBeNull();
-    fireEvent.click(within(log).getByRole("button", { name: /^Retry your message, / }));
+    fireEvent.click(within(log).getByRole("button", { name: /^Retry your message “[^”]+”, / }));
     await waitFor(() => expect(rewind).toHaveBeenCalledWith("c1", 0, {}));
   });
 });

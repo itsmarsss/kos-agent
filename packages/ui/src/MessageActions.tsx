@@ -42,7 +42,7 @@ export function MessageActions({
       .writeText(text)
       .then(() => {
         setCopied(true);
-        toast({ kind: "ok", text: `Copied ${of.replace(/,.*$/, "")}` });
+        toast({ kind: "ok", text: `Copied ${of.replace(/ “.*$|,[^,]*$/, "")}` });
         window.setTimeout(() => setCopied(false), 1200);
       })
       .catch(() => toast({ kind: "err", text: "Could not copy: this browser did not allow it" }));

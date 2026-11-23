@@ -24,9 +24,18 @@ const SAID: Record<"you" | "kos" | "system", { said: string; thing: string }> = 
  * 6:52 PM"), and what its buttons act on ("KOS's reply, 6:52 PM"), so a
  * list of buttons is not a column of Copy, Copy, Copy.
  */
-export function turnWords(role: "you" | "kos" | "system", at?: number): { label: string; of: string } {
+export function turnWords(role: "you" | "kos" | "system", at?: number, text = ""): { label: string; of: string } {
   const when = at ? `, ${clockWords(at)}` : "";
-  return { label: `${SAID[role].said}${when}`, of: `${SAID[role].thing}${when}` };
+  const start = excerpt(text);
+  return { label: `${SAID[role].said}${when}`, of: `${SAID[role].thing}${start ? ` “${start}”` : ""}${when}` };
+}
+
+/** A message's first words, plain, for telling its buttons from the next message's said in the same minute. */
+export function excerpt(text: string, most = 32): string {
+  const plain = text.replace(/[`*_#>[\]()]/g, "").replace(/\s+/g, " ").trim();
+  if (plain.length <= most) return plain;
+  const cut = plain.slice(0, most);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > most / 2 ? cut.lastIndexOf(" ") : most)}…`;
 }
 
 /** A message sent before ones above it, answered after them: its turn waited (on an approval, say) while they went through. */
@@ -64,7 +73,7 @@ export const MessageTurn = memo(function MessageTurn({
   /** When the message above it was said, to tell one sent earlier and answered late. */
   lateAfter?: number;
 }): ReactElement {
-  const words = turnWords(e.role, e.at);
+  const words = turnWords(e.role, e.at, e.text);
   const bubble = e.text && (
     <div className={`bubble bubble--${e.role}${found ? " is-found" : ""}`}>
       {e.quote && <QuoteLine text={e.quote.text} from={e.quote.from} />}

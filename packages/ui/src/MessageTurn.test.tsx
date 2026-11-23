@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { clockWords } from "@kos/shared";
 
 import type { ChatEvent } from "./api.js";
-import { MessageTurn } from "./MessageTurn.js";
+import { excerpt, MessageTurn, turnWords } from "./MessageTurn.js";
 
 const AT = Date.UTC(2026, 10, 18, 14, 41);
 const actions = { tools: [], ask: () => undefined };
@@ -48,5 +48,12 @@ describe("a message's time in the thread", () => {
       expect(el.textContent).not.toContain("0");
       cleanup();
     }
+  });
+});
+
+describe("a message's words for its buttons", () => {
+  it("tells two messages of the same minute apart by their first words", () => {
+    expect(turnWords("you", undefined, "Message 3: short note number 3.").of).toBe("your message “Message 3: short note number 3.”");
+    expect(excerpt("Here is a **plan** for the long weekend, day by day.")).toBe("Here is a plan for the long…");
   });
 });
