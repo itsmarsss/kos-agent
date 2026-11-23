@@ -1,6 +1,6 @@
 import { m } from "motion/react";
 import { marksOfLetters, toolWords } from "@kos/shared";
-import { CloseIcon, ease, EmptyState, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, SheetFoot, Switch, Tag, useOverlayScroll } from "@kos/kit";
+import { CloseIcon, ease, EmptyState, pageArrive, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, SheetFoot, Switch, Tag, useOverlayScroll } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -340,6 +340,11 @@ export function SettingsPage({
   const sideFade = useEdgeFade<HTMLDivElement>(".set-rail", "x", data !== null && data !== undefined);
   const paneRef = useRef<HTMLDivElement>(null);
   const paneScroll = useOverlayScroll(paneRef);
+  /** A pane has been drawn: only a later one, a change of tab, rises in. */
+  const paneShown = useRef(false);
+  useEffect(() => {
+    if (data) paneShown.current = true;
+  });
   const railRef = useRef<HTMLElement>(null);
   const railScroll = useOverlayScroll(railRef);
   // On a phone the rail is a strip that scrolls sideways: keep the open section in sight on it.
@@ -779,13 +784,15 @@ export function SettingsPage({
       </div>
 
       {/* Keyed on the tab, so moving between them is a change you can follow
-          rather than one frame replaced by another. */}
+          rather than one frame replaced by another. Not on the page's first
+          frame: the page arrives as a whole, and a pane rising inside it too
+          moved its heading twice. */}
       <div className="set-pane-scroll" ref={paneScroll}>
       <m.div
         className="set-pane"
         key={active}
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={paneShown.current ? pageArrive.initial : false}
+        animate={pageArrive.animate}
         transition={ease}
       >
         {error && (
