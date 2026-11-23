@@ -79,3 +79,30 @@ describe("a long chat read from its end", () => {
     expect(lastEvents(set, 2)).toEqual({ events: set.slice(8), earlier: 8, ownerAbove: 2 });
   });
 });
+
+describe("a turn that waited past what a chat keeps", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-trimmed-late-"));
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), chrome: { port: 1, exists: () => false } });
+    kernel.sessions.configure({ maxExchanges: 2 });
+  });
+
+  afterEach(() => {
+    kernel.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("takes its opening back from what was kept for the owner, once", () => {
+    const chat = "c-late";
+    const said = (text: string, at: number) => ({ role: "user" as const, content: [{ type: "text" as const, text }], at });
+    const reply = (text: string, at: number) => ({ role: "assistant" as const, content: [{ type: "text" as const, text }], at });
+    kernel.sessions.record(chat, [said("first", 1), reply("one", 2), said("second", 3), reply("two", 4), said("third", 5), reply("three", 6)]);
+    expect(kernel.sessions.earlier(chat)[0]!.messages.map((m) => m.at)).toEqual([1, 2]);
+    expect(kernel.sessions.takeBackTrimmed(chat, 1)).toBe(true);
+    expect(kernel.sessions.earlier(chat)[0]!.messages.map((m) => m.at)).toEqual([2]);
+    expect(kernel.sessions.takeBackTrimmed(chat, 1)).toBe(false);
+  });
+});

@@ -4278,8 +4278,13 @@ export class Kernel {
       const stored = (m: ModelMessage, i: number): boolean => (ctx.openedAt !== undefined ? m.at === ctx.openedAt : i >= (ctx.before ?? 0));
       const at = opening ? current.findIndex((m, i) => m.role === "user" && stored(m, i) && sameWords(m, opening)) : -1;
       const base = at >= 0 ? [...current.slice(0, at), ...current.slice(at + 1)] : current;
+      // A turn that waited while the chat went on past what it keeps had its
+      // opening trimmed out with the oldest: taken back from what was kept
+      // for the owner, so it is said once, with its answer.
+      const takenBack = at < 0 && opening && ctx.openedAt !== undefined && this.sessions.takeBackTrimmed(sessionId, ctx.openedAt);
       // The opening keeps the time it was written with, when the owner said it, not when the turn ended.
-      const said = at >= 0 && opening ? [{ ...opening, at: current[at]!.at }, ...mine.slice(1)] : mine;
+      const openedAt = at >= 0 ? current[at]!.at : takenBack ? ctx.openedAt : undefined;
+      const said = opening && openedAt !== undefined ? [{ ...opening, at: openedAt }, ...mine.slice(1)] : mine;
       this.sessions.record(sessionId, [...base, ...said]);
       // Only the auto-title is withheld from a resume prompt, which is
       // harness plumbing and must not rename anything.

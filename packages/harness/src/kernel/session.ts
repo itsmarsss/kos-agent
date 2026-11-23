@@ -482,6 +482,29 @@ export class SessionStore {
     this.db.prepare(`UPDATE chat_session_earlier SET at = ?, messages_json = ? WHERE rowid = ?`).run(this.now(), JSON.stringify([...before, ...dropped]), last.rowid);
   }
 
+  /**
+   * The owner's message said at `at`, taken back out of what a trim kept
+   * for the owner; whether it was there. A turn that waited on the owner
+   * while the chat went past what it keeps ends with its opening again.
+   */
+  takeBackTrimmed(sessionId: string, at: number): boolean {
+    const last = this.db.prepare(`SELECT rowid, messages_json FROM chat_session_earlier WHERE id = ? AND why = 'trimmed' ORDER BY at DESC, rowid DESC LIMIT 1`).get(sessionId) as
+      | { rowid: number; messages_json: string }
+      | undefined;
+    if (!last) return false;
+    let kept: ModelMessage[];
+    try {
+      kept = JSON.parse(last.messages_json) as ModelMessage[];
+    } catch {
+      return false;
+    }
+    const i = kept.findIndex((m) => m.role === "user" && m.at === at);
+    if (i < 0) return false;
+    kept.splice(i, 1);
+    this.db.prepare(`UPDATE chat_session_earlier SET messages_json = ? WHERE rowid = ?`).run(JSON.stringify(kept), last.rowid);
+    return true;
+  }
+
   private putAside(sessionId: string, why: EarlierWhy, messages: ModelMessage[]): void {
     this.db.prepare(`INSERT INTO chat_session_earlier (id, at, why, messages_json) VALUES (?, ?, ?, ?)`).run(sessionId, this.now(), why, JSON.stringify(messages));
     // The oldest stretch goes once there are too many; a chat cleared every
