@@ -77,6 +77,10 @@ export interface DecisionsDeps {
     keeps?: (tool: string, input: Record<string, unknown>) => boolean;
     /** Why the tool refuses this call now, judged inside the asking turn's stores; see ToolRisk.refuse. */
     refusal?: (tool: string, input: Record<string, unknown>) => Promise<string | undefined>;
+    /** What the audit keeps of a call that ran; see ToolRisk.audited. All of it when absent. */
+    audited?: (tool: string, input: Record<string, unknown>, result: { content: string; isError: boolean }) => { args: Record<string, unknown>; result: string };
+    /** Whether the tool's ask lapses once its turn no longer waits on it; see ToolRisk.awaitedOnly. */
+    awaitedOnly?: (tool: string) => boolean;
   };
   /** The kill switch: while thrown, no decision runs anything. */
   halted?: () => boolean;
@@ -208,8 +212,8 @@ export class Decisions {
     const handsOn = placing ? d.handsOn?.(options.device, action.conversationId) : undefined;
     if (handsOn) return { ok: false, message: `#${id} was not approved: ${handsOn}` };
     const awaited = d.approvals.isAwaited(id);
-    // A secrets tool's ask nobody waits on any more is not run later: the page it was for is gone.
-    if (!awaited && action.tool.startsWith(SECRETS_PREFIX)) {
+    // A secrets tool's ask nobody waits on any more is not run later: the page it was for is gone. Nor one whose tool runs only for its turn.
+    if (!awaited && (action.tool.startsWith(SECRETS_PREFIX) || d.registry.awaitedOnly?.(action.tool) === true)) {
       d.approvals.lapse(id, decidedBy ?? d.ownerId);
       return { ok: false, message: `#${id} lapsed: KOS was no longer waiting on it, so nothing was done. Ask KOS again.` };
     }
@@ -264,7 +268,8 @@ export class Decisions {
           });
       // What it answered is scrubbed before the audit and the resumed turn read it.
       const r = { ...ran, content: d.secrets.scrub(ran.content) };
-      d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
+      const kept = d.registry.audited?.(action.tool, stored, r) ?? { args: stored, result: r.content };
+      d.audit.record({ tool: action.tool, args: kept.args, result: kept.result, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
       if (!r.isError) d.onToolRan(action.tool);
       return r;
     }, action.conversationId ?? SHARED_LANE);

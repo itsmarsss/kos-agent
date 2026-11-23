@@ -12,6 +12,7 @@ export {
   ApprovalQueue,
   approvalExpiry,
   gateToolCall,
+  keepOnRecord,
   type ApprovalStatus,
   type EnqueueInput,
   type GateDecision,

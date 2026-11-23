@@ -403,6 +403,11 @@ export class ApprovalQueue {
     });
   }
 
+  /** A decided action's arguments, as its tool keeps them on the record: less than its card showed. */
+  restate(id: number, args: Record<string, unknown>): void {
+    this.db.prepare(`UPDATE pending_actions SET args = ? WHERE id = ? AND status != 'pending'`).run(this.secrets ? this.secrets.redact(JSON.stringify(args)) : JSON.stringify(args), id);
+  }
+
   /** Whether a turn is currently suspended on this action. */
   isAwaited(id: number): boolean {
     return this.waiters.has(id);
@@ -491,4 +496,16 @@ export function gateToolCall(
     userId: opts.userId,
   });
   return { decision: "queued", action };
+}
+
+/**
+ * Every ask, once settled however it settled, kept on the record as its
+ * tool's audit keeps the call (ToolRisk.audited): what its card alone
+ * showed, the start of the owner's clipboard, goes with the decision.
+ */
+export function keepOnRecord(approvals: ApprovalQueue, registry: Pick<ToolRegistry, "keepsLess" | "audited">): () => void {
+  return approvals.onDecided((action) => {
+    if (!registry.keepsLess(action.tool)) return;
+    approvals.restate(action.id, registry.audited(action.tool, JSON.parse(action.args) as Record<string, unknown>, { content: "", isError: false }).args);
+  });
 }

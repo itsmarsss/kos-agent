@@ -126,6 +126,22 @@ export class ToolRegistry {
     return this.tools.get(name)?.risk.keep?.(input) === true;
   }
 
+  /** What the audit keeps of a call: all of it, unless its tool keeps less (ToolRisk.audited). */
+  audited(name: string, input: Record<string, unknown>, result: { content: string; isError: boolean }): { args: Record<string, unknown>; result: string } {
+    const audited = this.tools.get(name)?.risk.audited;
+    return audited ? audited(input, result) : { args: input, result: result.content };
+  }
+
+  /** Whether the audit keeps less of a tool's calls than they carried (ToolRisk.audited). */
+  keepsLess(name: string): boolean {
+    return this.tools.get(name)?.risk.audited !== undefined;
+  }
+
+  /** Whether a tool's ask lapses once its turn no longer waits on it (ToolRisk.awaitedOnly). */
+  awaitedOnly(name: string): boolean {
+    return this.tools.get(name)?.risk.awaitedOnly === true;
+  }
+
   /** Where a tool's arguments may carry a secret reference; undefined for a tool that takes none. */
   secretSlots(name: string): SecretSlots | undefined {
     return this.tools.get(name)?.secretSlots;
