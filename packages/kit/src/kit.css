@@ -810,3 +810,14 @@ p.list-loading { padding: 4px 0; }
 .origin-add { display: flex; gap: 0.4rem; }
 .origin-add .kos-input { flex: 1; min-width: 0; }
 .origin-add .btn { height: var(--control-h, 2.25rem); padding-block: 0; }
+
+/*
+ * Reduced motion, on both web apps: nothing moves of itself, nothing
+ * slides or fades. Motion's own (the springs, the page's arrival) follows
+ * MotionConfig's reducedMotion="user" at each app's root; this stops what
+ * the sheets animate (a pulse that beats forever, a sheen, a hover's ease),
+ * whatever a sheet set after it.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
