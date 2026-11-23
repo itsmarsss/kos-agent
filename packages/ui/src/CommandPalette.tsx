@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 import { isSearchKind, marksOfLetters, SEARCH_KINDS, type HitKind, type SearchHit, type SearchKind, type SearchTarget, type Snippet } from "@kos/shared";
-import { ease, EmptyState, Marked, useFocusTrap } from "@kos/kit";
+import { announce, ease, EmptyState, Marked, useFocusTrap } from "@kos/kit";
 
 import { api } from "./api.js";
 import { withParams } from "./hashparams.js";
 import { hrefFor, NAV, type Route } from "./routes.js";
+import { scheduleWords } from "./schedule.js";
 import type { Theme } from "./theme.js";
 import { SECTIONS, searchSettings } from "./settingsindex.js";
 
@@ -367,6 +368,41 @@ export function buildActions(ctx: PaletteContext): Action[] {
   return actions;
 }
 
+const LIST_ID = "pal-results";
+const optionId = (index: number): string => `${LIST_ID}-${index}`;
+/** How long the list must hold still before its count is said, so a reader hears one number, not each source's. */
+const RESULTS_SETTLE_MS = 400;
+
+/** Runs of results that share a group, each row with its place in the whole list. */
+function groupRuns(results: readonly Action[]): { group: string; rows: { action: Action; index: number }[] }[] {
+  const runs: { group: string; rows: { action: Action; index: number }[] }[] = [];
+  results.forEach((action, index) => {
+    const last = runs[runs.length - 1];
+    if (last && last.group === action.group) last.rows.push({ action, index });
+    else runs.push({ group: action.group, rows: [{ action, index }] });
+  });
+  return runs;
+}
+
+/**
+ * What each row is called to a screen reader: its name, its hint and the
+ * words it matched, and, where two would still read the same (one chat's
+ * messages, found seven times), which of them it is.
+ */
+export function optionNames(results: readonly Action[]): string[] {
+  const plain = results.map((r) => [r.label, r.hint, r.snippet?.text].filter(Boolean).join(", "));
+  const total = new Map<string, number>();
+  for (const name of plain) total.set(name, (total.get(name) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return plain.map((name) => {
+    const of = total.get(name)!;
+    if (of === 1) return name;
+    const n = (seen.get(name) ?? 0) + 1;
+    seen.set(name, n);
+    return `${name}, ${n} of ${of}`;
+  });
+}
+
 const KIND_GROUP: Record<string, string> = {
   project: "Projects",
   page: "Pages",
@@ -489,7 +525,8 @@ export function CommandPalette({
       id: `${m.kind}:${m.id}`,
       label: m.label,
       group: KIND_GROUP[m.kind] ?? m.kind,
-      ...(m.hint ? { hint: m.hint } : {}),
+      // A schedule's hint is its line, which is for a tooltip: the words read it back.
+      ...(m.hint ? { hint: m.kind === "schedule" ? scheduleWords(m.hint) : m.hint } : {}),
       run: () => {
         if (m.kind === "chat") ctx.openChat(m.id);
         else if (m.kind === "page") ctx.go({ name: "page", id: m.id });
@@ -537,10 +574,21 @@ export function CommandPalette({
     action.run();
   };
 
+  const names = useMemo(() => optionNames(results), [results]);
+
   const moveTo = (index: number): void => setCursorId(results[index]?.id ?? null);
 
   // The tab key stays in the palette and, shut by Escape, the focus goes back to what had it.
   useFocusTrap(box, open);
+
+  // What the list holds, said once it settles: a reader hears the count, or that nothing matches.
+  const typed = Boolean(parsed.term || parsed.kind);
+  const heard = !open || !typed ? null : results.length > 0 ? `${results.length} ${results.length === 1 ? "result" : "results"}` : waiting.length > 0 ? null : "Nothing matches.";
+  useEffect(() => {
+    if (!heard) return;
+    const timer = setTimeout(() => announce(heard), RESULTS_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [heard]);
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === "ArrowDown") {
@@ -585,6 +633,7 @@ export function CommandPalette({
               ref={box}
               className="pal"
               role="dialog"
+              aria-modal="true"
               aria-label="Search and commands"
               // At its final place and size from the first frame, fading in: its list fills under the box, and a box that grew while it scaled read as two motions.
               initial={{ opacity: 0 }}
@@ -598,6 +647,11 @@ export function CommandPalette({
                 value={query}
                 placeholder="Search everything, or > for commands"
                 aria-label="Search everything, or > for commands"
+                role="combobox"
+                aria-expanded={results.length > 0}
+                aria-controls={LIST_ID}
+                aria-autocomplete="list"
+                {...(results.length > 0 ? { "aria-activedescendant": optionId(cursor) } : {})}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={onKeyDown}
               />
@@ -615,40 +669,43 @@ export function CommandPalette({
                       : "Start typing."}
                 </EmptyState>
               ) : (
-                <ul className="pal-list" ref={listRef}>
-                  {results.map((r, i) => {
-                    const first = i === 0 || results[i - 1]?.group !== r.group;
-                    return (
-                      <li key={r.id}>
-                        {first && (
-                          <div className="label pal-group">
-                            {r.group}
-                            {r.group === "Everywhere" && waiting.length > 0 && <span className="pal-group-note" role="status">searching {sourcesWords(waiting)}…</span>}
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          className={`pal-item${r.snippet ? " pal-item--hit" : ""}${i === cursor ? " is-cursor" : ""}`}
-                          onMouseMove={() => setCursorId(r.id)}
-                          onClick={() => choose(r)}
-                        >
-                          <span className="pal-line">
-                            <span className="pal-label">{r.labelMarks ? <Marked text={r.label} marks={r.labelMarks} /> : r.label}</span>
-                            {r.hint && <span className="pal-hint">{r.hint}</span>}
-                          </span>
-                          {r.snippet && (
-                            <span className="pal-snippet">
-                              <Marked text={r.snippet.text} marks={r.snippet.marks} />
+                <ul className="pal-list" ref={listRef} id={LIST_ID} role="listbox" aria-label="Results">
+                  {groupRuns(results).map(({ group, rows }) => (
+                    <li key={`${group}:${rows[0]!.index}`} role="group" aria-labelledby={`${LIST_ID}-g${rows[0]!.index}`}>
+                      <div className="label pal-group" id={`${LIST_ID}-g${rows[0]!.index}`}>
+                        {group}
+                        {group === "Everywhere" && waiting.length > 0 && <span className="pal-group-note">searching {sourcesWords(waiting)}…</span>}
+                      </div>
+                      <ul className="pal-rows" role="none">
+                        {rows.map(({ action: r, index: i }) => (
+                          <li
+                            key={r.id}
+                            id={optionId(i)}
+                            role="option"
+                            aria-selected={i === cursor}
+                            aria-label={names[i]}
+                            className={`pal-item${r.snippet ? " pal-item--hit" : ""}${i === cursor ? " is-cursor" : ""}`}
+                            onMouseMove={() => setCursorId(r.id)}
+                            onClick={() => choose(r)}
+                          >
+                            <span className="pal-line">
+                              <span className="pal-label">{r.labelMarks ? <Marked text={r.label} marks={r.labelMarks} /> : r.label}</span>
+                              {r.hint && <span className="pal-hint">{r.hint}</span>}
                             </span>
-                          )}
-                        </button>
-                      </li>
-                    );
-                  })}
+                            {r.snippet && (
+                              <span className="pal-snippet">
+                                <Marked text={r.snippet.text} marks={r.snippet.marks} />
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
                   {everywhereNote && (
-                    <li>
+                    <li role="none">
                       {!shownEverywhere && <div className="label pal-group">Everywhere</div>}
-                      <p className="pal-note" role="status">{everywhereNote}</p>
+                      <p className="pal-note">{everywhereNote}</p>
                     </li>
                   )}
                 </ul>
