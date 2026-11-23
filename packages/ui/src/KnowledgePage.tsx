@@ -1,4 +1,4 @@
-import { kindWord, slugWords, timeWords } from "@kos/shared";
+import { kindWord, slugWords, surfaceName, timeWords } from "@kos/shared";
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { Chips, CloseIcon, Count, EditIcon, EmptyState, Field, GroupHead, IconButton, PinIcon, SheetFoot, Tag, UnpinIcon } from "@kos/kit";
@@ -69,13 +69,15 @@ export function describeScope(scope: string | undefined): string {
 
 /** Who wrote a claim, in words rather than the id the store keeps. */
 export function describeSource(source: string | null | undefined): string {
-  if (!source) return "unknown";
-  if (source === "dashboard") return "you, here";
-  if (source === "chat") return "a chat";
-  if (source.startsWith("cron:")) return "a schedule";
-  if (source.startsWith("caller:")) return `the app ${source.slice("caller:".length)}`;
-  if (source.startsWith("project:")) return `the ${source.slice("project:".length)} orchestrator`;
-  return source.replace(/:owner$/, "");
+  if (!source) return "Not known";
+  if (source === "dashboard") return "You added it on this page";
+  if (source === "chat") return "A chat";
+  if (source.startsWith("cron:")) return "A schedule";
+  if (source.startsWith("caller:")) return `The app ${source.slice("caller:".length)}`;
+  if (source.startsWith("project:")) return `The ${slugWords(source.slice("project:".length))} orchestrator`;
+  if (source.startsWith("agent:")) return `${slugWords(source.slice("agent:".length))}, a blob`;
+  const surface = source.replace(/:owner$/, "");
+  return /^[a-z]+$/.test(surface) ? `You, on ${surfaceName(surface)}` : "A chat";
 }
 
 export interface ScopeGroup {
@@ -554,7 +556,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
               </dd>
               <dt>Where it applies</dt>
               <dd>{describeScope(open.scope)}</dd>
-              <dt>Written by</dt>
+              <dt>Where it came from</dt>
               <dd>{describeSource(open.source)}</dd>
               <dt>Pinned</dt>
               <dd>{open.pinned ? "yes, in every conversation" : "no"}</dd>

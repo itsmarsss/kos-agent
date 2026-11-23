@@ -256,14 +256,14 @@ export function Inspector(props: {
                 <Section title="The schedule">
                   <ul className="insp-rows">
                     <li>
-                      <span title={job.schedule}>{scheduleWords(job.schedule)}</span>
+                      <span>{scheduleWords(job.schedule)}</span>
                       <span className="insp-meta">{job.type === "self_prompt" ? "Asks KOS" : "Runs its steps"}</span>
                       <StatusPill state={job.enabled ? "on" : "off"} />
                     </li>
                     {(job.actions ?? []).map((a, i) => {
                       const step = stepLine(a.tool, a.args);
                       return (
-                        <li key={i} title={a.tool}>
+                        <li key={i}>
                           <span>{step.title}</span>
                           {step.detail && <span className="insp-meta">{step.detail}</span>}
                         </li>
@@ -558,7 +558,7 @@ export function Inspector(props: {
                     {schedules.map((c) => (
                       <li key={c.id}>
                         <span>{jobTitle(c.name)}</span>
-                        <span className="insp-meta" title={c.schedule}>{scheduleWords(c.schedule)}</span>
+                        <span className="insp-meta">{scheduleWords(c.schedule)}</span>
                         <StatusPill state={c.enabled ? "on" : "off"} />
                       </li>
                     ))}
@@ -571,7 +571,7 @@ export function Inspector(props: {
                   <ul className="insp-rows insp-rows--stacked">
                     {detail.activity.map((a) => (
                       <li key={a.id}>
-                        <span className="insp-act" title={a.tool}>
+                        <span className="insp-act">
                           <span>{stepLine(a.tool, a.args).title}</span>
                           {stepLine(a.tool, a.args).detail && <span className="insp-meta">{stepLine(a.tool, a.args).detail}</span>}
                         </span>

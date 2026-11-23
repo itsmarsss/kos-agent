@@ -23,7 +23,7 @@ import { jobTitle, lastRunWords } from "./schedulewords.js";
 type Tab = "claims" | "decisions" | "pages" | "log" | "jobs" | "callers";
 
 const TABS: { id: Tab; label: string; blurb: string }[] = [
-  { id: "claims", label: "What it knows", blurb: "Each thing KOS believes (a claim), for every chat to read: true everywhere or in one project, with where it came from." },
+  { id: "claims", label: "What it knows", blurb: "What KOS knows, one claim at a time, for every chat to read. Each says where it applies and where KOS heard it." },
   { id: "decisions", label: "To decide", blurb: "What KOS was not sure enough to settle when it tidied memory, what you settled, and every change to what it believes." },
   { id: "pages", label: "Notes", blurb: "Memory written out as notes, from what KOS knows. Yours to edit." },
   { id: "log", label: "Everything said", blurb: "Every message to and from KOS, kept, and searched by words or by meaning." },
