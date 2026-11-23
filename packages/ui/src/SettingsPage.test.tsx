@@ -57,6 +57,13 @@ describe("SettingsPage", () => {
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("points a standing rule to where it lives: Memory, or one chat's Brief", async () => {
+    render(<SettingsPage section="you" />);
+    await screen.findByDisplayValue("Ada");
+    expect(screen.getByText(/never message me after 10pm.*is kept in Memory/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Memory" }).getAttribute("href")).toBe("#/memory");
+  });
+
   it("leaves Enter alone when nothing has changed", async () => {
     render(<SettingsPage section="you" />);
     const name = await screen.findByDisplayValue("Ada");
