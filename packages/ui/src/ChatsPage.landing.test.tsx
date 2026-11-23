@@ -12,13 +12,14 @@ afterEach(() => {
 
 const noop = (): void => {};
 
-function landing(composing: boolean): { opened: string[] } {
+function landing(composing: boolean, activeId?: string): { opened: string[] } {
   const opened: string[] = [];
   render(
     <ChatsPage
       conversations={[]}
       projects={[]}
       composing={composing}
+      {...(activeId ? { activeId } : {})}
       pendingApprovals={new Set()}
       approvals={[]}
       deciding={new Set()}
@@ -55,6 +56,16 @@ describe("the rail's New chat", () => {
   it("leaves Chats opened bare as KOS's front door", () => {
     expect(landingMode(false)).toBe("kos");
     expect(landingMode(true)).toBe("chat");
+  });
+});
+
+describe("a link to a chat that is not there", () => {
+  it("says so, rather than opening the landing as if it had worked", async () => {
+    vi.spyOn(api, "conversations").mockResolvedValue([]);
+    landing(false, "nope:owner");
+    expect(await screen.findByText("No chat called “nope:owner”")).toBeTruthy();
+    expect(screen.queryByText(LANDING_WORDS.kos.title)).toBeNull();
+    expect(screen.getByRole("link", { name: "Back to Chats" }).getAttribute("href")).toBe("#/chats");
   });
 });
 

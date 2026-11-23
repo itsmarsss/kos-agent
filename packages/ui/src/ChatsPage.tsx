@@ -11,7 +11,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { cycled, kindWord, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
-import { isModeKey, Menu, ModeChip } from "@kos/kit";
+import { isModeKey, Menu, ModeChip, NotFound } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
@@ -88,6 +88,7 @@ import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Modal } from "./Modal.js";
 import { HandoffForm } from "./HandoffForm.js";
+import { useFound } from "./found.js";
 import { hrefFor } from "./routes.js";
 import { useHashParam } from "./hashparams.js";
 import { fileMention } from "./finder/model.js";
@@ -555,6 +556,9 @@ export function ChatsPage({
   const inlineScroll = useOverlayScroll<HTMLDivElement>();
 
   const active = conversations.find((c) => c.id === activeId);
+  // A chat the address names that is in no list, archived included: said so, not the landing in its place.
+  const strayKey = activeId && !active && !loading && !project && !agent ? `chat:${activeId}` : null;
+  const stray = useFound(strayKey, () => api.conversations(true).then((all) => all.some((c) => c.id === activeId)));
   // Opening a chat puts the cursor in its box: that is what you came to do. Keyed on the chat being drawn, not
   // on its id alone: the box is not there until the list has the chat, and focus was left on the page. Not over
   // something else that has the focus (a dialog, a field), and not on a phone, where it would raise the keyboard.
@@ -2084,6 +2088,11 @@ export function ChatsPage({
               <div className="chats-placeholder">
                 <EmptyState loading className="chats-loading" />
               </div>
+            </>
+          ) : !active && stray === "gone" ? (
+            <>
+              <div className="chats-view-path">{listToggle}</div>
+              <NotFound what="chat" name={activeId!} back={{ label: "Back to Chats", href: hrefFor({ name: "chats" }) }} />
             </>
           ) : !active && (project || agent) ? (
             /* Inside a project there is no landing: the thread is the
