@@ -33,6 +33,17 @@ export function childEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
   return out;
 }
 
+/** A compiler's error line: `/path/File.swift:12:3: error: what`, or a tool's bare `error: what`. */
+const ERROR_LINE = /^(?:(?:.*\/)?([^/\s:]+):(\d+)(?::\d+)?: )?error: (.+)$/;
+
+/** A build's first error, in words with no host path: `File.swift:12: what`. The first is the cause; the rest follow from it. */
+export function buildError(text: string): string | undefined {
+  const match = ERROR_LINE.exec(text.trim());
+  if (!match) return undefined;
+  const [, file, line, what] = match;
+  return file ? `${file}:${line}: ${what}` : what;
+}
+
 export function deviceUpdates(root: string, log: (line: string) => void): NonNullable<ComputerUseOptions["updates"]> {
   const sources = new Map<BuildKind, Build | undefined>();
   const stamp = join(root, "packages", "browser-extension", "dist", STAMP_FILE);
@@ -79,9 +90,11 @@ export function macInstaller(app: string, log: (line: string) => void, options: 
         // A group of its own: a host stopping does not take the swap down half done, and a timeout ends all of it.
         const child = spawn(file, args, { cwd: app, env: childEnv(), detached: true, stdio: ["ignore", "pipe", "pipe"] });
         let last = "";
+        let failed: string | undefined;
         let locked = false;
         const heard = (text: string): void => {
           if (text.trim()) last = text.trim();
+          failed ??= buildError(text);
           if (/errSecInternalComponent/.test(text)) locked = true;
           line(text);
         };
@@ -110,7 +123,9 @@ export function macInstaller(app: string, log: (line: string) => void, options: 
           if (code === 0) return finish({ ok: true });
           // codesign asks for the signing key's PIN, which only the owner's own Terminal can show.
           if (locked) return finish({ ok: false, why: "the signing key is locked, and macOS asks for its PIN only in your own Terminal" });
-          finish({ ok: false, why: error?.message ?? (last || `the build stopped (exit ${code ?? "by a signal"})`) });
+          if (error) return finish({ ok: false, why: error.message });
+          // The first error names the cause; the last line of a compiler's output is only the tail of its excerpt.
+          finish({ ok: false, why: failed ? `the build failed: ${failed}` : last || `the build stopped (exit ${code ?? "by a signal"})` });
         };
         child.on("error", (err) => done(null, err));
         child.on("close", (code) => done(code));

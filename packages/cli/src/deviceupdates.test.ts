@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { childEnv, deviceUpdates, macInstaller } from "./deviceupdates.js";
+import { buildError, childEnv, deviceUpdates, macInstaller } from "./deviceupdates.js";
 
 let dir = "";
 afterEach(() => {
@@ -66,8 +66,29 @@ describe("a KOS for Mac rebuild", () => {
     expect(await locked.install(() => undefined)).toEqual({ ok: false, why: "the signing key is locked, and macOS asks for its PIN only in your own Terminal" });
     const lines: string[] = [];
     const broken = macInstaller(tmpdir(), () => undefined, { install: script(`echo "Compiling"; echo "error: no such module" >&2; exit 1`) });
-    expect(await broken.install((l) => lines.push(l))).toEqual({ ok: false, why: "error: no such module" });
+    expect(await broken.install((l) => lines.push(l))).toEqual({ ok: false, why: "the build failed: no such module" });
     expect(lines).toContain("Compiling");
+    const quit = macInstaller(tmpdir(), () => undefined, { install: script(`echo "KOS for Mac did not quit within 10 seconds" >&2; exit 1`) });
+    expect(await quit.install(() => undefined)).toEqual({ ok: false, why: "KOS for Mac did not quit within 10 seconds" });
+  });
+
+  it("says a compile failure by its first error, not the tail of the compiler's excerpt", async () => {
+    const swift = [
+      "[3/4] Compiling DeviceCore Artifacts.swift",
+      "/Users/me/kos/packages/device-shared/Sources/DeviceCore/Chat.swift:411:13: error: cannot find type 'PushToken' in scope",
+      "411 |   case push(PushToken)",
+      "/Users/me/kos/packages/device-shared/Sources/DeviceCore/Chat.swift:435:58: error: cannot find 'PushToken' in scope",
+      "437 |   }",
+    ];
+    const installer = macInstaller(tmpdir(), () => undefined, { install: script(`${swift.map((l) => `echo "${l}"`).join("; ")}; exit 1`) });
+    expect(await installer.install(() => undefined)).toEqual({ ok: false, why: "the build failed: Chat.swift:411: cannot find type 'PushToken' in scope" });
+  });
+
+  it("reads an error line with no host path in it", () => {
+    expect(buildError("/a/b/Chat.swift:411:13: error: cannot find type 'PushToken' in scope")).toBe("Chat.swift:411: cannot find type 'PushToken' in scope");
+    expect(buildError("error: no such module 'DeviceCore'")).toBe("no such module 'DeviceCore'");
+    expect(buildError("411 |   case push(PushToken)")).toBeUndefined();
+    expect(buildError("/a/Chat.swift:3:1: warning: unused")).toBeUndefined();
   });
 
   it("asks whether signing is set up of the program it is given", async () => {
