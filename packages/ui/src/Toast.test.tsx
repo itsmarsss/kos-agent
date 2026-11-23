@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ANNOUNCE_GAP_MS, Announcer } from "@kos/kit";
+
 import { dismissToast, toast, Toast, TOAST_MS, ToastHost, toastWords } from "./Toast.js";
 
 beforeEach(() => vi.useFakeTimers());
@@ -26,7 +28,7 @@ describe("a toast", () => {
         <Toast note={{ kind: "ok", text: "Archived “Groceries”.", undo }} />
       </>,
     );
-    expect(screen.getByRole("status").textContent).toContain("Archived “Groceries”.");
+    expect(texts()).toEqual(["Archived “Groceries”."]);
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(undo).toHaveBeenCalledOnce();
   });
@@ -100,5 +102,39 @@ describe("the toast queue", () => {
     act(() => void toast({ kind: "ok", text: "Sent" }));
     expect((document.querySelector(".ops-toasts") as HTMLElement).style.bottom).toBe("calc(120px + 0.75rem)");
     box.remove();
+  });
+});
+
+describe("a toast heard", () => {
+  it("is said through the announcer, an error at once", () => {
+    render(
+      <>
+        <Announcer />
+        <ToastHost />
+      </>,
+    );
+    act(() => void toast({ kind: "ok", text: "Approved @approval:2." }));
+    act(() => vi.advanceTimersByTime(ANNOUNCE_GAP_MS));
+    expect(document.querySelector('[aria-live="polite"]')?.textContent).toBe("Approved #2.");
+    act(() => void toast({ kind: "err", text: "Could not save" }));
+    act(() => vi.advanceTimersByTime(ANNOUNCE_GAP_MS));
+    expect(document.querySelector('[aria-live="assertive"]')?.textContent).toBe("Could not save");
+    // The note itself is not a second live region speaking over the first.
+    expect(document.querySelector(".ops-toast[role]")).toBeNull();
+    act(() => vi.advanceTimersByTime(TOAST_MS + 1));
+  });
+
+  it("stays while its Undo has the focus, and goes its full time after", () => {
+    render(<ToastHost />);
+    act(() => void toast({ kind: "ok", text: "Archived “Groceries”.", undo: () => undefined }));
+    const undo = screen.getByRole("button", { name: "Undo" });
+    act(() => undo.focus());
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(texts()).toContain("Archived “Groceries”.");
+    act(() => undo.blur());
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(texts()).toContain("Archived “Groceries”.");
+    act(() => vi.advanceTimersByTime(1_100));
+    expect(texts()).not.toContain("Archived “Groceries”.");
   });
 });

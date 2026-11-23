@@ -209,7 +209,7 @@ describe("managing an artifact from its viewer", () => {
     fireEvent.click(within(box).getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(restored).toHaveBeenCalledWith("old"));
     await waitFor(() => expect(screen.queryByText(/This artifact is in the trash/)).toBeNull());
-    expect(screen.getByRole("status").textContent).toBe("Restored “Old memo”");
+    expect(screen.getByText("Restored “Old memo”").closest(".ops-toast--ok")).toBeTruthy();
     expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
   });
 });
@@ -224,7 +224,7 @@ describe("exporting an artifact", () => {
     const made = vi.spyOn(api, "exportArtifact").mockImplementation(() => new Promise<void>((done) => (finish = done)));
     fireEvent.click(await menuItem("Export as PDF"));
     await waitFor(() => expect(made).toHaveBeenCalledWith("brief", "pdf", { theme: "light" }));
-    expect(screen.getByText("Exporting “Q4 brief” as PDF").closest("[role=status]")).toBeTruthy();
+    expect(screen.getByText("Exporting “Q4 brief” as PDF").closest(".ops-toast")).toBeTruthy();
     finish();
     await waitFor(() => expect(screen.queryByText("Exporting “Q4 brief” as PDF")).toBeNull());
     fireEvent.click(await screen.findByRole("button", { name: "More" }));
