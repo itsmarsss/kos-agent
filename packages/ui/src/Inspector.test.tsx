@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "./api.js";
+import { api, type CronJob } from "./api.js";
 import { Inspector, madeIn } from "./Inspector.js";
 
 /**
@@ -197,5 +197,26 @@ describe("a failed step's drawer", () => {
 describe("where a step was made", () => {
   it("says a schedule, a blob or a chat, never the owner for a schedule's step", () => {
     expect([madeIn("cron:3"), madeIn("agent:plant-watcher"), madeIn("c-1"), madeIn(null)]).toEqual(["A schedule's run", "Plant watcher, a blob", "A chat", "—"]);
+  });
+});
+
+describe("a run in the drawer", () => {
+  it("opens the chat a schedule's run was written into, beside the fix for a failed one", () => {
+    const opened: string[] = [];
+    const crons = [{ id: 28, name: "School Morning Digest", schedule: "32 7 * * *", type: "self_prompt", enabled: true, conversationId: "cron:28" }] as CronJob[];
+    render(
+      <Inspector
+        target={{ kind: "run", data: { id: 4083, kind: "cron", ref: "28", status: "interrupted", error: "KOS restarted while it was running.", startedAt: Date.now() } }}
+        onClose={() => {}}
+        crons={crons}
+        chats={new Set(["cron:28"])}
+        onOpenChat={(id) => opened.push(id)}
+        onFix={() => {}}
+      />,
+    );
+    // Cut short is failed: it can be fixed, and read.
+    expect(screen.getByRole("button", { name: "Fix in a chat" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open its chat" }));
+    expect(opened).toEqual(["cron:28"]);
   });
 });

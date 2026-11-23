@@ -1448,7 +1448,8 @@ export async function handleApiRequest(
     const rates = parseRates(kernel.settings.get(RATES_KEY));
     return ok(
       kernel.crons.list().map((job) => {
-        const thread = threads.get(cronSessionId(job.id));
+        // Where its runs are written: its own thread, or its blob's.
+        const thread = threads.get(kernel.jobPlace(job));
         // What its runs have cost, so the drawer can say it beside Run now.
         const spend = jobSpend(kernel, job, rates);
         /*

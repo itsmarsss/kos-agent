@@ -2021,15 +2021,15 @@ export function ChatsPage({
                   )}
 
                   {/* Threads a schedule runs in. Above the chats rather than under
-                      them, so opening the section does not mean scrolling past
-                      every chat; shut until opened, because it is reference
-                      rather than what the owner is doing now. */}
+                      them, so reaching one does not mean scrolling past every
+                      chat. Open until folded: shut, it read as no way in. */}
                   {scheduled.length > 0 && (
                     <RailGroup
                       title="Schedules"
                       count={scheduled.length}
                       {...(runningJobs > 0 ? { note: `${runningJobs} running` } : {})}
-                      open={q !== "" || folds.isOpen("scheduled")}
+                      // Open on the thread being read, whatever was folded: its row is where the reader is.
+                      open={q !== "" || folds.isOpen("scheduled") || scheduled.some((c) => c.id === activeId)}
                       {...(q ? {} : { onToggle: () => folds.toggle("scheduled") })}
                     >
                       <ul className="chats-jobs">
@@ -2994,8 +2994,11 @@ const PANEL_W: ColumnSpec = { key: "kos.project.panel.w", min: 160, max: 640, fa
 /** A project's schedule, as a row under its agents: a height rather than a width. */
 const SCHED_H: ColumnSpec = { key: "kos.project.schedule.h", min: 64, max: 480, fallback: 160 };
 const SCHED_SHUT_KEY = "kos.project.schedule.shut";
-/** The rail sections that start folded: the schedules are reference, not what the owner is doing now. */
-const SHUT_BY_DEFAULT = ["scheduled"] as const;
+/**
+ * The rail sections that start folded. None: the schedules folded shut read
+ * as no way to reach a schedule's thread at all.
+ */
+const SHUT_BY_DEFAULT: readonly string[] = [];
 
 function readWidth(spec: ColumnSpec): number {
   try {

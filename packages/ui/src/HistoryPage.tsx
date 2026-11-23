@@ -2,12 +2,13 @@ import { useMemo, useState, type ReactElement } from "react";
 
 import { clockWords, errorWords, formatDuration, kindWord, STATE_WORDS, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
 
-import { Chips, StatusPill } from "@kos/kit";
+import { ChatIcon, Chips, IconButton, StatusPill } from "@kos/kit";
 
 import type { AuditRecord, Conversation, CronJob, Project, RunRecord } from "./api.js";
 import { ListPage } from "./ListPage.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { RUNS_SUBTITLE, RunsTabs } from "./RunsTabs.js";
+import { runChat } from "./runchat.js";
 import { jobTitle } from "./schedulewords.js";
 
 /**
@@ -140,6 +141,7 @@ export function HistoryPage({
   onOpenTool,
   onOpenRun,
   onFix,
+  onOpenChat,
   loading = false,
 }: {
   tools: AuditRecord[];
@@ -154,6 +156,8 @@ export function HistoryPage({
   onOpenRun: (record: RunRecord) => void;
   /** Put KOS on a failure, in its own chat. */
   onFix?: (row: HistoryRow) => void;
+  /** Open the chat a run was written into: a schedule's thread, or a turn's own chat. */
+  onOpenChat?: (conversationId: string) => void;
   /** The runs and steps have not been read yet. */
   loading?: boolean;
 }): ReactElement {
@@ -164,6 +168,7 @@ export function HistoryPage({
     [crons],
   );
   const chats = useMemo(() => new Map(conversations.map((c) => [c.id, c])), [conversations]);
+  const chatIds = useMemo(() => new Set(chats.keys()), [chats]);
   const projectOf = useMemo(() => new Map(projects.map((p) => [p.slug, p])), [projects]);
   /** The chat a turn ran in, when it is still listed. */
   const chatOf = (r: RunRecord): Conversation | undefined => (r.kind === "chat" && r.ref ? chats.get(r.ref) : undefined);
@@ -273,6 +278,28 @@ export function HistoryPage({
               {r.kind === "run" && r.run.durationMs ? <span className="hist-took"> · took {formatDuration(r.run.durationMs)}</span> : null}
             </span>
           ),
+        },
+        {
+          // Where a run's words are: a schedule's thread, or a turn's chat.
+          key: "chat",
+          header: "",
+          srHeader: "Chat",
+          stack: "aside",
+          width: "3rem",
+          render: (r) => {
+            const chat = r.kind === "run" && onOpenChat ? runChat(r.run, crons, chatIds) : undefined;
+            return chat ? (
+              <IconButton
+                label={`Open the chat ${whatWords(r)} ran in`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenChat!(chat);
+                }}
+              >
+                <ChatIcon title="" />
+              </IconButton>
+            ) : null;
+          },
         },
         {
           // Only on the rows that failed. A row that worked has nothing to

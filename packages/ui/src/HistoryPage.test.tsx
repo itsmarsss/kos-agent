@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { AuditRecord, RunRecord } from "./api.js";
+import type { AuditRecord, Conversation, CronJob, RunRecord } from "./api.js";
 import { dayLabel, HistoryPage, merge, runKind } from "./HistoryPage.js";
 
 beforeAll(() => {
@@ -129,5 +129,32 @@ describe("the Runs rows", () => {
     expect(screen.getByRole("status", { name: "Loading" })).toBeTruthy();
     expect(document.body.textContent).not.toContain("Nothing has happened yet.");
     expect(document.body.textContent).not.toContain("0 of 0");
+  });
+});
+
+describe("a run's chat", () => {
+  it("opens a schedule run's thread from its row, and the row itself still opens the run", () => {
+    const now = Date.now();
+    const crons = [{ id: 28, name: "School Morning Digest", schedule: "32 7 * * *", type: "self_prompt", enabled: true, conversationId: "cron:28" }] as CronJob[];
+    const conversations = [{ id: "cron:28", title: "School Morning Digest", kind: "schedule" }] as Conversation[];
+    const opened: string[] = [];
+    const runs: string[] = [];
+    render(
+      <HistoryPage
+        tools={[]}
+        runs={[{ ...run(1, now), ref: "28" }, { ...run(2, now - 1000), ref: "99" }]}
+        crons={crons}
+        conversations={conversations}
+        onOpenTool={() => {}}
+        onOpenRun={(r) => runs.push(String(r.id))}
+        onOpenChat={(id) => opened.push(id)}
+      />,
+    );
+    // One button: the removed job's run has no thread to open.
+    const buttons = screen.getAllByRole("button", { name: /^Open the chat / });
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]!);
+    expect(opened).toEqual(["cron:28"]);
+    expect(runs).toEqual([]);
   });
 });
