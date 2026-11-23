@@ -7089,6 +7089,7 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .icon-btn.chats-compose:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, white); color: var(--on-accent); }
 
 .chats-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 0.5rem; }
+.chats-rail-loading { padding: 0.5rem 0.4rem; gap: 6px; }
 .chats-list--root .chats-scroll ul { flex: none; overflow: visible; padding: 0; }
 .chats-list--root ul.chats-streams { padding: 0.1rem 0 0.3rem; }
 /* A stream has no menu, so its time stays put on hover. */

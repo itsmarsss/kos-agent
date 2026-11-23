@@ -1804,6 +1804,10 @@ export function ChatsPage({
                     {shownArchived.length === 0 && <li>{q ? <EmptyState variant="inline" className="chats-empty" query={{ noun: "chats", onClear: () => setQuery("") }} /> : <EmptyState variant="inline" className="chats-empty">Nothing archived.</EmptyState>}</li>}
                   </ul>
                 </section>
+              ) : loading ? (
+                /* The rail's rows' places until its chats and projects are both read: drawn group by group as each
+                   arrived, the Projects group grew under the pointer and pushed Chats down a hundred pixels. */
+                <EmptyState loading itemHeight={34} className="chats-rail-loading" />
               ) : (
                 <>
                   {/* The streams: KOS, which routes the work, and each surface's

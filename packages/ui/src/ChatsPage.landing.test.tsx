@@ -12,13 +12,14 @@ afterEach(() => {
 
 const noop = (): void => {};
 
-function landing(composing: boolean, activeId?: string): { opened: string[] } {
+function landing(composing: boolean, activeId?: string, loading = false): { opened: string[] } {
   const opened: string[] = [];
   render(
     <ChatsPage
       conversations={[]}
       projects={[]}
       composing={composing}
+      loading={loading}
       {...(activeId ? { activeId } : {})}
       pendingApprovals={new Set()}
       approvals={[]}
@@ -66,6 +67,15 @@ describe("a link to a chat that is not there", () => {
     expect(await screen.findByText("No chat called “nope:owner”")).toBeTruthy();
     expect(screen.queryByText(LANDING_WORDS.kos.title)).toBeNull();
     expect(screen.getByRole("link", { name: "Back to Chats" }).getAttribute("href")).toBe("#/chats");
+  });
+});
+
+describe("the rail while its chats are read", () => {
+  it("draws its rows' places, not groups that grow as each list arrives", () => {
+    landing(false, undefined, true);
+    const rail = document.querySelector(".chats-scroll")!;
+    expect(rail.querySelector(".chats-rail-loading")).toBeTruthy();
+    expect(rail.textContent).not.toContain("Projects");
   });
 });
 
