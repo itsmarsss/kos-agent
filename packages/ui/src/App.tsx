@@ -1395,6 +1395,7 @@ export function App(): React.ReactElement {
                   className="btn btn--sm"
                   disabled={firing === c.id}
                   title="Fire it now, the way the schedule would"
+                  aria-label={`Run ${jobTitle(c.name)} now`}
                   onClick={(e) => {
                     e.stopPropagation();
                     void runCronNow(c.id, c.name);
