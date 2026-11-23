@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { FILES_NAME_MIN } from "./columns.js";
+
 /**
  * The Finder's columns in a real Chrome, with the dashboard's own sheets:
  * a fit measures what a cell draws, narrower as well as wider; a Finder
@@ -137,9 +139,9 @@ describe.skipIf(!CHROME)("the Finder's columns in a real Chrome", () => {
     const level = (): Promise<boolean> => value(`(() => { const l = document.querySelector('.finder-list'); return l.scrollWidth <= l.clientWidth; })()`);
     for (const [width, shown] of [
       [1000, ["name", "modified", "size", "kind"]],
-      [500, ["name", "modified", "size"]],
-      [300, ["name", "size"]],
-      [180, ["name"]],
+      [560, ["name", "modified", "size"]],
+      [380, ["name", "size"]],
+      [220, ["name"]],
       [1000, ["name", "modified", "size", "kind"]],
     ] as const) {
       await mount(width, ["a.md"]);
@@ -151,7 +153,8 @@ describe.skipIf(!CHROME)("the Finder's columns in a real Chrome", () => {
     await mount(1000, ["a.md"]);
     const max = Number(await value<string>(`document.querySelector('[aria-label="Resize Kind"]').getAttribute("aria-valuemax")`));
     const [nameNow, , , kindNow] = await drawn();
-    expect(max).toBe(Math.min(480, kindNow! + nameNow! - 160));
+    // Within a pixel: the room is measured, and drawn widths round.
+    expect(Math.abs(max - Math.min(480, kindNow! + nameNow! - FILES_NAME_MIN))).toBeLessThanOrEqual(1);
   });
 
   it("cuts a long name in the middle, keeping its extension, and the whole name in its tooltip", async () => {
