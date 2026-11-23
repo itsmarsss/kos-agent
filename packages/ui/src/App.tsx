@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, pageArrive, sheetOpen, StatusPill, When } from "@kos/kit";
+import { AgentFaces, Announcer, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, pageArrive, sheetOpen, StatusPill, When } from "@kos/kit";
 import { errorWords, momentWords, slugWords, timeCard } from "@kos/shared";
 
 import {
@@ -808,6 +808,7 @@ export function App(): React.ReactElement {
       />
       <main className="ops" tabIndex={-1} data-focus-home>
         <HostBanner reach={reach} />
+        <Announcer />
         <ToastHost />
         {/* Keyed on what it shows, and still keyed on it while it shuts, so
             the drawer leaves with what it held rather than vanishing. */}

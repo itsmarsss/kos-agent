@@ -600,11 +600,9 @@ select {
   /* The window less its gutters on a phone; a comfortable line on a desk. */
   max-width: min(36rem, 100%);
   padding: 0.45rem 0.95rem 0.45rem 0.55rem;
-  border-radius: var(--r-lg);
+  border-radius: var(--r-md);
   border: 1px solid var(--line-strong);
-  background: color-mix(in srgb, var(--panel-2) 90%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--panel);
   box-shadow: var(--float);
   color: var(--text);
   font-size: var(--text-md);
@@ -5265,18 +5263,6 @@ a.health {
 /* Memory's mark before the recall chip's counts, at the chip's text size. */
 .recall-glyph { display: inline-flex; flex: none; margin-right: 0.3rem; vertical-align: -0.12em; }
 .recall-glyph svg { width: 12px; height: 12px; }
-
-/* Present for a screen reader, absent for everyone else. */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 
 /* A command's answer is a reply to something you did; it can be put away. */
 .chats-note { position: relative; }

@@ -48,6 +48,7 @@ export { ASK_SETTLE_MS, AskCard, AskDetails, AskSecretBlock, AskStepList, type A
 export { useDismiss, type DismissOptions } from "./useDismiss.js";
 export { Menu, menuPlace, type MenuItem, type MenuProps, type MenuSide } from "./Menu.js";
 export { ModeChip } from "./ModeChip.js";
+export { announce, ANNOUNCE_GAP_MS, Announcer, type Politeness } from "./Announcer.js";
 export { restoreFocus, tabStops, useFocusTrap, type FocusTrapOptions } from "./useFocusTrap.js";
 export { sheetOpen } from "./layers.js";
 export { useSteadyPress } from "./useSteadyPress.js";
