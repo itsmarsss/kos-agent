@@ -2654,6 +2654,17 @@ li:hover .chats-item-when { opacity: 0; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* In a phone's composer a suggestion is two lines, what it is over what it
+   does, whole: on one, the kind took a third of the row and the rest was cut
+   to "/fork [titl…" and "go back to this surf…". A command says it is one by
+   its slash. */
+@container (max-width: 30rem) {
+  .ac { max-height: min(22rem, 50dvh); }
+  .ac-item { flex-wrap: wrap; row-gap: 0.1rem; }
+  .ac-item[data-kind="command"] .ac-kind { display: none; }
+  .ac-label { white-space: normal; overflow-wrap: anywhere; }
+  .ac-hint { flex-basis: 100%; max-width: none; white-space: normal; }
+}
 
 /* —— composer row —— */
 .composer-spacer { flex: 1; }
