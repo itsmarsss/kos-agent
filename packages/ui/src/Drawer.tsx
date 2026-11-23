@@ -1,7 +1,7 @@
 import { useRef, type ReactElement, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease, SheetHead, spring, useFocusTrap } from "@kos/kit";
+import { ease, float, SheetHead, useFocusTrap } from "@kos/kit";
 
 
 /**
@@ -62,10 +62,12 @@ export function Drawer({
             role="dialog"
             aria-modal="true"
             aria-label={title}
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            transition={spring}
+            /* As everything that floats: a fade and a scale from 0.98 on the one ease, from the edge it hangs by. */
+            variants={float}
+            initial="hidden"
+            animate="show"
+            exit="hidden"
+            transition={ease}
             onClick={(e) => e.stopPropagation()}
           >
             <SheetHead title={title} subtitle={subtitle} onClose={onClose} />
