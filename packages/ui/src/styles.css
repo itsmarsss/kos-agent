@@ -7410,6 +7410,8 @@ html.has-presenter { overflow: hidden; }
 .artifact-card-meta > * + *::before { content: "·"; margin-right: 6px; color: var(--faint); }
 .artifact-card-kind { flex: none; color: var(--muted); }
 .artifact-card-owner { display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+/* Its dot is a flex item beside the mark, so the 5px gap is already after it: the same 6px as every other dot. */
+.artifact-card-owner::before { margin-right: 1px; }
 .artifact-card-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .artifact-card-owner .project-mark, .artifact-view-owner .project-mark { width: 14px; height: 14px; font-size: 8.5px; border-radius: var(--r-xs); flex: none; }
 .artifact-card-owner .face, .artifact-card-owner svg { flex: none; }
