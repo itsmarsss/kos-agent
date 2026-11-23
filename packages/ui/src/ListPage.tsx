@@ -173,7 +173,7 @@ export function ListPage<T>(props: {
                     <tr className={`table-group list-group ${props.collapsible ? "is-foldable" : ""} ${group && folded.has(group) ? "is-folded" : ""}`}>
                       <th colSpan={props.columns.length} scope="colgroup">
                         <GroupHead
-                          as="h3"
+                          as="h2"
                           count={filtered.filter((r) => props.groupBy?.(r) === group).length}
                           title={
                             props.collapsible ? (
