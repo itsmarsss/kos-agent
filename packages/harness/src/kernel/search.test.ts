@@ -113,7 +113,12 @@ describe("GET /api/search", () => {
     kernel.runs.finish(run, "error", "pump offline");
     const call = kernel.audit.record({ tool: "files.write", args: { path: "projects/garden/marigold-log.md" }, result: "ok", isError: false });
     expect((await search("marigold watering", "run")).hits.map((h) => h.target)).toEqual([{ kind: "run", id: run }]);
-    expect((await search("pump offline", "run")).hits[0]).toMatchObject({ title: "Marigold watering", hint: "Schedule run, failed", snippet: { text: "pump offline" } });
+    expect((await search("pump offline", "run")).hits[0]).toMatchObject({ title: "Marigold watering", hint: "Schedule run, failed", snippet: { text: "Pump offline" } });
+    // A failure's words as Runs says them: never the tool's message or a path on the host.
+    const lost = kernel.runs.start("cron", String(job.id));
+    kernel.runs.finish(lost, "error", "Its one step failed. files.read: ENOENT: no such file or directory, open '/Users/me/ws/notes/todo.md'");
+    const hit = (await search("todo", "run")).hits.find((h) => h.target.kind === "run" && h.target.id === lost);
+    expect(hit?.snippet?.text).toBe("There is no file or folder called “todo.md”.");
     // A step by what it did, never its tool's name.
     expect((await search("marigold-log", "run")).hits).toMatchObject([{ target: { kind: "call", id: call }, title: "Write a file", hint: "Step" }]);
   });

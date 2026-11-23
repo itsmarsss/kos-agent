@@ -1,4 +1,5 @@
 import {
+  errorWords,
   matchText,
   oneLine,
   queryWords,
@@ -308,7 +309,8 @@ export function runSource(deps: RunSourceDeps): SearchSource {
       const labelOf = deps.labeller();
       for (const run of deps.runs(RUNS_READ)) {
         const label = labelOf(run);
-        const error = oneLine(run.error ?? "");
+        // What went wrong in words, as Runs says it: never the tool's message or the host's paths.
+        const error = run.error ? oneLine(errorWords(run.error)) : "";
         const named = matchText(`${label} ${run.kind}`, query);
         const failed = error ? matchText(error, query) : undefined;
         if (!named && !failed) continue;
