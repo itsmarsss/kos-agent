@@ -104,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     menu.onOpen = { [unowned self] in home.show() }
     menu.onChat = { [unowned self] in chat.open() }
+    menu.onSendClipboard = { [unowned self] in chat.sendClipboard() }
     model.actions.openChat = { [unowned self] in chat.open() }
     chat.send = { [unowned self] origin, message in lines[origin]?.send(message) }
     chat.target = { [unowned self] in chatTarget() }
@@ -460,8 +461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   /// A command from the window onto the clipboard; its button says Copied for a moment.
   private func copy(_ command: String) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(command, forType: .string)
+    Clipboard.copy(command)
     home.model.commandCopied = true
     Task { [weak self] in
       try? await Task.sleep(nanoseconds: 2_000_000_000)

@@ -313,6 +313,8 @@ public final class ChatModel: ObservableObject {
   public var send: (_ text: String, _ quote: Quote?) -> Void = { _, _ in }
   /// The box has the owner's attention: what they selected in the app in front is read afresh.
   public var readSelection: () -> Void = {}
+  /// What the owner copied, read once as they asked and sent as their message.
+  public var sendClipboard: () -> Void = {}
   /// `code` is the one-time code typed on the card of an ask for one.
   public var decide: (_ approval: String, _ approved: Bool, _ remember: Bool, _ code: String?) -> Void = { _, _, _, _ in }
   public var list: () -> Void = {}
@@ -349,15 +351,16 @@ public final class ChatModel: ObservableObject {
     say(text, files: [])
   }
 
-  /// The owner's words and the names of the files that go with them, which may be all there is.
-  public func say(_ text: String, files: [String]) {
+  /// The owner's words and the names of the files that go with them, which may be all there is. `quoting` false
+  /// sends them without the selection, which waits for the next words: what the owner sent from their clipboard.
+  public func say(_ text: String, files: [String], quoting: Bool = true) {
     let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !said.isEmpty || !files.isEmpty else { return }
     error = nil
     hint = nil
     // A command is about the chat, not the app: it goes without the selection, which waits for the next words.
     let command = ChatMenus.isCommand(said)
-    let quoted = command ? nil : quote
+    let quoted = command || !quoting ? nil : quote
     if !command {
       if !files.isEmpty { sendingFiles[said] = files }
       sending.append(said)
