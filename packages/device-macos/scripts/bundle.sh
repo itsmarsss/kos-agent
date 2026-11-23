@@ -27,7 +27,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-swift build -c release --product KOSDevice
+# Planned afresh each time: SwiftPM's cached plan watches this package's own folders but not
+# ../device-shared, so a file added there was left out of a later build here (cannot find type).
+swift build -c release --product KOSDevice --disable-build-manifest-caching
 BIN="$(swift build -c release --show-bin-path)/KOSDevice"
 
 rm -rf "$APP"
