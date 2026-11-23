@@ -16,6 +16,8 @@ public enum CallMethod: String, CaseIterable, Sendable {
   case keysFocus = "keys.focus"
   /// A saved secret typed into that field, once the owner approved it (docs/secrets.md).
   case keysSecret = "keys.secret"
+  /// The clipboard read once, outside any session: a preview for the owner's card, then the text they said yes to.
+  case clipboardRead = "clipboard.read"
 }
 
 public enum EventName: String, Sendable {

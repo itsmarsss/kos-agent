@@ -19,6 +19,10 @@ public enum ErrorCode: String, Codable, Sendable {
   case secretField = "secret_field"
   /// keys.secret: stopped after part of the secret went in; the message says how much.
   case partial
+  /// clipboard.read: an item on the clipboard is marked concealed, transient or auto-generated.
+  case concealed
+  /// clipboard.read: something else was copied since the owner was shown the preview.
+  case changed
 }
 
 /// A call refused: the code KOS reads and the sentence the owner reads.

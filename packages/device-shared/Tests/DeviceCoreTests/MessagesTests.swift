@@ -157,11 +157,11 @@ struct MessagesTests {
   }
 
   @Test func everyErrorCodeIsTheProtocolsSpelling() {
-    let spelled = [ErrorCode.noSession, .paused, .busy, .denied, .permission, .secureInput, .hiddenApp, .badRequest, .internal, .target, .origin, .field, .secretField, .partial]
+    let spelled = [ErrorCode.noSession, .paused, .busy, .denied, .permission, .secureInput, .hiddenApp, .badRequest, .internal, .target, .origin, .field, .secretField, .partial, .concealed, .changed]
       .map(\.rawValue)
     #expect(spelled == [
       "no_session", "paused", "busy", "denied", "permission", "secure_input", "hidden_app", "bad_request", "internal", "target", "origin",
-      "field", "secret_field", "partial",
+      "field", "secret_field", "partial", "concealed", "changed",
     ])
   }
 
@@ -169,6 +169,7 @@ struct MessagesTests {
     #expect(CallMethod.allCases.map(\.rawValue) == [
       "session.begin", "session.end", "session.status", "screen.capture", "pointer.move", "pointer.click", "pointer.drag",
       "pointer.scroll", "keys.type", "keys.press", "keys.focus", "keys.secret",
+      "clipboard.read",
     ])
   }
 }

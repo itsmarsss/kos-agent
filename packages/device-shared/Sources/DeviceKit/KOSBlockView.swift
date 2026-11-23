@@ -1,12 +1,6 @@
 import DeviceCore
 import SwiftUI
 
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
-
 /// A typed block (docs/blocks.md) drawn as the thing it is, as the dashboard's `KosBlockView` draws it: the kind's
 /// label and its actions on one line, the title, the fields in two aligned columns, a hairline, then the body.
 /// Its actions are local: Copy, Open in Mail and a map open on this device and send nothing.
@@ -109,22 +103,14 @@ private struct BlockActions: View {
         IconButton(symbol: "envelope", label: "Open in Mail") { openURL(mail) }
       }
       IconButton(symbol: copied ? "checkmark" : "doc.on.doc", label: copied ? "Copied" : "Copy") {
-        copyToClipboard(block.copyText)
+        // A draft KOS wrote, for the owner to paste: plain, and left on the clipboard.
+        Clipboard.copy(block.copyText)
         copied = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { copied = false }
       }
     }
     .padding(.trailing, -4)
   }
-}
-
-private func copyToClipboard(_ text: String) {
-  #if os(macOS)
-  NSPasteboard.general.clearContents()
-  NSPasteboard.general.setString(text, forType: .string)
-  #else
-  UIPasteboard.general.string = text
-  #endif
 }
 
 /// A block's body by its kind: words as written, markdown, monospace, ticks, numbered steps, a quote or a diff.
