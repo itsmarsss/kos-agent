@@ -231,14 +231,14 @@ export function Sidebar({
           <a
             className={`health side-health ${healthClass}`}
             href={hrefFor({ name: "home" })}
-            title={failing > 0 ? "Something is failing. The overview says what and for how long." : (status?.workspace ?? "")}
+            title={failing > 0 ? "Something is failing. The overview says what and for how long." : "Opens the overview"}
           >
             <span className="health-dot" />
             <span className="side-health-text">
               {busy ? `${busy}…` : healthText}
               {/* Its line is kept before the status comes, so the block does not grow under the pointer as it loads. */}
               {model ? (
-                <span className="side-model" title={`The model for thinking, from ${model.provider}. Change it in Settings, Models.`}>
+                <span className="side-model" title="The model for thinking. Change it in Settings, Models.">
                   Thinks with {model.model}
                 </span>
               ) : (

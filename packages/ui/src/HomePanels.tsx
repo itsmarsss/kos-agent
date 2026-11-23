@@ -509,7 +509,7 @@ export function Panel({
                           <span className="panel-row-project"> {data.projects.find((p) => p.slug === c.projectSlug)?.name ?? c.projectSlug}</span>
                         )}
                       </span>
-                      <span className="panel-row-side" title={c.schedule}>
+                      <span className="panel-row-side" title={next.has(c.id) ? scheduleWords(c.schedule) : undefined}>
                         {next.has(c.id) ? momentWords(next.get(c.id)!) : scheduleWords(c.schedule)}
                       </span>
                     </span>
@@ -672,11 +672,11 @@ export function Panel({
   }
 }
 
-/** A step in a panel's row: what it did, then what to in a quieter tone; its tool's name is the tooltip. */
+/** A step in a panel's row: what it did, then what to in a quieter tone. */
 function StepRow({ tool, args }: { tool: string; args: unknown }): ReactElement {
   const line = stepLine(tool, args);
   return (
-    <span className="panel-row-main" title={tool}>
+    <span className="panel-row-main">
       {line.title}
       {line.detail && <span className="panel-row-project"> {line.detail}</span>}
     </span>

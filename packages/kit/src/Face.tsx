@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
-import { EYE_DOT_R, EYE_GLINT, EYE_PILL, FILL_SAT, KOS_SEED, desaturateHex, eyeAt, lightnessOf, lookOf as specOf, outline, smoothPath, type BlobShape, type BlobWhim, type FaceDrawing, type FaceLook } from "@kos/shared";
+import { EYE_DOT_R, EYE_GLINT, EYE_PILL, FILL_SAT, KOS_SEED, desaturateHex, eyeAt, lightnessOf, lookOf as specOf, outline, slugWords, smoothPath, type BlobShape, type BlobWhim, type FaceDrawing, type FaceLook } from "@kos/shared";
 import { GAITS, mountBlob, type BlobHandle } from "@kos/shared/blobmotion";
 
 export { FILL_SAT, KOS_SEED, lightnessOf };
@@ -149,6 +149,9 @@ export interface FaceProps {
   label?: string;
 }
 
+/** A mood as a face's label says it, in the words its pills use. */
+const MOOD_WORDS: Readonly<Record<Mood, string>> = { idle: "quiet", working: "working", "needs-you": "needs you", error: "failed", asleep: "asleep" };
+
 export function Face({ seed, look: override, drawing, size = 24, mood = "idle", label }: FaceProps): ReactElement {
   const faces = useContext(AgentFaces);
   const named = lookOf(seed, override ?? faces.get(seed) ?? {});
@@ -187,7 +190,7 @@ export function Face({ seed, look: override, drawing, size = 24, mood = "idle", 
       className={`blob blob--${mood}`}
       style={style}
       role="img"
-      aria-label={label ?? `${seed}, ${mood === "needs-you" ? "needs you" : mood}`}
+      aria-label={label ?? `${slugWords(seed)}, ${MOOD_WORDS[mood]}`}
       data-mood={mood}
       onPointerEnter={() => handle.current?.hover(true)}
       onPointerLeave={() => handle.current?.hover(false)}

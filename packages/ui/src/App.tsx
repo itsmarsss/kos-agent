@@ -1295,10 +1295,10 @@ export function App(): React.ReactElement {
             searchText: (c) => `${jobTitle(c.name)} ${c.name} ${c.schedule} ${c.type}`,
             render: (c) => (
               <span className="sched-name">
-                {/* KOS's own jobs by the names the owner knows them by; the id is in the title. */}
-                <span className="sched-title" title={c.name}>{jobTitle(c.name)}</span>
+                {/* KOS's own jobs by the names the owner knows them by, never their ids or cron lines. */}
+                <span className="sched-title">{jobTitle(c.name)}</span>
                 <span className="sched-sub">
-                  <span title={c.schedule}>{scheduleWords(c.schedule)}</span>
+                  <span>{scheduleWords(c.schedule)}</span>
                   <span>{c.type === "self_prompt" ? "Asks KOS" : "Runs its steps"}</span>
                 </span>
               </span>
@@ -1343,7 +1343,7 @@ export function App(): React.ReactElement {
             searchText: (c) => projectName(c.projectSlug) ?? "",
             render: (c) =>
               c.projectSlug ? (
-                <span className="sched-project" title={c.projectSlug}>
+                <span className="sched-project">
                   {projectName(c.projectSlug)}
                 </span>
               ) : (
