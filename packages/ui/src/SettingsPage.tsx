@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { marksOfLetters } from "@kos/shared";
+import { marksOfLetters, toolWords } from "@kos/shared";
 import { CloseIcon, ease, EmptyState, Field, IconButton, KOS_SEED, Marked, Pill, RefChip, SearchField, SheetFoot, Switch, Tag, useOverlayScroll } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
 
@@ -999,7 +999,7 @@ export function SettingsPage({
               </p>
               <Field group className="set-field"
                 label="Build model"
-                hint="A build talks to its model many times, so this decides most of how long one takes. Sonnet is much faster than Opus for setting a project up."
+                hint="A build talks to its model many times, so this decides most of how long one takes. A faster model sets a project up sooner; a stronger one makes fewer mistakes."
               >
                 <Select
                   className="set-select"
@@ -1085,7 +1085,7 @@ export function SettingsPage({
                 />
                 <Limit
                   label="Steps on a screen, for one message"
-                  hint={`Clicking through a website or an app takes many steps, so a message of yours that works a screen may take this many in all. Usually four times the steps above.`}
+                  hint="Working a website or an app takes many clicks, so one message may take this many steps. Usually four times the steps above."
                   // Never shown under the steps above, which the host holds it to; typed, any number in range is taken.
                   value={Math.max(how.screenSteps, how.maxSteps)}
                   range={limits.screenSteps}
@@ -1244,7 +1244,7 @@ export function SettingsPage({
         {active === "conversation" && (
           <Section
             title="Conversation"
-            blurb="How much of a chat KOS rereads with each new message. Past these limits the oldest messages drop off; type /compact in a chat to fold them into a short summary instead. 0 means no limit, but then a long chat gets slower and costs more with every message."
+            blurb="How much of a chat KOS rereads with each new message. 0 means no limit."
             {...saveBar(
               "conversation",
               retention.maxChars !== String(data.retention.maxChars) ||
@@ -1268,7 +1268,7 @@ export function SettingsPage({
           >
             <FieldRow
               label="Drop old messages"
-              hint="On, the oldest messages drop off once a chat passes the limits below, and the chat says so. Off keeps everything, so a long chat gets slower and costs more as it grows."
+              hint="On, the oldest messages drop off once a chat passes the limits below, and the chat says so. To keep them as a short summary instead, type /compact in the chat. Off keeps everything, so a long chat gets slower and costs more as it grows."
             >
               <Switch label="Drop old messages" on={retention.autoTrim !== "off"} onChange={(on) => setRetention((r) => ({
                       ...r,
@@ -1438,7 +1438,7 @@ export function SettingsPage({
           </Section>
         )}
         {active === "mcp" && (
-          <Section title="MCP servers" blurb="Outside tools, declared in mcp.json the way Claude Code does. A server's tools are risky until you floor them safe.">
+          <Section title="MCP servers" blurb="Other programs that give KOS more tools, such as a calendar. KOS asks you before each of a server's tools runs, until you mark that tool safe.">
             {mcp.length === 0 && <EmptyState variant="inline">Nothing connected yet. Add one below.</EmptyState>}
             <div className="set-rows">
             {mcp.map((s) => (
@@ -1486,11 +1486,11 @@ export function SettingsPage({
           </Section>
         )}
         {active === "modules" && (
-          <Section title="Modules" blurb="Each one is a folder under modules/ with a module.json. A server module runs tools, and off is the default: nothing runs until you switch it on here. A blueprint is a project template; each instance is a project of its own.">
+          <Section title="Modules" blurb="Add-ons that give KOS new tools, or a kind of project it can make again and again. A new one is off: nothing runs until you switch it on here.">
             {(modules.builtins ?? []).length > 0 && (
               <div className="set-group">
                 <h2>Built in</h2>
-                <p className="hint">Features the kernel ships but does not insist on. Off takes their tools away at once; on brings them back.</p>
+                <p className="hint">Parts of KOS you can do without. Off takes their tools away at once; on brings them back.</p>
                 <div className="set-rows">
                 {(modules.builtins ?? []).map((b) => (
                   <FieldRow key={b.name} label={b.name} hint={b.description}>
@@ -1504,7 +1504,7 @@ export function SettingsPage({
               </div>
             )}
             {modules.modules.length === 0 && modules.invalid.length === 0 && (
-              <EmptyState variant="inline">No workspace modules yet. Ask KOS to make one with modules.create, install one below, or add a folder under modules/.</EmptyState>
+              <EmptyState variant="inline">No modules of your own yet. Ask KOS in a chat to make one, or install one below.</EmptyState>
             )}
             {/* The second rung of the spec's distribution path: a repository
                 per module. Installed is off; nothing runs until switched on. */}
@@ -1645,19 +1645,19 @@ export function SettingsPage({
           </Section>
         )}
         {active === "permissions" && (
-          <Section title="Permissions" blurb="Each rule is an Always you pressed on an ask. KOS does that same thing again without asking, such as reading from one of the sites KOS may reach; anything different still asks. Revoke one and it asks again.">
+          <Section title="Permissions" blurb="Each rule is an Always you pressed when KOS asked. KOS now does that same thing without asking; anything else still asks. Revoke a rule and it asks again.">
             <Field group className="set-field" label="Secrets" hint="Logins, cards and keys KOS may fill in without seeing them, where each may be used, and when it asks.">
               <a className="btn btn--sm" href={hrefFor({ name: "secrets" })}>
                 Open Secrets
               </a>
             </Field>
             {rules.length === 0 && (
-              <EmptyState variant="inline">Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</EmptyState>
+              <EmptyState variant="inline">Nothing kept yet. When KOS asks before a risky step, Always says yes and lets it take that same step again without asking.</EmptyState>
             )}
             {rules.map((r) => (
               <Field group className="set-field"
                 key={r.id}
-                label={`${r.tool}${r.scope ? ` · ${r.scope}` : ""}`}
+                label={`${toolWords(r.tool)}${r.scope ? ` · ${r.scope}` : ""}`}
                 hint={`${r.project ? `In project ${r.project}` : "Everywhere"}${r.matches ? "" : ". Matches nothing now, so it never stops an ask; revoke it"}`}
               >
                 <button

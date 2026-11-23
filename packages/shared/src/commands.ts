@@ -64,8 +64,8 @@ export const CHAT_COMMANDS: CommandSpec[] = [
   { name: "deny", args: "[#]", description: "deny it", option: { name: "id", description: "which ask", pick: "approval" } },
   { name: "status", description: "what is running, and what is waiting on you" },
   { name: "run", args: "<job>", description: "run a scheduled job now", option: { name: "job", description: "which job", required: true, pick: "job" } },
-  { name: "halt", description: "throw the kill switch: nothing runs until /resume" },
-  { name: "resume", description: "lift the kill switch" },
+  { name: "halt", description: "halt KOS: nothing runs until /resume" },
+  { name: "resume", description: "let KOS run again after a halt" },
   {
     name: "compact",
     description: "replace this chat's history with a summary of it",
