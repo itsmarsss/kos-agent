@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 import { isSearchKind, marksOfLetters, SEARCH_KINDS, type HitKind, type SearchHit, type SearchKind, type SearchTarget, type Snippet } from "@kos/shared";
-import { ease, EmptyState, Marked, useFocusTrap } from "@kos/kit";
+import { ease, EmptyState, float, Marked, useFocusTrap } from "@kos/kit";
 
 import { api } from "./api.js";
 import { withParams } from "./hashparams.js";
@@ -587,10 +587,12 @@ export function CommandPalette({
               className="pal"
               role="dialog"
               aria-label="Search and commands"
-              // At its final place and size from the first frame, fading in: its list fills under the box, and a box that grew while it scaled read as two motions.
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              // At its final place and size from the first frame, then as everything that floats: a fade and a scale from 0.98, from its top edge.
+              variants={float}
+              initial="hidden"
+              animate="show"
+              exit="hidden"
+              style={{ transformOrigin: "50% 0" }}
               transition={ease}
             >
               <input
