@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type Mood, Menu, NavIcon, useDismiss, useKosLook } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type Mood, Menu, NavIcon, RetryIcon, useDismiss, useKosLook } from "@kos/kit";
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
@@ -197,6 +197,20 @@ export function Sidebar({
             <NavIcon name="settings" />
             <span className="side-label">Settings</span>
           </a>
+          {/* On a touch screen only (touch.css), and in More everywhere: the
+              pages update live, so there is no pull to refresh, and a finger
+              should not need a menu inside the drawer to read them again. */}
+          <button
+            type="button"
+            className="side-link side-search side-refresh"
+            onClick={() => {
+              setOpen(false);
+              onRefresh();
+            }}
+          >
+            <RetryIcon size={16} title="" />
+            <span className="side-label">Refresh</span>
+          </button>
           <button
             type="button"
             ref={moreRef}

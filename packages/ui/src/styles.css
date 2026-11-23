@@ -1673,6 +1673,9 @@ select {
      with the density setting. */
   --tap: 44px;
   --tap-text: 16px;
+  /* What a tap flashes over what it pressed: nothing, since every control
+     answers the press itself (--press); the engine's own was a cyan box. */
+  --tap-highlight: transparent;
   /* A heading's weight: a page's (22), a workspace's head (18) and a sheet's.
      A card's or a panel's title is 600 (docs/design.md, Type). */
   --title-weight: 700;
@@ -5794,13 +5797,13 @@ a.health {
      its longest unbreakable line, and one long command or claim widened
      every page past the phone. */
   .app { grid-template-columns: minmax(0, 1fr); }
-  :root { --page-gutter: 1rem; --page-top: 0.75rem; }
+  :root { --page-gutter: 1rem; --page-top: 0.75rem; --phonebar-h: 3.25rem; }
   .ops-page { padding-bottom: 2rem; }
-  .ops-page--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; padding-inline: var(--page-gutter); }
+  .ops-page--full { height: calc(100dvh - var(--phonebar-h)); padding-top: 0.5rem; padding-inline: var(--page-gutter); }
   /* The page fills what the phone bar leaves, no more: at 100vh under the bar's
      3.25rem the document scrolled by the bar's height, and a full page's head
      slid under it. */
-  .ops { min-height: calc(100dvh - 3.25rem); }
+  .ops { min-height: calc(100dvh - var(--phonebar-h)); }
   /* The shell too: at 100vh, taller than the visible page while a phone's
      browser shows its toolbars, the page scrolled under them. */
   body, .app { min-height: 100dvh; }
@@ -5813,7 +5816,7 @@ a.health {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    height: 3.25rem;
+    height: var(--phonebar-h);
     padding: 0 0.75rem;
     background: var(--bg);
     border-bottom: 1px solid var(--line);
@@ -6042,7 +6045,7 @@ a.health {
      whole sticking under the phone bar. The search sat inside the row,
      squeezed to a sliver, and made the strip twice the height of its tabs. */
   .set-side {
-    top: 3.25rem;
+    top: var(--phonebar-h, 0px);
     z-index: 5;
     margin: 0 -1rem;
     padding: 0.5rem 1rem 0.4rem;
@@ -6059,8 +6062,8 @@ a.health {
   }
   .set-rail--found { flex-direction: column; overflow: visible; }
   .set-rail:not(.set-rail--found) { display: none; }
-  .set-pick { display: block; }
-  .set-pick .sel-button { width: 100%; }
+  .set-pick { display: block; width: 100%; }
+  .set-pick .sel-button { width: 100%; max-width: none; }
   .set-rail::-webkit-scrollbar { display: none; }
   .set-rail-group { flex-direction: row; gap: 0.25rem; }
   .set-rail-group + .set-rail-group { margin-top: 0; }
@@ -7603,7 +7606,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 }
 /* Below the phone bar, which sticks at the top of a narrow window; in place of a chat, at the top of its own scroll. */
 @media (max-width: 860px) {
-  .artifact-view-head { top: 3.25rem; }
+  .artifact-view-head { top: var(--phonebar-h); }
 }
 .chats-inline .artifact-view-head { top: 0; }
 

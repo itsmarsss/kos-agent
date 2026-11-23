@@ -106,7 +106,7 @@ export function VoiceInput({
 
   return (
     <IconButton
-      className={`${listening ? "is-listening" : ""}`}
+      className={`voice-input${listening ? " is-listening" : ""}`}
       disabled={disabled}
       aria-pressed={listening}
       label={error ?? (listening ? "Stop dictating" : "Dictate a message")}
