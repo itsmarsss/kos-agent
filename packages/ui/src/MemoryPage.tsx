@@ -482,7 +482,7 @@ function LogTab({ titles, query, projectNames }: { titles: Map<string, string>; 
             {e.projectSlug && <span className="ops-muted" title={e.projectSlug}>{projectNames?.get(e.projectSlug) ?? slugWords(e.projectSlug)}</span>}
             {e.conversationId && (
               <a className="link link--quiet" href={`#/chats/${encodeURIComponent(e.conversationId)}`}>
-                {titles.get(e.conversationId) ?? "a deleted chat"}
+                {titles.get(e.conversationId) ?? "An archived or deleted chat"}
               </a>
             )}
             <span className="ops-muted">{momentWords(e.ts)}</span>
