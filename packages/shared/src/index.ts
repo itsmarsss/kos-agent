@@ -75,6 +75,7 @@ export {
 } from "./format-action.js";
 
 export { formatDuration, waitWords } from "./duration.js";
+export { decidedWords, typedVia, type DecidedFacts, type DecidedVia, type LapseVia } from "./decided.js";
 
 export { hasSecretRef, usesSecret } from "./secretref.js";
 export { registrableDomain } from "./domain.js";
@@ -119,6 +120,8 @@ export {
   askView,
   CLIPBOARD_PREVIEW_MAX,
   CLIPBOARD_READ,
+  DETACHED_WORDS,
+  type AskDetached,
   type AskInput,
   type AskPlace,
   type AskRule,
