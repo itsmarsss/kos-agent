@@ -15,7 +15,8 @@ import type { DeviceStore, UpdateAttempt, UpdateOutcome } from "./store.js";
  * and only when the owner's signing key keeps its permissions; KOS for
  * iPhone cannot update itself and says so. Each build is tried once per
  * device, an attempt kept across restarts; the owner's Update now tries
- * once more. Every attempt and outcome is in the audit log.
+ * once more. Every attempt and outcome is in the audit log, and one that
+ * did not take waits in the owner's Inbox until the device is current.
  */
 
 export type UpdateState = "current" | "behind" | "updating" | "unknown";
@@ -123,8 +124,13 @@ export interface UpdatesDeps {
   /** Why no Mac can prove it is on this computer, when the secret would not read: said as such a Mac's reason. */
   localProblem?: string;
   audit?(entry: AuditEntry): void;
+  /** An update that did not take, kept by key until the device is current: the owner's Inbox. */
+  health?(key: string, label: string, ok: boolean, error: string | null): void;
   log?(line: string): void;
 }
+
+/** Each app's name, as the owner knows it. */
+const APP: Record<BuildKind, string> = { chrome: "KOS for Chrome", mac: "KOS for Mac", phone: "KOS for iPhone" };
 
 /** The build kind of a paired device: a Chrome, a Mac running KOS for Mac, a phone; any other computer has none. */
 export function buildKindOf(device: { platform: string }): BuildKind | undefined {
@@ -247,6 +253,7 @@ export class DeviceUpdates {
     const { action } = decision;
     const status = this.withCommand(kind, decision.status);
     this.statuses.set(device, status);
+    if (status.state === "current") this.health(device, kind, true);
     if (action === "reload" && want) {
       if (attempt?.outcome !== "told") store.setAttempt({ device, build: want.id, ...(line.build ? { from: line.build.id } : {}), outcome: "told" });
       // The owner's ask stands until the Chrome says it reloads: told again on a new line, it is still theirs.
@@ -305,6 +312,14 @@ export class DeviceUpdates {
   private settle(device: string, kind: BuildKind, attempt: UpdateAttempt, outcome: UpdateOutcome, detail?: string): void {
     this.deps.store.setAttempt({ device, build: attempt.build, outcome, ...(detail ? { detail } : {}) });
     this.audit(device, kind, attempt.from, attempt.build, outcome, false, detail);
+    if (outcome === "failed") this.health(device, kind, false, detail ?? "no reason given");
+    else if (outcome === "still_behind") this.health(device, kind, false, detail ?? "it came back on its old build");
+  }
+
+  /** An update that did not take, in the owner's Inbox with why, until the device is current. */
+  private health(device: string, kind: BuildKind, ok: boolean, error: string | null = null): void {
+    const name = this.deps.store.get(device)?.name ?? device;
+    this.deps.health?.(`device-update:${device}`, `${APP[kind]} update on ${name}`, ok, error);
   }
 
   /** A KOS for Mac's status with the command the owner runs by hand: to set signing up, or to update it themselves after a try that did not take. */

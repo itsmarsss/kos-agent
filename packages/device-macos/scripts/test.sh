@@ -3,6 +3,8 @@
 # the Testing framework on its own, so it is pointed there; with Xcode it is not.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Planned afresh each time: the cached plan does not see a file added to ../device-shared.
+set -- --disable-build-manifest-caching "$@"
 
 DEV="$(xcode-select -p)"
 if [[ "$DEV" == */CommandLineTools ]]; then

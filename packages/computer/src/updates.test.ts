@@ -79,6 +79,9 @@ function setup(over: { signed?: boolean; install?: () => Promise<Installed>; idl
   const localKey = Buffer.alloc(32, 7);
   const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined, ...(over.localProblem ? {} : { localKey }) });
   const audits: AuditEntry[] = [];
+  /** The Inbox's failures, as the host's health keeps them: by key, until one is ok. */
+  const inbox = new Map<string, { label: string; error: string | null }>();
+  const health = (key: string, label: string, ok: boolean, error: string | null): void => void (ok ? inbox.delete(key) : inbox.set(key, { label, error }));
   const installs: string[] = [];
   const want: Partial<Record<BuildKind, Build>> = { chrome: NEW, mac: NEW, phone: NEW, ...over.want };
   const mac: MacInstaller = {
@@ -91,7 +94,7 @@ function setup(over: { signed?: boolean; install?: () => Promise<Installed>; idl
     commands: { signing: "cd app && scripts/signing.sh setup", install: "cd app && scripts/bundle.sh --install" },
   };
   const hashed: BuildKind[] = [];
-  const updates = new DeviceUpdates({ hub, store, expected: (k, fresh) => (fresh && hashed.push(k), want[k]), mac, idle: over.idle ?? (() => true), ...(over.localProblem ? { localProblem: over.localProblem } : {}), audit: (e) => audits.push(e), log: () => undefined });
+  const updates = new DeviceUpdates({ hub, store, expected: (k, fresh) => (fresh && hashed.push(k), want[k]), mac, idle: over.idle ?? (() => true), ...(over.localProblem ? { localProblem: over.localProblem } : {}), audit: (e) => audits.push(e), health, log: () => undefined });
   updates.start();
   const pair = (platform: string, name: string): FakeDevice => {
     const fake = new FakeDevice();
@@ -109,7 +112,7 @@ function setup(over: { signed?: boolean; install?: () => Promise<Installed>; idl
     return again;
   };
   const outcomes = () => audits.map((a) => a.args["outcome"]);
-  return { store, hub, updates, audits, installs, pair, connect, outcomes, want, hashed };
+  return { store, hub, updates, audits, inbox, installs, pair, connect, outcomes, want, hashed };
 }
 
 describe("KOS for Chrome behind", () => {
@@ -248,6 +251,21 @@ describe("KOS for Mac behind", () => {
     updates.poke();
     await connect(mac, OLD);
     expect(installs).toEqual(["install"]);
+  });
+
+  it("whose build fails is in the Inbox with why until it runs KOS's build", async () => {
+    const why = "the build failed: Chat.swift:411: cannot find type 'PushToken' in scope";
+    const { pair, connect, inbox, updates } = setup({ install: async () => ({ ok: false, why }) });
+    const mac = pair("macos", "Studio");
+    const line = await connect(mac, OLD);
+    await settle();
+    expect([...inbox.values()]).toEqual([{ label: "KOS for Mac update on Studio", error: why }]);
+    // The old app was never replaced: it stays on its line, and its row says why.
+    expect(updates.statusOf(mac.id)).toMatchObject({ reason: "failed", detail: why });
+    line.drop();
+    // The owner built it by hand.
+    await connect(mac, NEW);
+    expect(inbox.size).toBe(0);
   });
 
   it("without signing is not installed on its own: the owner is told once, with the command, and may start it", async () => {
