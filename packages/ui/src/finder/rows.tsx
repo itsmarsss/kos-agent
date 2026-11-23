@@ -40,6 +40,9 @@ export const stateClass = (entry: DirEntry, h: RowHandlers): string =>
 
 /** How long a finger rests on a row before it asks for the menu, as a long press does in Files on a phone. */
 export const LONG_PRESS_MS = 500;
+
+/** A row's id, by its path, for the list to name the chosen one as its active descendant. */
+export const rowId = (path: string): string => `finder-row-${encodeURIComponent(path)}`;
 /** How far, in px, a finger may drift and still be pressing rather than scrolling. */
 const DRIFT = 10;
 
