@@ -5890,7 +5890,8 @@ a.health {
 .inbox-group-title { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: var(--text-lg); font-weight: 600; }
 .inbox-box { min-width: 0; padding: 0.25rem 0.9rem; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
 /* Asks in a list, each its own card with the warn edge: the Inbox's and Home's alike. */
-.ask-list { gap: 0.6rem; }
+/* Positioned, so an ask that leaves (popped out of the flow, InboxPage) fades from where it stood rather than jumping. */
+.ask-list { gap: 0.6rem; position: relative; }
 .ask-list > li { border-bottom: 0; }
 .inbox-approval.is-highlit { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
 .inbox-why { display: block; color: var(--muted); font-size: var(--text-sm); }

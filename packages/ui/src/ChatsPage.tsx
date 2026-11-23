@@ -11,7 +11,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { kindWord, runningTail, STATE_WORDS, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
-import { Menu, ModeChip } from "@kos/kit";
+import { Menu, ModeChip, rise } from "@kos/kit";
 import { ArchiveIcon, type BlockActions, Chips, Field, MessageTime, SearchField, SheetFoot, When, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, EmptyState, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { PictureGallery } from "./Lightbox.js";
@@ -2495,11 +2495,12 @@ export function ChatsPage({
                   <m.div
                     className="loose-approval"
                     key={a.id}
-                    layout
-                    initial={{ opacity: 0, scale: 0.98, y: 6 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
-                    transition={spring}
+                    layout="position"
+                    variants={rise}
+                    initial="hidden"
+                    animate="show"
+                    exit="exit"
+                    transition={ease}
                   >
                     <PendingAsk ask={a} deciding={deciding} onDecide={(id, ok, remember, code) => (code !== undefined ? onDecide(String(id), ok, false, code) : remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} />
                   </m.div>
