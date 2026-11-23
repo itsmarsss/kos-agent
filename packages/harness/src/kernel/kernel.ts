@@ -1471,6 +1471,8 @@ export class Kernel {
         const useSession = !this.sessionless && !opts.noSession;
         // How long the history was before this turn: what the loop adds past it is the turn's own.
         let before = 0;
+        // When this turn's opening words were stored, to find them again at its end.
+        let openedAt: number | undefined;
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
           before = prior.length;
@@ -1483,10 +1485,10 @@ export class Kernel {
           // it, and so would the process dying mid-answer. The reply is
           // appended when it arrives.
           // What the owner said, without the context this turn recalled.
-          this.sessions.record(sessionId, [
+          openedAt = this.sessions.record(sessionId, [
             ...prior,
             { role: "user", content: userContent, ...(origin ? { origin } : {}) },
-          ]);
+          ]).at(-1)?.at;
           this.conversations.touch(
             sessionId,
             ...(opts.origin === "system" ? [] : [text]),
@@ -1751,6 +1753,7 @@ export class Kernel {
               runId,
               useSession,
               before,
+              ...(openedAt !== undefined ? { openedAt } : {}),
               remembers: remembersTurn(opts),
               ...(saidHere ? { said: saidHere } : {}),
             }),
@@ -4205,6 +4208,8 @@ export class Kernel {
       useSession: boolean;
       /** How long the history was when the turn began; what follows is the turn's own. */
       before?: number;
+      /** When the turn's opening words were stored, which finds them however the history was trimmed since. */
+      openedAt?: number;
       /** The words are the owner's own, to be logged and read for memory. */
       remembers: boolean;
       /** The owner's words this turn opened with, and the event a claim logged them as. */
@@ -4266,7 +4271,12 @@ export class Kernel {
       const mine = whole.slice(ctx.before ?? 0);
       const current = this.sessions.get(sessionId);
       const opening = mine[0];
-      const at = opening ? current.findIndex((m, i) => i >= (ctx.before ?? 0) && m.role === "user" && sameWords(m, opening)) : -1;
+      // Found by when it was stored, not where: a trim at the turn's start (or
+      // by a turn that ran while this one waited) moves it below `before`, and
+      // a copy left in place was the owner's every message shown twice once a
+      // chat outgrew what it keeps.
+      const stored = (m: ModelMessage, i: number): boolean => (ctx.openedAt !== undefined ? m.at === ctx.openedAt : i >= (ctx.before ?? 0));
+      const at = opening ? current.findIndex((m, i) => m.role === "user" && stored(m, i) && sameWords(m, opening)) : -1;
       const base = at >= 0 ? [...current.slice(0, at), ...current.slice(at + 1)] : current;
       // The opening keeps the time it was written with, when the owner said it, not when the turn ended.
       const said = at >= 0 && opening ? [{ ...opening, at: current[at]!.at }, ...mine.slice(1)] : mine;
