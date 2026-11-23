@@ -52,7 +52,9 @@ import { isUndone } from "./guarded.js";
 import { defaultFilesDeps, handleFilesRoute } from "./filesroutes.js";
 import { copyEntry, dispositionOf, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
-import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type Rates, type SpendSummary } from "../ops/spend.js";
+import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type ModelTotal, type Rates, type SpendSummary } from "../ops/spend.js";
+import type { RunRecord } from "../ops/runs.js";
+import type { CronJob } from "../cron/types.js";
 import type { FailingJob } from "../ops/health.js";
 import { readSkills, skillHashNow, type SkillRecord } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
@@ -412,6 +414,9 @@ function projectMap(
   });
 }
 
+/** How many of a blob job's runs its spend is summed over. */
+const JOB_SPEND_RUNS = 200;
+
 /** What a job's runs have cost: over its life, and the last run on its own. */
 interface JobSpend extends SpendSummary {
   /** Finished runs on record, whatever their outcome. */
@@ -425,16 +430,21 @@ interface JobSpend extends SpendSummary {
  * script job can be held side by side. A job that has run and made no
  * model call is the script job, and its zero calls are the saving.
  */
-function jobSpend(kernel: Kernel, jobId: number, rates: Rates): JobSpend | undefined {
-  const ref = String(jobId);
+function jobSpend(kernel: Kernel, job: CronJob, rates: Rates): JobSpend | undefined {
+  const ref = String(job.id);
   const runs = kernel.runs.countFinished("cron", ref);
   if (runs === 0) return undefined;
-  const thread = cronSessionId(jobId);
-  const [last] = kernel.runs.finishedFor("cron", ref, 1);
+  // A blob's job runs in the blob's own thread, which the owner talks in
+  // too: there only the job's own runs count, each between its start and
+  // end. Read off the job's id alone, a blob's job read as no model turn.
+  const thread = kernel.jobPlace(job);
+  const windows = kernel.runs.finishedFor("cron", ref, JOB_SPEND_RUNS);
+  const within = (r: RunRecord): ModelTotal[] => kernel.spend.byModelFor(thread, r.startedAt, r.finishedAt ?? Number.MAX_SAFE_INTEGER);
+  const [last] = windows;
   return {
     runs,
-    ...sumSpend(kernel.spend.byModelFor(thread), rates),
-    ...(last ? { last: sumSpend(kernel.spend.byModelFor(thread, last.startedAt, last.finishedAt ?? Number.MAX_SAFE_INTEGER), rates) } : {}),
+    ...sumSpend(thread === cronSessionId(job.id) ? kernel.spend.byModelFor(thread) : windows.flatMap(within), rates),
+    ...(last ? { last: sumSpend(within(last), rates) } : {}),
   };
 }
 
@@ -1434,7 +1444,7 @@ export async function handleApiRequest(
       kernel.crons.list().map((job) => {
         const thread = threads.get(cronSessionId(job.id));
         // What its runs have cost, so the drawer can say it beside Run now.
-        const spend = jobSpend(kernel, job.id, rates);
+        const spend = jobSpend(kernel, job, rates);
         /*
          * lastRunAt comes from the job, not its conversation.
          *

@@ -1085,6 +1085,20 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("Reviewed the budget.");
   });
 
+  it("records a scheduled prompt whose every step failed as failed, however its reply reads", async () => {
+    const model = scripted([toolCall("t1", "files.read", { path: "notes/missing.md" }), text("Done. All four items are open.")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({ name: "recap", schedule: "0 9 * * *", type: "self_prompt", prompt: "recap my notes", enabled: true });
+    const outcome = await kernel.fireCron(job.id);
+    expect(outcome.ok).toBe(false);
+    const [cronRun] = kernel.runs.finishedFor("cron", String(job.id), 1);
+    expect(cronRun).toMatchObject({ status: "error" });
+    expect(cronRun?.error).toMatch(/^Its one step failed\. files\.read: /);
+    // The turn in the job's thread finished, with its failed step on the record.
+    const [chatRun] = kernel.runs.finishedFor("chat", `cron:${job.id}`, 1);
+    expect(chatRun).toMatchObject({ status: "partial", error: "1 of 1 steps failed." });
+  });
+
   it("runs a job's query and condition through the sql fence for its project, and its actions under its maker's tools", async () => {
     const model = scripted([text("unused")]);
     kernel = await boot(model.inference);

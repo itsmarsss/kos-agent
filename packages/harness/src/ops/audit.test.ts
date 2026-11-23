@@ -31,6 +31,17 @@ describe("AuditLog", () => {
     expect([said, called, none].map((id) => log.get(id)?.conversationId)).toEqual(["c1", "c2", null]);
   });
 
+  it("tallies one chat's calls after a mark, with the first that failed", () => {
+    const log = new AuditLog(ws.db);
+    log.record({ tool: "files.read", args: {}, result: "old", isError: true, conversationId: "c1" });
+    const mark = log.lastId();
+    log.record({ tool: "files.ls", args: {}, result: "ok", isError: false, conversationId: "c1" });
+    log.record({ tool: "files.read", args: {}, result: "ENOENT", isError: true, conversationId: "c1" });
+    log.record({ tool: "files.read", args: {}, result: "other chat", isError: true, conversationId: "c2" });
+    expect(log.tally("c1", mark)).toEqual({ total: 2, failed: 1, firstError: "files.read: ENOENT" });
+    expect(log.tally("c3", 0)).toEqual({ total: 0, failed: 0, firstError: null });
+  });
+
   it("records tool calls and returns them newest-first", () => {
     const log = new AuditLog(ws.db);
     log.record({ tool: "notify", args: { text: "a" }, result: "ok", isError: false });

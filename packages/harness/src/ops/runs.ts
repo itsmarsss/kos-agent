@@ -1,6 +1,7 @@
 import type { Db } from "../store/db.js";
 
-export type RunStatus = "running" | "ok" | "error" | "skipped";
+/** "partial": it ran to its end, but some of its steps failed; `error` says how many. */
+export type RunStatus = "running" | "ok" | "partial" | "error" | "skipped";
 
 export interface RunRecord {
   id: number;

@@ -121,7 +121,7 @@ describe("runCronJob", () => {
       job({ type: "self_prompt", prompt: "review {total}", query: "SELECT 5 AS total" }),
       { db: ws.db, tools: registry, inference },
     );
-    expect(res).toEqual({ ran: true, type: "self_prompt", finalText: "reviewed" });
+    expect(res).toEqual({ ran: true, type: "self_prompt", finalText: "reviewed", steps: { total: 0, failed: 0, firstError: null } });
   });
 
   it("throws if a self_prompt has no inference provider", async () => {

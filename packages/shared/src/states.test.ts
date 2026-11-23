@@ -18,7 +18,7 @@ describe("the state words", () => {
   });
 
   it("read a run's stored status as its state", () => {
-    expect(["ok", "error", "failed", "running", "skipped", "pending", "what"].map(stateOfRun)).toEqual(["ok", "failed", "failed", "running", "skipped", "waiting", "skipped"]);
+    expect(["ok", "partial", "error", "failed", "running", "skipped", "pending", "what"].map(stateOfRun)).toEqual(["ok", "partial", "failed", "failed", "running", "skipped", "waiting", "skipped"]);
   });
 
   it("know a state from anything else", () => {
