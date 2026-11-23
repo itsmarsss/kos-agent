@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { keyboardInset, swipedShut } from "./touch.js";
+import { keyboardInset, swipedOpen, swipedShut } from "./touch.js";
 
 describe("keyboardInset", () => {
   it("is what the keyboard covers when only the visible viewport shrinks, as on iOS", () => {
@@ -26,5 +26,18 @@ describe("swipedShut", () => {
     expect(swipedShut(80, 0)).toBe(false);
     // A scroll down the drawer that drifts left is a scroll.
     expect(swipedShut(-70, 90)).toBe(false);
+  });
+});
+
+describe("swipedOpen", () => {
+  it("is a swipe to the right that starts at the left edge", () => {
+    expect(swipedOpen(4, 120, 10)).toBe(true);
+    expect(swipedOpen(24, 56, 0)).toBe(true);
+  });
+  it("is not one that starts inside the page, falls short, or goes down more than across", () => {
+    expect(swipedOpen(60, 200, 0)).toBe(false);
+    expect(swipedOpen(4, 40, 0)).toBe(false);
+    expect(swipedOpen(4, 80, 90)).toBe(false);
+    expect(swipedOpen(4, -80, 0)).toBe(false);
   });
 });

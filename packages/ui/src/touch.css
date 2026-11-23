@@ -11,6 +11,16 @@
  *   reveal is shown, and the keyboard's shortcuts are not offered.
  */
 
+/* A tap's flash, from its token: Android drew a cyan box over every custom control. */
+:root {
+  -webkit-tap-highlight-color: var(--tap-highlight);
+}
+
+/* The drawer's Refresh row is a finger's (below). */
+.side-refresh {
+  display: none;
+}
+
 @media (pointer: coarse) {
   /* Buttons are drawn at two heights (design.test.ts); under a finger both are a finger's. */
   :root {
@@ -48,6 +58,7 @@
   [role^="menuitem"],
   [role="option"],
   .kos-menu-row,
+  .ac-item,
   .mode-chip button,
   .sel-option,
   .sel-button,
@@ -75,12 +86,12 @@
     justify-content: center;
   }
 
-  /* A mark too small to grow without breaking its line (a switch, a bare ×,
-     a disclosure chevron, a link in a line, a crumb, a colour) keeps its look and takes a finger's area round it. */
-  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch, button.link, .finder-crumb) {
+  /* A mark too small to grow without breaking its line (a bare ×, a head's
+     All, a colour) keeps its look and takes a finger's area round it. */
+  :is(.icon-btn--bare, .panel-more, .swatch) {
     position: relative;
   }
-  :is(.switch, .icon-btn--bare, button.finder-disclose, .panel-more, .swatch, button.link, .finder-crumb)::after {
+  :is(.icon-btn--bare, .panel-more, .swatch)::after {
     position: absolute;
     top: 50%;
     left: 50%;
@@ -90,8 +101,65 @@
     content: "";
   }
 
+  /* A switch, a disclosure chevron and a link in a line are a finger's box
+     themselves, drawn as before inside it: a clear border round the switch's
+     track, padding round the others, each taken back by as much margin so
+     the line they sit in does not move. A hit area drawn by ::after was not
+     the box a finger's tap is measured against, and it moved a crumb's own
+     ::after chevron onto the title beside it. */
+  .switch {
+    --switch-pad: calc((var(--tap) - 20px) / 2);
+    width: calc(34px + 2 * var(--switch-pad));
+    height: var(--tap);
+    margin: calc(-1 * var(--switch-pad));
+    border: var(--switch-pad) solid transparent;
+    background-clip: padding-box;
+  }
+  button.finder-disclose {
+    width: var(--tap);
+    height: var(--tap);
+    margin: calc((0.95rem - var(--tap)) / 2);
+  }
+  /* An attachment's ×: a 24 px circle on its tile's corner, centred on it,
+     inside a clear 44 px box, so the box takes a corner of the picture and
+     not the half of it a 44 px circle on top did. */
+  .strip {
+    padding: 0.6rem 0.6rem 0 0;
+  }
+  .icon-btn.strip-x {
+    --x-ring: calc((var(--tap) - 1.5rem) / 2);
+    top: calc(var(--tap) / -2 + 0.3rem);
+    right: calc(var(--tap) / -2 + 0.3rem);
+    border: var(--x-ring) solid transparent;
+    background-clip: padding-box;
+    box-shadow: none;
+    /* Its ring, which was its border, drawn on the circle's edge. */
+    outline: 1px solid var(--line);
+    outline-offset: calc(-1 * var(--x-ring));
+  }
+  button.link {
+    --link-pad: calc((var(--tap) - 1lh) / 2);
+    margin-block: calc(-1 * var(--link-pad));
+    padding-block: var(--link-pad);
+  }
+
+  /* A list's group heads stick as one finger's row, no padding round it: two stuck at 53 px took a sixth of a phone's list. */
+  .rail-group-head {
+    padding-block: 0;
+  }
+
+  /* Files under a finger: rows and their names at a finger's size (a size or a date keeps its own, or "109 bytes" no longer fit its column), the path at the foot a row too. */
   .finder {
     --finder-row: var(--tap);
+  }
+  .finder :is(.finder-row .finder-col--name, .finder-crow, .finder-side-item) {
+    font-size: var(--tap-text);
+  }
+  .finder-pathbar {
+    height: var(--tap);
+  }
+  .finder-pathbar .finder-crumb {
+    min-height: var(--tap);
   }
   /* A colour a size up, so a finger's area round each overlaps its neighbour's least. */
   .swatch:not(.swatch--any) {
@@ -152,6 +220,20 @@
   }
   .know-acts > :last-child {
     margin-left: 0.5rem;
+  }
+  /* Beside the actions, now always there, a claim's line of facts wraps rather than run under them: its key whole, its time after it. */
+  .know-meta {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+  .know-key {
+    flex: none;
+    max-width: 100%;
+  }
+
+  /* The drawer's own Refresh (Sidebar.tsx); a pointer has it in More. */
+  .side-refresh {
+    display: flex;
   }
 
   /* A keyboard's shortcuts mean nothing to a finger. */
@@ -218,8 +300,141 @@
     z-index: 1;
     background: var(--panel);
   }
-  .ops-toast {
-    top: calc(3.25rem + 0.5rem + env(safe-area-inset-top, 0px));
+  /* A page's tabs wrap to a second line rather than run off the side: Other apps was past the edge with nothing to say so. */
+  .page-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .page-tab {
+    padding-inline: 0.55rem;
+  }
+  /* The stack, not each note: a note is not placed itself, and the rule on it moved nothing. */
+  .ops-toasts {
+    top: calc(var(--phonebar-h) + 0.5rem + env(safe-area-inset-top, 0px));
     bottom: auto;
+  }
+}
+
+/*
+ * Short windows and the keyboard up (docs/design.md, Touch). A phone on its
+ * side is 390 px tall, 220 with the keyboard up; upright with the keyboard up
+ * it keeps about 500. The bar, the chat's head and a composer of three rows
+ * left the messages 32 to 163 px of that. So: the composer folds to one row
+ * (the field, then attach, the mode and Send), the bar goes while the chat is
+ * typed into, and the head keeps one line, or none while typing on a side.
+ */
+@media (pointer: coarse) and (max-width: 860px), (pointer: coarse) and (max-height: 500px) {
+  .app:has(.composer-input textarea:focus) {
+    --phonebar-h: 0px;
+  }
+  .app:has(.composer-input textarea:focus) .phonebar {
+    display: none;
+  }
+  .composer-box:has(textarea:focus) {
+    position: relative;
+    flex-flow: row wrap;
+    align-items: flex-end;
+  }
+  .composer-box:has(textarea:focus) > :not(.composer-input, .sheet-composer-bar) {
+    flex-basis: 100%;
+  }
+  /* The @ and / menus hang from the whole box, not the field narrowed beside the buttons. */
+  .composer-box:has(textarea:focus) > .composer-input {
+    position: static;
+    flex: 1 1 8rem;
+    min-width: 0;
+  }
+  .composer-box:has(textarea:focus) > .sheet-composer-bar {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+  .composer-box:has(textarea:focus) .sheet-composer-bar > :is(.voice-input:not(.is-listening), .composer-model, .composer-engine, .ctx, .recall, .composer-spacer) {
+    display: none;
+  }
+  .ops-page--full:has(.composer-input textarea:focus),
+  .chats:has(.composer-input textarea:focus) {
+    padding-bottom: 0;
+  }
+  .chats:has(.composer-input textarea:focus) .chats-composer {
+    padding-block: 0.35rem;
+  }
+}
+/* Upright, the row has no room for the mode: it is read again when the keyboard goes. */
+@media (pointer: coarse) and (max-width: 520px) {
+  .composer-box:has(textarea:focus) .sheet-composer-bar > .mode-chip {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) and (max-height: 500px) {
+  /* Folded with the keyboard down too: a short window has no room for three rows. */
+  .composer-box {
+    position: relative;
+    flex-flow: row wrap;
+    align-items: flex-end;
+  }
+  .composer-box > :not(.composer-input, .sheet-composer-bar) {
+    flex-basis: 100%;
+  }
+  .composer-box > .composer-input {
+    position: static;
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+  .composer-box > .sheet-composer-bar {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+  .sheet-composer-bar > :is(.voice-input:not(.is-listening), .composer-model, .composer-engine, .ctx, .recall, .composer-spacer) {
+    display: none;
+  }
+  .ops-page--full,
+  .chats {
+    padding-bottom: 0;
+  }
+  .chats-composer {
+    padding-block: 0.35rem;
+  }
+
+  /* A settings card's Save is at the card's foot, not pinned across a form that has 300 px to show itself in. */
+  .set-card > .sheet-foot {
+    position: static;
+  }
+}
+
+@media (pointer: coarse) and (max-height: 500px) and (orientation: landscape) {
+  /* The chat's head is one line: the list toggle and crumbs, the title, its actions. */
+  .chats-view-head {
+    align-items: center;
+    padding-bottom: 0.25rem;
+  }
+  .chats-view-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .chats-view-title > .chats-view-path {
+    flex: none;
+    margin: 0;
+  }
+  .chats-view-head :is(.chats-lineage, .chats-brief, .chats-meta) {
+    display: none;
+  }
+  .chats-view-head h1 {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--text-lg);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chats-view-head h1 .blob {
+    display: none;
+  }
+  /* Typing, the head goes too: the list and the bar are back when the keyboard is. */
+  .chats:has(.composer-input textarea:focus) .chats-view-head {
+    display: none;
   }
 }

@@ -247,22 +247,29 @@ export function useSuggestions(trigger: Trigger | null, options: SuggestionOptio
       );
     }
     if (trigger.char === "#") return mentions;
-    // Before a kind is chosen, offer the kinds themselves: typing @fi should
-    // get you to files rather than only matching things called "fi".
-    const kinds: Suggestion[] =
-      split.kind === undefined
-        ? MENTION_KINDS.filter((k) => k.startsWith(split.term.toLowerCase())).map(
-            (k) => ({
-              insert: `@${k}:`,
-              label: `${k}:`,
-              kind: k,
-              hint: `only ${k}s`,
-              partial: true,
-            }),
-          )
-        : [];
-    return [...kinds, ...mentions];
+    return withKinds(split.kind, split.term, mentions);
   }, [trigger, mentions, commands, approvals, split.kind, split.term]);
+}
+
+/**
+ * A mention's suggestions with the kinds to narrow by: typing @fi gets you to
+ * files rather than only to things called "fi", so a kind that matches comes
+ * first. A bare @ leads with the things themselves: eight kinds filled a
+ * phone's menu and the things were under them, out of sight. @agent: is
+ * still read (it is a blob, from before blobs were called that) but not
+ * offered beside blob: as a second row saying the same.
+ */
+export function withKinds(kind: string | undefined, typed: string, mentions: Suggestion[]): Suggestion[] {
+  if (kind !== undefined) return mentions;
+  const term = typed.toLowerCase();
+  const kinds: Suggestion[] = MENTION_KINDS.filter((k) => k !== "agent" && k.startsWith(term)).map((k) => ({
+    insert: `@${k}:`,
+    label: `${k}:`,
+    kind: k,
+    hint: `only ${k}s`,
+    partial: true,
+  }));
+  return term === "" ? [...mentions, ...kinds] : [...kinds, ...mentions];
 }
 
 export function AutocompleteMenu({
@@ -298,6 +305,7 @@ export function AutocompleteMenu({
               <button
                 type="button"
                 className={`ac-item ${i === cursor ? "is-cursor" : ""}`}
+                data-kind={s.kind}
                 // Mouse down rather than click: the textarea must not lose the
                 // caret before the insertion is worked out.
                 onMouseDown={(e) => {

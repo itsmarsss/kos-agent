@@ -290,6 +290,20 @@ describe("the finder", () => {
     await waitFor(() => expect(make).toHaveBeenCalledWith("garden"));
   });
 
+  it("opens the new folder's name selected, so typing replaces it, and Return makes it", async () => {
+    const make = vi.spyOn(api, "makeDir").mockResolvedValue({ path: "garden" });
+    render(<Finder path="." />);
+    await screen.findByText("projects");
+    key("n", { shiftKey: true, metaKey: true });
+    const dialog = await screen.findByRole("dialog", { name: "New folder" });
+    const field = within(dialog).getByRole("textbox") as HTMLInputElement;
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, "untitled folder".length]);
+    fireEvent.change(field, { target: { value: "garden" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(make).toHaveBeenCalledWith("garden"));
+  });
+
   it("marks KOS's own files and offers nothing that would change them, saying why", async () => {
     const trash = vi.spyOn(api, "trashFile");
     localStorage.setItem("kos.finder.showOwn", "1");

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 
 import { Field, SheetFoot } from "@kos/kit";
 
@@ -13,11 +13,17 @@ const FORM = "file-new-folder-form";
  * kept that name for good.
  */
 export function NewFolderDialog({ suggested, onMake, onClose }: { suggested: string | null; onMake: (name: string) => void; onClose: () => void }): ReactElement {
-  const [name, setName] = useState("");
-  useEffect(() => {
+  // Taken in the render the dialog opens in, not an effect after it: the
+  // field took the focus empty, selected nothing, and a name typed on a phone
+  // went after "untitled folder".
+  const [name, setName] = useState(suggested ?? "");
+  const [shown, setShown] = useState(suggested);
+  if (suggested !== shown) {
+    setShown(suggested);
     if (suggested !== null) setName(suggested);
-  }, [suggested]);
+  }
   const clean = name.trim();
+  const valid = clean !== "" && !clean.includes("/");
   return (
     <Modal
       open={suggested !== null}
@@ -28,7 +34,7 @@ export function NewFolderDialog({ suggested, onMake, onClose }: { suggested: str
         <SheetFoot
           onCancel={onClose}
           primary={
-            <button type="submit" form={FORM} className="btn btn--primary" disabled={clean === "" || clean.includes("/")}>
+            <button type="submit" form={FORM} className="btn btn--primary" disabled={!valid}>
               Create
             </button>
           }
@@ -40,11 +46,25 @@ export function NewFolderDialog({ suggested, onMake, onClose }: { suggested: str
         className="file-dialog"
         onSubmit={(e) => {
           e.preventDefault();
-          if (clean && !clean.includes("/")) onMake(clean);
+          if (valid) onMake(clean);
         }}
       >
         <Field label="Name" hint="In the workspace itself, where it cannot be renamed later.">
-          <input className="kos-input" value={name} autoFocus onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} />
+          <input
+            className="kos-input"
+            value={name}
+            autoFocus
+            enterKeyHint="done"
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              // Return makes it from a phone's keyboard too, whose Return the form's own submit did not see.
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                if (valid) onMake(clean);
+              }
+            }}
+          />
         </Field>
       </form>
     </Modal>
