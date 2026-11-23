@@ -742,6 +742,20 @@ export function SettingsPage({
             }}
           />
         </div>
+        {/* A narrow window picks the section from a list: fifteen tabs made a strip four times the phone's width. */}
+        {!query.trim() && (
+          <Select
+            className="set-pick"
+            label="Settings section"
+            value={active}
+            options={SECTIONS.map((s) => ({ value: s.id, label: `${s.group} · ${s.label}`, hint: s.blurb }))}
+            onChange={(id) => {
+              if (!isSettingsSection(id)) return;
+              setFound(null);
+              setActive(id);
+            }}
+          />
+        )}
         <nav className={`set-rail${query.trim() ? " set-rail--found" : ""}`} aria-label="Settings sections" ref={railScroll}>
         {query.trim() ? (
           <div className="set-results" role="listbox" aria-label="Settings found">

@@ -3885,6 +3885,8 @@ li:hover .chats-item-when { opacity: 0; }
 }
 /* The search and the rail under it, sticking as the pane scrolls. */
 .set-side { display: flex; flex-direction: column; min-width: 0; position: sticky; top: 1rem; }
+/* The section as a list to pick from, on a narrow window only (below). */
+.set-pick { display: none; }
 .set-rail {
   display: flex;
   flex-direction: column;
@@ -6044,6 +6046,9 @@ a.health {
     scrollbar-width: none;
   }
   .set-rail--found { flex-direction: column; overflow: visible; }
+  .set-rail:not(.set-rail--found) { display: none; }
+  .set-pick { display: block; }
+  .set-pick .sel-button { width: 100%; }
   .set-rail::-webkit-scrollbar { display: none; }
   .set-rail-group { flex-direction: row; gap: 0.25rem; }
   .set-rail-group + .set-rail-group { margin-top: 0; }
