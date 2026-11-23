@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { DETACHED_WORDS } from "@kos/shared";
+
 import { approvalButtons, approvalCard, settledText } from "./askcard.js";
 import { DiscordAdapter } from "./discord.js";
+import { approvalLines } from "./imessage.js";
 import type { ApprovalRequest } from "./types.js";
 
 interface Button {
@@ -48,6 +51,13 @@ describe("an approval card drawn from the ask view", () => {
     const beyond = { ...browserAsk, beyondAuto: true };
     expect(buttons(beyond).map((b) => b.label)).toEqual(["Approve", "Deny"]);
     expect(approvalCard(beyond).content).toContain("Auto never covers this");
+  });
+
+  it("warns before any yes when no turn waits on the result, and the text surfaces say so too", () => {
+    const later: ApprovalRequest = { id: "43", text: "x", tool: "sql", args: { sql: "DELETE FROM notes" }, detached: "unwaited" };
+    expect(approvalCard(later).content).toContain(`⚠ ${DETACHED_WORDS.unwaited}`);
+    expect(approvalLines(later)).toContain(DETACHED_WORDS.unwaited);
+    expect(approvalCard({ ...later, detached: undefined }).content).not.toContain("⚠ Nothing is waiting");
   });
 
   it("attaches the whole call as call.json when a step is cut", () => {

@@ -64,6 +64,15 @@ describe("connectChannel", () => {
     await runtime.start();
   }
 
+  /**
+   * An ask as a schedule raises it, to be decided later: nothing waits on
+   * it, so a decision after a restart runs it. One a turn held for lapses
+   * with that turn instead (decisions.ts, orphanFate).
+   */
+  function raisedForLater(id: string): void {
+    kernel.workspace.db.prepare(`UPDATE pending_actions SET waits = 0 WHERE id = ?`).run(Number(id));
+  }
+
   function riskyScript(): ModelResponse[] {
     return [
       {
@@ -109,7 +118,7 @@ describe("connectChannel", () => {
     const chat = kernel.conversations.list(kernel.profile.ownerId).find((c) => c.channel === "memory")!;
     // In Ask the risky call asked; nothing went ahead, so nothing is marked.
     expect(adapter.sent.some((s) => s.msg.text?.startsWith(AUTO_MARK))).toBe(false);
-    await kernel.deny(kernel.approvals.pending()[0]!.id).catch(() => undefined);
+    await kernel.deny(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" }).catch(() => undefined);
     kernel.setChatMode(chat.id, { mode: "auto" });
     const ran = stub(riskyScript());
     (kernel as unknown as { inference: typeof ran }).inference = ran;
@@ -229,6 +238,7 @@ describe("connectChannel", () => {
       await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
       const pendingId = adapter.approvalsRequested[0]!.req.id;
       const chat = kernel.approvals.get(Number(pendingId))!.conversationId!;
+      raisedForLater(pendingId);
       // A new process: nothing is waiting on the ask, so the decision resumes the chat itself.
       await runtime.stop();
       kernel.close();
@@ -249,7 +259,7 @@ describe("connectChannel", () => {
     await boot(stub(riskyScript()));
     await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
     const pendingId = adapter.approvalsRequested[0]!.req.id;
-    await kernel.deny(Number(pendingId));
+    await kernel.deny(Number(pendingId), undefined, { surface: "dashboard" });
     const before = adapter.sent.length;
     const settled: unknown[] = [];
     // Straight to the runtime's sink, as the adapter's press does.
@@ -264,6 +274,7 @@ describe("connectChannel", () => {
     await boot(stub(riskyScript()));
     await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
     const pendingId = adapter.approvalsRequested[0]!.req.id;
+    raisedForLater(pendingId);
     // A new process: nothing waits on the ask, so the decision runs the action and resumes the chat itself.
     await runtime.stop();
     kernel.close();
@@ -337,7 +348,7 @@ describe("connectChannel", () => {
     await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
     const pendingId = Number(adapter.approvalsRequested[0]!.req.id);
 
-    await kernel.deny(pendingId);
+    await kernel.deny(pendingId, undefined, { surface: "dashboard" });
 
     expect(adapter.settled).toEqual([
       { id: String(pendingId), outcome: "denied" },

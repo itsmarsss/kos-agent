@@ -227,7 +227,8 @@ describe("a blob's artifact, from a chat at the root", () => {
     const asked = first.approvals.pending()[0]!;
     expect(asked).toMatchObject({ tool: "files.rm", conversationId: chat.id, owner: true, attended: true });
 
-    // The host restarts under it: nobody is waiting on the row any more.
+    // Raised as one to decide later, so it outlives its turn (one a turn held for lapses with it), and the host restarts under it.
+    first.workspace.db.prepare(`UPDATE pending_actions SET waits = 0 WHERE id = ?`).run(asked.id);
     first.close();
     kernels.splice(0);
     const after = await boot();

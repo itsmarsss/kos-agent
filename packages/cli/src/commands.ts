@@ -122,7 +122,7 @@ export async function runCommand(
     case "deny": {
       const id = Number(rest[0]);
       if (!Number.isInteger(id)) return "usage: deny <id>";
-      const res = await kernel.deny(id);
+      const res = await kernel.deny(id, undefined, { surface: "cli" });
       return res.reply ?? res.message;
     }
 

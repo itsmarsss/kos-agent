@@ -97,7 +97,7 @@ describe("http.fetch module", () => {
       const call = tools.execute("http.fetch", input);
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
       expect(approvals.pending()[0]!.reason).toMatch(/^sends secret \w+ to api\.(example|stripe)\.com$/);
-      approvals.approve(approvals.pending()[0]!.id, "owner");
+      approvals.approve(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
       await call;
     };
 

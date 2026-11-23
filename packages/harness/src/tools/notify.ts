@@ -616,6 +616,8 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           escalate: (input) => (sendsElsewhere(input) ? "a message to somewhere other than you" : false),
           // The same line holds a chat's Auto: a message anywhere but to the owner asks.
           beyondAuto: (input) => (sendsElsewhere(input) ? "messages someone besides you" : false),
+          // The message is the point: once its chat has stopped, a yes still sends it, its card warning so.
+          detached: "runs",
         },
       );
     },

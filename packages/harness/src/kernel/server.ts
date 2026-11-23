@@ -11,6 +11,7 @@ import { parseHomeLayout,
 } from "@kos/shared";
 import { askView, checkName, isExportFormat, NameError, nameRefusal, isSearchKind, outlineOf, parseChatMode, stepMechanics, summarizeAction, usesSecret, type AskView, type ChatMode, type FieldRefusal, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
+import { detachedAs } from "./decisions.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
@@ -346,7 +347,8 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
   const asksAlways = usesSecret(a.tool, parsedArgs(a.args));
   const { secret, ...action } = a;
-  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, ...(a.beyondAuto ? { beyondAuto: true } : {}), secret, names, where, platform: HOST_KEYS });
+  const detached = detachedAs(a);
+  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, ...(a.beyondAuto ? { beyondAuto: true } : {}), ...(detached ? { detached } : {}), secret, names, where, platform: HOST_KEYS });
   return {
     ...action,
     // It places a secret: asked about every time, never remembered.
@@ -1883,7 +1885,7 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/deny") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
-    return ok(await kernel.deny(id));
+    return ok(await kernel.deny(id, undefined, { surface: "dashboard" }));
   }
 
   if (method === "POST" && path === "/api/kill") {

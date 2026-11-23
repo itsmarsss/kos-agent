@@ -58,7 +58,9 @@ describe("a chat's mode, through the kernel", () => {
     expect(reply).toBe("done");
     expect(model.results[0]).toContain(AUTO_PREFIX);
     expect(kernel.approvals.pending()).toEqual([]);
-    expect(kernel.approvals.decided()[0]).toMatchObject({ tool: "danger.run", decidedBy: "auto mode", conversationId: chat.id });
+    const settled = kernel.approvals.decided()[0]!;
+    expect(settled).toMatchObject({ tool: "danger.run", decidedBy: "auto mode", decidedVia: "auto", conversationId: chat.id });
+    expect(kernel.audit.recent(5).find((r) => r.tool === "danger.run")).toMatchObject({ decidedVia: "auto", approvalId: settled.id });
   });
 
   it("ends Auto set for this task when the chat's turn ends", async () => {
@@ -77,7 +79,7 @@ describe("a chat's mode, through the kernel", () => {
     await setMode(chat.id, { mode: "auto" });
     const sent = kernel.dispatchTo(chat.id, "clear it", undefined, { attended: true, owner: true });
     await vi.waitFor(() => expect(kernel.approvals.pending().map((a) => a.tool)).toEqual(["danger.run"]));
-    await kernel.deny(kernel.approvals.pending()[0]!.id);
+    await kernel.deny(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
     await sent;
     expect(kernel.approvals.decided()[0]).toMatchObject({ status: "denied" });
   });
@@ -87,11 +89,11 @@ describe("a chat's mode, through the kernel", () => {
     await setMode(chat.id, { mode: "auto" });
     const sent = kernel.dispatchTo(chat.id, "clear it", "orchestrator:owner", { attended: true, owner: true });
     await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(1));
-    await kernel.deny(kernel.approvals.pending()[0]!.id);
+    await kernel.deny(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
     await sent;
     const again = kernel.rewind(chat.id, 0, { owner: true });
     await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(1));
-    await kernel.deny(kernel.approvals.pending()[0]!.id);
+    await kernel.deny(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
     await again;
   });
 
@@ -111,7 +113,7 @@ describe("a chat's mode, through the kernel", () => {
     await setMode(chat.id, { mode: "auto" });
     const texted = kernel.handleMessage("clear it", { sessionId: chat.id, userId: kernel.profile.ownerId, owner: true, channel: "sms" });
     await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(1));
-    await kernel.deny(kernel.approvals.pending()[0]!.id);
+    await kernel.deny(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
     await texted;
     await kernel.handleMessage("", { sessionId: chat.id, userId: kernel.profile.ownerId, owner: true, attachments: [{ name: "a.txt", mediaType: "text/plain", data: Buffer.from("x").toString("base64") }] });
     expect(kernel.ranUnderAuto(chat.id)).toBe(true);

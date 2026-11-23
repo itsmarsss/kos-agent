@@ -36,6 +36,7 @@ import {
   handleApiRequest,
   isContained,
   secretAskElsewhere,
+  detachedAs,
   SecretsRegistry,
   secretsRoutes,
   Vault,
@@ -580,6 +581,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       ...(usesSecret(action.tool, JSON.parse(action.args)) ? { asksAlways: true } : {}),
       ...(action.secret ? { secret: action.secret } : {}),
       ...(action.beyondAuto ? { beyondAuto: true } : {}),
+      ...(detachedAs(action) ? { detached: detachedAs(action)! } : {}),
     };
   };
   /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */

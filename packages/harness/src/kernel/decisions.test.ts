@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { PendingAction } from "../ops/approvals.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { approvedAs, caller, isAttended, isOwnerTurn } from "./caller.js";
-import { Decisions, decidedLine, type DecisionsDeps } from "./decisions.js";
+import { Decisions, decidedHow, decidedLine, detachedAs, orphanFate, type DecisionsDeps } from "./decisions.js";
 
 function pending(over: Partial<PendingAction> = {}): PendingAction {
-  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, beyondAuto: false, secret: null, ...over };
+  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, beyondAuto: false, secret: null, decidedVia: null, decidedDevice: null, detachedAt: null, ...over };
 }
 
 function deps(action: PendingAction | undefined, awaited: boolean, over: Partial<DecisionsDeps> = {}) {
@@ -177,7 +177,7 @@ describe("approving", () => {
     expect(first.reply).toBeUndefined();
     expect(log.filter((l) => l.startsWith("resume:"))).toEqual([]);
 
-    const second = await decisions.deny(6);
+    const second = await decisions.deny(6, undefined, { surface: "dashboard" });
     expect(second.reply).toBe("carried on");
     expect(log.filter((l) => l.startsWith("resume:"))).toHaveLength(1);
     expect(d.handleMessage).toBeDefined();
@@ -197,7 +197,7 @@ describe("approving", () => {
     };
     const decisions = new Decisions(d);
     await decisions.approve(5, undefined, { surface: "dashboard" });
-    await decisions.deny(6);
+    await decisions.deny(6, undefined, { surface: "dashboard" });
     expect(prompts).toHaveLength(1);
     expect(prompts[0]!).toContain("- @approval:5 Delete projects/books/x.md: the owner approved it, and it ran. Result: removed");
     expect(prompts[0]!).toContain("- @approval:6 Run: ls: the owner denied this. It was not done.");
@@ -246,7 +246,7 @@ describe("what the resumed turn is told", () => {
   it("asks a denial for a one-line acknowledgement, not a retry or a question", async () => {
     const prompts: string[] = [];
     const { d } = deps(pending(), false, { handleMessage: async (text) => { prompts.push(text); return { reply: "OK, I won't delete it." }; } });
-    const r = await new Decisions(d).deny(5);
+    const r = await new Decisions(d).deny(5, undefined, { surface: "dashboard" });
     expect(r.reply).toBe("OK, I won't delete it.");
     expect(prompts[0]).toContain("the owner denied this. It was not done.");
     expect(prompts[0]).toContain("tell the owner in one line that you did not do it");
@@ -257,20 +257,50 @@ describe("what the resumed turn is told", () => {
 describe("denying", () => {
   it("declines a waiting turn in one line", async () => {
     const { d } = deps(pending(), true);
-    expect(await new Decisions(d).deny(5)).toEqual({ ok: true, message: "Declined #5." });
+    expect(await new Decisions(d).deny(5, undefined, { surface: "dashboard" })).toEqual({ ok: true, message: "Declined #5." });
   });
 
   it("tells an orphaned conversation it was refused, and resumes it", async () => {
     const { d, log } = deps(pending(), false);
-    const r = await new Decisions(d).deny(5);
+    const r = await new Decisions(d).deny(5, undefined, { surface: "dashboard" });
     expect(log).toContain("resume:c1:system:denied");
     expect(r).toMatchObject({ ok: true, message: "denied @approval:5", reply: "carried on" });
   });
 
   it("tells a build it may not, without a turn", async () => {
     const { d, log } = deps(pending({ tool: "build.Read" }), false);
-    const r = await new Decisions(d).deny(5);
+    const r = await new Decisions(d).deny(5, undefined, { surface: "dashboard" });
     expect(r.message).toBe("Declined. The build was told it may not Read.");
     expect(log.some((l) => l.startsWith("resume:"))).toBe(false);
+  });
+});
+
+describe("an ask whose turn has gone", () => {
+  it("lapses by default, runs where its effect is the point or nothing ever waited, and never for a secret or an awaited-only tool", () => {
+    expect(orphanFate({ tool: "sql", waits: true }, undefined)).toBe("lapses");
+    expect(orphanFate({ tool: "notify", waits: true }, "runs")).toBe("runs");
+    expect(orphanFate({ tool: "sql", waits: false }, undefined)).toBe("runs");
+    expect(orphanFate({ tool: "clipboard.read", waits: false }, "never")).toBe("lapses");
+    expect(orphanFate({ tool: "secrets.fill", waits: false }, "runs")).toBe("lapses");
+  });
+
+  it("is warned of on its card when it would run for no waiting turn, a build's aside", () => {
+    expect(detachedAs({ tool: "notify", waits: true, detachedAt: 5 })).toBe("stopped");
+    expect(detachedAs({ tool: "sql", waits: false, detachedAt: null })).toBe("unwaited");
+    expect(detachedAs({ tool: "sql", waits: true, detachedAt: null })).toBeUndefined();
+    expect(detachedAs({ tool: "build.Bash", waits: false, detachedAt: null })).toBeUndefined();
+  });
+
+  it("keeps a decision's place as its surface, typed or pressed, and its device", () => {
+    expect(decidedHow({ surface: "discord" })).toEqual({ via: "discord" });
+    expect(decidedHow({ surface: "imessage", typed: true })).toEqual({ via: "typed:imessage" });
+    expect(decidedHow({ surface: "mac", device: "dev-1" })).toEqual({ via: "mac", device: "dev-1" });
+  });
+
+  it("lapses one a turn held for, approved once nothing waits on it, and runs nothing", async () => {
+    const { d, log } = deps(pending({ waits: true }), false);
+    const r = await new Decisions(d).approve(5, "owner", { surface: "dashboard" });
+    expect(r.ok).toBe(false);
+    expect(log).toEqual(["lapse:5:turn-gone"]);
   });
 });

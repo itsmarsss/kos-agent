@@ -2532,8 +2532,8 @@ describe("approvals already decided", () => {
     try {
       const a = k.approvals.enqueue({ tool: "cron.run", args: { id: 1 }, riskTier: "risky", reason: "runs it" });
       const b = k.approvals.enqueue({ tool: "files.rm", args: { path: "x.txt" }, riskTier: "risky", reason: "outside the scratch folder" });
-      k.approvals.deny(a.id, "owner");
-      k.approvals.approve(b.id, "owner");
+      k.approvals.deny(a.id, "owner", { via: "dashboard" });
+      k.approvals.approve(b.id, "owner", { via: "dashboard" });
       const history = (await handleApiRequest(k, { method: "GET", path: "/api/approvals/history", url: "/api/approvals/history?limit=10" })).body as { id: number; status: string; summary: string; decidedBy: string | null }[];
       expect(history.map((h) => [h.id, h.status, h.decidedBy])).toEqual([
         [b.id, "approved", "owner"],
@@ -2552,9 +2552,9 @@ describe("approvals already decided", () => {
     const k = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stub });
     try {
       const ids = [0, 1, 2, 3].map((i) => k.approvals.enqueue({ tool: "files.rm", args: { path: `x${i}.txt` }, riskTier: "risky" }).id);
-      k.approvals.approve(ids[0]!, "owner");
-      k.approvals.deny(ids[1]!, "owner");
-      k.approvals.approve(ids[2]!, "owner");
+      k.approvals.approve(ids[0]!, "owner", { via: "dashboard" });
+      k.approvals.deny(ids[1]!, "owner", { via: "dashboard" });
+      k.approvals.approve(ids[2]!, "owner", { via: "dashboard" });
       const get = async (url: string): Promise<unknown> => (await handleApiRequest(k, { method: "GET", path: url.split("?")[0]!, url })).body;
       const first = (await get("/api/approvals/history?limit=2")) as { id: number; decidedAt: number; args?: string }[];
       expect(first.map((r) => r.id)).toEqual([ids[2], ids[1]]);

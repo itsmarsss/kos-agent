@@ -180,6 +180,13 @@ export function approvedResult(result: ToolExecution): ToolExecution {
 /** Who the audit says let a call run that a tool's own grant covered (a secret's yes kept for a site or a turn). */
 export const GRANT_DECIDER = "grant";
 
+/**
+ * The reason a turn's stop carries when the kill switch stopped it, so the
+ * asks it waited on say so. An AbortError still, for whatever the signal
+ * reaches (a fetch, the SDK) that reads its reason as one.
+ */
+export const KILL_SWITCH_STOP = new DOMException("The kill switch was thrown", "AbortError");
+
 /** How a call auto mode let through reads to the model, so it says it went ahead under Auto. */
 export const AUTO_PREFIX = "Ran under Auto, without asking the owner (this chat is set to Auto; say so when you report it):";
 
@@ -527,7 +534,7 @@ export class GuardedTools implements ToolBox {
       if (covered && !heldBack) {
         const unready = await readyNow();
         if (unready) return unready;
-        approvals.settled(
+        const settled = approvals.settled(
           {
             tool: name,
             args: input,
@@ -540,10 +547,11 @@ export class GuardedTools implements ToolBox {
             ...(context?.browser?.yours ? { yours: true } : {}),
           },
           AUTO_DECIDER,
+          "auto",
         );
         this.deps.onAutoRan?.();
         const ran = await underAuto.run(true, () => run(name, input));
-        audit.record({ tool: name, ...audited(ran), riskTier: "risky", approvedBy: AUTO_DECIDER, ...(userId ? { userId } : {}) });
+        audit.record({ tool: name, ...audited(ran), riskTier: "risky", approvedBy: AUTO_DECIDER, decidedVia: "auto", approvalId: settled.id, ...(userId ? { userId } : {}) });
         this.deps.onExecuted?.(name, ran);
         return autoResult(ran);
       }
@@ -552,11 +560,12 @@ export class GuardedTools implements ToolBox {
       // Only by a yes its own tool keeps (a secret's grant on this site, or for this turn): run, and audited as such.
       if (always && (await within(async () => registry.granted(name, input)))) {
         const granted = await run(name, input);
-        audit.record({ tool: name, ...audited(granted), riskTier: "risky", approvedBy: GRANT_DECIDER, ...(userId ? { userId } : {}), ...(conversationId ? { conversationId } : {}) });
+        audit.record({ tool: name, ...audited(granted), riskTier: "risky", approvedBy: GRANT_DECIDER, decidedVia: "grant", ...(userId ? { userId } : {}), ...(conversationId ? { conversationId } : {}) });
         this.deps.onExecuted?.(name, granted);
         return granted;
       }
-      const yes = !always && (this.deps.autoApproves?.(name, context) === "site" || this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true);
+      const session = !always && this.deps.autoApproves?.(name, context) === "site";
+      const yes = session || (!always && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true);
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
       const bound = yes ? context?.browser?.site : undefined;
       const allowed = yes && !(bound !== undefined && this.deps.leavesSite?.(name, input, bound) === true);
@@ -568,6 +577,7 @@ export class GuardedTools implements ToolBox {
           tool: name,
           ...audited(allowedResult),
           riskTier: "risky",
+          decidedVia: session ? "session" : "rule",
           ...(userId ? { userId } : {}),
           ...(conversationId ? { conversationId } : {}),
         });
@@ -641,7 +651,7 @@ export class GuardedTools implements ToolBox {
        * turn that has gone has nothing to carry on with, and a yes given
        * later would run the call for nobody.
        */
-      const lapse = (): void => void approvals.lapse(action.id, "stopped");
+      const lapse = (): void => void approvals.lapse(action.id, signal?.reason === KILL_SWITCH_STOP ? "kill-switch" : "stopped");
       signal?.addEventListener("abort", lapse, { once: true });
       if (signal?.aborted) lapse();
       const decision = await approvals.waitFor(
@@ -657,11 +667,14 @@ export class GuardedTools implements ToolBox {
 
       const unready = await readyNow();
       if (unready) return unready;
-      const approvedRun = await run(name, input, undefined, { id: action.id, by: approvals.get(action.id)?.decidedBy ?? userId ?? "owner" });
+      const decided = approvals.get(action.id);
+      const approvedRun = await run(name, input, undefined, { id: action.id, by: decided?.decidedBy ?? userId ?? "owner" });
       audit.record({
         tool: name,
         ...audited(approvedRun),
         riskTier: "risky",
+        decidedVia: decided?.decidedVia ?? null,
+        approvalId: action.id,
         ...(userId ? { userId } : {}),
         ...(conversationId ? { conversationId } : {}),
       });

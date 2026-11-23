@@ -74,6 +74,48 @@ describe("ApprovalQueue", () => {
     expect(again.enqueue({ tool: "shell", args: {}, riskTier: "risky", owner: true, attended: true })).toMatchObject({ owner: true, attended: true });
   });
 
+  it("adds where decisions come from to a table from before, and reads its decided rows as unknown", () => {
+    // The live table's shape before these were kept: every column but the three.
+    ws.db.exec(`DROP TABLE pending_actions`);
+    ws.db.exec(`CREATE TABLE pending_actions (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, args TEXT NOT NULL, risk_tier TEXT NOT NULL, reason TEXT, status TEXT NOT NULL DEFAULT 'pending', user_id TEXT, requested_at INTEGER NOT NULL, decided_at INTEGER, decided_by TEXT, conversation_id TEXT, rule TEXT, picture TEXT, why TEXT, owner INTEGER NOT NULL DEFAULT 0, attended INTEGER NOT NULL DEFAULT 0, waits INTEGER NOT NULL DEFAULT 0, guest TEXT, yours INTEGER NOT NULL DEFAULT 0, reached INTEGER NOT NULL DEFAULT 0, beyond_auto INTEGER NOT NULL DEFAULT 0, secret TEXT)`);
+    ws.db.exec(`INSERT INTO pending_actions (tool, args, risk_tier, status, requested_at, decided_at, decided_by, waits) VALUES ('sql', '{}', 'risky', 'approved', 1, 2, 'owner', 1)`);
+    const older = new ApprovalQueue(ws.db);
+    const columns = (ws.db.prepare(`PRAGMA table_info(pending_actions)`).all() as { name: string }[]).map((c) => c.name);
+    expect(columns).toEqual(expect.arrayContaining(["decided_via", "decided_device", "detached_at"]));
+    expect(older.decided()[0]).toMatchObject({ tool: "sql", decidedBy: "owner", decidedVia: null, decidedDevice: null, detachedAt: null });
+    // Migrated once: opening it again neither fails nor changes the row, and a new decision says where.
+    const again = new ApprovalQueue(ws.db);
+    expect(again.decided()[0]?.decidedVia).toBeNull();
+    const fresh = again.enqueue({ tool: "shell", args: {}, riskTier: "risky" });
+    expect(again.deny(fresh.id, "owner", { via: "sms" })).toMatchObject({ status: "denied", decidedVia: "sms", decidedDevice: null });
+  });
+
+  it("says where every decision came from: a press and its device, Auto, the clock", async () => {
+    const pressed = queue.enqueue({ tool: "files.rm", args: {}, riskTier: "risky" });
+    expect(queue.approve(pressed.id, "owner", { via: "phone", device: "iphone-1" })).toMatchObject({ decidedVia: "phone", decidedDevice: "iphone-1" });
+    expect(queue.settled({ tool: "files.rm", args: {}, riskTier: "risky" }, "auto mode", "auto")).toMatchObject({ status: "approved", decidedBy: "auto mode", decidedVia: "auto" });
+    const waited = queue.enqueue({ tool: "files.rm", args: {}, riskTier: "risky", waits: true });
+    expect(await queue.waitFor(waited.id, 5)).toBe("expired");
+    expect(queue.get(waited.id)).toMatchObject({ decidedVia: "timeout", decidedBy: "timeout" });
+    const old = queue.enqueue({ tool: "files.rm", args: {}, riskTier: "risky" });
+    ws.db.prepare(`UPDATE pending_actions SET requested_at = 0 WHERE id = ?`).run(old.id);
+    expect(queue.expire(1_000).map((a) => [a.id, a.decidedVia])).toEqual([[old.id, "timeout"]]);
+  });
+
+  it("finds the asks a turn held for that no turn of this process waits on, and keeps one to run detached", () => {
+    const held = queue.enqueue({ tool: "sql", args: {}, riskTier: "risky", waits: true });
+    const awaited = queue.enqueue({ tool: "sql", args: {}, riskTier: "risky", waits: true });
+    queue.enqueue({ tool: "sql", args: {}, riskTier: "risky" });
+    void queue.waitFor(awaited.id, 60_000);
+    expect(queue.orphaned().map((a) => a.id)).toEqual([held.id]);
+    expect(queue.awaited()).toEqual([awaited.id]);
+    expect(queue.detach(held.id)?.detachedAt).toEqual(expect.any(Number));
+    // Kept once: not found again, and not detached twice.
+    expect(queue.orphaned()).toEqual([]);
+    expect(queue.detach(held.id)).toBeUndefined();
+    queue.lapse(awaited.id, "stopped");
+  });
+
   it("keeps a browser ask in the owner's Chrome as raised there", () => {
     const there = queue.enqueue({ tool: "browser.handoff", args: {}, riskTier: "risky", yours: true });
     const here = queue.enqueue({ tool: "browser.handoff", args: {}, riskTier: "risky" });
@@ -100,8 +142,8 @@ describe("ApprovalQueue", () => {
     const a = queue.enqueue({ tool: "cron.run", args: { id: 1 }, riskTier: "risky", reason: "runs it" });
     const b = queue.enqueue({ tool: "files.rm", args: { path: "x" }, riskTier: "risky", reason: "outside" });
     queue.enqueue({ tool: "shell", args: {}, riskTier: "risky", reason: "waits" });
-    queue.deny(a.id, "owner");
-    queue.approve(b.id, "owner");
+    queue.deny(a.id, "owner", { via: "dashboard" });
+    queue.approve(b.id, "owner", { via: "dashboard" });
     expect(queue.decided().map((r) => [r.id, r.status])).toEqual([
       [b.id, "approved"],
       [a.id, "denied"],
@@ -120,9 +162,9 @@ describe("ApprovalQueue", () => {
       const ids: number[] = [];
       for (let i = 0; i < 7; i++) {
         const a = queue.enqueue({ tool: i % 2 ? "files.rm" : "cron.run", args: { path: `file-${i}.txt` }, riskTier: "risky", ...(i === 3 ? { reason: "outside the scratch folder" } : {}), picture: "A".repeat(100) });
-        if (i % 3 === 2) queue.deny(a.id, "owner");
+        if (i % 3 === 2) queue.deny(a.id, "owner", { via: "dashboard" });
         else if (i === 6) queue.lapse(a.id, "timeout");
-        else queue.approve(a.id, "owner");
+        else queue.approve(a.id, "owner", { via: "dashboard" });
         ids.push(a.id);
       }
       queue.enqueue({ tool: "still.waiting", args: {}, riskTier: "risky" });
@@ -162,7 +204,7 @@ describe("ApprovalQueue", () => {
   it("pages through asks decided in the same millisecond without losing or repeating one", () => {
     const same = new ApprovalQueue(ws.db, undefined, () => 5_000);
     const ids = [0, 1, 2, 3, 4].map((i) => same.enqueue({ tool: "t", args: { i }, riskTier: "risky" }).id);
-    for (const id of ids) same.approve(id, "owner");
+    for (const id of ids) same.approve(id, "owner", { via: "dashboard" });
     const seen: number[] = [];
     let before: { decidedAt: number; id: number } | undefined;
     for (;;) {
@@ -193,7 +235,7 @@ describe("ApprovalQueue", () => {
 
   it("approves and denies, leaving the queue clear", () => {
     const a = queue.enqueue({ tool: "t", args: {}, riskTier: "risky" });
-    const approved = queue.approve(a.id, "owner");
+    const approved = queue.approve(a.id, "owner", { via: "dashboard" });
     expect(approved?.status).toBe("approved");
     expect(approved?.decidedBy).toBe("owner");
     expect(queue.pending()).toHaveLength(0);
@@ -208,11 +250,11 @@ describe("ApprovalQueue", () => {
     expect(queue.pending()).toHaveLength(0);
     expect(told).toEqual([`${a.id}:expired:timeout`]);
     // Lapsed is decided: the owner's late click lands on nothing.
-    expect(queue.approve(a.id, "owner")).toBeUndefined();
+    expect(queue.approve(a.id, "owner", { via: "dashboard" })).toBeUndefined();
     // A decision that lands first stands, and the waiter hears it.
     const b = queue.enqueue({ tool: "shell", args: { cmd: "rm y" }, riskTier: "risky" });
     const waited = queue.waitFor(b.id, 50);
-    queue.approve(b.id, "owner");
+    queue.approve(b.id, "owner", { via: "dashboard" });
     expect(await waited).toBe("approved");
   });
 
@@ -231,8 +273,8 @@ describe("ApprovalQueue", () => {
 
   it("does not re-decide an already-decided action", () => {
     const a = queue.enqueue({ tool: "t", args: {}, riskTier: "risky" });
-    expect(queue.approve(a.id, "owner")?.status).toBe("approved");
-    expect(queue.deny(a.id, "owner")).toBeUndefined();
+    expect(queue.approve(a.id, "owner", { via: "dashboard" })?.status).toBe("approved");
+    expect(queue.deny(a.id, "owner", { via: "dashboard" })).toBeUndefined();
     expect(queue.get(a.id)?.status).toBe("approved");
   });
 

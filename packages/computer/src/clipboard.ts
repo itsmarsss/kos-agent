@@ -116,7 +116,7 @@ export function registerClipboardRead(ctx: ModuleContext, deps: ClipboardMac): v
     {
       floor: "risky",
       asksAlways: true,
-      awaitedOnly: true,
+      detached: "never",
       refuse: async (input) => {
         if (guestOrigin()) return "A guest's turn never reads the owner's clipboard.";
         if (!isAttended()) return "The clipboard is read only in a turn the owner started and is at: never on a schedule, a dispatch or a timer.";

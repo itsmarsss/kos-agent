@@ -195,6 +195,8 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
         const asked = typeof input.projectSlug === "string" && input.projectSlug ? input.projectSlug : null;
         return asked !== null && asked !== callerProjectOf(deps) ? `schedules work to run as the ${asked} project, not this chat's own` : false;
       },
+      // The schedule is the point: once its chat has stopped, a yes still makes it, its card warning so.
+      detached: "runs",
     },
   );
 

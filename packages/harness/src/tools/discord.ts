@@ -378,6 +378,8 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
       floor: "safe",
       escalate: (input) =>
         input["audience"] === "everyone" ? "everyone on the server would read it" : input["audience"] === "guests" ? "everyone on the server would read and write there" : false,
+      // Who may read the channel is the point: once its chat has stopped, a yes still sets it, its card warning so.
+      detached: "runs",
     },
     { restricted: true },
   );

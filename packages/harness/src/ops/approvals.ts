@@ -1,4 +1,4 @@
-import type { AskSecret } from "@kos/shared";
+import type { AskSecret, DecidedVia, LapseVia } from "@kos/shared";
 
 import type { ToolRegistry } from "../agent/registry.js";
 import type { GuestOrigin } from "../kernel/caller.js";
@@ -80,6 +80,18 @@ export interface PendingAction {
   beyondAuto: boolean;
   /** The secret a secrets tool's ask places, for its card; null for every other ask. */
   secret: AskSecret | null;
+  /** Where the decision came from (see DecidedVia); null while pending, and for a row from before this was kept. */
+  decidedVia: DecidedVia | null;
+  /** The paired device a decision was pressed on, by id, when one was. */
+  decidedDevice: string | null;
+  /** When the turn that waited on it went, for an ask kept to run with none waiting; null otherwise. */
+  detachedAt: number | null;
+}
+
+/** Where a decision was taken: the surface or rule (see DecidedVia), and the paired device, when one pressed it. */
+export interface DecidedHow {
+  via: DecidedVia;
+  device?: string;
 }
 
 /**
@@ -130,10 +142,13 @@ interface Row {
   reached: number;
   beyond_auto: number;
   secret: string | null;
+  decided_via: string | null;
+  decided_device: string | null;
+  detached_at: number | null;
 }
 
 /** Every column a listed action needs: the picture is only whether there is one, read on its own when shown. */
-const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret`;
+const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret, decided_via, decided_device, detached_at`;
 
 /** The most decided asks one page may hold. */
 export const DECIDED_MAX = 500;
@@ -175,6 +190,9 @@ function toAction(row: Row): PendingAction {
     secret: row.secret ? (JSON.parse(row.secret) as AskSecret) : null,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
+    decidedVia: row.decided_via,
+    decidedDevice: row.decided_device,
+    detachedAt: row.detached_at,
   };
 }
 
@@ -249,6 +267,16 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "secret")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN secret TEXT`);
     }
+    // Where each decision came from; a row from before reads as unknown.
+    if (!columns.some((c) => c.name === "decided_via")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN decided_via TEXT`);
+    }
+    if (!columns.some((c) => c.name === "decided_device")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN decided_device TEXT`);
+    }
+    if (!columns.some((c) => c.name === "detached_at")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN detached_at INTEGER`);
+    }
     // The decided history is read by outcome and time, a page at a time: one outcome by the first,
     // every outcome (the Inbox's default page, and its mark) by the second, which holds only what was decided.
     this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_status_decided ON pending_actions (status, decided_at, id)`);
@@ -297,9 +325,9 @@ export class ApprovalQueue {
    * chat's Auto mode let through, by `decidedBy`. Nobody waits on it and
    * nobody is told, since nothing is being asked.
    */
-  settled(input: EnqueueInput, decidedBy: string): PendingAction {
+  settled(input: EnqueueInput, decidedBy: string, via: DecidedVia): PendingAction {
     const action = this.enqueue(input);
-    this.db.prepare(`UPDATE pending_actions SET status = 'approved', decided_at = requested_at, decided_by = ? WHERE id = ?`).run(decidedBy, action.id);
+    this.db.prepare(`UPDATE pending_actions SET status = 'approved', decided_at = requested_at, decided_by = ?, decided_via = ? WHERE id = ?`).run(decidedBy, via, action.id);
     return this.get(action.id)!;
   }
 
@@ -401,7 +429,7 @@ export class ApprovalQueue {
       const timer = setTimeout(() => {
         // Deciding wakes the waiter set below; only a race with a real
         // decision leaves nothing to wake, and then that decision stands.
-        if (!this.decide(id, "expired", "timeout")) {
+        if (!this.lapse(id, "timeout")) {
           this.waiters.delete(id);
           resolve(this.get(id)?.status ?? "expired");
         }
@@ -426,17 +454,43 @@ export class ApprovalQueue {
     return this.waiters.has(id);
   }
 
-  approve(id: number, decidedBy: string): PendingAction | undefined {
-    return this.decide(id, "approved", decidedBy);
+  /** The asks a turn of this process is suspended on, by id. */
+  awaited(): number[] {
+    return [...this.waiters.keys()];
   }
 
-  deny(id: number, decidedBy: string): PendingAction | undefined {
-    return this.decide(id, "denied", decidedBy);
+  /**
+   * Asks a turn held for that no turn of this process waits on, and that
+   * were not yet kept to run detached: what a restart leaves behind.
+   */
+  orphaned(): PendingAction[] {
+    const rows = this.db
+      .prepare(`SELECT ${LIST_COLUMNS} FROM pending_actions WHERE status = 'pending' AND waits = 1 AND detached_at IS NULL ORDER BY id`)
+      .all() as Row[];
+    return rows.map(toAction).filter((a) => !this.waiters.has(a.id));
   }
 
-  /** An ask nothing will act on any more, settled as lapsed: the turn waiting on it was stopped. */
-  lapse(id: number, decidedBy: string): PendingAction | undefined {
-    return this.decide(id, "expired", decidedBy);
+  approve(id: number, decidedBy: string, how: DecidedHow): PendingAction | undefined {
+    return this.decide(id, "approved", decidedBy, how);
+  }
+
+  deny(id: number, decidedBy: string, how: DecidedHow): PendingAction | undefined {
+    return this.decide(id, "denied", decidedBy, how);
+  }
+
+  /** An ask nothing will act on any more, settled as lapsed, and why: the wait ran out, the turn waiting on it was stopped. */
+  lapse(id: number, via: LapseVia): PendingAction | undefined {
+    return this.decide(id, "expired", via, { via });
+  }
+
+  /**
+   * An ask kept pending though the turn that waited on it has gone: a yes
+   * runs it for nobody waiting, so its card says so first. Returns it, or
+   * undefined when it is no longer pending.
+   */
+  detach(id: number): PendingAction | undefined {
+    const info = this.db.prepare(`UPDATE pending_actions SET detached_at = ? WHERE id = ? AND status = 'pending' AND detached_at IS NULL`).run(this.now(), id);
+    return info.changes === 0 ? undefined : this.get(id);
   }
 
   /**
@@ -448,21 +502,22 @@ export class ApprovalQueue {
     const rows = this.db
       .prepare(`SELECT id FROM pending_actions WHERE status = 'pending' AND requested_at <= ? ORDER BY id`)
       .all(this.now() - maxAgeMs) as { id: number }[];
-    return rows.map((r) => this.decide(r.id, "expired", "timeout")).filter((a): a is PendingAction => a !== undefined);
+    return rows.map((r) => this.lapse(r.id, "timeout")).filter((a): a is PendingAction => a !== undefined);
   }
 
   private decide(
     id: number,
     status: ApprovalStatus,
     decidedBy: string,
+    how: DecidedHow,
   ): PendingAction | undefined {
     // Only a still-pending action can be decided (idempotent against races).
     const info = this.db
       .prepare(
-        `UPDATE pending_actions SET status = ?, decided_at = ?, decided_by = ?
+        `UPDATE pending_actions SET status = ?, decided_at = ?, decided_by = ?, decided_via = ?, decided_device = ?
          WHERE id = ? AND status = 'pending'`,
       )
-      .run(status, this.now(), decidedBy, id);
+      .run(status, this.now(), decidedBy, how.via, how.device ?? null, id);
     if (info.changes === 0) return undefined;
     const decided = this.get(id);
     // Before the listeners: whoever is suspended on this should be moving

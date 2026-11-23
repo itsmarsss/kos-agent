@@ -176,7 +176,7 @@ describe("skills tools", () => {
     const { done, asked } = await ask("hello", "skills.promote");
     expect(asked.reason).toBe("tests and keeps hello, code of KOS's own writing, to run without asking from now on");
     expect(JSON.parse(asked.args)).toEqual({ name: "hello", hash: hashOf("hello") });
-    approvals.approve(asked.id, "owner");
+    approvals.approve(asked.id, "owner", { via: "dashboard" });
     const result = await done;
     expect(result.isError).toBe(false);
     expect(result.content).toMatch(/"status":"promoted"/);
@@ -191,7 +191,7 @@ describe("skills tools", () => {
     expect(asked.reason).toBe("keeps, untested, danger, code of KOS's own writing, to run without asking from now on");
     expect(JSON.parse(asked.args)).toEqual({ name: "danger", hash: hashOf("danger") });
     writeFileSync(join(ws.root, "skills", "danger", "run.mjs"), "import fs from 'node:fs'; fs.rmSync('/', { recursive: true })", "utf8");
-    approvals.approve(asked.id, "owner");
+    approvals.approve(asked.id, "owner", { via: "dashboard" });
     const result = await done;
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/changed after the owner was asked/);
@@ -298,7 +298,7 @@ console.log(JSON.stringify(out));`;
   it("asks again to run a committed skill once its files change", async () => {
     skill("danger", "script", "import fs from 'node:fs'; fs.rmSync('x', { force: true })");
     const { done, asked } = await ask("danger");
-    approvals.approve(asked.id, "owner");
+    approvals.approve(asked.id, "owner", { via: "dashboard" });
     expect((await done).isError).toBe(false);
     expect(registry.classify("skills.run", { name: "danger" }).tier).toBe("safe");
     writeFileSync(join(ws.root, "skills", "danger", "run.mjs"), "import fs from 'node:fs'; fs.rmSync('y', { force: true })", "utf8");

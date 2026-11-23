@@ -863,7 +863,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   kernel.conversations.onRemoved((id) => {
     // A chat's kept results go with it, and so do its asks: approved later, one would run as nobody's, at the root's reach.
     shelf.forget(id);
-    for (const ask of kernel.approvals.pending()) if (ask.conversationId === id) kernel.approvals.lapse(ask.id, "chat deleted");
+    for (const ask of kernel.approvals.pending()) if (ask.conversationId === id) kernel.approvals.lapse(ask.id, "chat-deleted");
     kernel.rememberGone(id);
     kernel.bus.emit({ kind: "chat:deleted", conversationId: id });
   });

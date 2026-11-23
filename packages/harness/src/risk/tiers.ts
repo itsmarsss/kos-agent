@@ -72,10 +72,19 @@ export interface ToolRisk {
    */
   audited?: (input: Record<string, unknown>, result: { content: string; isError: boolean }) => { args: Record<string, unknown>; result: string };
   /**
-   * Runs only for the turn waiting on it: an ask decided after its turn
-   * has gone lapses rather than running for nobody, as a secret's does.
+   * What an ask becomes once no turn waits on its answer (decisions.ts,
+   * orphanFate). By default an ask a turn held for lapses when that turn
+   * goes (a restart, a shutdown, a Stop), and one nothing ever waited on (a
+   * schedule's) runs when approved, its card warning so.
+   *
+   * "runs": its effect is the point on its own (a message sent, a schedule
+   * made), so an ask whose turn has gone stays, its card warning that a yes
+   * runs it with the result going to its chat. Never for a call that
+   * deletes or runs code.
+   * "never": it runs only for the turn waiting on it, even a schedule's
+   * ask lapsing rather than running for nobody, as a secret's does.
    */
-  awaitedOnly?: boolean;
+  detached?: "runs" | "never";
   /**
    * The call starts a session on one of the owner's devices. Auto covers it
    * only where the owner also let Auto start sessions; a device that asks on

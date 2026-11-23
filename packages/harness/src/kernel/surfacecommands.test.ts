@@ -103,7 +103,7 @@ describe("commands every surface runs", () => {
     const inbox = await run("/inbox", here.id);
     expect(inbox).toContain(`@approval:${id}`);
     expect(inbox).toContain("(in Cache)");
-    await kernel.deny(id);
+    await kernel.deny(id, undefined, { surface: "dashboard" });
   });
 
   it("goes back to the surface's own chat with /here", async () => {

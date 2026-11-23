@@ -403,7 +403,7 @@ describe("KOS end-to-end flows", () => {
     expect(cronRun()?.status).toBe("running");
     expect(chatRun()?.status).toBe("running");
     const ask = kernel.approvals.pending()[0]!;
-    await kernel.deny(ask.id);
+    await kernel.deny(ask.id, undefined, { surface: "dashboard" });
     await vi.waitFor(() => expect(cronRun()?.status).toBe("error"));
     expect(cronRun()?.error).toBe("It was written to post with notify, and posted nothing: shell: the owner said no");
     expect(chatRun()?.status).not.toBe("running");
@@ -497,7 +497,7 @@ describe("KOS end-to-end flows", () => {
       const first = await kernel.handleMessage("delete the build folder", { sessionId: c.id });
       expect(first.suspended).toBe(true);
       const said = nextSaid();
-      await kernel.deny(kernel.approvals.pending()[0]!.id);
+      await kernel.deny(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
       // The turn reacts in the chat that asked, as the answer after the wait, which every surface posts.
       expect(await said).toEqual({ conversationId: c.id, resumed: true });
       const shown = resultShown(model, "c1")!;
@@ -528,7 +528,7 @@ describe("KOS end-to-end flows", () => {
       // As a restart leaves it: asked in this chat, with no turn left holding for the answer.
       const ask = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "plan.md" }, riskTier: "risky", conversationId: c.id, owner: true, attended: true });
       const said = nextSaid();
-      await kernel.deny(ask.id);
+      await kernel.deny(ask.id, undefined, { surface: "dashboard" });
       // A turn runs in the chat that asked, and its answer is told there.
       expect((await said).conversationId).toBe(c.id);
       expect(model.prompts.at(-1)).toContain(`@approval:${ask.id} Delete plan.md: the owner denied this. It was not done.`);
@@ -2341,7 +2341,7 @@ describe("KOS end-to-end flows", () => {
     expect(kinds).toEqual(["chat:created", "turn:start", "tool:end", "turn:said", "turn:end"]);
     kinds.length = 0;
     const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "a.txt" }, riskTier: "risky" });
-    await kernel.deny(action.id, "owner");
+    await kernel.deny(action.id, "owner", { surface: "dashboard" });
     expect(kinds).toContain("approval:decided");
   });
 
@@ -2350,7 +2350,7 @@ describe("KOS end-to-end flows", () => {
     const settled: unknown[] = [];
     kernel.bus.on("approval:decided", (e) => void settled.push(e));
     const decided = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "a.txt" }, riskTier: "risky" });
-    await kernel.deny(decided.id, "owner");
+    await kernel.deny(decided.id, "owner", { surface: "dashboard" });
     const waited = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "b.txt" }, riskTier: "risky" });
     expect(await kernel.approvals.waitFor(waited.id, 5)).toBe("expired");
     expect(settled).toEqual([
