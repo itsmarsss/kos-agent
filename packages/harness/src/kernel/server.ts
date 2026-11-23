@@ -3021,10 +3021,15 @@ export async function handleApiRequest(
     kernel.conversations.markRead(id);
     // Events, not just spoken turns: a chat view that hides the tool calls
     // shows conclusions with no visible working.
+    const whole = historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id), kernel.actionHome(id));
+    // A long chat is read from its end: `last` events, and how many came before them.
+    const { events, earlier, ownerAbove } = lastEvents(whole, Number(queryParams(req.url).get("last") ?? 0));
     return ok({
       id,
       messages: transcriptOf(kernel, id),
-      events: withFrames(withKeptPaths(kernel, id, historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id), kernel.actionHome(id))), kernel.frames.listFor(id)),
+      events: withFrames(withKeptPaths(kernel, id, events), kernel.frames.listFor(id)),
+      earlier,
+      ownerAbove,
       // Sent but not yet run. Shown after the transcript because that is where
       // they will land, and separately because they have not happened yet.
       pending: kernel.pending.forConversation(id).map((m) => ({
@@ -3368,6 +3373,29 @@ export function mentionsOf(kernel: Kernel, q: string, limit: number, kind?: stri
  * Tool round-trips are kept in the session for the model but are noise here,
  * so only spoken turns come back.
  */
+/**
+ * The newest `last` events of a chat (all of them for none), cut at the
+ * start of a turn so a page never opens on a reply whose question is above
+ * it; the count of those left out; and how many of the owner's messages
+ * KOS still holds above the cut, so a page numbers the rest as a rewind
+ * counts them (from the last line a chat was set aside under).
+ */
+export function lastEvents(events: ChatEvent[], last: number): { events: ChatEvent[]; earlier: number; ownerAbove: number } {
+  if (!Number.isInteger(last) || last <= 0 || events.length <= last) return { events, earlier: 0, ownerAbove: 0 };
+  let start = events.length - last;
+  while (start > 0 && !opensTurn(events[start]!)) start--;
+  let ownerAbove = 0;
+  for (let i = start - 1; i >= 0 && events[i]!.kind !== "divider"; i--) {
+    const e = events[i]!;
+    if (e.kind === "message" && e.role === "you") ownerAbove++;
+  }
+  return { events: events.slice(start), earlier: start, ownerAbove };
+}
+
+function opensTurn(event: ChatEvent): boolean {
+  return event.kind === "divider" || (event.kind === "message" && event.role === "you");
+}
+
 function transcriptOf(
   kernel: Kernel,
   id: string,
