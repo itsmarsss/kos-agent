@@ -2544,7 +2544,12 @@ li:hover .chats-item-when { opacity: 0; }
   overflow-wrap: break-word;
   word-break: normal;
   box-sizing: border-box;
+  /* No lane for a scrollbar: the textarea took one the moment it scrolled
+     and the mirror, which never scrolls by itself, did not, so a full box
+     wrapped its lines six pixels apart. Its thumb is the kit's overlay. */
+  scrollbar-width: none;
 }
+.hl textarea.hl-area::-webkit-scrollbar { display: none; }
 /* The mirror paints the surface and the text; the textarea on top contributes
    only its border, caret and selection. Given a background of its own the
    textarea covered the mirror completely. */
@@ -2558,6 +2563,10 @@ li:hover .chats-item-when { opacity: 0; }
   z-index: 0;
 }
 .hl textarea.hl-area {
+  /* A block, not inline: an inline textarea left a descender's gap under it
+     that the mirror took as height, so at the foot of a long draft the two
+     stopped scrolling six pixels apart. */
+  display: block;
   position: relative;
   z-index: 1;
   width: 100%;

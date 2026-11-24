@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 
+import { overlayScroll } from "@kos/kit";
 import { CHANNEL_TOKEN, MENTION_SOURCE } from "@kos/shared";
 
 /**
@@ -106,6 +107,13 @@ export function HighlightedInput({
     ta.addEventListener("scroll", sync);
     return () => ta.removeEventListener("scroll", sync);
   }, [textareaRef, value]);
+
+  // The textarea has no scrollbar lane (styles.css), so a full box shows
+  // where it is scrolled with the kit's overlay thumb.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    return ta ? overlayScroll(ta) : undefined;
+  }, [textareaRef]);
 
   return (
     <div className="hl">
