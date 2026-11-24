@@ -64,9 +64,9 @@
   --text-md: 0.875rem;    /* controls and anything you read a sentence of */
   --text-lg: 0.9375rem;   /* section titles */
   --text-xl: 1.125rem;    /* page titles */
-  --text-2xl: 1.375rem;
+  --text-2xl: 1.375rem;   /* the one heading on a page */
   /* Code, a path, an id or a chip set inside a line of words, against its size (INLINE_EM). */
-  --text-inline: 0.92em;   /* the one heading on a page */
+  --text-inline: 0.92em;
 }
 
 /*
@@ -2519,7 +2519,8 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 /* The dots take the timestamp's place rather than sitting on top of it: both
    are in the same corner. They swap in one frame, both ways: faded across
    each other, the two were drawn at half strength in one spot. A hidden time
-   takes no pointer, so its card never opens over the dots. */
+   takes no pointer, so its card never opens over the dots. A row with no
+   menu (a stream, a schedule) keeps its time. */
 li:hover .chats-more,
 .chats-more:focus-visible,
 .chats-more[aria-expanded="true"] {
@@ -2527,7 +2528,7 @@ li:hover .chats-more,
   color: var(--muted);
 }
 @media (hover: hover) {
-  li:is(:hover, :has(.chats-more:focus-visible, .chats-more[aria-expanded="true"])) .chats-item-when { visibility: hidden; }
+  li:has(.chats-more):is(:hover, :has(.chats-more:focus-visible, .chats-more[aria-expanded="true"])) .chats-item-when { visibility: hidden; }
 }
 .chats-more:active:not(:disabled) { transform: translateY(-50%) scale(var(--press-scale)); }
 .chats-more:hover,
@@ -7168,8 +7169,6 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .chats-rail-loading { padding: 0.5rem 0.4rem; gap: 6px; }
 .chats-list--root .chats-scroll ul { flex: none; overflow: visible; padding: 0; }
 .chats-list--root ul.chats-streams { padding: 0.1rem 0 0.3rem; }
-/* A stream has no menu, so its time stays put on hover. */
-.chats-streams li:hover .chats-item-when { visibility: visible; }
 
 .chats-lead { flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center; }
 /* A slot only in the root rail, where dots line up with faces and marks; a
