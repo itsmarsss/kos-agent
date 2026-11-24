@@ -2025,7 +2025,7 @@ select {
 .feed-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed-detail { color: var(--faint); font-size: var(--text-md); }
 .feed-detail code { font-family: var(--mono); }
-.feed-when { color: var(--faint); font-size: var(--text-base); width: 4.5rem; text-align: right; flex-shrink: 0; }
+.feed-when { color: var(--faint); font-size: var(--text-sm); width: 4.5rem; text-align: right; flex-shrink: 0; }
 .feed-item--bad .feed-what { color: var(--danger); }
 
 /* —— chat sheet —— */
@@ -2744,7 +2744,7 @@ li:hover .chats-more,
 }
 .chats-item-when {
   color: var(--faint);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
 }
 /* Messages waiting behind the turn, beside the dot that says it is running. */
 .chats-queued {
@@ -3190,7 +3190,7 @@ li:hover .chats-more,
   gap: 0.5rem;
 }
 /* A subject under a section's head, a step below it: the section's 15/600 over this 14/600. */
-.settings-group-head strong { font-size: var(--text-md); font-weight: 600; }
+.settings-group-head strong { font-size: var(--text-lg); font-weight: 600; }
 .settings-row { display: flex; gap: 0.6rem; }
 .settings-row .kos-field { flex: 1; min-width: 0; }
 .settings-now {
@@ -3788,8 +3788,8 @@ li:hover .chats-more,
 .spend-table th {
   text-align: left;
   color: var(--faint);
-  font-weight: 500;
-  font-size: var(--text-sm);
+  font-weight: 600;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 0.35rem 0.5rem;
@@ -4658,7 +4658,6 @@ body.is-arranging { user-select: none; }
 .panel-row-project { color: var(--faint); font-size: var(--text-xs); }
 /* A project's jobs in its rail: a row like a thread's, the schedule where the time would be. */
 .chats-job { width: 100%; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
-.chats-job .chats-item-when { font-size: var(--text-xs); }
 
 /* The map: KOS between what it is made of and what it keeps. */
 .map { display: block; margin: 0.25rem auto 0; font-family: inherit; }
@@ -5722,7 +5721,7 @@ a.health {
 .recall-pin { flex: none; display: inline-flex; color: var(--accent); }
 .recall-tags { flex: none; display: inline-flex; align-items: center; gap: 0.3rem; }
 .recall-tags .tag { padding: 0 0.45rem; font-size: var(--text-xs); color: var(--muted); }
-.recall-when { color: var(--faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.recall-when { color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .recall-item-text {
   margin: 0;
   display: -webkit-box;
@@ -6035,7 +6034,7 @@ a.health {
   flex-direction: column;
   gap: 0.3rem;
 }
-.chats-welcome-title { margin: 0; color: var(--text); font-size: var(--text-2xl); font-weight: 600; }
+.chats-welcome-title { margin: 0; color: var(--text); font-size: var(--text-2xl); font-weight: var(--title-weight); letter-spacing: -0.02em; }
 .chats-welcome-sub {
   margin: 0;
   color: var(--muted);
@@ -6061,6 +6060,8 @@ a.health {
 .chats-welcome .hint { margin: 0; }
 .chats-welcome-recent li { min-width: 0; max-width: 100%; }
 .chats-welcome-recent li > * { max-width: 100%; }
+/* A chat's chip on its own line, not in words: set at the chips' step rather than against the words around it. */
+.chats-welcome-recent .chip-ref { font-size: var(--text-sm); }
 
 /* —— the chat header's lineage —— */
 .chats-toggle { display: inline-flex; align-items: center; justify-content: center; }
@@ -7464,7 +7465,7 @@ html.has-presenter { overflow: hidden; }
 .artifact-outline-cell[data-type="custom_html"] { height: 82px; }
 .artifact-outline-cell[data-type="custom_html"]::after { inset: 8px; border: 1px dashed var(--sketch); }
 .artifact-card-body { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 11px; min-width: 0; }
-.artifact-card-title { font-size: var(--text-md); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--hover); }
+.artifact-card-title { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--hover); }
 .artifact-card-desc { color: var(--muted); font-size: var(--text-base); line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* One quiet line, kind · owner · time, at the card's foot whatever is above it. */
 .artifact-card-meta { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 5px; color: var(--faint); font-size: var(--text-sm); min-width: 0; white-space: nowrap; }
@@ -7568,7 +7569,7 @@ button.artifact-view-owner { cursor: pointer; }
 button.artifact-view-owner:hover { color: var(--text); background: var(--panel-2); }
 button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .artifact-view-sep { display: inline-flex; flex: none; color: var(--faint); margin-left: -2px; }
-.artifact-view-title { margin: 0; min-width: 0; font-size: var(--text-xl); font-weight: var(--title-weight); letter-spacing: -0.01em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.artifact-view-title { margin: 0; min-width: 0; font-size: var(--text-xl); font-weight: var(--title-weight); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .artifact-view-meta { display: inline-flex; align-items: center; gap: 8px; flex: none; color: var(--faint); font-size: var(--text-sm); white-space: nowrap; }
 .artifact-view-acts { display: flex; align-items: center; gap: 4px; flex: none; }
 .artifact-view-acts .btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-dim); }
@@ -7751,7 +7752,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder-nav { display: flex; align-items: center; gap: 0.1rem; min-width: 0; flex: 1 1 0; }
 .finder-title { display: flex; min-width: 0; flex: 1 1 auto; margin: 0 0 0 0.3rem; font-size: var(--text-lg); font-weight: 600; }
 /* On the Files page the folder is the page's title: a workspace head's size and weight, as a chat's and an artifact's. */
-.ops-page--full > .finder :is(.finder-title-words, .finder-where-crumbs .finder-crumb.is-here) { font-size: var(--text-xl); font-weight: var(--title-weight); }
+.ops-page--full > .finder :is(.finder-title-words, .finder-where-crumbs .finder-crumb.is-here) { font-size: var(--text-2xl); font-weight: var(--title-weight); letter-spacing: -0.02em; }
 .finder-title-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .finder-tools { display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; flex: 0 1 auto; min-width: 0; }
 .finder-tools-wide, .finder-tools-narrow { display: contents; }
