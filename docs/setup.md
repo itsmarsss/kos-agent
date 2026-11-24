@@ -248,7 +248,8 @@ grep -cE '^(ANTHROPIC_API_KEY|OPENAI_API_KEY)=.' .env
 kos doctor
 ```
 
-Expect `ok` on node, ripgrep, the builds, `.env` and the workspace, and
+Expect `ok` on node, ripgrep, the builds, the env file, credential file
+modes and the workspace, and
 `All checks passed.` The `model API key` line checks only the Anthropic and
 OpenAI keys, so it fails on a custom endpoint or the subscription engine
 alone; that is expected there. `semantic memory` fails without an OpenAI or

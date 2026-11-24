@@ -54,7 +54,11 @@ Every request that changes something carries this boot's write key
 no Origin is not the owner. KOS writes the key into the dashboard page it
 serves and into a file only you can read (0600, `KOS_WRITE_KEY_FILE`),
 which the kos CLI and the dev server's proxy read and every jailed program
-is denied; it is never in the environment. In the container, where the
+is denied; it is never in the environment. It is new each boot and lives
+no longer: the dashboard renews it from the page on a 403. It is a guard
+against a cross-site request, not authentication: any program of the
+owner's account outside the jail can fetch the page and read it. KOS
+scrubs it like any credential, so a pasted copy is masked. In the container, where the
 agent's programs share loopback with KOS, there is no key: every change
 needs `KOS_DASHBOARD_TOKEN`. A tab without it is asked for it before the
 dashboard draws (and again whenever KOS answers 401); it is also in
@@ -111,6 +115,16 @@ encoded, is replaced by `[secret name]` before the model or a log sees it; so
 are the harness's own credentials (bot and dashboard tokens, device keys, any
 env var ending in TOKEN, KEY, SECRET or PASSWORD).
 
+On disk, the host makes `~/.kos`, `~/.kos/locks` and `~/.kos/run` 0700 and
+every file in them 0600 at each start. `kos doctor` fails when a credential
+file or folder is open to others (the env file, `~/.kos` and its keys, the
+vault's folder, a key file an env var names, and a pick's credential
+files such as Google's OAuth client and tokens), and warns, by path alone,
+when the env file is in a folder a sync client may copy (iCloud Drive, a
+cloud storage client, Dropbox, Google Drive, OneDrive, or Desktop and
+Documents, which iCloud syncs when asked), and when Claude Code transcripts
+from before KOS turned them off are still on disk.
+
 ## Behaviour (Settings, Behaviour)
 
 Whether KOS tries to fix a failing job on its own, steps per turn and per
@@ -137,5 +151,5 @@ kos once "message"                 one message
 kos module install|update|remove|list
 kos eval memory [--agent] | dream | observe
 kos memory-mcp                     memory as an MCP server (KOS_CALLER_TOKEN=kosc_...)
-kos doctor                         preflight
+kos doctor                         preflight, and credential hygiene: modes, env file location, old transcripts
 ```

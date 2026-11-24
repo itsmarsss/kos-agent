@@ -62,6 +62,7 @@ type PanelSurface = "chrome" | "mac" | "phone";
 
 import { deviceUpdates } from "./deviceupdates.js";
 import { credentialsDir, envFilePath } from "./env.js";
+import { tightenKosHome } from "./hygiene.js";
 import { ThreadMirror } from "./threadmirror.js";
 import { pingsOwner, postInPlace, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
@@ -434,6 +435,9 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   const refused = bindRefusal(options.host, options.token);
   if (refused) throw new Error(refused);
   keepRunning();
+  // ~/.kos and its locks are the owner's alone, whatever an older KOS or a umask left them.
+  const tightened = tightenKosHome();
+  if (tightened.length) console.log(`kos: made ${tightened.length} path(s) in ~/.kos owner-only: ${tightened.join(", ")}`);
   // The port this host answers on, for the jail to keep every program it runs away from (sandbox/jail.ts kosPorts).
   process.env.KOS_PORT = String(options.port);
 
