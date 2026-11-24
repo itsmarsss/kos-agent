@@ -413,6 +413,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     { label: "Get Info", act: () => setInfoPath(here), divided: true },
     { label: "Copy path", act: () => ops.copyPath([here]) },
     ...(onAsk ? [{ label: "Ask KOS about this folder", act: () => onAsk([here]), divided: true }] : []),
+    // A panel's way to the Files page from the folder it is in, not only from its root (the head's Open in Files).
+    ...(onOpenInFiles ? [{ label: "Open in Files", act: () => onOpenInFiles(here), ...(onAsk ? {} : { divided: true }) }] : []),
     ...(holdsOwn ? [{ label: "Show KOS's files", act: () => setShowOwn(!showOwn), checked: showOwn, divided: true }] : []),
   ];
 

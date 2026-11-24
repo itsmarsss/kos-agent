@@ -123,6 +123,15 @@ describe("the finder", () => {
     expect(second.defaultPrevented).toBe(false);
   });
 
+  it("opens the folder it is in on the Files page from a panel's menu", async () => {
+    const onOpenInFiles = vi.fn();
+    render(<Finder root="projects/garden" rootName="Garden" path="projects/garden/beds" sidebar={false} onOpenInFiles={onOpenInFiles} />);
+    await screen.findByText("bed-1.md");
+    fireEvent.contextMenu(main(), { button: 2, clientX: 5, clientY: 5 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open in Files" }));
+    expect(onOpenInFiles).toHaveBeenCalledWith("projects/garden/beds");
+  });
+
   it("goes to a name as it is typed", async () => {
     await openGarden();
     key("p");
