@@ -590,7 +590,8 @@ select {
  */
 .ops-toasts {
   position: fixed;
-  top: calc(3.5rem + env(safe-area-inset-top, 0px));
+  /* Clear of the head's own buttons (Arrange, New schedule), which reach a little past its 3.5rem. */
+  top: calc(4.25rem + env(safe-area-inset-top, 0px));
   bottom: auto;
   right: 1rem;
   left: auto;
