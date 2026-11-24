@@ -224,6 +224,35 @@ export function indexMac(dek: Buffer, doc: Pick<VaultFile, "version" | "vault" |
   }
 }
 
+/**
+ * The data key's commitment, kept in both sequence records and never in the
+ * vault file: HKDF-SHA256(DEK, empty salt, info `kos-vault/2 commit|<vault>`,
+ * 16) as hex. A vault forged whole (its own data key, sealed to the points
+ * the real one shows, its MAC under that key) does not match it, so it is
+ * refused though the owner's passphrase or Mac would open its slots.
+ */
+export function commitOf(dek: Buffer, vault: string): string {
+  return Buffer.from(hkdfSync("sha256", dek, Buffer.alloc(0), `kos-vault/2 commit|${vault}`, 16)).toString("hex");
+}
+
+/** One sequence record: the vault it is of, the highest sequence written, and the data keys it vouches for. */
+interface SeqRecord {
+  vault: string;
+  seq: number;
+  /** None in a record written before commitments: such a record vouches for a version 1 file alone. */
+  commits?: string[];
+}
+
+function parseRecord(text: string): SeqRecord | undefined {
+  const [vault, seq, commits, extra] = text.trim().split(" ");
+  if (!vault || !seq || !/^\d+$/.test(seq) || extra !== undefined) return undefined;
+  const list = commits?.split(",").filter((c) => /^[0-9a-f]{32}$/.test(c));
+  if (commits !== undefined && !list?.length) return undefined;
+  return { vault, seq: Number(seq), ...(list ? { commits: list } : {}) };
+}
+
+const recordLine = (r: SeqRecord): string => `${r.vault} ${r.seq}${r.commits ? ` ${r.commits.join(",")}` : ""}\n`;
+
 export function passphraseKek(passphrase: string, salt: Buffer, params: { N: number; r: number; p: number } = SCRYPT): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     scrypt(passphrase.normalize("NFC"), salt, 32, { ...params, maxmem: SCRYPT_MAXMEM }, (err, key) => (err ? reject(err) : resolve(key)));
@@ -539,14 +568,14 @@ export class Vault {
     if (!dek) throw new VaultError("locked", "the vault does not open with what was given, so its sequence cannot be vouched for");
     const given = unb64(doc.index.mac);
     const sound = given.length === 32 && timingSafeEqual(given, unb64(indexMac(dek, doc, doc.index.seq)));
+    const commit = commitOf(dek, doc.vault);
     dek.fill(0);
     if (!sound) throw new VaultError("tampered", "the vault's index does not match its entries, so there is no sequence to trust");
     this.locked(() => {
       // The file under the lock must still be the one just checked.
       const now = this.doc;
       if (!now || now.vault !== doc.vault || now.index.seq !== doc.index.seq || now.index.mac !== doc.index.mac) throw new VaultError("tampered", "the vault changed while it was being checked; run trust-seq again");
-      writeAtomic(this.seqPath, `${doc.vault} ${doc.index.seq}\n`, this.dir);
-      writeAtomic(this.seqCopy, `${doc.vault} ${doc.index.seq}\n`, dirname(this.seqCopy));
+      this.writeRecords({ vault: doc.vault, seq: doc.index.seq, commits: [commit] });
       this.stamp = "";
       this.refresh();
     });
@@ -986,8 +1015,28 @@ export class Vault {
   private writable(): { doc: VaultFile; dek: Buffer } {
     const ready = this.ready();
     if (ready.doc.version === VAULT_VERSION) return ready;
-    this.reseal({});
+    this.migrate(ready.doc, ready.dek);
     return this.ready();
+  }
+
+  /**
+   * Version 1 made version 2 under the same data key: every entry sealed
+   * again under version 2's AAD, every slot in version 2's form. The version
+   * 1 file is kept as `.prev` (it opens with the same key, and is older, so
+   * it is refused if put back) until the next change of keys erases it.
+   */
+  private migrate(doc: VaultFile, dek: Buffer): void {
+    const entries = doc.entries.map((e) => {
+      const plain = this.openEntry(doc, dek, e);
+      try {
+        const nonce = randomBytes(12);
+        return { id: e.id, nonce: b64(nonce), ct: b64(seal(dek, nonce, plain, entryAad(doc.vault, e.id, doc.dek))) };
+      } finally {
+        plain.fill(0);
+      }
+    });
+    const made = this.rewrapAll(doc, dek, dek, doc.dek);
+    this.write({ ...doc, version: VAULT_VERSION, slots: made.slots, entries }, dek, made.opener);
   }
 
   /**
@@ -1279,16 +1328,52 @@ export class Vault {
   private highWater(vault: string): { seq: number; missing: number } {
     let seq = 0;
     let missing = 0;
-    for (const path of [this.seqPath, this.seqCopy]) {
-      if (!existsSync(path)) {
-        missing++;
-        continue;
-      }
-      const [id, n] = readPrivate(path).trim().split(" ");
-      if (id === vault && n && /^\d+$/.test(n)) seq = Math.max(seq, Number(n));
+    for (const { record } of this.records()) {
+      if (record?.vault === vault) seq = Math.max(seq, record.seq);
       else missing++;
     }
     return { seq, missing };
+  }
+
+  /** Both sequence records as they read: undefined for one that is missing or does not read. */
+  private records(): { path: string; outside: boolean; record: SeqRecord | undefined }[] {
+    return [this.seqPath, this.seqCopy].map((path) => ({ path, outside: path === this.seqCopy, record: existsSync(path) ? parseRecord(readPrivate(path)) : undefined }));
+  }
+
+  private writeRecords(record: SeqRecord): void {
+    writeAtomic(this.seqPath, recordLine(record), this.dir);
+    writeAtomic(this.seqCopy, recordLine(record), dirname(this.seqCopy));
+  }
+
+  /**
+   * The sequence records' word on a file: neither of another vault, neither
+   * higher, and, where a record has commitments, its data key among them. A
+   * version 2 file needs the record outside the folder, which a forger with
+   * the folder alone cannot write. Returns the warning for one missing.
+   */
+  private checkRecords(doc: VaultFile, dek: Buffer): string | undefined {
+    const records = this.records();
+    const commit = commitOf(dek, doc.vault);
+    const trust = "; if this is the vault you expect (a copy you restored), run kos secrets trust-seq";
+    for (const { path, record } of records) {
+      if (!record) continue;
+      if (record.vault !== doc.vault) throw new VaultError("tampered", `the vault file is not the one KOS wrote here (${path} names another vault)${trust}`);
+      if (doc.index.seq < record.seq) throw new VaultError("tampered", `the vault file is older than one KOS wrote (sequence ${doc.index.seq}, last ${record.seq}): an old copy was put back`);
+      if (record.commits ? !record.commits.includes(commit) : doc.version !== 1) {
+        throw new VaultError("tampered", `the vault file's data key is not the one KOS last wrote (${path}): it was replaced outside KOS${trust}`);
+      }
+    }
+    const missing = records.filter((r) => !r.record);
+    // Both gone: nothing says this is not an old copy, so it waits for the owner to say it is the one.
+    if (missing.length === 2 && doc.index.seq > 0) {
+      throw new VaultError("tampered", `both records of the vault's last sequence are missing (${this.seqPath} and ${this.seqCopy}), so an older copy put back could not be told from this one${trust}`);
+    }
+    if (doc.version !== 1 && missing.some((r) => r.outside)) {
+      throw new VaultError("tampered", `the record of the vault's data key outside its folder (${this.seqCopy}) is missing, so a vault put in its place could not be told from this one${trust}`);
+    }
+    return missing.length && doc.index.seq > 0
+      ? `a record of the vault's last sequence is missing (${missing[0]!.path}), so an older copy put back could not be told from this one; the next change writes it again`
+      : undefined;
   }
 
   /** Every check a file read from disk must pass before anything in it is believed. */
@@ -1296,18 +1381,7 @@ export class Vault {
     const mac = indexMac(dek, doc, doc.index.seq);
     const given = unb64(doc.index.mac);
     if (given.length !== 32 || !timingSafeEqual(given, unb64(mac))) throw new VaultError("tampered", "the vault's index does not match its entries: one was dropped, added or changed outside KOS");
-    const seen = this.highWater(doc.vault);
-    if (doc.index.seq < seen.seq) {
-      throw new VaultError("tampered", `the vault file is older than one KOS wrote (sequence ${doc.index.seq}, last ${seen.seq}): an old copy was put back`);
-    }
-    // Both gone: nothing says this is not an old copy, so it waits for the owner to say it is the one.
-    if (seen.missing === 2 && doc.index.seq > 0) {
-      throw new VaultError("tampered", `both records of the vault's last sequence are missing (${this.seqPath} and ${this.seqCopy}), so an older copy put back could not be told from this one; if this is the vault you expect, run kos secrets trust-seq`);
-    }
-    this.warning =
-      seen.missing > 0 && doc.index.seq > 0
-        ? `a record of the vault's last sequence is missing (${this.seqPath} or ${this.seqCopy}), so an older copy put back could not be told from this one; the next change writes it again`
-        : undefined;
+    this.warning = this.checkRecords(doc, dek);
     const held = new Map<string, Held>();
     for (const entry of doc.entries) {
       const plain = this.openEntry(doc, dek, entry);
@@ -1415,15 +1489,19 @@ export class Vault {
    * it would still open with a key that should no longer open anything.
    */
   private write(doc: VaultFile, dek: Buffer, opener: Opener, dropPrev = false): void {
-    const seq = Math.max(doc.index.seq, this.highWater(doc.vault).seq) + 1;
+    const high = this.highWater(doc.vault).seq;
+    const seq = Math.max(doc.index.seq, high) + 1;
     const next: VaultFile = { ...doc, index: { seq, mac: indexMac(dek, doc, seq) } };
+    const commit = commitOf(dek, doc.vault);
+    const before = this.dek && this.doc?.vault === doc.vault ? commitOf(this.dek, doc.vault) : undefined;
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     if (dropPrev) shred(this.prev);
     else if (existsSync(this.file)) copyAtomic(this.file, this.prev, this.dir);
+    // A new data key is vouched for beside the old before the vault changes, so a crash between leaves either file opening.
+    if (before && before !== commit) this.writeRecords({ vault: doc.vault, seq: high, commits: [before, commit] });
     // The vault first, then each sequence record: a crash between leaves a record lower than the vault, never higher.
     writeAtomic(this.file, `${JSON.stringify(next, null, 2)}\n`, this.dir);
-    writeAtomic(this.seqPath, `${next.vault} ${seq}\n`, this.dir);
-    writeAtomic(this.seqCopy, `${next.vault} ${seq}\n`, dirname(this.seqCopy));
+    this.writeRecords({ vault: next.vault, seq, commits: [commit] });
     if (this.dek && this.dek !== dek) this.dek.fill(0);
     if (this.opener && this.opener.kek !== opener.kek) this.opener.kek.fill(0);
     this.dek = dek;

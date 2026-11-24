@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { entryAad, indexKey, indexMac, passphraseKek, seal, sealDek, slotAad, unseal, Vault, VaultError, type DeviceUnwrapper, type VaultFile } from "./vault.js";
+import { commitOf, entryAad, indexKey, indexMac, passphraseKek, seal, sealDek, slotAad, unseal, Vault, VaultError, type DeviceUnwrapper, type VaultFile } from "./vault.js";
 import { deviceInfo, keyFrom, openFromDevice, p256Pair, passphraseScalar, sealToHost, type P256Pair } from "./vaultkeys.js";
 
 const range = (start: number, n: number): Buffer => Buffer.from(Array.from({ length: n }, (_, i) => (start + i) & 255));
@@ -615,9 +615,10 @@ describe("Vault version 1", () => {
     vault.add({ label: "GitHub", kind: "login", values: { password: "pw-correct-horse" } });
     const doc = fileOf();
     expect(doc.version).toBe(2);
-    expect(doc.dek).toBe("k2");
-    // The version 1 copy under the old data key is gone: .prev is the reseal's, from before the add.
-    expect((JSON.parse(readFileSync(join(dir, "vault.kosv.prev"), "utf8")) as VaultFile).version).toBe(2);
+    // The same data key, wrapped again: the version 1 file is kept as .prev until a change of keys, and refused if put back.
+    expect(doc.dek).toBe("k1");
+    const prev = readFileSync(join(dir, "vault.kosv.prev"), "utf8");
+    expect((JSON.parse(prev) as VaultFile).version).toBe(2);
     const fresh = vaultAt();
     expect(fresh.status().state).toBe("ready");
     expect(fresh.value("stripe-ab12", "token")).toBe(token);
@@ -760,6 +761,70 @@ describe("Vault device slots", () => {
     expect(await fresh.unlockWithDevice(mac.unwrap)).toBe(false);
     expect(fresh.status().state).toBe("locked");
   }, 30_000);
+
+  /**
+   * The forgery the review found: a whole vault made by someone who can write
+   * the file but holds no key, its own data key sealed to the points the real
+   * one shows, its MAC under that key, at a higher sequence or under another
+   * vault id. The owner's passphrase and Mac would open its slots; the data
+   * key's commitment in the sequence record outside the folder refuses it.
+   */
+  function forge(over: { vault?: string; seq?: number } = {}): void {
+    const real = fileOf();
+    const vault = over.vault ?? real.vault;
+    const dek = range(0xc0, 32);
+    const slots = real.slots.map((slot) => {
+      if (!("key" in slot)) return slot;
+      const sealed = sealDek(Buffer.from(slot.key, "base64"), dek, slot.kind === "device" ? deviceInfo(vault, slot.id) : `kos-vault/2 passphrase|${vault}|${slot.id}`, slotAad(vault, slot.id, real.dek));
+      return { ...slot, wrap: sealed.wrap };
+    });
+    const record = { handle: "openai-f0rg", label: "OpenAI", kind: "apikey", values: { token: "sk-attacker-0123456789" }, use: { web: { origins: [], frames: [] }, apps: [], http: { hosts: [] }, harness: "openai" }, policy: { ask: "always", unattended: true, chats: null, grants: [] }, hint: "••••6789", createdAt: 1, updatedAt: 1, version: 1 };
+    const nonce = range(0x10, 12);
+    const entries = [{ id: "e_00000000000000f1", nonce: nonce.toString("base64"), ct: seal(dek, nonce, Buffer.from(JSON.stringify(record)), entryAad(vault, "e_00000000000000f1", real.dek)).toString("base64") }];
+    const doc = { format: "kos-vault" as const, version: 2 as const, vault, dek: real.dek, slots, entries };
+    const seq = over.seq ?? real.index.seq + 10;
+    writeFile({ ...doc, index: { seq, mac: indexMac(dek, doc, seq) } });
+  }
+
+  it("refuses a vault forged whole, though the owner's passphrase and Mac open its slots", async () => {
+    const { mac } = await withMac();
+    expect(readFileSync(`${dir}.seq`, "utf8")).toMatch(/ [0-9a-f]{32}\n$/);
+    forge();
+    const fresh = vaultAt();
+    await expect(fresh.unlock(PASS)).rejects.toMatchObject({ code: "tampered", message: expect.stringMatching(/data key is not the one KOS last wrote/) });
+    expect(await vaultAt().unlockWithDevice(mac.unwrap)).toBe(false);
+    // Under another vault id, at sequence 0.
+    forge({ vault: "v_00000000000000ff", seq: 0 });
+    await expect(vaultAt().unlock(PASS)).rejects.toMatchObject({ code: "tampered", message: expect.stringMatching(/names another vault/) });
+    // The folder's own record rewritten by the forger does not help: the one outside it still refuses.
+    forge();
+    const forged = fileOf();
+    writeFileSync(join(dir, "seq"), `${forged.vault} ${forged.index.seq} ${commitOf(range(0xc0, 32), forged.vault)}\n`);
+    await expect(vaultAt().unlock(PASS)).rejects.toMatchObject({ code: "tampered" });
+    rmSync(`${dir}.seq`);
+    await expect(vaultAt().unlock(PASS)).rejects.toMatchObject({ code: "tampered", message: expect.stringMatching(/outside its folder/) });
+  }, 30_000);
+
+  it("opens either file when a change of data key is cut short", async () => {
+    await withMac();
+    const vault = vaultAt();
+    await vault.unlock(PASS);
+    const [id, oldSeq, oldCommit] = readFileSync(`${dir}.seq`, "utf8").trim().split(" ");
+    const oldFile = readFileSync(join(dir, "vault.kosv"));
+    vault.rotateDataKey();
+    const newFile = readFileSync(join(dir, "vault.kosv"));
+    const newCommit = readFileSync(`${dir}.seq`, "utf8").trim().split(" ")[2];
+    expect(newCommit).not.toBe(oldCommit);
+    // As the records stand between the first record write and the vault's: both keys vouched for, at the old sequence.
+    const between = `${id} ${oldSeq} ${oldCommit},${newCommit}\n`;
+    for (const file of [oldFile, newFile]) {
+      writeFileSync(join(dir, "vault.kosv"), file);
+      for (const path of [join(dir, "seq"), `${dir}.seq`]) writeFileSync(path, between);
+      const fresh = vaultAt();
+      await fresh.unlock(PASS);
+      expect(fresh.status().state).toBe("ready");
+    }
+  }, 60_000);
 
   it("refuses a device slot renamed or re-pointed in the file", async () => {
     await withMac();
