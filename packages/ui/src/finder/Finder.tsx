@@ -547,9 +547,11 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
       keyMenu();
       return;
     }
+    // Escape takes back one thing here, and with nothing to take back is left to what holds the list (the side panel's drawer).
     if (e.key === "Escape") {
       if (looking) setLooking(false);
-      else setSel(EMPTY_SELECTION);
+      else if (sel.paths.length) setSel(EMPTY_SELECTION);
+      else return;
       handled();
       return;
     }

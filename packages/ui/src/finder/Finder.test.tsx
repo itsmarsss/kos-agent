@@ -111,6 +111,18 @@ describe("the finder", () => {
     expect(chosen()).toEqual(["projects/garden/b.txt"]);
   });
 
+  it("clears the choice on Escape, and leaves a second Escape to what holds it", async () => {
+    await openGarden();
+    fireEvent.mouseDown(row("projects/garden/a.md"));
+    const first = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => void main().dispatchEvent(first));
+    expect(first.defaultPrevented).toBe(true);
+    expect(chosen()).toEqual([]);
+    const second = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => void main().dispatchEvent(second));
+    expect(second.defaultPrevented).toBe(false);
+  });
+
   it("goes to a name as it is typed", async () => {
     await openGarden();
     key("p");
