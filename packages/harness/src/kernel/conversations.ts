@@ -233,6 +233,24 @@ export function standingKind(
   return gone ? "chat" : kind;
 }
 
+/**
+ * Whether a chat is one of a project's own, listed among its chats.
+ *
+ * A blob a project asked for help works in a thread stamped with the
+ * project's slug, because the slug is what lets it read the project's tables
+ * and files for that job. The thread is still the blob's: listed under the
+ * blob, with the project as who asked (askedBy), never among the project's
+ * chats as if the project had made it.
+ */
+export function isProjectChat(conversation: Pick<Conversation, "projectSlug" | "role">, slug: string): boolean {
+  return conversation.projectSlug === slug && conversation.role === null;
+}
+
+/** The project that asked a blob for the work in this thread, when it is such a thread. */
+export function askedBy(conversation: Pick<Conversation, "projectSlug" | "role">): string | null {
+  return conversation.role !== null ? conversation.projectSlug : null;
+}
+
 /** Threads the owner cannot rename, archive or delete. */
 export function isFixed(
   conversation: Pick<Conversation, "id" | "channel">,

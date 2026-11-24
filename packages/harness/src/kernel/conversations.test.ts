@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { ConversationStore, titleFromText } from "./conversations.js";
+import { askedBy, ConversationStore, isProjectChat, titleFromText } from "./conversations.js";
 import { SessionStore } from "./session.js";
 
 describe("titleFromText", () => {
@@ -164,5 +164,21 @@ describe("ConversationStore", () => {
     store.setActive("discord", "owner", a.id);
     store.remove(a.id);
     expect(store.activeFor("discord", "owner")).toBeUndefined();
+  });
+});
+
+describe("whose a thread is", () => {
+  it("keeps a blob's work for a project under the blob, the project only as who asked", () => {
+    // As a blob dispatched from Career was stored before, with no change to the row.
+    const asked = { projectSlug: "interview_prep", role: "follow-ups" };
+    expect(isProjectChat(asked, "interview_prep")).toBe(false);
+    expect(askedBy(asked)).toBe("interview_prep");
+
+    const own = { projectSlug: "interview_prep", role: null };
+    expect(isProjectChat(own, "interview_prep")).toBe(true);
+    expect(isProjectChat(own, "garden")).toBe(false);
+    expect(askedBy(own)).toBeNull();
+    // A blob's own thread is asked by no one.
+    expect(askedBy({ projectSlug: null, role: "follow-ups" })).toBeNull();
   });
 });

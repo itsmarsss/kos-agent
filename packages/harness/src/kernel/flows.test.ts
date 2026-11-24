@@ -15,6 +15,7 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import { BEHAVIOUR_KEY } from "./behaviour.js";
 import type { NotifyPayload } from "../tools/notify.js";
 import { withoutTurnContext } from "./context.js";
+import { askedBy, isProjectChat } from "./conversations.js";
 import { Kernel } from "./kernel.js";
 import { SKILLS_KEY } from "../skills/settings.js";
 import { turnStop } from "./caller.js";
@@ -2013,6 +2014,49 @@ describe("KOS end-to-end flows", () => {
     expect(String(results[2]!.content)).toContain("not its to change");
     expect(String(results[3]!.content)).toContain("not this project's");
     expect(kernel.workspace.db.prepare("SELECT name FROM sqlite_master WHERE name = 'notes_beds'").all()).toEqual([]);
+  });
+
+  it("a blob a project asks works with the project's tables in a thread of the blob's, and the project's chat keeps a line and a card", async () => {
+    // Answered by whose turn it is: the blob's brief marks its own.
+    const blob = [toolCall("b1", "sql", { sql: "SELECT name FROM career_contacts" }), text("Wrote to Sam.")];
+    const project = [toolCall("p1", "blobs.dispatch", { agent: "follow-ups", task: "Draft a thank-you to each contact." }), text("Asked Follow ups.")];
+    const requests: GenerateRequest[] = [];
+    kernel = await boot({
+      async generate(task: Task, request: GenerateRequest): Promise<ModelResponse> {
+        if (task === "cheap") return text('{"facts":[]}');
+        requests.push(request);
+        return ((request.system ?? "").includes("You write follow-ups.") ? blob : project).shift() ?? text("done");
+      },
+    });
+    const career = kernel.standUpProject({ name: "Career", type: "tracker" });
+    kernel.migrator.migrate(career.slug, { op: "create_table", table: "contacts", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "name", type: "TEXT" }] });
+    kernel.workspace.db.prepare(`INSERT INTO ${career.slug}_contacts (name) VALUES (?)`).run("Sam");
+    kernel.roles.write({ name: "follow-ups", description: "Writes follow-ups", brief: "You write follow-ups.", memory: "shared" });
+
+    await kernel.handleProjectTurn(career.slug, "have follow-ups thank my contacts");
+    const thread = kernel.conversations.list("owner").find((c) => c.role === "follow-ups" && c.id !== "agent:follow-ups")!;
+    await vi.waitFor(() => expect(JSON.stringify(kernel.sessions.get(thread.id))).toContain("Wrote to Sam."));
+
+    // Its reach is the project's, as before: it read the project's table.
+    const read = requests.flatMap((r) => r.messages).flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result" && b.toolUseId === "b1") as { content: unknown; isError?: boolean };
+    expect(read.isError).toBeFalsy();
+    expect(JSON.stringify(read.content)).toContain("Sam");
+
+    // The thread is the blob's: asked by Career, never one of Career's chats.
+    expect(thread).toMatchObject({ projectSlug: career.slug, role: "follow-ups" });
+    expect(askedBy(thread)).toBe(career.slug);
+    expect(isProjectChat(thread, career.slug)).toBe(false);
+    const places = kernel.surfaceChannels();
+    expect(places.find((p) => p.key === `project:${career.slug}`)?.threads?.map((t) => t.conversationId)).not.toContain(thread.id);
+    expect(places.find((p) => p.key === "agent:follow-ups")?.threads?.map((t) => t.conversationId)).toEqual([thread.id]);
+    expect((await kernel.runKernelCommand({ kind: "agents" }, career.conversationId, "owner", "dashboard", true)).reply).not.toContain("Follow ups");
+
+    // Where Career asked: a line linking to the thread, then a card of the answer.
+    await vi.waitFor(() => expect(JSON.stringify(kernel.sessions.get(career.conversationId))).toContain("Follow ups answered"));
+    const said = JSON.stringify(kernel.sessions.get(career.conversationId));
+    expect(said).toContain(`Asked Follow ups to draft a thank-you to each contact · Open @chat:[${thread.id}]`);
+    expect(said).toContain("kos:card");
+    expect(said).toContain("Wrote to Sam.");
   });
 
   it("KOS gets a router brief so the hierarchy is a behaviour", async () => {

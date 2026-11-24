@@ -72,6 +72,16 @@ function inScopeFor(deps: ChatToolDeps): (c: { id: string; projectSlug: string |
   };
 }
 
+/**
+ * Whether a thread is among the caller's chats, to list and to put away.
+ * A blob's work for a project is the blob's, listed under the blob: the
+ * project that asked may still read it and ask it more, but it is not one
+ * of the project's chats. The root and Maintenance list everything.
+ */
+function listedFor(deps: ChatToolDeps): (c: { role: string | null }) => boolean {
+  return (c) => c.role === null || reachesAll(deps.scope?.());
+}
+
 export interface ChatToolDeps {
   conversations: ConversationStore;
   sessions: SessionStore;
@@ -202,8 +212,9 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
   const { conversations, sessions, ownerId } = deps;
   const hidden = new Set(deps.hide ?? []);
   const inScope = inScopeFor(deps);
+  const listed = listedFor(deps);
   const visible = (): ReturnType<ConversationStore["list"]> =>
-    conversations.list(ownerId).filter((c) => !hidden.has(c.id) && inScope(c));
+    conversations.list(ownerId).filter((c) => !hidden.has(c.id) && inScope(c) && listed(c));
 
   ctx.registerTool(
     {
@@ -381,6 +392,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
       throw new Error(`${target.title} is ${what} and cannot be ${verb}`);
     }
     if (!inScopeFor(deps)(target)) throw new Error(`${target.title} is not in your reach: it belongs to another project`);
+    if (!listedFor(deps)(target)) throw new Error(`${target.title} is the ${target.role} blob's thread, not this project's, and cannot be ${verb} from here`);
     return target;
   };
 

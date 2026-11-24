@@ -71,6 +71,7 @@ import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled, type SkillSettings } from "../skills/settings.js";
 import {
+  isProjectChat,
   projectConversationId,
   type Conversation,
   type ConversationKind,
@@ -405,7 +406,7 @@ function projectMap(
     if (job.enabled && job.projectSlug) jobs.set(job.projectSlug, (jobs.get(job.projectSlug) ?? 0) + 1);
   }
   return kernel.manifest.list().map((p) => {
-    const mine = threads.filter((c) => c.projectSlug === p.slug);
+    const mine = threads.filter((c) => isProjectChat(c, p.slug));
     return {
       slug: p.slug,
       threads: mine.length,
@@ -2767,11 +2768,11 @@ export async function handleApiRequest(
       // question you open it to ask when a tracker looks wrong.
       activity: kernel.audit.touching(slug, 12),
       folder: `${PROJECTS_DIR}/${slug}`,
-      // Its agents: every thread stamped with its slug except its own
-      // orchestrator, which is the project's chat rather than work under it.
+      // Its agents: its own chats except its orchestrator, which is the
+      // project's chat rather than work under it. A blob it asked is the blob's.
       agents: kernel.conversations
         .list(kernel.profile.ownerId)
-        .filter((c) => c.projectSlug === slug && c.id !== projectConversationId(slug))
+        .filter((c) => isProjectChat(c, slug) && c.id !== projectConversationId(slug))
         .map(conversationLabeller(kernel)),
       files: projectFiles(kernel, slug),
       // What it knows how to do: the skills written for it, so the drawer
