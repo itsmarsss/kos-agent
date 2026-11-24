@@ -1707,7 +1707,7 @@ export const api = {
   startBuild: (dir: string, task: string) =>
     post<{ started: boolean; dir: string }>("/api/builds/start", { dir, task }),
   wakeBuild: (id: number, text: string) =>
-    post<{ woke: boolean; dir: string; resumed: boolean }>("/api/builds/wake", {
+    post<{ woke: boolean; dir: string }>("/api/builds/wake", {
       id,
       text,
     }),

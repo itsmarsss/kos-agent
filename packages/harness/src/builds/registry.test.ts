@@ -35,6 +35,23 @@ describe("builds that are running", () => {
     expect(JSON.stringify(r.get(id)?.events)).not.toContain("sk-build-key");
   });
 
+  it("wakes a finished build with what it was asked, did and touched, scrubbed", () => {
+    const r = new BuildRegistry(undefined, (text) => text.replaceAll("sk-build-key", "[secret k]"));
+    const id = r.start({ dir: "sites/app", task: "build it with sk-build-key", control: control() });
+    r.record(id, { kind: "text", text: "Writing the\npage" });
+    r.record(id, { kind: "result", text: "a wall of output" });
+    r.finish(id, { ok: false, summary: "ran out of turns", files: ["index.html"] });
+    const task = r.wakeTask(id, "finish the page")!;
+    expect(task).toContain("It was asked: build it with [secret k]");
+    expect(task).toContain("It ended failed: ran out of turns");
+    expect(task).toContain("Files it touched: index.html");
+    expect(task).toContain("- Writing the page");
+    expect(task).not.toContain("a wall of output");
+    expect(task).toMatch(/The owner now says: finish the page$/);
+    expect(task).not.toContain("sk-build-key");
+    expect(r.wakeTask(999, "hi")).toBeUndefined();
+  });
+
   /*
    * Waiting on a person is not the same as working, and telling them apart is
    * the reason to look at this page at all: one needs patience, the other

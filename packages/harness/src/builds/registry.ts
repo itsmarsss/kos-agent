@@ -24,8 +24,6 @@ export interface BuildRecord {
   task: string;
   /** The conversation that started it. */
   conversationId?: string;
-  /** The SDK's session, so a finished agent can be woken and carry on. */
-  sessionId?: string;
   status: BuildStatus;
   startedAt: number;
   endedAt?: number;
@@ -59,6 +57,8 @@ export interface BuildRecord {
  * working for ten minutes showed the tail and nothing of how it got there.
  */
 const MAX_EVENTS = 2000;
+/** How many of a finished build's last steps a woken one is told. */
+const WAKE_STEPS = 30;
 /** Finished builds worth still showing, newest first. */
 const MAX_FINISHED = 20;
 
@@ -306,12 +306,29 @@ export class BuildRegistry {
     return true;
   }
 
-  /** Remember the SDK's id for this run, for waking it later. */
-  session(id: number, sessionId: string): void {
+  /**
+   * The task for an agent woken in a finished build's folder: what it was
+   * asked, how it ended, the files it touched and its last steps, then the
+   * owner's new words. Claude Code keeps no transcript (runner.ts), so this,
+   * scrubbed like everything the registry keeps, is what carries it on.
+   */
+  wakeTask(id: number, text: string): string | undefined {
     const record = this.records.get(id);
-    if (!record || record.sessionId === sessionId) return;
-    record.sessionId = sessionId;
-    this.changed(id);
+    if (!record) return undefined;
+    const steps = record.events
+      .filter((e) => e.kind === "text" || e.kind === "tool" || e.kind === "done" || e.kind === "error")
+      .slice(-WAKE_STEPS)
+      .map((e) => `- ${e.text.replace(/\s+/g, " ").slice(0, 300)}`);
+    return this.scrub(
+      [
+        `An earlier agent worked in this folder. It was asked: ${record.task}`,
+        `It ended ${record.status}: ${record.latest}`,
+        ...(record.files.length ? [`Files it touched: ${record.files.join(", ")}`] : []),
+        ...(steps.length ? ["Its last steps, newest last:", ...steps] : []),
+        "",
+        `Carry on from there. The owner now says: ${text}`,
+      ].join("\n"),
+    );
   }
 
   /** Running first, then most recently finished. */

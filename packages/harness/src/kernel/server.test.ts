@@ -52,6 +52,18 @@ describe("handleApiRequest", () => {
     expect(res.body).toMatchObject({ halted: false, queueDepth: 0 });
   });
 
+  it("wakes a finished build in its folder with what it did, there being no transcript to resume", async () => {
+    const execute = vi.spyOn(kernel.registry, "execute").mockResolvedValue({ content: "started", isError: false });
+    const id = kernel.builds.start({ dir: "sites/app", task: "make the page", control: { send: () => undefined, interrupt: async () => undefined, stop: () => undefined } });
+    kernel.builds.finish(id, { ok: true, summary: "made it", files: ["index.html"] });
+    const res = await handleApiRequest(kernel, { method: "POST", path: "/api/builds/wake", body: { id, text: "make it blue" } });
+    expect(res.body).toEqual({ woke: true, dir: "sites/app" });
+    const [tool, input] = execute.mock.calls[0]!;
+    expect(tool).toBe("builds.run");
+    expect(input).toEqual({ dir: "sites/app", task: kernel.builds.wakeTask(id, "make it blue") });
+    expect(String(input["task"])).toContain("It was asked: make the page");
+  });
+
   it("hands the home page memory, modules and the standing agents in the one payload", async () => {
     kernel.facts.upsert(kernel.profile.ownerId, { key: "city", value: "Toronto", kind: "fact" }, "test");
     kernel.roles.write({ name: "watch", description: "Keeps an eye on a listing", brief: "Watch it.", memory: "own" });

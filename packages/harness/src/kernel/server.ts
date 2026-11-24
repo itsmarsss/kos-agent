@@ -2499,8 +2499,8 @@ export async function handleApiRequest(
    * Say something to an agent that has finished.
    *
    * A finished build's process is gone, so this starts another one in the
-   * same folder resuming the same SDK session: it keeps what it already
-   * worked out rather than reading the folder again from nothing. Without
+   * same folder, told what the last one was asked, did and touched: it
+   * carries on rather than reading the folder again from nothing. Without
    * this, a build that stopped one step short was a dead end.
    */
   if (method === "POST" && path === "/api/builds/wake") {
@@ -2517,13 +2517,9 @@ export async function handleApiRequest(
       return { status: 409, body: { error: "KOS is halted" } };
     }
     void kernel.registry
-      .execute("builds.run", {
-        dir: build.dir,
-        task: text,
-        ...(build.sessionId ? { resume: build.sessionId } : {}),
-      })
+      .execute("builds.run", { dir: build.dir, task: kernel.builds.wakeTask(id, text) ?? text })
       .catch(() => undefined);
-    return ok({ woke: true, dir: build.dir, resumed: Boolean(build.sessionId) });
+    return ok({ woke: true, dir: build.dir });
   }
 
   /** Remove a finished agent from the list. */
