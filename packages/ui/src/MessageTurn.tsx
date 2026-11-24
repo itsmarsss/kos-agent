@@ -1,4 +1,4 @@
-import { memo, useState, useSyncExternalStore, type ReactElement } from "react";
+import { memo, useEffect, useState, useSyncExternalStore, type ReactElement } from "react";
 
 import { clockWords } from "@kos/shared";
 import { type BlockActions, Fold, type FoldRule, MessageTime, QuoteLine, Timed } from "@kos/kit";
@@ -72,13 +72,17 @@ const opened = new Set<string>();
 function OwnerWords({ text, at, found, children }: { text: string; at?: number; found: boolean; children: ReactElement }): ReactElement {
   const rule = OWNER_FOLD[useSyncExternalStore(onWidth, phoneWidth, () => false) ? "phone" : "desk"];
   const key = `${at ?? ""}:${text}`;
-  const [open, setOpen] = useState(() => opened.has(key));
+  const [open, setOpen] = useState(() => found || opened.has(key));
+  // A search opens it where it found it, as the owner's own press would, and it can be folded again.
+  useEffect(() => {
+    if (found) setOpen(true);
+  }, [found]);
   return (
     <Fold
       rule={rule}
       chars={text.length}
       what="your message"
-      open={open || found}
+      open={open}
       onOpen={(next) => {
         if (next) opened.add(key);
         else opened.delete(key);
