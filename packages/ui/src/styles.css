@@ -124,6 +124,9 @@ body {
   margin: 0;
   min-height: 100vh;
   background: var(--bg);
+  /* The root keeps 16px for the rem steps and the density; words start at the
+     body's step, so text no rule sizes reads as the page and not as 16px. */
+  font-size: var(--text-md);
 }
 
 button,
