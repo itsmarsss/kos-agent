@@ -89,13 +89,33 @@ describe("the vault opened by KOS for Mac", () => {
     hub.closeAll();
     const vault = new Vault({ dir: join(root, "secrets") });
     const lines: string[] = [];
-    const stop = unlockAtLogin({ vault, hub, macs, log: (l) => lines.push(l) });
+    const stop = unlockAtLogin({ vault, hub, macs, log: (l) => lines.push(l), halted: () => false });
     await settle();
     expect(vault.status().state).toBe("locked");
     await connect();
     await until(() => vault.status().state === "ready");
     expect(vault.status().state).toBe("ready");
     expect(lines).toContain("secrets: KOS for Mac opened the vault");
+    stop();
+  }, 30_000);
+
+  it("opens nothing while KOS is halted, and opens once the kill switch is lifted", async () => {
+    const { hub, macs, connect, id } = setup();
+    await connect();
+    await vaultWithMac(macs, id);
+    hub.closeAll();
+    const vault = new Vault({ dir: join(root, "secrets") });
+    let halted = true;
+    let resume: () => void = () => undefined;
+    const stop = unlockAtLogin({ vault, hub, macs, log: () => undefined, halted: () => halted, onResumed: (r) => ((resume = r), () => undefined) });
+    const mac = await connect();
+    await until(() => false);
+    expect(vault.status().state).toBe("locked");
+    expect(mac.calls.filter((c) => c.method === "vault.unwrap")).toEqual([]);
+    halted = false;
+    resume();
+    await until(() => vault.status().state === "ready");
+    expect(vault.status().state).toBe("ready");
     stop();
   }, 30_000);
 

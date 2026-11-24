@@ -87,17 +87,26 @@ export class MacVault implements VaultDevices {
 
 /**
  * A locked vault with a device slot is opened by the Mac here as soon as it
- * can be: when a Mac proves it is here, and when the vault changes while
- * locked (another process sealed the slot afresh). One ask at a time; a
- * failure leaves the vault locked with the reason in its status.
+ * can be: when a Mac proves it is here, when the vault changes while locked
+ * (another process sealed the slot afresh), and when the kill switch is
+ * lifted. Never while KOS is halted. One ask at a time; a failure leaves the
+ * vault locked with the reason in its status.
  */
-export function unlockAtLogin(deps: { vault: Vault; hub: DeviceHub; macs: MacVault; log: (line: string) => void }): () => void {
-  const { vault, hub, macs, log } = deps;
+export function unlockAtLogin(deps: {
+  vault: Vault;
+  hub: DeviceHub;
+  macs: MacVault;
+  log: (line: string) => void;
+  halted: () => boolean;
+  /** Told when the kill switch is lifted; returns how to stop being told. */
+  onResumed?: (resumed: () => void) => () => void;
+}): () => void {
+  const { vault, hub, macs, log, halted } = deps;
   let asking = false;
   let again = false;
   const attempt = async (): Promise<void> => {
     const status = vault.status();
-    if (status.state !== "locked" || !status.devices?.length || !hub.macsHere().length) return;
+    if (halted() || status.state !== "locked" || !status.devices?.length || !hub.macsHere().length) return;
     if (asking) {
       again = true;
       return;
@@ -116,7 +125,7 @@ export function unlockAtLogin(deps: { vault: Vault; hub: DeviceHub; macs: MacVau
       }
     }
   };
-  const offs = [hub.onConnected(() => void attempt()), vault.onChange(() => void attempt())];
+  const offs = [hub.onConnected(() => void attempt()), vault.onChange(() => void attempt()), ...(deps.onResumed ? [deps.onResumed(() => void attempt())] : [])];
   void attempt();
   return () => offs.forEach((off) => off());
 }

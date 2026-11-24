@@ -227,7 +227,16 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       // A vault a Mac here opens at login is opened as soon as that Mac connects.
       const vault = secrets.attached();
       const log = options.updates?.log ?? ((line: string) => console.error(line));
-      unlocking = vault ? unlockAtLogin({ vault, hub: devices, macs: vaultDevices, log }) : undefined;
+      unlocking = vault
+        ? unlockAtLogin({
+            vault,
+            hub: devices,
+            macs: vaultDevices,
+            log,
+            halted: options.halted,
+            ...(events ? { onResumed: (resumed: () => void) => events.on("halt:changed", (e) => (e.halted ? undefined : resumed())) } : {}),
+          })
+        : undefined;
       active = computerModule({
         hub,
         chrome,
