@@ -98,6 +98,11 @@ public enum HereProof {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kos/device-local.key")
   }
 
+  /// Whether the secret is here to read: this Mac is the computer KOS runs on.
+  public static func available(keyFile: URL = keyFile) -> Bool {
+    sign(hostNonce: "", deviceId: "", keyFile: keyFile) != nil
+  }
+
   /// The proof for one hello; none when there is no secret to read, as on another computer.
   public static func sign(hostNonce: String, deviceId: String, keyFile: URL = keyFile) -> String? {
     guard let text = try? String(contentsOf: keyFile, encoding: .utf8),

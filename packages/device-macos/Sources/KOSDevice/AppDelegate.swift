@@ -117,6 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     controller.yieldKeys = { [unowned self] in await chat.yieldKeys() }
     controller.ownMenuOpen = { [unowned self] in menu.isOpen }
     controller.dashboards = { [unowned self] in pairings.compactMap { PagePlace.hostEntry(of: $0.kos) } }
+    // KOS on this Mac: dialled on loopback, with the secret only this computer's KOS keeps beside it to read.
+    controller.isHere = { [unowned self] origin in (try? pairing(origin)?.kosAddress().isLoopback) == true && HereProof.available() }
     controller.onOwnerStop = { [unowned self] origin, conversation in
       if chat.isMine(origin: origin, conversation: conversation) { chat.tellStop() }
     }

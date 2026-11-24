@@ -23,6 +23,10 @@ public enum ErrorCode: String, Codable, Sendable {
   case concealed
   /// clipboard.read: something else was copied since the owner was shown the preview.
   case changed
+  /// vault.key, vault.unwrap: asked by a KOS that does not run on this Mac.
+  case notHere = "not_here"
+  /// vault.unwrap: the slot was sealed to another Mac's vault key.
+  case key
 }
 
 /// A call refused: the code KOS reads and the sentence the owner reads.

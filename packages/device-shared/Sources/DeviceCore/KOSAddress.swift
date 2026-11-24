@@ -78,6 +78,12 @@ public struct KOSAddress: Equatable, Sendable {
     return "\(isPrivatePath(host) ? "http" : "https")://\(text)"
   }
 
+  /// Whether the host is this computer itself: KOS on the Mac this app runs on.
+  public var isLoopback: Bool {
+    guard let host = base.host?.lowercased() else { return false }
+    return ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host)
+  }
+
   /// Whether the host is on the local network: a private IPv4 (10/8, 172.16/12, 192.168/16), a link-local one
   /// (169.254/16), an IPv6 unique-local or link-local address, or a `.local` name. KOS serves a certificate it
   /// made itself there, which a device holds it to by its pin.

@@ -169,7 +169,7 @@ struct MessagesTests {
     #expect(CallMethod.allCases.map(\.rawValue) == [
       "session.begin", "session.end", "session.status", "screen.capture", "pointer.move", "pointer.click", "pointer.drag",
       "pointer.scroll", "keys.type", "keys.press", "keys.focus", "keys.secret",
-      "clipboard.read",
+      "clipboard.read", "vault.key", "vault.unwrap",
     ])
   }
 }
