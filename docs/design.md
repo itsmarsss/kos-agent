@@ -105,7 +105,21 @@ The dashboard is a full window read at arm's length, so its body sits one
 step up the ladder (`--text-md`, 14 at the default density) and its density
 setting scales the whole ladder. The roles and their order are the same.
 Both web surfaces declare the dashboard's steps as `--text-xs` to
-`--text-2xl` (`TYPE` in design.ts), which the kit's pieces are set in.
+`--text-2xl` (`TYPE` in design.ts), which the kit's pieces are set in, and
+`--text-inline` (`INLINE_EM`, 0.92em) for code, a path, an id or a chip set
+inside a line of words, against that line's size. The root stays 16px, for
+the rem steps and the density; the body starts at `--text-md`, so words no
+rule sizes read as the page and never as 16px. `design.test.ts` fails on
+any size in the web sheets that is not a step, `--text-inline`, its
+parent's or a finger's floor, the font shorthand's included; only the root,
+a glyph sized to its box (a project's letter, a caret, a +), KaTeX's math
+and a page drawn to scale (cqw) keep their own.
+
+Monospace is for code, paths, ids the owner copies and keycaps. A number,
+a time, a count or a name is in the system font with tabular figures.
+Times in a list are at `--text-sm`, in `faint` or `muted`, the same in the
+rails, the Inbox, Runs and every card; a chat's own times stay at the
+chat's small print.
 
 ## Shape
 
