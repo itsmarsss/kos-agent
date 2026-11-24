@@ -19,8 +19,12 @@ export type Route =
   | { name: "settings"; section?: string }
   /** The vault: what KOS may fill in without seeing it. */
   | { name: "secrets" }
-  /** The blobs; `blob` is the one whose page is open, "new" for a blank editor. */
-  | { name: "blobs"; blob?: string }
+  /**
+   * The blobs; `blob` is the one whose page is open, "new" for a blank
+   * editor. `id` opens one of its threads other than its own: the work it
+   * does for a project that asked.
+   */
+  | { name: "blobs"; blob?: string; id?: string }
   /** Coding sub-agents, the builds; `id` opens one's log. */
   | { name: "builds"; id?: number }
   | { name: "page"; id: string }
@@ -86,8 +90,11 @@ export function parseRoute(hash: string): Route {
   const oldBuild = path.match(/^\/agents\/(\d+)$/);
   if (oldBuild?.[1]) return { name: "builds", id: Number(oldBuild[1]) };
   // Blobs were agents first; a link from then still opens the blob.
-  const blob = path.match(/^\/(?:blobs|agents)\/([^/]+)$/);
-  if (blob?.[1]) return { name: "blobs", blob: decodeURIComponent(blob[1]) };
+  const blob = path.match(/^\/(?:blobs|agents)\/([^/]+)(?:\/([^/]+))?$/);
+  if (blob?.[1]) {
+    const name = decodeURIComponent(blob[1]);
+    return blob[2] ? { name: "blobs", blob: name, id: decodeURIComponent(blob[2]) } : { name: "blobs", blob: name };
+  }
   const file = path.match(/^\/files\/(.+)$/);
   if (file?.[1]) return { name: "files", path: decodeURIComponent(file[1]) };
   if (path === "/chats/new") return { name: "chats", compose: true };
@@ -135,7 +142,8 @@ export function hrefFor(route: Route): string {
     case "files":
       return route.path ? `#/files/${encodeURIComponent(route.path)}` : "#/files";
     case "blobs":
-      return route.blob ? `#/blobs/${encodeURIComponent(route.blob)}` : "#/blobs";
+      if (!route.blob) return "#/blobs";
+      return route.id ? `#/blobs/${encodeURIComponent(route.blob)}/${encodeURIComponent(route.id)}` : `#/blobs/${encodeURIComponent(route.blob)}`;
     case "builds":
       return route.id ? `#/builds/${route.id}` : "#/builds";
     case "crons":
@@ -181,11 +189,11 @@ export const NAV: Array<{ route: Route; label: string }> = [
 /** The Runs entry covers three routes; this says which. */
 export const RUNS_ROUTES: ReadonlySet<Route["name"]> = new Set(["history", "crons", "builds"]);
 
-/** The chat a route shows, by its conversation's id: a chat's, a project's (its orchestrator unless another is open), a blob's own page. */
+/** The chat a route shows, by its conversation's id: a chat's, a project's (its orchestrator unless another is open), a blob's (its own unless another is open). */
 export function chatShown(route: Route): string | undefined {
   if (route.name === "chats") return route.id;
   if (route.name === "project") return route.id ?? `project:${route.slug}`;
-  if (route.name === "blobs" && route.blob !== undefined && route.blob !== "new") return `agent:${route.blob}`;
+  if (route.name === "blobs" && route.blob !== undefined && route.blob !== "new") return route.id ?? `agent:${route.blob}`;
   return undefined;
 }
 

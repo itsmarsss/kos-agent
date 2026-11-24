@@ -4,6 +4,7 @@ import { card, EmptyState, GroupHead, Pill, stagger, StatusPill, When, type Tone
 import { isState, kindWord, STATE_WORDS } from "@kos/shared";
 
 import { api, type Conversation, type CronJob, type PageSummary, type Project } from "./api.js";
+import { blobOf } from "./chattree.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { PageHead } from "./PageHead.js";
 import { markLetter, markStyle } from "./ProjectMark.js";
@@ -78,7 +79,8 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
   useCreateParam(() => setMaking(true), Boolean(onCreate));
   const failing = useFailingJobs();
 
-  const threadsOf = (slug: string): Conversation[] => conversations.filter((c) => c.projectSlug === slug && !c.archived);
+  // A blob's work for a project is the blob's, not one of the project's threads.
+  const threadsOf = (slug: string): Conversation[] => conversations.filter((c) => c.projectSlug === slug && !blobOf(c) && !c.archived);
   const agentsOf = (slug: string): number => threadsOf(slug).filter(isProjectAgent).length;
   /** When anything in it last moved: the project itself, or any of its threads. */
   const lastOf = (p: Project): number => Math.max(p.lastTouchedAt, ...threadsOf(p.slug).map((c) => c.updatedAt));

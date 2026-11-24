@@ -32,6 +32,14 @@ describe("the conversation tree", () => {
     expect(tree.byProject.get("pantry")?.map((c) => c.id)).toEqual(["shelves"]);
   });
 
+  it("keeps a blob's work for a project out of the project's list, and opens it on the blob's page", () => {
+    const asked = convo("cmwtr85gv2:owner", { projectSlug: "interview_prep", role: "follow-ups", title: "Follow ups" });
+    const tree = groupChats([asked, convo("mock", { projectSlug: "interview_prep" })]);
+    expect(tree.byProject.get("interview_prep")?.map((c) => c.id)).toEqual(["mock"]);
+    expect(tree.roots).toEqual([]);
+    expect(placeOf(asked.id, asked)).toEqual({ name: "blobs", blob: "follow-ups", id: asked.id });
+  });
+
   it("lists the busy agents first, then the newest", () => {
     const tree = groupChats([
       convo("old", { projectSlug: "p", updatedAt: 1 }),

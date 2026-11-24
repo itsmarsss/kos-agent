@@ -32,11 +32,21 @@ export interface ChatTree {
   byProject: Map<string, Conversation[]>;
 }
 
+/**
+ * The blob whose work a chat is: one it runs for a project that asked. It
+ * carries the project's slug so it can read the project's tables and files,
+ * but it is the blob's, listed on the blob's page and never among the
+ * project's chats as if the project had made it.
+ */
+export function blobOf(c: Pick<Conversation, "kind" | "role">): string | undefined {
+  return c.kind === "chat" && c.role ? c.role : undefined;
+}
+
 export function groupChats(conversations: Conversation[]): ChatTree {
   const roots: Conversation[] = [];
   const byProject = new Map<string, Conversation[]>();
   for (const c of conversations) {
-    if (c.kind !== "chat") continue;
+    if (c.kind !== "chat" || blobOf(c)) continue;
     if (c.projectSlug) {
       const list = byProject.get(c.projectSlug) ?? [];
       list.push(c);
@@ -53,11 +63,14 @@ export function groupChats(conversations: Conversation[]): ChatTree {
  * Where a conversation opens.
  *
  * A project's threads, its orchestrator and the agents under it, open inside
- * the project, beside its files and the rest of its agents; everything else
- * opens in Chats. An orchestrator just made is not in the list yet, but its
+ * the project, beside its files and the rest of its agents; a blob's, its
+ * own and its work for projects, on the blob's page; everything else opens
+ * in Chats. An orchestrator just made is not in the list yet, but its
  * id names its project, so that is enough to place it.
  */
 export function placeOf(id: string, c?: Conversation): Route {
+  const blob = c && blobOf(c);
+  if (blob) return { name: "blobs", blob, id };
   if (c?.kind === "project" && c.projectSlug) return { name: "project", slug: c.projectSlug };
   if (c?.kind === "chat" && c.projectSlug) return { name: "project", slug: c.projectSlug, id };
   if (!c && id.startsWith("project:")) return { name: "project", slug: id.slice("project:".length) };
