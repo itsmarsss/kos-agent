@@ -174,7 +174,7 @@
     overscroll-behavior: auto;
   }
   .chats.is-panel-drawer .project-files .finder {
-    height: clamp(14rem, 45dvh, 24rem);
+    max-height: clamp(14rem, 45dvh, 24rem);
   }
 
   /* A sheet ends above the keyboard on screen (watchKeyboard in touch.ts), so its foot and the field typed into both show. */
