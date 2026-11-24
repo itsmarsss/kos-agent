@@ -369,9 +369,11 @@ a restart would cut; restart when it is `[]`.
 
 KOS keeps two kinds (see [secrets.md](secrets.md)):
 
-- **Harness keys** in `.env`: model keys, channel tokens, and any
+- **Keys KOS runs on**: model keys, channel tokens, and any
   `KOS_SECRET_<NAME>`, which the agent can use as `{{secret:name}}` only in
   places it allows, and only to hosts listed in `KOS_SECRET_<NAME>_HOSTS`.
+  Read from `.env` when set there (it wins), else from the vault, where
+  `kos secrets migrate-env` moves them.
 - **The vault**: the user's logins, cards, API keys and notes, encrypted in
   `~/.kos/secrets`, outside the workspace. The model never sees a value.
 
@@ -390,14 +392,30 @@ dashboard or with `kos secrets unlock`; until then nothing in it can be
 used and exact masking of its values is off. `--passphrase` prompts the
 user; hand them the terminal.
 
+On a Mac with KOS for Mac (section 9), a passphrase vault can open at
+login with no prompt: Settings, Secrets, **Unlock at login with KOS for
+Mac**. KOS for Mac keeps a key in the Mac's Secure Enclave and opens the
+vault whenever it connects while the user is logged in; the passphrase
+stays the way back in. With the vault opening at login, move the keys KOS
+runs on out of `.env` (the user confirms by typing `move`; hand them the
+terminal):
+
+```bash
+kos secrets migrate-env --dry-run   # what would move
+kos secrets migrate-env             # move them, blank them in .env
+kos restart
+```
+
 Check:
 
 ```bash
 kos secrets status
 ```
 
-Expect `vault: ready (keyfile)` or `vault: locked (passphrase)`, and with
-a host running a second line, `host: ready, 0 masked since it started`.
+Expect `vault: ready (keyfile)` or `vault: locked (passphrase)` (with
+`passphrase, device` and an `opens at login on <Mac>` line once unlock at
+login is on), and with a host running a second line, `host: ready, 0 masked
+since it started`.
 For a passphrase vault the first line always says `locked` (the CLI does
 not hold the passphrase); the host line is the one that matters, and says
 `host: locked` until the user unlocks it.
@@ -582,6 +600,12 @@ the Mac online. See [computer.md](computer.md) and
 
 A Mac other than the host reaches KOS only over https, a Tailscale address
 or loopback; plain http elsewhere is refused.
+
+After a rebuild that adds a call (a new version of KOS for Mac), the user
+reinstalls it themselves (`bundle.sh --install`, which asks for the PIN),
+and macOS may ask once to let KOS for Mac use its Keychain items again.
+Unlock at login (section 6) works only for the KOS for Mac on the same
+computer as KOS.
 
 ### KOS for iPhone (chat only)
 

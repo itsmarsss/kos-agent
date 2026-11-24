@@ -18,6 +18,10 @@ KOS_SECRET_CLASSIFIER=
 KOS_SECRET_COHERE=       embeddings when OpenAI is not configured
 ```
 
+Each of these keys may live in the vault instead, as an API key naming its
+harness name (`openai`, `anthropic`, `custom`, `classifier`, `cohere`;
+Secrets, below). A key set here wins over the vault's.
+
 Settings, Models chooses the engine (the model provider, or the Claude Agent
 SDK on your subscription), the model for each task class (reasoning, cheap,
 and builds), the custom endpoint and the classifier. Rates for pricing go
@@ -30,7 +34,7 @@ KOS_WORKSPACE=           default ~/kos-workspace
 KOS_HOST=                default 127.0.0.1; anything else exposes KOS to the network, and needs KOS_DASHBOARD_TOKEN
 KOS_PORT=                default 4317; sites are served on the next port
 KOS_DASHBOARD_TOKEN=     bearer token for every API route; required to listen beyond loopback
-KOS_HOOK_SECRET=         enables POST /api/hooks/<job>
+KOS_HOOK_SECRET=         enables POST /api/hooks/<job>; or set it in Settings, Providers, where KOS keeps only a check of it
 KOS_ALLOWED_HOSTS=       hosts http.fetch reads without asking; any other host asks you first, and a yes you remember stands for that host
 KOS_FETCH_LAN=           places on your own network http.fetch may reach, empty by default: host:port, address:port or CIDR:port, and loopback:<port> for a program on this machine, comma separated (192.168.1.0/24:8123, nas.local:5000, loopback:8080); KOS's own ports never, whatever is listed
 KOS_HOST_NAMES=          other names you reach KOS by, comma separated: a tunnel's (Cloudflare, ngrok), your tailnet's (my-mac.tail1234.ts.net under tailscale serve), a proxy's, the host Twilio posts to when it is not KOS_PUBLIC_URL's. Every route answers only to localhost, the bound host, KOS_PUBLIC_URL's host, KOS_DEVICE_LAN_HOST, these, or an address; any other name is refused with 421
@@ -85,6 +89,19 @@ Computer use and pairing a device: [computer.md](computer.md).
 See [channels.md](channels.md).
 
 ## Secrets
+
+The keys KOS runs on (the model keys above, `DISCORD_TOKEN`,
+`TWILIO_AUTH_TOKEN`, any `KOS_SECRET_NAME`) are read from this file when
+they are set here, which always wins, else from the encrypted vault: an API
+key there whose `use.harness` names them (`openai`, `discord`, `twilio`,
+`name`). Settings, Providers saves into the vault while it is open (and
+takes the name out of this file) and into this file only when there is no
+vault; each key says where its live value is read from. `kos secrets
+migrate-env` moves what this file holds into the vault, after a confirm,
+and blanks the values here, keeping the names as comments. A vault KOS for
+Mac opens at login is read at once: no restart for a model key, and Discord
+and SMS start when it opens with theirs. The dashboard token stays here.
+See [secrets.md](secrets.md), Keys KOS runs on.
 
 Any `KOS_SECRET_NAME` is exposed to the agent as `{{secret:name}}`: injected
 at call time, never shown to the model, redacted from logs. A reference works

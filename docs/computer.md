@@ -211,6 +211,34 @@ CopyClip) and to ignore your password manager, so neither a password nor
 KOS's sensitive copies are kept. KOS for Mac's own refusal does not depend
 on it.
 
+## The vault at login
+
+KOS for Mac can hold the key that opens the owner's vault while they are
+logged in, so the vault opens at every start with no passphrase typed
+([secrets.md](secrets.md), Device slots). Settings, Secrets, **Unlock at
+login with KOS for Mac** adds the slot (the vault open, a passphrase set);
+**Turn off** takes it off with the passphrase.
+
+- The key is a P-256 key KOS for Mac makes the first time it is asked
+  (`vault.key`), in the Secure Enclave, usable once the Mac has been
+  unlocked since it started (`AfterFirstUnlockThisDeviceOnly`), on this Mac
+  only. What is kept is the enclave's handle to it, which opens nothing on
+  another Mac, in the Keychain beside the pairings: the data protection
+  keychain where the build may use it, else the login keychain, where a
+  reinstall asks the owner to allow KOS for Mac again, as the pairings do.
+  The key survives a reinstall. A Mac without a Secure Enclave keeps a
+  software P-256 key there instead (`store: software`).
+- Only the KOS on this Mac is answered: the line must be dialled on
+  loopback and proved `here` (Builds and updates), checked by both sides.
+  Any other KOS is refused with `not_here`; the host never asks one.
+- When the host starts with a locked vault that has a device slot, and
+  whenever a Mac proves it is here or the vault changes while locked, it
+  asks that Mac (`vault.unwrap`). A Mac that is away, quits, or answers
+  wrong leaves the vault locked with the reason on the Secrets page and in
+  the host's log (`secrets: ...`); the passphrase still opens it.
+- The Mac never sees the vault's data key: it answers the slot's key,
+  sealed to an ephemeral key the host made for that one ask.
+
 ## Reaching a server
 
 A device must reach KOS over an encrypted path: `https` (a reverse proxy in
@@ -862,8 +890,9 @@ KOS: `{ "t": "call", "id": 7, "method": "pointer.click", "params": { ... } }`
 Device: `{ "t": "reply", "id": 7, "ok": true, "result": { ... } }` or
 `{ "t": "reply", "id": 7, "ok": false, "error": { "code": "paused", "message": "..." } }`
 
-Every method but `session.begin` and `clipboard.read` takes `session`, and
-the device refuses it without that session live. A Chrome takes the side panel's chat calls, and a
+Every method but `session.begin`, `clipboard.read`, `vault.key` and
+`vault.unwrap` takes `session`, and the device refuses it without that
+session live. A Chrome takes the side panel's chat calls, and a
 Mac running KOS for Mac takes the same ones for its chat window; neither
 needs a session ([browser-extension.md](browser-extension.md), and below).
 
@@ -882,6 +911,20 @@ needs a session ([browser-extension.md](browser-extension.md), and below).
 | `keys.focus` | `session` | `app?` (as `screen.capture` names it), `field?` (`role`, `secure`, `window?`, `label?`, `placeholder?`, `page?`, `origin?`, `frames?`): the text field with focus in the app in front, never its value |
 | `keys.secret` | `session`, `approved`, `text`, `field`, `app {bundle}`, `apps`, `expect {role, secure, window?}`, `origin?`, `frames?` | `typed: true`, `landed?` |
 | `clipboard.read` | no `session`; `preview?` (true: 200 characters at most), `change?` (the preview's: refused once anything was copied since) | `change` (the clipboard's change count), `text?` (none for a picture or an empty clipboard; 20,000 characters at most), `length` |
+| `vault.key` | no `session`; none. Only from the KOS on this Mac | `key` (the vault key's P-256 point, uncompressed, base64; made the first time), `store` (`enclave` or `software`) |
+| `vault.unwrap` | no `session`; `vault`, `slot`, `key` (the slot's point), `epk` (the slot's ephemeral point), `hostEpk` (the host's ephemeral point for this ask). Only from the KOS on this Mac | `epk` (the Mac's ephemeral point), `nonce`, `ct`: the slot's key sealed to `hostEpk` |
+
+**`vault.unwrap`.** The Mac does ECDH in the Secure Enclave between its key
+and `epk`, and makes the slot's key with HKDF-SHA256 (salt `epk` then its
+own point, info `kos-vault/2 device|<vault>|<slot>`, 32 bytes). It makes an
+ephemeral P-256 key of its own, does ECDH with `hostEpk`, and seals the
+slot's key with AES-256-GCM under HKDF-SHA256 of that (salt its ephemeral
+point then `hostEpk`, info `kos-vault/2 unwrap|<vault>|<slot>`), AAD
+`kos-vault/2|unwrap|<vault>|<slot>`; `ct` is the ciphertext and tag. The
+host opens it with its ephemeral key, which it then forgets, and opens the
+slot with the key. No key crosses loopback in the clear, and the vault's
+data key never leaves the host. A `key` that is not this Mac's is refused
+with `key`. The known-answer vectors are in [secrets.md](secrets.md).
 
 **What it is at.** KOS sends `session.status` to a computer (never a
 Chrome) as each `computer.act` starts, with the step's line (its `intent`,
@@ -1078,4 +1121,6 @@ field, or one of the wrong kind has focus), `secret_field` (a field KOS
 typed a secret into is in the way of a picture, a key, a click, a drag or a
 menu) and `partial` (stopped after part of the secret went in); for
 `clipboard.read`, `concealed` (an item is marked concealed, transient or
-auto-generated) and `changed` (copied over since the preview).
+auto-generated) and `changed` (copied over since the preview); for
+`vault.key` and `vault.unwrap`, `not_here` (asked by a KOS not on this Mac)
+and, for `vault.unwrap`, `key` (the slot was sealed to another Mac's key).
