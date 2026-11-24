@@ -270,6 +270,12 @@ button.chip-ref:hover, a.chip-ref:hover { border-color: color-mix(in srgb, curre
 .md-code-fold { display: block; margin: 0.25rem auto 0; padding: 0.2rem 0.6rem; border: 0; border-radius: var(--r-sm); background: none; color: var(--accent); font: inherit; font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
 .md-code-fold:hover { background: var(--panel-2); }
 
+/* —— a fold (Fold.tsx): something long to its first lines under the code block's fade, Show more under it —— */
+.kos-fold-body { overflow-wrap: break-word; }
+.kos-fold.is-folded > .kos-fold-body { overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent); mask-image: linear-gradient(to bottom, #000 60%, transparent); }
+.kos-fold-toggle { display: block; margin: 0.15rem 0 0 -0.45rem; padding: 0.2rem 0.45rem; border: 0; border-radius: var(--r-sm); background: none; color: var(--accent); font: inherit; font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
+.kos-fold-toggle:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+
 /* —— a typed block (docs/blocks.md): its kind's head and actions, its fields in two columns, its body —— */
 .kblock { width: 34rem; max-width: 100%; box-sizing: border-box; margin: 0 0 0.5rem; color: var(--text); white-space: normal; }
 .kblock-head { flex-wrap: nowrap; min-height: 1.625rem; }

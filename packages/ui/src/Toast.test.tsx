@@ -109,15 +109,16 @@ describe("the toast queue", () => {
     expect(texts()).toEqual([]);
   });
 
-  it("sits over the composer when one is on screen", () => {
+  it("keeps to its corner, off the composer, and every note can be put away", () => {
     const box = document.createElement("div");
     box.className = "composer";
     document.body.append(box);
-    Object.defineProperty(box, "offsetParent", { get: () => document.body });
-    box.getBoundingClientRect = () => ({ top: window.innerHeight - 120 }) as DOMRect;
     render(<ToastHost />);
     act(() => void toast({ kind: "ok", text: "Sent" }));
-    expect((document.querySelector(".ops-toasts") as HTMLElement).style.bottom).toBe("calc(120px + 0.75rem)");
+    // Placed by the stylesheet's corner, not lifted over the box being typed in.
+    expect((document.querySelector(".ops-toasts") as HTMLElement).getAttribute("style")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(texts()).toEqual([]);
     box.remove();
   });
 });
