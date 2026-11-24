@@ -630,7 +630,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   const phoneChat = surfaceChat("phone");
   /** Where a chat lives, as a device's chat list groups it: KOS at the root, a project, or a blob. */
   const placeOf = (c: { projectSlug: string | null; role: string | null }): PanelPlaceOf => {
-    if (c.role) return { kind: "blob", name: kernel.labelFor("blob", c.role) ?? c.role };
+    // A removed blob's threads are ordinary chats again, of their project or the root.
+    if (c.role && kernel.standing.blob(c.role)) return { kind: "blob", name: kernel.labelFor("blob", c.role) ?? c.role };
     if (c.projectSlug) return { kind: "project", name: kernel.labelFor("project", c.projectSlug) ?? c.projectSlug };
     return { kind: "kos" };
   };
@@ -1329,10 +1330,14 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
         connected: () => adapter!.connected(),
         postWhenFound: (find, msg) => adapter!.postWhenFound(find, msg),
       };
-      // A thread is read by whoever reads its channel: the chat's own (a room's by its place's), else its home's.
+      // A thread is read by whoever reads its channel; the kernel says whose, failing closed for a blob's work.
       const ownerOnly = (conv: string): boolean => {
-        const home = homeOf(conv);
-        return (kernel.audienceOf(conv) ?? (home ? kernel.channelAudiences()[home] : undefined) ?? "owner") === "owner";
+        try {
+          return kernel.threadOwnerOnly(conv);
+        } catch {
+          // Unknown is not the owner's alone: nothing of theirs is posted there.
+          return false;
+        }
       };
       const placed = new PlaceNotifier({
         ...placeOn,

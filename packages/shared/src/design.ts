@@ -99,6 +99,17 @@ export const RADII = { xs: 4, sm: 7, md: 10, lg: 14 } as const;
 export const TYPE = { xs: 0.6875, sm: 0.75, base: 0.8125, md: 0.875, lg: 0.9375, xl: 1.125, "2xl": 1.375 } as const;
 
 /**
+ * What is set inside a line of words, in em of the words around it: code, a
+ * path or an id in monospace, whose letters stand taller at the same size,
+ * and a reference chip, whose fill makes it read larger. `--text-inline` on
+ * both web surfaces.
+ */
+export const INLINE_EM = 0.92;
+
+/** The only weights type is set in. */
+export const WEIGHTS = [400, 500, 600, 700] as const;
+
+/**
  * A finger's floor, in px, for a coarse pointer (a phone, a tablet): a target
  * at least `target` square, Apple's and Material's minimum, and a field's
  * words at least `fieldText`, under which iOS zooms the page to read them.

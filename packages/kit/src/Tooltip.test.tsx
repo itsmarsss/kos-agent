@@ -61,6 +61,59 @@ describe("the time's hover card", () => {
     expect(card()).toBeNull();
   });
 
+  it("opens on a row's keyboard focus, not on the focus a press gives it", () => {
+    render(
+      <button type="button">
+        Open <Tooltip tip="the card"><span className="inner">soon</span></Tooltip>
+      </button>,
+    );
+    const row = document.querySelector<HTMLElement>("button")!;
+    const pressed = vi.spyOn(row, "matches").mockImplementation((selector: string) => selector !== ":focus-visible");
+    act(() => row.focus());
+    expect(card()).toBeNull();
+    act(() => row.blur());
+    pressed.mockRestore();
+    act(() => row.focus());
+    expect(card()?.textContent).toBe("the card");
+  });
+
+  it("does not open over an element hidden in its place", () => {
+    render(
+      <Tooltip tip="the card">
+        <span style={{ visibility: "hidden" }}>soon</span>
+      </Tooltip>,
+    );
+    fireEvent.pointerEnter(document.querySelector("span")!, { pointerType: "mouse" });
+    expect(card()).toBeNull();
+  });
+
+  it("leaves a tap inside a row to the row", () => {
+    render(
+      <a href="https://example.com">
+        <Tooltip tip="the card"><span className="inner">soon</span></Tooltip>
+      </a>,
+    );
+    const inner = document.querySelector<HTMLElement>(".inner")!;
+    fireEvent.pointerDown(inner, { pointerType: "touch" });
+    fireEvent.click(inner);
+    expect(card()).toBeNull();
+  });
+
+  it("describes its element, or the row it sits in, in words while shut", () => {
+    render(<Tooltip tip="the card" describe="Friday at noon"><span className="alone">soon</span></Tooltip>);
+    const alone = document.querySelector<HTMLElement>(".alone")!;
+    expect(document.getElementById(alone.getAttribute("aria-describedby")!)?.textContent).toBe("Friday at noon");
+    render(
+      <button type="button" aria-describedby="other">
+        Open <Tooltip tip="the card" describe="Monday at nine"><span className="inner">soon</span></Tooltip>
+      </button>,
+    );
+    const ids = document.querySelector("button")!.getAttribute("aria-describedby")!.split(" ");
+    expect(ids[0]).toBe("other");
+    expect(document.getElementById(ids[1]!)?.textContent).toBe("Monday at nine");
+    expect(card()).toBeNull();
+  });
+
   it("opens on focus that lands on it and closes on blur or Escape", () => {
     const time = chip();
     act(() => time.focus());

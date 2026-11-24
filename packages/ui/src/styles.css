@@ -65,6 +65,8 @@
   --text-lg: 0.9375rem;   /* section titles */
   --text-xl: 1.125rem;    /* page titles */
   --text-2xl: 1.375rem;   /* the one heading on a page */
+  /* Code, a path, an id or a chip set inside a line of words, against its size (INLINE_EM). */
+  --text-inline: 0.92em;
 }
 
 /*
@@ -122,6 +124,9 @@ body {
   margin: 0;
   min-height: 100vh;
   background: var(--bg);
+  /* The root keeps 16px for the rem steps and the density; words start at the
+     body's step, so text no rule sizes reads as the page and not as 16px. */
+  font-size: var(--text-md);
 }
 
 button,
@@ -552,7 +557,7 @@ select {
 
 .ops-mono {
   font-family: var(--mono);
-  font-size: 0.82em;
+  font-size: var(--text-inline);
 }
 /* A hint set in mono keeps the hint's size, not mono's smaller one. */
 .hint.ops-mono { font-size: var(--text-base); }
@@ -906,7 +911,7 @@ body:has(.modal-wrap, .pal-wrap, .preview-wrap) .ops-toasts {
 /* A number you read at a glance next to its unit, not a sentence. */
 .kos-input--num {
   width: 6.5rem;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-base);
   text-align: right;
 }
@@ -1118,13 +1123,13 @@ body:has(.modal-wrap, .pal-wrap, .preview-wrap) .ops-toasts {
 
 .kos-chart-tick {
   fill: var(--chart-ink-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
 .kos-chart-value {
   fill: var(--chart-ink);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .kos-chart-line {
@@ -2085,7 +2090,7 @@ body:has(.modal-wrap, .pal-wrap, .preview-wrap) .ops-toasts {
 .feed-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed-detail { color: var(--faint); font-size: var(--text-md); }
 .feed-detail code { font-family: var(--mono); }
-.feed-when { color: var(--faint); font-size: var(--text-base); width: 4.5rem; text-align: right; flex-shrink: 0; }
+.feed-when { color: var(--faint); font-size: var(--text-sm); width: 4.5rem; text-align: right; flex-shrink: 0; }
 .feed-item--bad .feed-what { color: var(--danger); }
 
 /* —— chat sheet —— */
@@ -2568,16 +2573,22 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
   height: 1.5rem;
   z-index: 2;
   opacity: 0;
-  transition: opacity var(--hover);
+  transition: background-color var(--hover), color var(--hover);
 }
 /* The dots take the timestamp's place rather than sitting on top of it: both
-   were in the same corner, so hovering put one over the other. */
+   are in the same corner. They swap in one frame, both ways: faded across
+   each other, the two were drawn at half strength in one spot. A hidden time
+   takes no pointer, so its card never opens over the dots. A row with no
+   menu (a stream, a schedule) keeps its time. */
 li:hover .chats-more,
-.chats-more:focus-visible {
+.chats-more:focus-visible,
+.chats-more[aria-expanded="true"] {
   opacity: 1;
   color: var(--muted);
 }
-li:hover .chats-item-when { opacity: 0; }
+@media (hover: hover) {
+  li:has(.chats-more):is(:hover, :has(.chats-more:focus-visible, .chats-more[aria-expanded="true"])) .chats-item-when { visibility: hidden; }
+}
 .chats-more:active:not(:disabled) { transform: translateY(-50%) scale(var(--press-scale)); }
 .chats-more:hover,
 .chats-more[aria-expanded="true"] {
@@ -2808,8 +2819,7 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .chats-item-when {
   color: var(--faint);
-  font-size: var(--text-base);
-  transition: opacity var(--hover);
+  font-size: var(--text-sm);
 }
 /* Messages waiting behind the turn, beside the dot that says it is running. */
 .chats-queued {
@@ -3255,7 +3265,7 @@ li:hover .chats-item-when { opacity: 0; }
   gap: 0.5rem;
 }
 /* A subject under a section's head, a step below it: the section's 15/600 over this 14/600. */
-.settings-group-head strong { font-size: var(--text-md); font-weight: 600; }
+.settings-group-head strong { font-size: var(--text-lg); font-weight: 600; }
 .settings-row { display: flex; gap: 0.6rem; }
 .settings-row .kos-field { flex: 1; min-width: 0; }
 .settings-now {
@@ -3729,7 +3739,7 @@ li:hover .chats-item-when { opacity: 0; }
 .know-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); line-height: 1.45; }
 .know-meta { display: flex; align-items: center; gap: 0.5rem; min-width: 0; color: var(--faint); font-size: var(--text-sm); }
 .know-meta .tag { padding: 0 0.45rem; font-size: var(--text-xs); color: var(--muted); }
-.know-key { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); }
+.know-key { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--muted); }
 .know-from { flex: none; white-space: nowrap; }
 .know-tags { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .know-when { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
@@ -3853,8 +3863,8 @@ li:hover .chats-item-when { opacity: 0; }
 .spend-table th {
   text-align: left;
   color: var(--faint);
-  font-weight: 500;
-  font-size: var(--text-sm);
+  font-weight: 600;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 0.35rem 0.5rem;
@@ -4205,7 +4215,7 @@ li:hover .chats-item-when { opacity: 0; }
 .device-code {
   margin: 0;
   font-family: var(--mono);
-  font-size: 1.6rem;
+  font-size: var(--text-2xl);
   letter-spacing: 0.18em;
   color: var(--accent);
 }
@@ -4320,7 +4330,7 @@ li:hover .chats-item-when { opacity: 0; }
 }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .agent-dir { font-family: var(--mono); font-size: var(--text-base); }
-.agent-time { color: var(--faint); font-size: var(--text-sm); font-family: var(--mono); }
+.agent-time { color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .agent-latest {
   margin: 0;
   padding-left: 1.35rem;
@@ -4542,7 +4552,7 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .ext-item-text:hover .ext-item-name { color: var(--accent); }
 .ext-item-name { font-size: var(--text-md); color: var(--text); }
-.ext-item-version, .ext-item-needs { color: var(--faint); font-size: var(--text-xs); font-family: var(--mono); }
+.ext-item-version, .ext-item-needs { color: var(--faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .ext-item-blurb {
   color: var(--muted);
   font-size: var(--text-sm);
@@ -4723,7 +4733,6 @@ body.is-arranging { user-select: none; }
 .panel-row-project { color: var(--faint); font-size: var(--text-xs); }
 /* A project's jobs in its rail: a row like a thread's, the schedule where the time would be. */
 .chats-job { width: 100%; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
-.chats-job .chats-item-when { font-size: var(--text-xs); }
 
 /* The map: KOS between what it is made of and what it keeps. */
 .map { display: block; margin: 0.25rem auto 0; font-family: inherit; }
@@ -4733,14 +4742,14 @@ body.is-arranging { user-select: none; }
 .map-link--danger { stroke: var(--danger); }
 .map-link--ok { stroke: color-mix(in srgb, var(--ok) 55%, var(--line-strong)); }
 .map-hub circle { fill: var(--accent-dim); stroke: var(--accent); stroke-width: 1.4; }
-.map-hub-label { fill: var(--text); font-size: 14px; font-weight: 600; letter-spacing: 0.04em; }
+.map-hub-label { fill: var(--text); font-size: var(--text-md); font-weight: 600; letter-spacing: 0.04em; }
 .map-node { cursor: pointer; text-decoration: none; }
 .map-node rect { fill: var(--panel-2); stroke: var(--line); stroke-width: 1; transition: stroke 150ms ease; }
 .map-node:hover rect, .map-node:focus-visible rect { stroke: var(--accent); }
 .map-node:focus-visible { outline: none; }
 .map-node--more rect, .map-node--empty rect { fill: transparent; stroke-dasharray: 3 3; }
-.map-name { fill: var(--text); font-size: 12.5px; }
-.map-sub { fill: var(--faint); font-size: 10.5px; }
+.map-name { fill: var(--text); font-size: var(--text-sm); }
+.map-sub { fill: var(--faint); font-size: var(--text-xs); }
 .map-dot { fill: var(--faint); }
 .map-dot--accent { fill: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
 .map-dot--ok { fill: var(--ok); }
@@ -5277,7 +5286,7 @@ a.health {
 
 .spend-pop-day {
   color: var(--muted);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The shape of the month, beside the numbers rather than instead of them. */
@@ -5328,7 +5337,6 @@ a.health {
 
 .spend-pop-facts dd {
   margin: 0;
-  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-size: var(--text-sm);
   white-space: nowrap;
@@ -5351,7 +5359,6 @@ a.health {
    hold digits. */
 .set-limit {
   width: 8rem;
-  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -5582,7 +5589,7 @@ a.health {
 .cron-hook {
   flex-basis: 100%;
   margin-top: 0.4rem;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .cron-spend {
@@ -5626,7 +5633,7 @@ a.health {
 .know-review-item { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
 .know-review-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .know-pages { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
-.know-page { white-space: pre-wrap; font-size: 0.85rem; max-height: 24rem; overflow: auto; }
+.know-page { white-space: pre-wrap; font-size: var(--text-base); max-height: 24rem; overflow: auto; }
 
 /* Memory: one page, six tabs. */
 .mem { --stack: 1rem; display: flex; flex-direction: column; gap: var(--stack); min-width: 0; }
@@ -5789,7 +5796,7 @@ a.health {
 .recall-pin { flex: none; display: inline-flex; color: var(--accent); }
 .recall-tags { flex: none; display: inline-flex; align-items: center; gap: 0.3rem; }
 .recall-tags .tag { padding: 0 0.45rem; font-size: var(--text-xs); color: var(--muted); }
-.recall-when { color: var(--faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.recall-when { color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .recall-item-text {
   margin: 0;
   display: -webkit-box;
@@ -6102,7 +6109,7 @@ a.health {
   flex-direction: column;
   gap: 0.3rem;
 }
-.chats-welcome-title { margin: 0; color: var(--text); font-size: var(--text-2xl); font-weight: 600; }
+.chats-welcome-title { margin: 0; color: var(--text); font-size: var(--text-2xl); font-weight: var(--title-weight); letter-spacing: -0.02em; }
 .chats-welcome-sub {
   margin: 0;
   color: var(--muted);
@@ -6128,6 +6135,8 @@ a.health {
 .chats-welcome .hint { margin: 0; }
 .chats-welcome-recent li { min-width: 0; max-width: 100%; }
 .chats-welcome-recent li > * { max-width: 100%; }
+/* A chat's chip on its own line, not in words: set at the chips' step rather than against the words around it. */
+.chats-welcome-recent .chip-ref { font-size: var(--text-sm); }
 
 /* —— the chat header's lineage —— */
 .chats-toggle { display: inline-flex; align-items: center; justify-content: center; }
@@ -6997,7 +7006,7 @@ a.health {
 .agents-invalid { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.6rem 0.7rem; border: 1px dashed var(--warn); border-radius: var(--r-md); }
 .agents-editor { padding: 1rem; }
 .agents-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem 1.2rem; }
-.agents-brief { font-family: var(--mono); font-size: var(--text-sm); line-height: 1.5; resize: vertical; }
+.agents-brief { font-size: var(--text-md); line-height: 1.5; resize: vertical; }
 .agents-actions { flex-wrap: wrap; }
 @media (max-width: 720px) { .agents-split { grid-template-columns: 1fr; } }
 /* The blobs as the projects are: a grid of cards, one height to a row. */
@@ -7219,8 +7228,6 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .chats-rail-loading { padding: 0.5rem 0.4rem; gap: 6px; }
 .chats-list--root .chats-scroll ul { flex: none; overflow: visible; padding: 0; }
 .chats-list--root ul.chats-streams { padding: 0.1rem 0 0.3rem; }
-/* A stream has no menu, so its time stays put on hover. */
-.chats-streams li:hover .chats-item-when { opacity: 1; }
 
 .chats-lead { flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center; }
 /* A slot only in the root rail, where dots line up with faces and marks; a
@@ -7531,7 +7538,7 @@ html.has-presenter { overflow: hidden; }
 .artifact-outline-cell[data-type="custom_html"] { height: 82px; }
 .artifact-outline-cell[data-type="custom_html"]::after { inset: 8px; border: 1px dashed var(--sketch); }
 .artifact-card-body { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 11px; min-width: 0; }
-.artifact-card-title { font-size: var(--text-md); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--hover); }
+.artifact-card-title { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--hover); }
 .artifact-card-desc { color: var(--muted); font-size: var(--text-base); line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* One quiet line, kind · owner · time, at the card's foot whatever is above it. */
 .artifact-card-meta { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 5px; color: var(--faint); font-size: var(--text-sm); min-width: 0; white-space: nowrap; }
@@ -7635,7 +7642,7 @@ button.artifact-view-owner { cursor: pointer; }
 button.artifact-view-owner:hover { color: var(--text); background: var(--panel-2); }
 button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .artifact-view-sep { display: inline-flex; flex: none; color: var(--faint); margin-left: -2px; }
-.artifact-view-title { margin: 0; min-width: 0; font-size: var(--text-xl); font-weight: var(--title-weight); letter-spacing: -0.01em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.artifact-view-title { margin: 0; min-width: 0; font-size: var(--text-xl); font-weight: var(--title-weight); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .artifact-view-meta { display: inline-flex; align-items: center; gap: 8px; flex: none; color: var(--faint); font-size: var(--text-sm); white-space: nowrap; }
 .artifact-view-acts { display: flex; align-items: center; gap: 4px; flex: none; }
 .artifact-view-acts .btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-dim); }
@@ -7818,7 +7825,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder-nav { display: flex; align-items: center; gap: 0.1rem; min-width: 0; flex: 1 1 0; }
 .finder-title { display: flex; min-width: 0; flex: 1 1 auto; margin: 0 0 0 0.3rem; font-size: var(--text-lg); font-weight: 600; }
 /* On the Files page the folder is the page's title: a workspace head's size and weight, as a chat's and an artifact's. */
-.ops-page--full > .finder :is(.finder-title-words, .finder-where-crumbs .finder-crumb.is-here) { font-size: var(--text-xl); font-weight: var(--title-weight); }
+.ops-page--full > .finder :is(.finder-title-words, .finder-where-crumbs .finder-crumb.is-here) { font-size: var(--text-2xl); font-weight: var(--title-weight); letter-spacing: -0.02em; }
 .finder-title-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .finder-tools { display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; flex: 0 1 auto; min-width: 0; }
 .finder-tools-wide, .finder-tools-narrow { display: contents; }
@@ -8194,8 +8201,8 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .ov-sheet-scroll { flex: 1; min-height: 0; overflow: auto; max-height: min(74vh, 58rem); background: var(--panel); overscroll-behavior: contain; }
 .ov-sheet-grid { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: var(--text-base); font-variant-numeric: tabular-nums lining-nums; }
 .ov-sheet-grid :where(th, td) { height: 2.125rem; max-width: 36ch; padding: 0 0.75rem; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ov-sheet-grid thead th { position: sticky; top: 0; z-index: 2; height: 1.6rem; background: var(--panel-2); color: var(--muted); font: 500 0.625rem / 1 var(--mono); letter-spacing: 0.04em; text-align: center; }
-.ov-sheet-grid .ov-rownum { position: sticky; left: 0; z-index: 1; min-width: 2.75rem; padding: 0 0.55rem; background: var(--panel-2); color: var(--muted); font: 500 0.6875rem / 1 var(--mono); text-align: right; }
+.ov-sheet-grid thead th { position: sticky; top: 0; z-index: 2; height: 1.6rem; background: var(--panel-2); color: var(--muted); font: 500 var(--text-xs) / 1 var(--font); letter-spacing: 0.04em; text-align: center; }
+.ov-sheet-grid .ov-rownum { position: sticky; left: 0; z-index: 1; min-width: 2.75rem; padding: 0 0.55rem; background: var(--panel-2); color: var(--muted); font: 500 var(--text-xs) / 1 var(--font); text-align: right; }
 .ov-sheet-grid thead .ov-rownum { z-index: 3; }
 .ov-sheet-grid--headed .ov-head-row > * { position: sticky; top: 1.6rem; z-index: 2; background: var(--panel-2); color: var(--text); font-weight: 600; font-size: var(--text-sm); }
 .ov-sheet-grid--headed .ov-head-row > .ov-rownum { z-index: 3; }
@@ -8298,7 +8305,7 @@ img.ov-shape { object-fit: fill; }
 /* The token prompt: the one thing a tab without KOS's token can see. */
 .token-gate { min-height: 100dvh; display: grid; place-items: center; padding-inline: 16px; background: var(--bg); }
 .token-gate__card { width: min(30rem, 100%); display: grid; gap: 0.75rem; }
-.token-gate__title { margin: 0; font-size: 1.25rem; }
+.token-gate__title { margin: 0; font-size: var(--text-xl); }
 /* A fold of settings few owners need: closed by default, its summary a quiet link. */
 .settings-more > summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); padding: 6px 0; }
 .settings-more[open] > summary { margin-bottom: 8px; }

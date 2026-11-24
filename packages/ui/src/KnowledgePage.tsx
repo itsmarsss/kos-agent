@@ -1,7 +1,7 @@
 import { kindWord, slugWords, surfaceName, timeWords } from "@kos/shared";
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
-import { Chips, CloseIcon, Count, EditIcon, EmptyState, Field, GroupHead, IconButton, PinIcon, SheetFoot, Tag, UnpinIcon } from "@kos/kit";
+import { Chips, CloseIcon, Count, EditIcon, EmptyState, Field, GroupHead, IconButton, PinIcon, SheetFoot, Tag, UnpinIcon, When } from "@kos/kit";
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
@@ -451,7 +451,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, query, onQuery: s
                       {sourceWord(f.source) && <span className="know-from">from {sourceWord(f.source)}</span>}
                       {f.kind !== "fact" && <Tag>{kindWord(f.kind)}</Tag>}
                       {(f.tags ?? []).length > 0 && <span className="know-tags">{f.tags!.join(", ")}</span>}
-                      {f.updatedAt ? <span className="know-when">{timeWords(f.updatedAt)}</span> : null}
+                      {f.updatedAt ? <span className="know-when"><When at={f.updatedAt} /></span> : null}
                     </span>
                   </button>
                   <span className="know-acts">

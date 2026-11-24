@@ -71,6 +71,8 @@ import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled, type SkillSettings } from "../skills/settings.js";
 import {
+  blobOf,
+  isProjectChat,
   projectConversationId,
   type Conversation,
   type ConversationKind,
@@ -272,7 +274,7 @@ type Activity = "working" | "needs-you" | "error" | "idle";
  */
 function conversationLabeller(
   kernel: Kernel,
-): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; lastError?: string; queued?: number; mode?: ChatMode } {
+): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; blob?: string; lastError?: string; queued?: number; mode?: ChatMode } {
   const busy = new Set(kernel.busyConversations());
   // Ask is said by saying nothing: only a chat in Auto carries its mode.
   const auto = new Set(kernel.modes.autoChats());
@@ -299,10 +301,14 @@ function conversationLabeller(
         : failed.has(c.id)
           ? "error"
           : "idle";
+    const kind = kernel.kindOf(c);
+    // A blob's work for a project that asked: the blob's while the blob exists, so it is listed under the blob.
+    const blob = kind === "chat" ? blobOf(c, kernel.standing) : null;
     return {
       ...c,
-      kind: kernel.kindOf(c),
+      kind,
       activity,
+      ...(blob ? { blob } : {}),
       // Touched since the owner last opened it, on any surface.
       unread: c.updatedAt > (c.readAt ?? 0),
       ...(activity === "error" ? { lastError: failed.get(c.id) } : {}),
@@ -405,7 +411,7 @@ function projectMap(
     if (job.enabled && job.projectSlug) jobs.set(job.projectSlug, (jobs.get(job.projectSlug) ?? 0) + 1);
   }
   return kernel.manifest.list().map((p) => {
-    const mine = threads.filter((c) => c.projectSlug === p.slug);
+    const mine = threads.filter((c) => isProjectChat(c, p.slug, kernel.standing));
     return {
       slug: p.slug,
       threads: mine.length,
@@ -2767,11 +2773,11 @@ export async function handleApiRequest(
       // question you open it to ask when a tracker looks wrong.
       activity: kernel.audit.touching(slug, 12),
       folder: `${PROJECTS_DIR}/${slug}`,
-      // Its agents: every thread stamped with its slug except its own
-      // orchestrator, which is the project's chat rather than work under it.
+      // Its agents: its own chats except its orchestrator, which is the
+      // project's chat rather than work under it. A blob it asked is the blob's.
       agents: kernel.conversations
         .list(kernel.profile.ownerId)
-        .filter((c) => c.projectSlug === slug && c.id !== projectConversationId(slug))
+        .filter((c) => isProjectChat(c, slug, kernel.standing) && c.id !== projectConversationId(slug))
         .map(conversationLabeller(kernel)),
       files: projectFiles(kernel, slug),
       // What it knows how to do: the skills written for it, so the drawer

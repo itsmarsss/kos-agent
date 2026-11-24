@@ -47,8 +47,10 @@ async function harness(
     hide?: string[];
     /** No conversation is dispatching, as from a bare registry call. */
     anonymous?: boolean;
-    /** The schedules that still exist, by id; every project and blob does. */
+    /** The schedules that still exist, by id; every project does. */
     schedules?: number[];
+    /** The blobs that were removed; every other blob exists. */
+    goneBlobs?: string[];
   } = {},
 ): Promise<Harness> {
   const conversations = new ConversationStore(ws.db);
@@ -70,7 +72,7 @@ async function harness(
       conversations,
       sessions,
       ownerId: OWNER,
-      standing: () => ({ project: () => true, blob: () => true, schedule: (id) => (options.schedules ?? []).includes(id) }),
+      standing: () => ({ project: () => true, blob: (name) => !(options.goneBlobs ?? []).includes(name), schedule: (id) => (options.schedules ?? []).includes(id) }),
       dispatch: (id, text) => {
         asked.push({ id, text });
         return dispatch(id, text);
@@ -151,6 +153,54 @@ describe("chats.archive and chats.delete", () => {
     const maintenance = await harness(ws, { scope: "maintenance" });
     expect((await maintenance.registry.execute("chats.archive", { id: theirs.id, archived: false })).isError).toBe(false);
     expect(h.conversations.get(theirs.id)?.archived).toBe(false);
+  });
+});
+
+describe("a blob's work for a project", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-chatblob-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("is not among the project's chats, though the project that asked may still read it", async () => {
+    const h = await harness(ws, { scope: "interview_prep" });
+    const own = h.conversations.create({ userId: OWNER, title: "Mock interview", projectSlug: "interview_prep" });
+    const asked = h.conversations.create({ userId: OWNER, title: "Follow ups", projectSlug: "interview_prep", role: "follow-ups" });
+    new SessionStore(ws.db).set(asked.id, [{ role: "assistant", content: [{ type: "text", text: "Drafted three follow-ups." }] }]);
+
+    const listed = JSON.parse((await h.registry.execute("chats.list", {})).content) as { id: string }[];
+    expect(listed.map((c) => c.id)).toEqual([own.id]);
+    const found = JSON.parse((await h.registry.execute("chats.search", { query: "Follow ups" })).content) as { id: string }[];
+    expect(found.map((c) => c.id)).not.toContain(asked.id);
+    expect((await h.registry.execute("chats.read", { id: asked.id })).content).toContain("Drafted three follow-ups.");
+
+    const archive = await h.registry.execute("chats.archive", { id: asked.id });
+    expect(archive.isError).toBe(true);
+    expect(archive.content).toContain("the follow-ups blob's thread");
+    expect(h.conversations.get(asked.id)?.archived).toBe(false);
+
+    // The root lists everything, the blob's work included.
+    const rootListed = JSON.parse((await (await harness(ws)).registry.execute("chats.list", {})).content) as { id: string }[];
+    expect(rootListed.map((c) => c.id)).toContain(asked.id);
+  });
+
+  it("is the project's chat again once the blob is removed: listed, and the project's to put away", async () => {
+    const h = await harness(ws, { scope: "interview_prep", goneBlobs: ["follow-ups"] });
+    const asked = h.conversations.create({ userId: OWNER, title: "Follow ups", projectSlug: "interview_prep", role: "follow-ups" });
+    const listed = JSON.parse((await h.registry.execute("chats.list", {})).content) as { id: string }[];
+    expect(listed.map((c) => c.id)).toEqual([asked.id]);
+    expect((await h.registry.execute("chats.archive", { id: asked.id })).isError).toBe(false);
+    expect(h.conversations.get(asked.id)?.archived).toBe(true);
+    expect((await h.registry.execute("chats.delete", { id: asked.id })).isError).toBe(false);
+    expect(h.conversations.get(asked.id)).toBeUndefined();
   });
 });
 

@@ -841,13 +841,13 @@ export function ChatsPage({
   );
   const tree = useMemo(() => groupChats(conversations), [conversations]);
   /*
-   * Agent mode. The agent's own thread is agent:<name>; the chats it runs
-   * inside projects are the ones stamped with its role. Its file and
+   * Agent mode. The agent's own thread is agent:<name>; its work for the
+   * projects that asked are the chats stamped with its role. Its file and
    * schedule are the panel's business.
    */
   const agentThread = agent ? conversations.find((c) => c.id === `agent:${agent.name}`) : undefined;
   const agentInstances = useMemo(
-    () => (agent ? conversations.filter((c) => c.kind === "chat" && c.role === agent.name && !c.archived).sort(byAttention) : []),
+    () => (agent ? conversations.filter((c) => c.blob === agent.name && !c.archived).sort(byAttention) : []),
     [agent, conversations],
   );
   /*
@@ -1822,14 +1822,16 @@ export function ChatsPage({
                 </a>
               )}
               <div className="label chats-group-head">
-                <span>In projects</span>
+                <span>Asked by projects</span>
               </div>
               <ul className="chats-flat">
-                {/* Every instance carries the agent's own name, so the row is
-                    named for the project it is in: that is what tells them apart. */}
+                {/* Its work for each project that asked: the blob's threads,
+                    listed here and not among the project's chats. Each carries
+                    the blob's own name, so the row is named for the project
+                    that asked: that is what tells them apart. */}
                 {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
                 {agentInstances.length === 0 && (
-                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">Not working in any project. A project's orchestrator can give it work there.</EmptyState></li>
+                  <li><EmptyState variant="inline" loading={loading} className="chats-empty">No project has asked it for help yet. A project's orchestrator can ask it, and its work shows here.</EmptyState></li>
                 )}
               </ul>
             </div>
@@ -2340,7 +2342,11 @@ export function ChatsPage({
                     {(() => {
                       const crumbs: { label: string; id: string }[] = [];
                       if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
-                      if (active.projectSlug && active.kind !== "project") {
+                      const blob = active.blob;
+                      // A blob's work for a project sits under the blob; the project only asked.
+                      if (blob) {
+                        crumbs.push({ label: conversations.find((c) => c.id === `agent:${blob}`)?.title ?? blob, id: `agent:${blob}` });
+                      } else if (active.projectSlug && active.kind !== "project") {
                         crumbs.push({
                           label: projectName(active.projectSlug),
                           id: `project:${active.projectSlug}`,
@@ -2362,8 +2368,16 @@ export function ChatsPage({
                     {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="" />}
                     {active.title}
                     {active.kind === "project" && <span className="chats-role"><span className="sr-only">, </span>Orchestrator</span>}
-                    {(active.kind === "agent" || active.role) && <span className="chats-role"><span className="sr-only">, </span>Blob</span>}
+                    {(active.kind === "agent" || active.blob) && <span className="chats-role"><span className="sr-only">, </span>Blob</span>}
                   </h1>
+                  {active.blob && active.projectSlug && (
+                    <p className="chats-lineage">
+                      Asked by{" "}
+                      <button type="button" className="link" onClick={() => onOpen(`project:${active.projectSlug}`)}>
+                        {projectName(active.projectSlug)}
+                      </button>
+                    </p>
+                  )}
                   {/* Inside the project the rail lists the agents, so the count
                       would say what is already in view. */}
                   {active.kind === "project" && !project && (

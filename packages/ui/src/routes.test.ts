@@ -17,6 +17,7 @@ describe("what a page transition is keyed on", () => {
     expect(pageKeyOf({ name: "blobs" })).toBe("blobs");
     expect(pageKeyOf({ name: "blobs", blob: "new" })).toBe("blobs");
     expect(pageKeyOf({ name: "blobs", blob: "recap" })).toBe("blobs:recap");
+    expect(pageKeyOf({ name: "blobs", blob: "recap", id: "c1:owner" })).toBe("blobs:recap");
     expect(pageKeyOf({ name: "project", slug: "garden" })).toBe("project:garden");
     expect(pageKeyOf({ name: "project", slug: "garden", id: "c1" })).toBe("project:garden");
     expect(pageKeyOf({ name: "project", slug: "books" })).toBe("project:books");
@@ -49,6 +50,13 @@ describe("parseRoute", () => {
     expect(parseRoute("#/runs")).toEqual({ name: "history" });
     expect(parseRoute("#/tools")).toEqual({ name: "history" });
     expect(parseRoute("#/history")).toEqual({ name: "history" });
+  });
+
+  it("opens a blob's work for a project on the blob's page, and back again", () => {
+    const route = { name: "blobs", blob: "follow-ups", id: "cmwtr85gv2:owner" } as const;
+    expect(hrefFor(route)).toBe("#/blobs/follow-ups/cmwtr85gv2%3Aowner");
+    expect(parseRoute(hrefFor(route))).toEqual(route);
+    expect(parseRoute("#/blobs/follow-ups")).toEqual({ name: "blobs", blob: "follow-ups" });
   });
 
   it("opens on a conversation, with the overview and inbox as pages", () => {
@@ -118,6 +126,7 @@ describe("the chat a route shows", () => {
     expect(chatShown({ name: "project", slug: "budget" })).toBe("project:budget");
     expect(chatShown({ name: "project", slug: "budget", id: "agent:x" })).toBe("agent:x");
     expect(chatShown({ name: "blobs", blob: "noter" })).toBe("agent:noter");
+    expect(chatShown({ name: "blobs", blob: "noter", id: "c1:owner" })).toBe("c1:owner");
     expect(chatShown({ name: "blobs", blob: "new" })).toBeUndefined();
     expect(chatShown({ name: "artifacts" })).toBeUndefined();
   });

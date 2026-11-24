@@ -15,6 +15,7 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import { BEHAVIOUR_KEY } from "./behaviour.js";
 import type { NotifyPayload } from "../tools/notify.js";
 import { withoutTurnContext } from "./context.js";
+import { blobOf, isProjectChat } from "./conversations.js";
 import { Kernel } from "./kernel.js";
 import { SKILLS_KEY } from "../skills/settings.js";
 import { turnStop } from "./caller.js";
@@ -2013,6 +2014,103 @@ describe("KOS end-to-end flows", () => {
     expect(String(results[2]!.content)).toContain("not its to change");
     expect(String(results[3]!.content)).toContain("not this project's");
     expect(kernel.workspace.db.prepare("SELECT name FROM sqlite_master WHERE name = 'notes_beds'").all()).toEqual([]);
+  });
+
+  it("a blob a project asks works with the project's tables in a thread of the blob's, and the project's chat keeps a line and a card", async () => {
+    // Answered by whose turn it is: the blob's brief marks its own.
+    const blob = [toolCall("b1", "sql", { sql: "SELECT name FROM career_contacts" }), text("Wrote to Sam with key sk-live-0123456789abcdef.")];
+    const project = [toolCall("p1", "blobs.dispatch", { agent: "follow-ups", task: "Draft a thank-you to each contact." }), text("Asked Follow ups.")];
+    const requests: GenerateRequest[] = [];
+    kernel = await boot({
+      async generate(task: Task, request: GenerateRequest): Promise<ModelResponse> {
+        if (task === "cheap") return text('{"facts":[]}');
+        requests.push(request);
+        return ((request.system ?? "").includes("You write follow-ups.") ? blob : project).shift() ?? text("done");
+      },
+    });
+    const career = kernel.standUpProject({ name: "Career", type: "tracker" });
+    kernel.migrator.migrate(career.slug, { op: "create_table", table: "contacts", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "name", type: "TEXT" }] });
+    kernel.workspace.db.prepare(`INSERT INTO ${career.slug}_contacts (name) VALUES (?)`).run("Sam");
+    kernel.roles.write({ name: "follow-ups", description: "Writes follow-ups", brief: "You write follow-ups.", memory: "shared" });
+    kernel.secrets.set("MAIL_KEY", "sk-live-0123456789abcdef");
+
+    await kernel.handleProjectTurn(career.slug, "have follow-ups thank my contacts");
+    const thread = kernel.conversations.list("owner").find((c) => c.role === "follow-ups" && c.id !== "agent:follow-ups")!;
+    await vi.waitFor(() => expect(JSON.stringify(kernel.sessions.get(thread.id))).toContain("Wrote to Sam with key"));
+
+    // Its reach is the project's, as before: it read the project's table.
+    const read = requests.flatMap((r) => r.messages).flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result" && b.toolUseId === "b1") as { content: unknown; isError?: boolean };
+    expect(read.isError).toBeFalsy();
+    expect(JSON.stringify(read.content)).toContain("Sam");
+
+    // The thread is the blob's: asked by Career, never one of Career's chats.
+    expect(thread).toMatchObject({ projectSlug: career.slug, role: "follow-ups" });
+    expect(blobOf(thread, kernel.standing)).toBe("follow-ups");
+    expect(isProjectChat(thread, career.slug, kernel.standing)).toBe(false);
+    // Its Discord home is the blob's channel, so its thread goes there and is read by the blob's audience.
+    expect(kernel.threadHome(thread.id)).toBe("agent:follow-ups");
+    const places = kernel.surfaceChannels();
+    expect(places.find((p) => p.key === `project:${career.slug}`)?.threads?.map((t) => t.conversationId)).not.toContain(thread.id);
+    expect(places.find((p) => p.key === "agent:follow-ups")?.threads?.map((t) => t.conversationId)).toEqual([thread.id]);
+    expect((await kernel.runKernelCommand({ kind: "agents" }, career.conversationId, "owner", "dashboard", true)).reply).not.toContain("Follow ups");
+
+    // Where Career asked: a line linking to the thread, then a card of the answer.
+    await vi.waitFor(() => expect(JSON.stringify(kernel.sessions.get(career.conversationId))).toContain("Follow ups answered"));
+    const said = JSON.stringify(kernel.sessions.get(career.conversationId));
+    expect(said).toContain(`Asked Follow ups to draft a thank-you to each contact · Open @chat:[${thread.id}]`);
+    expect(said).toContain("kos:card");
+    expect(said).toContain("> Wrote to Sam with key");
+    // The card quotes the blob, scrubbed: a secret in its reply is not kept in Career's chat.
+    expect(said).not.toContain("sk-live-0123456789abcdef");
+
+    // Who reads its thread is who reads the blob's channel, where it sits, not the project's.
+    kernel.setChannelAudience("agent:follow-ups", "guests");
+    expect(kernel.channelAudiences()[kernel.threadHome(thread.id)!]).toBe("guests");
+    expect(kernel.channelAudiences()[`project:${career.slug}`]).toBeUndefined();
+
+    // The blob removed: nothing stands for it, so the thread is Career's chat again, laid out under Career.
+    kernel.roles.remove("follow-ups");
+    expect(isProjectChat(thread, career.slug, kernel.standing)).toBe(true);
+    expect(kernel.threadHome(thread.id)).toBe(`project:${career.slug}`);
+    expect(kernel.surfaceChannels().find((p) => p.key === `project:${career.slug}`)?.threads?.map((t) => t.conversationId)).toContain(thread.id);
+  });
+
+  it("gates a blob's work for a project on every channel its thread could sit under, failing closed", async () => {
+    kernel = await boot(scripted([]).inference);
+    const career = kernel.standUpProject({ name: "Career", type: "tracker" });
+    kernel.roles.write({ name: "follow-ups", description: "Writes follow-ups", brief: "You write.", memory: "shared" });
+    const work = kernel.spawnAgent("follow-ups", career.slug);
+    const project = `project:${career.slug}`;
+    const blob = "agent:follow-ups";
+    const open = (key: string, audience: "owner" | "guests"): void => kernel.setChannelAudience(key, audience);
+
+    // Both the owner's: the owner's alone.
+    expect(kernel.threadOwnerOnly(work.id)).toBe(true);
+
+    // Bound under the project's channel before the work moved: the project's guests still read it.
+    kernel.bindThread("t-old", work.id);
+    open(project, "guests");
+    expect(kernel.threadHome(work.id)).toBe(blob);
+    expect(kernel.threadOwnerOnly(work.id)).toBe(false);
+    open(project, "owner");
+
+    // Made under the blob's channel: its guests read it, though the project is the owner's.
+    open(blob, "guests");
+    expect(kernel.threadOwnerOnly(work.id)).toBe(false);
+    expect(kernel.threadsBound().find((t) => t.id === "t-old")?.channel).toBe(blob);
+
+    // The blob removed: home is the project again, but a thread made under the blob's channel still has its guests.
+    kernel.roles.remove("follow-ups");
+    expect(kernel.threadHome(work.id)).toBe(project);
+    expect(kernel.threadsBound().find((t) => t.id === "t-old")?.channel).toBe(project);
+    expect(kernel.threadOwnerOnly(work.id)).toBe(false);
+    open(blob, "owner");
+    expect(kernel.threadOwnerOnly(work.id)).toBe(true);
+
+    // A project's own chat is gated by its home as before.
+    const own = kernel.conversations.create({ userId: "owner", title: "Mock", projectSlug: career.slug });
+    open(project, "guests");
+    expect(kernel.threadOwnerOnly(own.id)).toBe(false);
   });
 
   it("KOS gets a router brief so the hierarchy is a behaviour", async () => {

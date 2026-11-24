@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement, type ReactNode } from "react";
 
-import { Chips, Countdown, EmptyState, Field, hintWords, SheetFoot, OriginList, PAYMENT_FRAMES, Pill, SecretField, GroupHead, Switch, Tag, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
+import { Chips, Countdown, EmptyState, Field, hintWords, SheetFoot, OriginList, PAYMENT_FRAMES, Pill, SecretField, GroupHead, Switch, Tag, When, clearSecretValues, readSecretValues, takeSecretValues, type Tone } from "@kos/kit";
 
 import { fieldErrorOf } from "./api.js";
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
 
-import { checkName, SECRET_KINDS, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSummary, type SecretUse, type SecretUseRow, type SecretValues, type VaultStatus, timeWords } from "@kos/shared";
+import { checkName, SECRET_KINDS, type SecretBilling, type SecretFieldName, type SecretKind, type SecretSummary, type SecretUse, type SecretUseRow, type SecretValues, type VaultStatus } from "@kos/shared";
 
 import {
   ASK_WORDS,
@@ -414,7 +414,7 @@ function Grants({ secret, disabled, onChanged }: { secret: SecretSummary; disabl
           {secret.policy.grants.map((g) => (
             <li key={g.origin} className="secret-line">
               <span className="secret-line-main">{g.origin}</span>
-              <span className="secret-line-meta">{timeWords(g.at)}</span>
+              <span className="secret-line-meta"><When at={g.at} /></span>
               {!disabled && (
                 <button
                   type="button"
@@ -470,7 +470,7 @@ function Uses({ handle }: { handle: string }): ReactElement {
                   {u.decidedBy ? ` · ${u.decidedBy}` : ""}
                 </span>
               </span>
-              <span className="secret-line-meta">{timeWords(u.at)}</span>
+              <span className="secret-line-meta"><When at={u.at} /></span>
               <Pill tone={OUTCOME_TONE(u.outcome)}>{u.outcome}</Pill>
             </li>
           ))}

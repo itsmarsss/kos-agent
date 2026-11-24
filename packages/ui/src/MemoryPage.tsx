@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
-import { Chips, EmptyState, Pill, Switch, Tag } from "@kos/kit";
+import { Chips, EmptyState, Pill, Switch, Tag, When } from "@kos/kit";
 import { kindWord, momentWords, slugWords, SYSTEM_SCHEDULE_ABOUT, timeWords } from "@kos/shared";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type MemoryChange, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
@@ -321,7 +321,7 @@ function ChangeRow({ change }: { change: MemoryChange }): ReactElement {
           </span>
         </span>
         {change.by && <span className="mem-settled-how">{change.by}</span>}
-        <time className="mem-settled-when">{momentWords(change.at)}</time>
+        <span className="mem-settled-when"><When at={change.at} say="moment" /></span>
       </div>
       <div className="mem-change-diff">
         {change.action === "archive" ? (
@@ -379,7 +379,7 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
                   })}
                 </span>
                 <span className="mem-settled-how">{item.resolution}</span>
-                {item.resolvedAt ? <time className="mem-settled-when">{momentWords(item.resolvedAt)}</time> : null}
+                {item.resolvedAt ? <span className="mem-settled-when"><When at={item.resolvedAt} say="moment" /></span> : null}
               </li>
             ))}
           </ul>

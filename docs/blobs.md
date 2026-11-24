@@ -95,17 +95,40 @@ sends you with `notify` (its name in bold on Discord, its colour on a card;
 that same thread, so a run can be watched while it happens and asked about
 afterwards, and what the blob remembers is the blob's own.
 
-Dispatched into a project (by that project's orchestrator, or by KOS with a
-project named), the blob gets an ordinary chat inside the project, under
-the same brief, and is told that what it makes there goes in the project's
-folder, so it lands with the project; its own folder stays for its notes.
-It has one such chat per project: dispatched there again, the task goes to
-the chat it already has, so its work in a project reads as one thread.
+## Who it belongs to
+
+A blob is yours. A project can ask it for help, and the work it does is
+still the blob's: it shows under the blob, never in the project's list of
+chats as if the project had made it.
+
+Asked by a project (by that project's orchestrator, or by KOS with a
+project named), the blob works in a thread of its own for that project,
+under the same brief. For that work it reads the project's tables and
+files, exactly as a chat of the project would, and is told that what it
+makes goes in the project's folder, so it lands with the project; its own
+folder stays for its notes. It has one such thread per project that asks:
+asked again, the task goes to the thread it already has, so its work for
+a project reads as one thread.
+
+That thread is listed on the blob's page under Asked by projects, named
+for the project, and says "Asked by Career" over its messages. The project
+keeps two short marks where it asked: a line, "Asked Follow ups to draft
+the thank-you notes · Open", linking to the blob's thread, and when the
+blob is done, a small card with the gist of its answer. The full answer
+stays in the blob's thread. The project's orchestrator does not list or
+search the thread among its chats and cannot archive or delete it, but it
+may still read it and ask the blob more. On Discord the thread sits under
+the blob's channel.
+
+Whose a thread is follows from what it runs as: a thread that runs as a
+blob is the blob's, and the project it carries is the one that asked.
+Threads asked for before this was so moved under their blob with nothing
+rewritten.
 
 ## On the dashboard
 
 Blobs, in the sidebar, lists them with what each is up to and opens each
-one's page: its thread, the chats it has in projects, and beside the thread
+one's page: its thread, its work for the projects that asked, and beside the thread
 its schedule (Run now, Pause), its file as fields (Edit), Open in Files and
 Delete. `@blob:<name>` names one in a chat
 or as a handoff target (`chats.handoff` takes it, as it takes `@chat:` and
@@ -132,8 +155,9 @@ does, so a blob cannot spawn more of itself:
   to tell you. Work you dispatch to a blob is always reported back when it
   answers.
 - `blobs.dispatch`: a task to a blob, handed over rather than waited on.
-  When it answers, the chat that sent it gets the answer as a line of its
-  own (after its turn, if it is mid-turn), and you are told.
+  The chat that sent it gets a line linking to the blob's thread at once,
+  and a short card of the answer when it answers (after its turn, if it is
+  mid-turn), and you are told.
 - `blobs.pause` and `blobs.resume`: the Pause button on the blob's page,
   for when you say it in a chat instead ("pause the recap", "wake watch
   back up"). A paused blob still takes dispatches; one with no schedule

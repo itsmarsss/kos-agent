@@ -98,7 +98,9 @@ describe("the approval card", () => {
   it("says on the remembered yes what it keeps", () => {
     const { onDecide } = card();
     const always = screen.getByRole("button", { name: "Always allow on docs.google.com" });
-    fireEvent.focus(always);
+    // Focus the keys move there: a press before it would focus without the card.
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    act(() => always.focus());
     expect(screen.getByRole("tooltip").textContent).toMatch(/docs\.google\.com in your Chrome stop asking.*Settings, Permissions/);
     settle();
     fireEvent.click(always);

@@ -210,9 +210,6 @@
   .chats-row > .chats-item {
     padding-right: calc(var(--tap) + 0.25rem);
   }
-  li:hover .chats-item-when {
-    opacity: 1;
-  }
 
   /* A setting's words, cut at two lines with a hover to say there is more, are whole. */
   .set-field--row .set-hint {
