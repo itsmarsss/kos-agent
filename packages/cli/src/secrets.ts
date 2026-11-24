@@ -220,7 +220,13 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
       }
       case "trust-seq": {
         if (vault.status().state === "absent") throw new VaultError("absent", "there is no vault");
-        if (!(await confirmed("This takes the vault file on disk as the latest, though nothing records its sequence. Only do this if you did not put an older copy back.", "trust"))) return 1;
+        // What would be taken, against what the records say, before anyone types trust.
+        const report = vault.seqReport();
+        if (report.file) out(`the file: vault ${report.file.vault}, sequence ${report.file.seq}, slots ${report.file.slots.join(", ") || "none"}`);
+        for (const { path, record } of report.records) {
+          out(record ? `${path}: vault ${record.vault}, sequence ${record.seq}${record.kinds ? `, slots ${record.kinds.join(", ") || "none"}` : ""}` : `${path}: missing`);
+        }
+        if (!(await confirmed("This takes the vault file on disk as the latest, whatever the records say. Only do this for a vault you put back yourself; a file you did not put there was replaced by someone else.", "trust"))) return 1;
         await vault.trustSeq(vault.hasPassphrase() ? await ask("Vault passphrase: ", true) : undefined);
         cli.audit?.({ tool: "secrets.trust-seq", args: { from: "cli" }, result: "sequence records written again", isError: false });
         const s = vault.status();

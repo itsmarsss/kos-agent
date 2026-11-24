@@ -194,3 +194,15 @@ describe("kos secrets migrate-env", () => {
     expect(lines.at(-1)).toMatch(/no vault to move keys into/);
   });
 });
+
+describe("kos secrets trust-seq", () => {
+  it("shows the file's sequence and slots against the records before it takes the file", async () => {
+    await runSecrets(["init"], {}, cli());
+    rmSync(join(root, "secrets", "seq"));
+    rmSync(join(root, "secrets.seq"));
+    expect(await runSecrets(["trust-seq"], {}, cli(["no"]))).toBe(1);
+    expect(lines).toEqual(expect.arrayContaining([expect.stringMatching(/^the file: vault v_[0-9a-f]{16}, sequence 1, slots keyfile$/), `${join(root, "secrets", "seq")}: missing`, `${join(root, "secrets.seq")}: missing`]));
+    expect(await runSecrets(["trust-seq"], {}, cli(["trust"]))).toBe(0);
+    expect(readFileSync(join(root, "secrets.seq"), "utf8")).toMatch(/ 1 [0-9a-f]{32} keyfile\n$/);
+  });
+});
