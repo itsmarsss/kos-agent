@@ -1015,6 +1015,8 @@ export interface SettingsPayload {
   envPath: string | null;
   /** False when there is nowhere safe to write keys. */
   envWritable: boolean;
+  /** Where a key KOS runs on saved here goes: the vault while it is open, .env when there is none; none while it is locked. */
+  keysGo?: "vault" | "env" | "locked";
   secrets: Record<
     string,
     {
@@ -1023,6 +1025,8 @@ export interface SettingsPayload {
       masked: string | null;
       /** Set when the value lives under an older name the host still accepts. */
       storedAs?: string;
+      /** Where the live value is read from: the env file wins over the vault. */
+      source?: "env" | "vault";
     }
   >;
   settings: Record<
@@ -1747,7 +1751,7 @@ export const api = {
   saveRetention: (retention: Partial<Retention>) =>
     post<{ retention: Retention }>("/api/settings/retention", retention),
   saveSettings: (values: Record<string, string>) =>
-    post<{ written: string[]; cleared: string[] }>("/api/settings", { values }),
+    post<{ written: string[]; cleared: string[]; stored?: "vault" | "env" | "locked" }>("/api/settings", { values }),
   projectDetail: (slug: string) =>
     get<ProjectDetail>(`/api/projects/${encodeURIComponent(slug)}/detail`),
   /**

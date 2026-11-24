@@ -5,7 +5,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { Kernel, SecretsRegistry } from "@kos/harness";
+import { isContained, Kernel, SecretsRegistry, Vault } from "@kos/harness";
 
 const exec = promisify(execFile);
 
@@ -102,11 +102,17 @@ export async function runDoctor(options: DoctorOptions): Promise<string> {
       : join(repoRoot, ".env"));
   check(existsSync(envFile), ".env file", envFile);
 
+  // Keys come from the env or the vault: a vault that opens by itself is read; a locked one may hold them.
   const secrets = SecretsRegistry.fromEnv();
+  const vault = Vault.fromEnv(process.env, isContained(), options.workspace || undefined);
+  secrets.attachVault(vault);
+  const locked = vault.status().state === "locked";
   check(
-    secrets.has("anthropic") || secrets.has("openai"),
+    secrets.has("anthropic") || secrets.has("openai") || locked,
     "model API key",
-    "ANTHROPIC_API_KEY or OPENAI_API_KEY",
+    locked && !secrets.has("anthropic") && !secrets.has("openai")
+      ? "not in .env; the vault is locked, so it may be there"
+      : "ANTHROPIC_API_KEY or OPENAI_API_KEY, or KOS's anthropic or openai key in the vault",
   );
 
   // Semantic recall needs a real embedder. Without one KOS falls back to

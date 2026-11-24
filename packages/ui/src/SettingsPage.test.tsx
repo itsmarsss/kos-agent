@@ -83,4 +83,25 @@ describe("SettingsPage", () => {
     expect(document.activeElement?.closest(".set-pane")).toBeTruthy();
     expect(name).toBeTruthy();
   });
+
+  it("says where a key is read from and where a new one goes: the vault while it is open", async () => {
+    vi.spyOn(api, "settings").mockResolvedValue({
+      ...payload("Ada"),
+      keysGo: "vault",
+      secrets: {
+        OPENAI_API_KEY: { label: "OpenAI", hint: "sk-…", masked: "••••6789", source: "vault" },
+        ANTHROPIC_API_KEY: { label: "Anthropic", hint: "sk-ant-…", masked: "••••4321", source: "env" },
+      },
+    } as SettingsPayload);
+    const save = vi.spyOn(api, "saveSettings").mockResolvedValue({ written: ["OPENAI_API_KEY"], cleared: [], stored: "vault" });
+    render(<SettingsPage section="providers" />);
+    expect(await screen.findByText("in the vault")).toBeTruthy();
+    expect(screen.getByText("in .env")).toBeTruthy();
+    expect(screen.getByText(/Saved in the encrypted vault, and taken out of .env/)).toBeTruthy();
+    const field = screen.getAllByPlaceholderText("Unchanged")[0]!;
+    fireEvent.change(field, { target: { value: "sk-proj-new-0123456789" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ OPENAI_API_KEY: "sk-proj-new-0123456789" }));
+    expect(await screen.findByText("Saved in the vault")).toBeTruthy();
+  });
 });

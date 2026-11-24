@@ -100,16 +100,8 @@ import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize, pictures
 /** Where the owner's home arrangement lives. */
 export const HOME_LAYOUT_KEY = "home.layout";
 import { saveProfile } from "./profile.js";
-import {
-  findSecret,
-  isInside,
-  isWritableKey,
-  maskSecret,
-  namesFor,
-  writeEnvFile,
-  WRITABLE_SECRETS,
-  WRITABLE_SETTINGS,
-} from "../secrets/envfile.js";
+import { isInside, isWritableKey, WRITABLE_SETTINGS } from "../secrets/envfile.js";
+import { keyStoreOf, KeyStoreError, maskedKeys, saveSettingsKeys } from "../secrets/keystore.js";
 import { contextWindowFor } from "../models/windows.js";
 
 export interface ApiRequest {
@@ -2200,7 +2192,7 @@ export async function handleApiRequest(
     // Values are never sent back, only whether one is set and its last four
     // characters, which is enough to tell two keys apart and no use to anyone.
     const envPath = options.envPath;
-    const secrets = maskedSecrets();
+    const secrets = maskedKeys(kernel.secrets);
     const settings: Record<string, { label: string; hint: string; value: string }> = {};
     for (const [key, meta] of Object.entries(WRITABLE_SETTINGS)) {
       settings[key] = { ...meta, value: process.env[key] ?? "" };
@@ -2223,6 +2215,8 @@ export async function handleApiRequest(
       // whose answer is in a comment in another file.
       envWritable:
         envPath !== undefined && !isInside(kernel.workspace.root, envPath),
+      // Where a key KOS runs on saved here goes: the vault while it is open, .env without one.
+      keysGo: keyStoreOf(kernel.secrets.attached()),
       secrets,
       settings,
       sitesUrl: sitesBaseUrl() ?? null,
@@ -2249,20 +2243,18 @@ export async function handleApiRequest(
     }
 
     try {
-      const result = writeEnvFile(envPath, kernel.workspace.root, values);
-      // Applied to this process too, so a key saved here works on the next
-      // turn rather than on the next restart.
-      for (const [key, value] of Object.entries(values)) {
-        // Aliases as well: leaving DISCORD_TOKEN set in this process would
-        // keep Discord running after the owner cleared the field for it.
-        for (const name of namesFor(key)) delete process.env[name];
-        if (value !== null && value !== "") process.env[key] = value;
-      }
+      // Keys KOS runs on go to the vault while it is open; the rest, and every
+      // key without a vault, to .env. Applied to this process too, aliases
+      // included, so a key saved works on the next turn, not the next restart.
+      const result = saveSettingsKeys(values, { vault: kernel.secrets.attached(), envPath, workspaceRoot: kernel.workspace.root });
       kernel.reloadSecrets();
-      return ok({ ...result, secrets: maskedSecrets() });
+      if (result.stored === "vault" && result.written.length + result.cleared.length > 0) {
+        void kernel.audit.record({ tool: "secrets.write", args: { from: "settings", written: result.written, cleared: result.cleared }, result: "kept in the vault", isError: false, userId: kernel.profile.ownerId });
+      }
+      return ok({ ...result, secrets: maskedKeys(kernel.secrets) });
     } catch (err) {
       return {
-        status: 400,
+        status: err instanceof KeyStoreError ? 409 : 400,
         body: { error: err instanceof Error ? err.message : String(err) },
       };
     }
@@ -3424,33 +3416,6 @@ function transcriptOf(
     const text = saidText(message.content).trim();
     if (text === "") continue;
     out.push({ role: message.role === "user" ? "you" : "kos", text });
-  }
-  return out;
-}
-
-/**
- * Every writable secret, masked, as the settings page shows them.
- *
- * `storedAs` names where the value actually is when that is not the canonical
- * name. The page said "not set" for a working Discord token because it looked
- * only at KOS_SECRET_DISCORD while the token was under DISCORD_TOKEN.
- */
-function maskedSecrets(): Record<
-  string,
-  { label: string; hint: string; masked: string | null; storedAs?: string }
-> {
-  const out: Record<
-    string,
-    { label: string; hint: string; masked: string | null; storedAs?: string }
-  > = {};
-  for (const [key, meta] of Object.entries(WRITABLE_SECRETS)) {
-    const found = findSecret(key);
-    out[key] = {
-      label: meta.label,
-      hint: meta.hint,
-      masked: maskSecret(found?.value),
-      ...(found && found.name !== key ? { storedAs: found.name } : {}),
-    };
   }
   return out;
 }

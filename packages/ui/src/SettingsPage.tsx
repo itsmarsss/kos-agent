@@ -689,9 +689,9 @@ export function SettingsPage({
     setBusy(section);
     void api
       .saveSettings(values)
-      .then(() => {
+      .then((saved) => {
         clear();
-        done(section, "Saved");
+        done(section, saved.stored === "vault" && section === "providers" ? "Saved in the vault" : "Saved");
         load();
       })
       .catch((err: unknown) =>
@@ -904,7 +904,7 @@ export function SettingsPage({
         {active === "providers" && (
           <Section
             title="Providers"
-            blurb="Stored outside the workspace, readable only by you. KOS shows the last four characters so you can tell two keys apart; it never sends the value back."
+            blurb={`${keysWords(data.keysGo)} KOS shows the last four characters so you can tell two keys apart; it never sends the value back.`}
             {...saveBar("providers", unsaved.providers, () =>
               saveEnv("providers", keys, () => setKeys({})),
             )}
@@ -925,6 +925,9 @@ export function SettingsPage({
                   meta.masked ? (
                     <>
                       <Pill tone="ok">{meta.masked}</Pill>
+                      {meta.source && (
+                        <Tag title={meta.source === "env" ? "Read from the .env file, which wins over the vault" : "Read from the encrypted vault"}>{meta.source === "env" ? "in .env" : "in the vault"}</Tag>
+                      )}
                       {meta.storedAs && (
                         <Tag mono title="An older name this host still accepts">
                           as {meta.storedAs}
@@ -1900,3 +1903,10 @@ export function SettingsPage({
 }
 
 export type { ModelRate };
+
+/** Where the Providers tab saves a key, said before it is typed. */
+export function keysWords(go: SettingsPayload["keysGo"]): string {
+  if (go === "vault") return "Saved in the encrypted vault, and taken out of .env; a key still in .env wins over the vault.";
+  if (go === "locked") return "The vault is locked, so keys cannot be saved until it is unlocked on the Secrets page.";
+  return "Saved in .env, outside the workspace and readable only by you; with a vault they would be kept encrypted there.";
+}
