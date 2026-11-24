@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { openDatabase, type ModuleContext, type ModuleServices } from "@kos/harness";
+import { openDatabase, SecretsRegistry, type ModuleContext, type ModuleServices } from "@kos/harness";
 import { drawingOf, lookOf } from "@kos/shared";
 import { describe, expect, it } from "vitest";
 
@@ -27,7 +27,7 @@ describe("computer use with this computer's secret unreadable", () => {
       panels: { chrome: panel, mac: panel, phone: panel },
       updates: { expected: () => undefined, log: (line) => logged.push(line) },
     });
-    const ctx = { registerTool: () => undefined, unregisterTool: () => undefined, services: { db: openDatabase(":memory:") } as unknown as ModuleServices } as unknown as ModuleContext;
+    const ctx = { registerTool: () => undefined, unregisterTool: () => undefined, services: { db: openDatabase(":memory:"), secrets: new SecretsRegistry() } as unknown as ModuleServices } as unknown as ModuleContext;
     await use.module.activate(ctx);
     expect(await use.routes.handle({ method: "GET", path: PREFIX })).toMatchObject({ status: 200, body: { devices: [] } });
     expect(logged).toEqual([expect.stringMatching(new RegExp(`^devices: KOS can't tell this Mac is its own: remove ${localKeyPath} and KOS makes another \\(`))]);
@@ -53,7 +53,7 @@ describe("computer use's own keys", () => {
       theme: () => ({ mode: "system" }),
       panels: { chrome: panel, mac: panel, phone: panel },
     });
-    const ctx = { registerTool: () => undefined, unregisterTool: () => undefined, services: { db: openDatabase(":memory:") } as unknown as ModuleServices } as unknown as ModuleContext;
+    const ctx = { registerTool: () => undefined, unregisterTool: () => undefined, services: { db: openDatabase(":memory:"), secrets: new SecretsRegistry() } as unknown as ModuleServices } as unknown as ModuleContext;
     await use.module.activate(ctx);
     expect(readFileSync(join(dir, "device-local.key"), "utf8").trim()).toBe(watched.get("device_local_key"));
     // The PEM's body is the PKCS#8 key in base64, one line for an Ed25519 key.

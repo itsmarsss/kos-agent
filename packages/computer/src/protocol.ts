@@ -134,7 +134,9 @@ export type ErrorCode =
   | "origin"
   | "field"
   | "secret_field"
-  | "partial";
+  | "partial"
+  | "not_here"
+  | "key";
 
 export interface Reply {
   t: "reply";
@@ -176,6 +178,8 @@ export type Method =
   | "secret.picture"
   | "tab.origins"
   | "clipboard.read"
+  | "vault.key"
+  | "vault.unwrap"
   | PanelMethod;
 
 /**

@@ -947,6 +947,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
         vault,
         secrets: kernel.secrets,
         uses: kernel.secretUses,
+        devices: computer.vaultDevices,
         audit: (entry) => void kernel.audit.record({ ...entry, userId: kernel.profile.ownerId }),
       }),
     ],

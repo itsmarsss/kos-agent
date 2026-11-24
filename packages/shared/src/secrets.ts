@@ -86,6 +86,8 @@ export interface VaultStatus {
   slots: VaultSlotKind[];
   /** The device slots: each a KOS for Mac that opens the vault while its owner is logged in. */
   devices?: { id: string; name: string }[];
+  /** Whether the KOS for Mac on this computer can open the vault at login: its name, or why not. Absent without computer use. */
+  mac?: { name: string } | { reason: string };
   /** Values the scrubber has masked since the host started. */
   scrubbed: number;
   /** Why a vault that is there is not ready, when it is not the passphrase it waits for. */

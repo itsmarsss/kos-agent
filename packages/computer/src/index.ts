@@ -16,5 +16,6 @@ export { PREFIX, deviceRoutes, deviceSocketServer, isForwarded, isLoopback, type
 export { DeviceLan, RateLimit, isPrivateAddress, type LanOptions, type LanPairing, type LanStatus } from "./lan.js";
 export { loadLanCert, makeLanCert, pinOf, readLanCert, type LanCert } from "./lancert.js";
 export { createComputerUse, type ComputerUse, type ComputerUseOptions } from "./computeruse.js";
+export { MacVault, unlockAtLogin } from "./macvault.js";
 export { APNS_ORIGINS, ApnsClient, JWT_REFRESH_MS, ProviderToken, apnsJwt, jwtSigningInput, readP8, type ApnsAnswer, type ApnsCredentials, type ApnsPush, type ApnsSender } from "./apns.js";
 export { ASK_CATEGORY, ASK_OPEN_CATEGORY, PUSH_TOKEN_EVENT, PhonePush, askPush, collapseId, pushConfig, readApnsEnv, settledPush, type ApnsEnv, type PushConfig } from "./push.js";
