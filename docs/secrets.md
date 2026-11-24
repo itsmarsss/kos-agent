@@ -156,7 +156,7 @@ open descriptor.
   secrets trust-seq`, which takes the file on disk as the latest. It records
   only a sequence the vault's own MAC vouches for: the data key is opened
   (the key file, or the passphrase it asks for) and the index checked first.
-  A record is `<vault id> <seq> <commitments>`: each commitment is
+  A record is `<vault id> <seq> <commitments> <slot kinds>`: each commitment is
   HKDF-SHA256(DEK, empty salt, info `kos-vault/2 commit|<vault>`, 16) as hex,
   the data keys the record vouches for. Nothing in the vault file can stand
   in for it: slots are sealed to public points and the MAC is keyed from the
@@ -167,8 +167,19 @@ open descriptor.
   2 file needs the record outside the folder, which a forger with the folder
   alone cannot write. A change of data key first writes both records with
   the old and the new commitment, then the vault, then both with the new
-  one alone, so a crash between leaves either file opening. A record from
-  before commitments vouches for a version 1 file only.
+  one alone, so a crash between leaves either file opening. The slot kinds
+  (`device,passphrase`, say) are the vault's: a file without a passphrase
+  slot is refused while a record says it had one, so a passphrase vault
+  cannot be swapped for a key-file one, whatever version, whatever opens it.
+  Whenever a file checks out and a record is missing, older than it, still
+  vouches for two data keys, or is from before commitments, both records are
+  written again for that file, under the lock. A record from before
+  commitments vouches for a version 1 file only, and only until that first
+  open after an upgrade of KOS: a file planted in the folder before then (a
+  key-file vault with its own key file) cannot be told from the owner's, which
+  is the one window left. A file refused as replaced says so plainly; `kos
+  secrets trust-seq` is only for an export the owner put back, and shows the
+  file's sequence and slot kinds against each record's before it asks.
 - `vault.lock`: held while the host or the CLI reads the vault and writes it
   back, so the two never interleave a change. It is written whole (the pid
   into a file of the writer's own, then linked into place); one left by a
