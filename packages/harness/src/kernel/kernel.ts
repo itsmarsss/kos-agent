@@ -3789,6 +3789,28 @@ export class Kernel {
     return this.channelAudiences()[this.roomOf(conversationId)?.key ?? conversationId];
   }
 
+  /**
+   * Whether a chat's thread is read by the owner alone: its own audience
+   * (a room's by its place's), else its home channel's.
+   *
+   * A binding records no parent channel, so a blob's work may sit in a
+   * thread made under its project's channel before it moved, or under a
+   * blob's channel the blob has since left. For a chat run as a blob the
+   * gate fails closed: the project's channel and the blob's must both be the
+   * owner's alone, as must its own, wherever the thread now sits.
+   */
+  threadOwnerOnly(conversationId: string): boolean {
+    const audiences = this.channelAudiences();
+    const own = this.audienceOf(conversationId);
+    const chat = this.conversations.get(conversationId);
+    if (chat?.role) {
+      const places = [agentConversationId(chat.role), ...(chat.projectSlug ? [projectConversationId(chat.projectSlug)] : [])];
+      return [own, ...places.map((key) => audiences[key])].every((audience) => (audience ?? "owner") === "owner");
+    }
+    const home = this.threadHome(conversationId);
+    return (own ?? (home ? audiences[home] : undefined) ?? "owner") === "owner";
+  }
+
   /** Chats made from a thread of the owner's and deleted since, so a message there does not make them again. */
   goneChats(): string[] {
     return this.settings.get<string[]>(GONE_CHATS_KEY) ?? [];
@@ -3893,11 +3915,14 @@ export class Kernel {
   threadsBound(): BoundThread[] {
     return Object.entries(this.threadBindings()).map(([id, conversationId]) => {
       const conversation = this.conversations.get(conversationId);
-      const channel = conversation?.projectSlug
-        ? `project:${conversation.projectSlug}`
-        : conversation?.role
-          ? agentConversationId(conversation.role)
-          : orchestratorId(this.profile.ownerId);
+      // Where its thread is made today, as threadHome says; a chat with no home now keeps the place it had.
+      const channel =
+        (conversation && this.threadHome(conversationId)) ??
+        (conversation?.projectSlug
+          ? `project:${conversation.projectSlug}`
+          : conversation?.role
+            ? agentConversationId(conversation.role)
+            : orchestratorId(this.profile.ownerId));
       return { id, name: conversation?.title ?? "(chat deleted)", channel, conversationId, projectSlug: conversation?.projectSlug ?? null, gone: !conversation };
     });
   }

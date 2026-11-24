@@ -2075,6 +2075,44 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.surfaceChannels().find((p) => p.key === `project:${career.slug}`)?.threads?.map((t) => t.conversationId)).toContain(thread.id);
   });
 
+  it("gates a blob's work for a project on every channel its thread could sit under, failing closed", async () => {
+    kernel = await boot(scripted([]).inference);
+    const career = kernel.standUpProject({ name: "Career", type: "tracker" });
+    kernel.roles.write({ name: "follow-ups", description: "Writes follow-ups", brief: "You write.", memory: "shared" });
+    const work = kernel.spawnAgent("follow-ups", career.slug);
+    const project = `project:${career.slug}`;
+    const blob = "agent:follow-ups";
+    const open = (key: string, audience: "owner" | "guests"): void => kernel.setChannelAudience(key, audience);
+
+    // Both the owner's: the owner's alone.
+    expect(kernel.threadOwnerOnly(work.id)).toBe(true);
+
+    // Bound under the project's channel before the work moved: the project's guests still read it.
+    kernel.bindThread("t-old", work.id);
+    open(project, "guests");
+    expect(kernel.threadHome(work.id)).toBe(blob);
+    expect(kernel.threadOwnerOnly(work.id)).toBe(false);
+    open(project, "owner");
+
+    // Made under the blob's channel: its guests read it, though the project is the owner's.
+    open(blob, "guests");
+    expect(kernel.threadOwnerOnly(work.id)).toBe(false);
+    expect(kernel.threadsBound().find((t) => t.id === "t-old")?.channel).toBe(blob);
+
+    // The blob removed: home is the project again, but a thread made under the blob's channel still has its guests.
+    kernel.roles.remove("follow-ups");
+    expect(kernel.threadHome(work.id)).toBe(project);
+    expect(kernel.threadsBound().find((t) => t.id === "t-old")?.channel).toBe(project);
+    expect(kernel.threadOwnerOnly(work.id)).toBe(false);
+    open(blob, "owner");
+    expect(kernel.threadOwnerOnly(work.id)).toBe(true);
+
+    // A project's own chat is gated by its home as before.
+    const own = kernel.conversations.create({ userId: "owner", title: "Mock", projectSlug: career.slug });
+    open(project, "guests");
+    expect(kernel.threadOwnerOnly(own.id)).toBe(false);
+  });
+
   it("KOS gets a router brief so the hierarchy is a behaviour", async () => {
     const model = scripted([text("hi")]);
     kernel = await boot(model.inference);
