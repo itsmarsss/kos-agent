@@ -404,7 +404,10 @@ the window draws it natively, and shows LaTeX as written.
   column, padded 9 by 12, the accent at the strong tint over `panel-2`,
   radius 14 with its bottom right corner 4. Words in
   `text`, not on solid blue, read as the same markdown KOS's are, so a link
-  pasted is a link and a formula is typeset.
+  pasted is a link and a formula is typeset. A long one folds to its first
+  lines under a fade with Show more (`Fold`): at a desk past 12 lines or 800
+  characters, showing 8; on a phone past 9 lines or 600, showing 6. Its
+  files stay under it, and opening it is kept while the page is open.
 - **KOS's reply:** prose on the page, no bubble.
 - **Markdown:** headings at the words' size, set apart by weight, lists
   that nest (disc, circle, square; a, b under numbers), code spans at nine
