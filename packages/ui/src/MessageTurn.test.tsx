@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { clockWords } from "@kos/shared";
 
 import type { ChatEvent } from "./api.js";
-import { excerpt, MessageTurn, turnWords } from "./MessageTurn.js";
+import { excerpt, MessageTurn, OWNER_FOLD, turnWords } from "./MessageTurn.js";
 
 const AT = Date.UTC(2026, 10, 18, 14, 41);
 const actions = { tools: [], ask: () => undefined };
@@ -55,5 +55,39 @@ describe("a message's words for its buttons", () => {
   it("tells two messages of the same minute apart by their first words", () => {
     expect(turnWords("you", undefined, "Message 3: short note number 3.").of).toBe("your message “Message 3: short note number 3.”");
     expect(excerpt("Here is a **plan** for the long weekend, day by day.")).toBe("Here is a plan for the long…");
+  });
+});
+
+describe("a long message of the owner's", () => {
+  /** jsdom lays nothing out: every element is drawn this many 20 px lines tall. */
+  const drawn = (lines: number): void => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(() => lines * 20);
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el) => Object.defineProperty(real(el), "lineHeight", { value: "20px" }));
+  };
+  afterEach(() => vi.restoreAllMocks());
+  const long = "word ".repeat(300).trim();
+
+  it("folds past the desk's lines, with Show more saying how much is hidden", () => {
+    drawn(OWNER_FOLD.desk.pastLines + 8);
+    turn({ kind: "message", role: "you", text: long, at: AT });
+    const more = screen.getByRole("button", { name: `Show more of your message, ${OWNER_FOLD.desk.pastLines + 8 - OWNER_FOLD.desk.lines} more lines` });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("leaves KOS's replies whole, however long", () => {
+    drawn(60);
+    turn({ kind: "message", role: "kos", text: long, at: AT });
+    expect(screen.queryByRole("button", { name: /^Show more/ })).toBeNull();
+  });
+
+  it("stays open when drawn again while the page is open", () => {
+    drawn(40);
+    const event = { kind: "message", role: "you", text: `${long} kept`, at: AT + 1 } as const;
+    turn(event);
+    fireEvent.click(screen.getByRole("button", { name: /^Show more/ }));
+    cleanup();
+    turn(event);
+    expect(screen.getByRole("button", { name: "Show less of your message" }).getAttribute("aria-expanded")).toBe("true");
   });
 });
