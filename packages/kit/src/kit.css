@@ -547,6 +547,7 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 .tile[data-tone="muted"] { --tone: var(--muted); }
 .line-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .line-text strong, .line-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.line-text strong { font-size: var(--text-base); font-weight: 600; }
 .line-text span { color: var(--muted); font-size: var(--text-xs); }
 /* A setting's row: its detail runs to as many lines as it needs. */
 .line-text--wrap strong, .line-text--wrap span { white-space: normal; }
@@ -566,7 +567,6 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
   text-align: left;
   cursor: pointer;
 }
-.drawer-row .line-text strong { font-size: var(--text-base); }
 /* `wrap`, as KOS for Mac's DrawerRow is: a title on one line, its detail on up to two, set as tight as the Mac sets them. */
 .drawer-row--wrap .line-text { line-height: 1.25; }
 .drawer-row--wrap .line-text span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
