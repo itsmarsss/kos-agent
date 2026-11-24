@@ -580,58 +580,77 @@ select {
 /*
  * A word from KOS about what just happened (Toast.tsx). The top-right corner,
  * under the page head: out of the composer and the thread being read. Newest
- * at the top, first in the tab order too.
+ * at the top, first in the tab order too. One column as wide as its widest
+ * note, so the stack reads as one and every close lines up at its right.
  */
 .ops-toasts {
   position: fixed;
   top: calc(3.5rem + env(safe-area-inset-top, 0px));
+  bottom: auto;
   right: 1rem;
   left: auto;
   z-index: 90;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  width: min(24rem, calc(100vw - 2rem));
+  align-items: stretch;
+  width: max-content;
+  max-width: min(24rem, calc(100vw - 2rem));
   gap: 0.4rem;
   pointer-events: none;
 }
 /*
- * A sheet open: the stack stays over it (a note raised from inside a sheet is
- * seen) but clear of where the owner types. A drawer is filled from its head,
- * so the notes go to the bottom, above its foot (a control's height in 0.75rem
- * each way), and over the keyboard on a phone. A centred sheet (the palette,
- * a dialog) keeps its buttons to the right of its foot: the notes go to the
- * bottom left, over the dimmed page or the foot's words.
+ * Something open over the page: the stack stays over it (a note raised from
+ * inside a sheet is seen) but clear of where the owner types and presses.
+ * Each placement sets all four sides, and the one for what is on top wins:
+ * KOS's browser, then the drawers, weigh no more than the stack's own class
+ * (`:where`); the centred sheets weigh more, so a dialog opened over a drawer
+ * places the notes for the dialog.
+ *
+ * What fills the window from the top (KOS's browser maximised, the palette,
+ * a dialog, Quick Look) keeps its fields and buttons at the top or to the
+ * right of its foot: the notes go to the bottom left, over the page shown,
+ * the dimmed page or the foot's words.
  */
-body:has(.drawer) .ops-toasts {
-  top: auto;
-  bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px) + var(--control-h) + 2rem);
-}
-/* Where the window has room beside the drawer: in the corner of the dimmed page, by the drawer's head. */
-@media (min-width: 62rem) {
-  body:has(.drawer:not(.drawer--wide)) .ops-toasts {
-    top: calc(3.5rem + env(safe-area-inset-top, 0px));
-    bottom: auto;
-    right: 41rem;
-    width: min(24rem, calc(100vw - 42rem));
-  }
-}
-@media (min-width: 78rem) {
-  body:has(.drawer--wide) .ops-toasts {
-    top: calc(3.5rem + env(safe-area-inset-top, 0px));
-    bottom: auto;
-    right: 57rem;
-    width: min(24rem, calc(100vw - 58rem));
-  }
-}
-body:has(.modal-wrap, .pal-wrap) .ops-toasts {
+body:has(:where(.browserwin.is-max, .browserwin.is-fullscreen)) .ops-toasts {
   top: auto;
   bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px) + 1rem);
   right: auto;
   left: 1rem;
-  align-items: flex-start;
 }
-/* A dialog on a phone is nearly the window's height, its foot all buttons: the notes go over its head, from the left, where a short one leaves its Close. */
+/* A drawer is filled from its head: the notes go to the bottom right, above its foot (a control's height and 0.75rem each way) and the keyboard. */
+body:has(:where(.drawer)) .ops-toasts {
+  top: auto;
+  bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px) + var(--control-h) + 2rem);
+  right: 1rem;
+  left: auto;
+}
+/* Where the window has room beside the drawer: in the corner of the dimmed page, by the drawer's head. */
+@media (min-width: 62rem) {
+  body:has(:where(.drawer:not(.drawer--wide))) .ops-toasts {
+    top: calc(3.5rem + env(safe-area-inset-top, 0px));
+    bottom: auto;
+    right: 41rem;
+    left: auto;
+    max-width: min(24rem, calc(100vw - 42rem));
+  }
+}
+@media (min-width: 78rem) {
+  body:has(:where(.drawer--wide)) .ops-toasts {
+    top: calc(3.5rem + env(safe-area-inset-top, 0px));
+    bottom: auto;
+    right: 57rem;
+    left: auto;
+    max-width: min(24rem, calc(100vw - 58rem));
+  }
+}
+body:has(.modal-wrap, .pal-wrap, .preview-wrap) .ops-toasts {
+  top: auto;
+  bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px) + 1rem);
+  right: auto;
+  left: 1rem;
+  max-width: min(24rem, calc(100vw - 2rem));
+}
+/* A dialog on a phone is nearly the window's height, its foot all buttons: the notes go over its head instead. Quick Look keeps the bottom, over the file. */
 @media (max-width: 40rem) {
   body:has(.modal-wrap) .ops-toasts {
     top: calc(var(--phonebar-h, 0px) + 0.5rem + env(safe-area-inset-top, 0px));
