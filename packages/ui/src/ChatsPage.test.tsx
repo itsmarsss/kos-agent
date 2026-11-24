@@ -219,3 +219,53 @@ describe("a schedule's thread", () => {
     expect(rows.map((a) => a.getAttribute("href"))).toEqual(["#/chats/cron%3A28"]);
   });
 });
+
+describe("a blob's work for a project", () => {
+  const career = { slug: "interview_prep", name: "Career", type: "tracker", status: "active", lastTouchedAt: 1 };
+  const home: Conversation = { ...chat, id: "agent:follow-ups", title: "Follow ups", kind: "agent", role: "follow-ups" };
+  const asked: Conversation = { ...chat, id: "cmwtr85gv2:owner", title: "Follow ups", projectSlug: "interview_prep", role: "follow-ups" };
+  const own: Conversation = { ...chat, id: "mock", title: "Mock interview", projectSlug: "interview_prep" };
+  const orchestrator: Conversation = { ...chat, id: "project:interview_prep", title: "Career", kind: "project", projectSlug: "interview_prep" };
+  const all = [home, asked, own, orchestrator];
+  const scope = { onBack: () => undefined, onOpenPage: () => undefined, onOpenFile: () => undefined, onError: () => undefined };
+
+  function scoped(mode: { agent: string } | { project: string }): void {
+    serve(() => ({ events: [] }));
+    vi.spyOn(api, "conversations").mockResolvedValue(all);
+    render(
+      <ChatsPage
+        conversations={all}
+        projects={[career]}
+        activeId={"agent" in mode ? home.id : orchestrator.id}
+        {...("agent" in mode ? { agent: { name: mode.agent, ...scope, onRemoved: () => undefined } } : { project: { slug: mode.project, ...scope } })}
+        pendingApprovals={new Set()}
+        approvals={[]}
+        deciding={new Set()}
+        agents={[]}
+        onOpenAgent={() => undefined}
+        crons={[]}
+        onEditCron={() => undefined}
+        onOpen={() => undefined}
+        onOpenProject={() => undefined}
+        onAside={() => undefined}
+        onNotice={() => undefined}
+        onChanged={() => undefined}
+        onDecide={() => undefined}
+      />,
+    );
+  }
+
+  it("is listed on the blob's page, named for the project that asked", async () => {
+    scoped({ agent: "follow-ups" });
+    const rail = await screen.findByRole("complementary", { name: "Chats in this project" });
+    expect(within(rail).getByText("Asked by projects")).toBeTruthy();
+    expect(within(rail).getByRole("link", { name: /^Career/ }).getAttribute("href")).toBe("#/blobs/follow-ups/cmwtr85gv2%3Aowner");
+  });
+
+  it("is not among the chats of the project that asked", async () => {
+    scoped({ project: "interview_prep" });
+    const rail = await screen.findByRole("complementary", { name: "Chats in this project" });
+    expect(within(rail).getByRole("link", { name: /^Mock interview/ })).toBeTruthy();
+    expect(within(rail).queryByRole("link", { name: /^Follow ups/ })).toBeNull();
+  });
+});
