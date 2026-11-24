@@ -31,6 +31,8 @@ interface Harness {
   /** The jobs the scripted scheduler holds, by blob. */
   jobs: Map<string, BlobJob>;
   done: string[];
+  /** Lines kept in chats, as `<chat>: <text>`. */
+  notes: string[];
 }
 
 async function harness(ws: Workspace, options: { scope?: string } = {}): Promise<Harness> {
@@ -41,6 +43,7 @@ async function harness(ws: Workspace, options: { scope?: string } = {}): Promise
   const bound: Harness["bound"] = [];
   const jobs = new Map<string, BlobJob>();
   const done: string[] = [];
+  const notes: string[] = [];
   const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
   await new ModuleLoader(ctx).load([
     createAgentsModule({
@@ -73,13 +76,14 @@ async function harness(ws: Workspace, options: { scope?: string } = {}): Promise
         return { reply: "done", conversationId: id };
       },
       onDispatchDone: (id, title, reply, from) => done.push(`${from} <- ${id} (${title}): ${reply}`),
+      note: (id, text) => notes.push(`${id}: ${text}`),
     }),
   ]);
   const call: Harness["call"] = async (name, input = {}) => {
     const res = await registry.execute(name, input);
     return { ...res, json: res.isError ? undefined : (JSON.parse(res.content) as Record<string, unknown>) };
   };
-  return { registry, roles, conversations, call, asked, bound, jobs, done };
+  return { registry, roles, conversations, call, asked, bound, jobs, done, notes };
 }
 
 describe("blobs tools", () => {
@@ -225,6 +229,20 @@ describe("blobs tools", () => {
     expect(spawned["project"]).toBe("trip");
     expect(inside.conversations.get(spawned["conversationId"] as string)).toMatchObject({ role: "research", projectSlug: "trip" });
     expect((await inside.call("blobs.dispatch", { agent: "research", task: "x", project: "other" })).content).toMatch(/only be sent into trip/);
+  });
+
+  it("leaves the chat that asked a line linking to the blob's thread, then a short card of its answer", async () => {
+    const h = await harness(ws, { scope: "interview_prep" });
+    await h.call("blobs.create", { name: "follow-ups", description: "Writes follow-ups", brief: "You write follow-ups." });
+    const sent = (await h.call("blobs.dispatch", { agent: "follow-ups", task: "Draft thank-you notes for Acme and Globex. Keep them short." })).json!;
+    const thread = sent["conversationId"] as string;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.notes[0]).toBe(`${DISPATCHER}: Asked follow-ups to draft thank-you notes for Acme and Globex · Open @chat:[${thread}]`);
+    expect(h.notes[1]).toBe(
+      [`${DISPATCHER}: \`\`\`kos:card`, "title: follow-ups answered", "asked: draft thank-you notes for Acme and Globex", `thread: @chat:[${thread}]`, "---", "done", "\`\`\`"].join("\n"),
+    );
+    // The owner is still told, wherever they are.
+    expect(h.done).toEqual([`${DISPATCHER} <- ${thread} (follow-ups): done`]);
   });
 
   it("removes the file and the schedule, and leaves the thread; only that one asks", async () => {

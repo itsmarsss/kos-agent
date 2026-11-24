@@ -7,6 +7,7 @@ import type { RunStatus } from "../ops/runs.js";
 import type { Conversation } from "../kernel/conversations.js";
 import { whenWords } from "../kernel/when.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
+import { answerCard, askedLine } from "./blobnotes.js";
 
 /**
  * The `blobs` tool module: the standing helpers KOS makes from a sentence.
@@ -57,8 +58,10 @@ export interface AgentToolDeps {
   setJobEnabled: (name: string, enabled: boolean) => BlobJob | undefined;
   /** Run a turn inside a conversation and return its reply. The kernel owns the queue. */
   dispatch: (conversationId: string, text: string) => Promise<{ reply: string; conversationId: string }>;
-  /** Told when a dispatched conversation answers, so the chat that delegated can say so. */
+  /** Told when a dispatched conversation answers, so the owner hears of it wherever they are. */
   onDispatchDone?: (conversationId: string, title: string, reply: string, dispatchedFrom?: string) => void;
+  /** A line kept in a chat's transcript: how the chat that asked shows the blob's work. */
+  note?: (conversationId: string, text: string) => void;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -255,14 +258,15 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     {
       name: "blobs.dispatch",
       description:
-        "Give a task to a blob. At the root it goes to the blob's own thread; from inside a project, or with a project named, the blob gets a chat in that project so what it makes lands there. " +
+        "Give a task to a blob. At the root it goes to the blob's own thread; from inside a project, or with a project named, it works in a thread of its own for that project, reading the project's tables and files, so what it makes lands there. " +
+        "That thread is the blob's, listed under the blob, not among the project's chats; the chat that asked gets a line linking to it, and a short card when it answers. " +
         "It returns as soon as the work is handed over: say what you delegated and end your turn. The owner is told when it answers.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string", description: "the blob's name, from blobs.list" },
           task: { type: "string", description: "the instruction, written the way the owner would say it TO the blob" },
-          project: { type: "string", description: "a project slug: run the blob inside that project rather than in its own thread" },
+          project: { type: "string", description: "a project slug: the blob works for that project, reading its tables and files, rather than in its own thread" },
         },
         required: ["agent", "task"],
       },
@@ -276,20 +280,25 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
       // A project orchestrator sends blobs into its own project and no other.
       if (here !== undefined && project !== here) throw new Error(`from this project a blob can only be sent into ${here}`);
       const target = project ? deps.spawnAgent(name, project) : deps.ensureAgent(name);
+      // Read now, not when the answer lands: by then another chat may be calling.
+      const asking = from();
+      const tell = (outcome: { reply: string } | { error: string }): void => {
+        if (asking) deps.note?.(asking, answerCard(target.title, target.id, task, outcome));
+        deps.onDispatchDone?.(target.id, target.title, "error" in outcome ? `It failed: ${outcome.error}` : outcome.reply, asking);
+      };
+      if (asking) deps.note?.(asking, askedLine(target.title, target.id, task));
       // Handed over, not waited on, as chats.dispatch does: the agent's turn
       // may be minutes of work, and the answer comes back as its own note.
       void deps
         .dispatch(target.id, task)
-        .then((res) => deps.onDispatchDone?.(target.id, target.title, res.reply, from()))
-        .catch((err: unknown) =>
-          deps.onDispatchDone?.(target.id, target.title, `It failed: ${err instanceof Error ? err.message : String(err)}`, from()),
-        );
+        .then((res) => tell({ reply: res.reply }))
+        .catch((err: unknown) => tell({ error: err instanceof Error ? err.message : String(err) }));
       return JSON.stringify({
         conversationId: target.id,
         title: target.title,
         ...(project ? { project } : {}),
         started: true,
-        note: "Handed over. Do not wait for it: say it is running and end your turn. The owner is told when it answers.",
+        note: "Handed over, and a line linking to its thread is already in this chat. Do not wait for it: say it is running and end your turn. The owner is told when it answers.",
       });
     },
     // The dispatched turn is governed by its own conversation's risk tiers.
