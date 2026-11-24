@@ -1,6 +1,7 @@
 import { findSecret, isWritableKey, maskSecret, namesFor, WRITABLE_SECRETS, writeEnvFile } from "./envfile.js";
 import { harnessNameOf, type SecretsRegistry } from "./secrets.js";
 import type { Vault } from "./vault.js";
+import type { Verifiers } from "./verifiers.js";
 
 /**
  * Where the Settings page keeps a key KOS runs on (docs/configuration.md,
@@ -28,7 +29,7 @@ export interface SavedKeys {
 }
 
 /** Each writable setting saved: keys KOS runs on to the vault when it is open, everything else to `.env`. */
-export function saveSettingsKeys(values: Record<string, string | null>, at: { vault: Vault | undefined; envPath: string; workspaceRoot: string; env?: NodeJS.ProcessEnv }): SavedKeys {
+export function saveSettingsKeys(values: Record<string, string | null>, at: { vault: Vault | undefined; verifiers?: Verifiers; envPath: string; workspaceRoot: string; env?: NodeJS.ProcessEnv }): SavedKeys {
   const env = at.env ?? process.env;
   const stored = keyStoreOf(at.vault);
   const keys = Object.keys(values).filter((key) => isWritableKey(key) && key in WRITABLE_SECRETS && harnessNameOf(key) !== undefined);
@@ -38,6 +39,15 @@ export function saveSettingsKeys(values: Record<string, string | null>, at: { va
   const toEnv: Record<string, string | null> = {};
   for (const [key, value] of Object.entries(values)) {
     if (!isWritableKey(key)) continue;
+    const check = WRITABLE_SECRETS[key]?.verifier;
+    if (check) {
+      // A check, never the value: nowhere KOS reads a value back from.
+      if (!at.verifiers) throw new KeyStoreError(`${key} is kept as a check, and this host keeps none`);
+      if (findSecret(key, env)) throw new KeyStoreError(`${key} is set in .env, which wins: clear it there, or run kos secrets migrate-env`);
+      at.verifiers.set(check, value || null);
+      (value ? written : cleared).push(key);
+      continue;
+    }
     const name = keys.includes(key) ? harnessNameOf(key) : undefined;
     if (!name || stored !== "vault") {
       toEnv[key] = value;
@@ -75,16 +85,20 @@ export interface MaskedKey {
   masked: string | null;
   /** The name it is under in the env, when that is not the one the page shows. */
   storedAs?: string;
-  /** Where the live value is read from: the env wins over the vault. */
-  source?: "env" | "vault";
+  /** Where the live value is read from: the env wins over the vault; a check is all KOS keeps of some. */
+  source?: "env" | "vault" | "check";
 }
 
 /** Every writable secret, masked, with where its live value is read from. */
-export function maskedKeys(secrets: SecretsRegistry, env: NodeJS.ProcessEnv = process.env): Record<string, MaskedKey> {
+export function maskedKeys(secrets: SecretsRegistry, env: NodeJS.ProcessEnv = process.env, verifiers?: Verifiers): Record<string, MaskedKey> {
   const out: Record<string, MaskedKey> = {};
   for (const [key, meta] of Object.entries(WRITABLE_SECRETS)) {
     const name = harnessNameOf(key);
     const found = findSecret(key, env);
+    if (!found && meta.verifier && verifiers?.has(meta.verifier)) {
+      out[key] = { label: meta.label, hint: meta.hint, masked: "••••", source: "check" };
+      continue;
+    }
     const vault = !found && name && secrets.sourceOf(name)?.source === "vault" ? secrets.credential(name) : undefined;
     out[key] = {
       label: meta.label,

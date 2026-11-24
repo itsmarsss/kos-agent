@@ -53,6 +53,7 @@ import {
   type NotifySent,
   type OutboundMessage,
   type PendingAction,
+  Verifiers,
 } from "@kos/harness";
 import { createComputerUse, readApnsEnv, type Glance, type PanelArtifact, type PanelArtifacts, type PanelDeps, type PanelPlaceOf } from "@kos/computer";
 import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
@@ -946,6 +947,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
     // dotfile. Refused if it ever resolves inside the workspace.
     envPath: envFilePath(),
     ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
+    // The hook secret set from Settings, kept as a check beside KOS's other keys.
+    verifiers: new Verifiers(join(homedir(), ".kos")),
     host: options.host,
     meta,
     extensions: [
@@ -1064,7 +1067,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   }
 
   console.log(`KOS host on http://${options.host}:${options.port}`);
-  if (options.hookSecret) console.log("hooks: POST /api/hooks/<job name>");
+  if (options.hookSecret || dashboard.verifiers?.has("hook")) console.log("hooks: POST /api/hooks/<job name>");
   console.log(`workspace: ${kernel.workspace.root}`);
   console.log(`session: ${primarySessionId(kernel.profile.ownerId)}`);
   if (siteServer) console.log(`sites: http://${options.host}:${sitesPort}`);

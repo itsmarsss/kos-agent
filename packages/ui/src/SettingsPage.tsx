@@ -926,7 +926,7 @@ export function SettingsPage({
                     <>
                       <Pill tone="ok">{meta.masked}</Pill>
                       {meta.source && (
-                        <Tag title={meta.source === "env" ? "Read from the .env file, which wins over the vault" : "Read from the encrypted vault"}>{meta.source === "env" ? "in .env" : "in the vault"}</Tag>
+                        <Tag title={SOURCE_WORDS[meta.source].title}>{SOURCE_WORDS[meta.source].label}</Tag>
                       )}
                       {meta.storedAs && (
                         <Tag mono title="An older name this host still accepts">
@@ -1910,3 +1910,10 @@ export function keysWords(go: SettingsPayload["keysGo"]): string {
   if (go === "locked") return "The vault is locked, so keys cannot be saved until it is unlocked on the Secrets page.";
   return "Saved in .env, outside the workspace and readable only by you; with a vault they would be kept encrypted there.";
 }
+
+/** Where a key's live value is read from, as its tag says it. */
+const SOURCE_WORDS: Record<"env" | "vault" | "check", { label: string; title: string }> = {
+  env: { label: "in .env", title: "Read from the .env file, which wins over the vault" },
+  vault: { label: "in the vault", title: "Read from the encrypted vault" },
+  check: { label: "kept as a check", title: "KOS keeps only a check of it, never the value: it can tell it apart, not show it" },
+};

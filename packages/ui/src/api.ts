@@ -1025,8 +1025,8 @@ export interface SettingsPayload {
       masked: string | null;
       /** Set when the value lives under an older name the host still accepts. */
       storedAs?: string;
-      /** Where the live value is read from: the env file wins over the vault. */
-      source?: "env" | "vault";
+      /** Where the live value is read from: the env file wins over the vault; of some KOS keeps only a check. */
+      source?: "env" | "vault" | "check";
     }
   >;
   settings: Record<
