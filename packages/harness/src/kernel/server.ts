@@ -193,6 +193,12 @@ export interface DashboardServerOptions {
    */
   envPath?: string;
   /**
+   * Where a pick's credential files go (Google's OAuth client and tokens):
+   * beside the env file when unset. Never ~/.kos, which every jailed
+   * program, an MCP server among them, is denied.
+   */
+  credentialsDir?: string;
+  /**
    * Explicit cross-origin allowlist. The dashboard is same-origin (the server
    * serves the built UI itself), so this is empty by default and no CORS
    * headers are sent; a wildcard would let any page in the browser reach the
@@ -3747,17 +3753,17 @@ export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId:
 }
 
 /**
- * Where a pick's placeholders point: the workspace, and a `secrets` folder
- * beside the settings file for credentials, which is outside the workspace
- * by rule and ignored by git where the settings file is a checkout's. Made
- * when a pick wants it, so the owner has somewhere to put the file. Without
- * a settings file, under the workspace's own .kos, which the agent's tools
- * refuse to read.
+ * Where a pick's placeholders point: the workspace, and the host's
+ * credentials folder, else a `secrets` folder beside the settings file,
+ * which is outside the workspace by rule and ignored by git where the
+ * settings file is a checkout's. Made when a pick wants it, so the owner has
+ * somewhere to put the file. Without either, under the workspace's own .kos,
+ * which the agent's tools refuse to read.
  */
 function pickPlaces(kernel: Kernel, options: DashboardServerOptions): PickPlaces {
   return {
     workspace: kernel.workspace.root,
-    secrets: options.envPath ? join(dirname(options.envPath), "secrets") : join(kernel.workspace.root, ".kos", "secrets"),
+    secrets: options.credentialsDir ?? (options.envPath ? join(dirname(options.envPath), "secrets") : join(kernel.workspace.root, ".kos", "secrets")),
   };
 }
 

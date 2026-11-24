@@ -61,7 +61,7 @@ import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
 type PanelSurface = "chrome" | "mac" | "phone";
 
 import { deviceUpdates } from "./deviceupdates.js";
-import { envFilePath } from "./env.js";
+import { credentialsDir, envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
 import { pingsOwner, postInPlace, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
@@ -938,6 +938,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
     // So the settings page can save an API key without anyone opening a
     // dotfile. Refused if it ever resolves inside the workspace.
     envPath: envFilePath(),
+    // Where existing installs keep them, beside the repository's .env, whichever env file is read.
+    credentialsDir: credentialsDir(),
     ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
     host: options.host,
     meta,

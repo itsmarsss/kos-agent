@@ -32,7 +32,8 @@ Read these before anything else and keep to them throughout.
    in one of three places, and the user puts them there:
    - the dashboard: Settings, Providers (model keys, the Discord token and
      owner id);
-   - `.env` in the repository root, edited by the user in their own editor;
+   - the env file (`~/.kos/env` on a new install, `.env` in the repository
+     root on one made before), edited by the user in their own editor;
    - the vault, through the Secrets page or `kos secrets add`, which reads
      the value from a prompt that does not echo.
    You may write a `.env` line that names a variable with an empty value
@@ -196,15 +197,21 @@ If `~/.local/bin` is not on the PATH, add
 
 Check: `command -v kos` prints `~/.local/bin/kos` (expanded).
 
-The CLI reads `.env` from the repository root only (or the file
-`KOS_ENV_FILE` names), so it works from anywhere, and a `.env` in the
-current directory is never picked up.
+The CLI reads one env file: the one `KOS_ENV_FILE` names, else
+`~/.kos/env`, else (an install made before `~/.kos/env`) the `.env` at the
+repository root. So it works from anywhere, and a `.env` in the current
+directory is never picked up. The rest of this guide says `.env` for
+whichever file that is.
 
 ## 4. Configuration and models
 
 ```bash
-cp .env.example .env
+mkdir -p -m 700 ~/.kos && install -m 600 .env.example ~/.kos/env
 ```
+
+`~/.kos` is the owner's alone and outside the checkout, so a checkout in a
+synced folder (Desktop, Documents, iCloud Drive, Dropbox) does not carry
+the keys with it. `kos doctor` warns when the env file is in one.
 
 `.env.example` documents every key; [configuration.md](configuration.md)
 lists every setting. KOS is model agnostic: one provider is enough, and

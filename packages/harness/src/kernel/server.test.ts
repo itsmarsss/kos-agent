@@ -422,6 +422,12 @@ describe("handleApiRequest", () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/remove", body: { name: "google-calendar" } });
   });
 
+  it("tells a pick's setup with the host's credentials folder over the one beside the settings file", async () => {
+    const options = { envPath: join(root, "home", ".kos", "env"), credentialsDir: join(root, "repo", "secrets") };
+    const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/mcp" }, options)).body as { picks: { name: string; setup?: string }[] };
+    expect(listed.picks.find((p) => p.name === "gmail")!.setup).toContain(join(root, "repo", "secrets", "google-oauth-client.json"));
+  });
+
   it("keeps a standing agent's thread while its file exists, and lets it go once the agent is removed", async () => {
     kernel.roles.write({ name: "research", description: "Looks things up", brief: "You look.", memory: "own" });
     const thread = kernel.ensureAgentConversation("research");

@@ -1,7 +1,12 @@
 # Configuration
 
-`.env` at the repository root is read by the `kos` command and is
-git-ignored. `KOS_ENV_FILE`, set in the shell, names another file instead.
+The `kos` command reads one env file: the one `KOS_ENV_FILE` names in the
+shell, else `~/.kos/env`, else `.env` at the repository root (git-ignored),
+where an install made before `~/.kos/env` keeps its keys. Settings writes
+to the same file, 0600, making `~/.kos` 0700 for a new one. A pick's
+credential files (Google's OAuth client and tokens) go to `secrets/` beside
+the `KOS_ENV_FILE` file, else at the repository root, never `~/.kos`, which
+the MCP server that reads them is denied.
 A `.env` in the current directory is never read: run from the workspace,
 it would be a file the agent's approved programs can write. `.env.example` documents every key. Most of what follows is
 also settable in the dashboard.
