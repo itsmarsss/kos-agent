@@ -128,9 +128,17 @@ describe("the project panel", () => {
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "project not found");
   });
 
-  it("fetches nothing while slid shut", () => {
+  it("fetches nothing while slid shut, and is out of the tab order", () => {
     const read = vi.spyOn(api, "projectDetail").mockResolvedValue(detail());
     render(<ProjectPanel slug={slug} hidden rail={null} onOpenFile={() => {}} onChanged={() => {}} onError={() => {}} />);
     expect(read).not.toHaveBeenCalled();
+    expect(document.querySelector("aside.project-panel")?.hasAttribute("inert")).toBe(true);
+  });
+
+  it("is in reach once open", async () => {
+    vi.spyOn(api, "projectDetail").mockResolvedValue(detail());
+    render(<ProjectPanel slug={slug} rail={null} onOpenFile={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await screen.findByText("Open in Files");
+    expect(document.querySelector("aside.project-panel")?.hasAttribute("inert")).toBe(false);
   });
 });

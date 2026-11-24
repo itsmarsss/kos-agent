@@ -23,6 +23,15 @@ export function useRoomFor(ref: RefObject<HTMLElement | null>, width: number): b
   return fits;
 }
 
+/**
+ * The panel's own element's state: slid shut it is inert, out of the tab
+ * order and the reader's view (aria-hidden alone left Tab landing on its
+ * buttons in a column no wider than its border); a drawer it is a modal.
+ */
+export function panelFrame(hidden: boolean, modal: boolean): { inert?: boolean; role?: "dialog"; "aria-modal"?: boolean } {
+  return { ...(hidden ? { inert: true } : {}), ...(modal ? { role: "dialog", "aria-modal": true } : {}) };
+}
+
 export interface PanelDrawer {
   open: boolean;
   toggle: () => void;
