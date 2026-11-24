@@ -89,14 +89,25 @@ describe("the toast queue", () => {
     expect(texts()).toEqual([]);
   });
 
-  it("stacks different notes rather than replacing one with the next", () => {
+  it("stacks different notes rather than replacing one with the next, the newest first", () => {
     render(<ToastHost />);
     act(() => {
       toast({ kind: "ok", text: "Approved #1" });
       toast({ kind: "info", text: "Denied #2" });
     });
-    expect(texts()).toEqual(["Approved #1", "Denied #2"]);
+    expect(texts()).toEqual(["Denied #2", "Approved #1"]);
     act(() => vi.advanceTimersByTime(TOAST_MS + 1));
+  });
+
+  it("is tabbed through in the order it is seen, the newest first", () => {
+    render(<ToastHost />);
+    act(() => {
+      toast({ kind: "ok", text: "Archived “Groceries”.", undo: () => undefined });
+      toast({ kind: "ok", text: "Saved" });
+    });
+    const buttons = [...document.querySelectorAll(".ops-toasts button")].map((b) => b.textContent || b.getAttribute("aria-label"));
+    expect(buttons).toEqual(["Dismiss", "Undo", "Dismiss"]);
+    act(() => vi.advanceTimersByTime(6_001));
   });
 
   it("marks a no in the quiet tone, never with the green check", () => {

@@ -311,14 +311,9 @@
   .page-tab {
     padding-inline: 0.55rem;
   }
-  /* The stack, not each note: a note is not placed itself, and the rule on it moved nothing. */
+  /* Under the phone bar, each note its own width at the right, as at a desk: stretched, three covered the page's head. */
   .ops-toasts {
     top: calc(var(--phonebar-h) + 0.5rem + env(safe-area-inset-top, 0px));
-    bottom: auto;
-    right: 1rem;
-    left: 1rem;
-    width: auto;
-    align-items: stretch;
   }
 }
 

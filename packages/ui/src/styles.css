@@ -582,26 +582,86 @@ select {
   border: 1px solid rgba(240, 113, 120, 0.35);
 }
 
-/* A word from KOS about what just happened (Toast.tsx): one stack at the
-   bottom, centred, lifted over the composer when one is on screen, each note
-   with a mark that says how it went and Undo when it can be undone. */
 /*
- * The top-right corner, under the page head: out of the composer and the
- * thread being read. Centred over the composer, a note sat on the very place
- * the owner was typing and reading. Newest at the top.
+ * A word from KOS about what just happened (Toast.tsx). The top-right corner,
+ * under the page head: out of the composer and the thread being read. Newest
+ * at the top, first in the tab order too. One column as wide as its widest
+ * note, so the stack reads as one and every close lines up at its right.
  */
 .ops-toasts {
   position: fixed;
-  top: calc(3.5rem + env(safe-area-inset-top, 0px));
+  /* Clear of the head's own buttons (Arrange, New schedule), which reach a little past its 3.5rem. */
+  top: calc(4.25rem + env(safe-area-inset-top, 0px));
+  bottom: auto;
   right: 1rem;
   left: auto;
   z-index: 90;
   display: flex;
-  flex-direction: column-reverse;
-  align-items: flex-end;
-  width: min(24rem, calc(100vw - 2rem));
+  flex-direction: column;
+  align-items: stretch;
+  width: max-content;
+  max-width: min(24rem, calc(100vw - 2rem));
   gap: 0.4rem;
   pointer-events: none;
+}
+/*
+ * Something open over the page: the stack stays over it (a note raised from
+ * inside a sheet is seen) but clear of where the owner types and presses.
+ * Each placement sets all four sides, and the one for what is on top wins:
+ * KOS's browser, then the drawers, weigh no more than the stack's own class
+ * (`:where`); the centred sheets weigh more, so a dialog opened over a drawer
+ * places the notes for the dialog.
+ *
+ * What fills the window from the top (KOS's browser maximised, the palette,
+ * a dialog, Quick Look) keeps its fields and buttons at the top or to the
+ * right of its foot: the notes go to the bottom left, over the page shown,
+ * the dimmed page or the foot's words.
+ */
+body:has(:where(.browserwin.is-max, .browserwin.is-fullscreen)) .ops-toasts {
+  top: auto;
+  bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px) + 1rem);
+  right: auto;
+  left: 1rem;
+}
+/* A drawer is filled from its head: the notes go to the bottom right, above its foot (a control's height and 0.75rem each way) and the keyboard. */
+body:has(:where(.drawer)) .ops-toasts {
+  top: auto;
+  bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px) + var(--control-h) + 2rem);
+  right: 1rem;
+  left: auto;
+}
+/* Where the window has room beside the drawer: in the corner of the dimmed page, by the drawer's head. */
+@media (min-width: 62rem) {
+  body:has(:where(.drawer:not(.drawer--wide))) .ops-toasts {
+    top: calc(3.5rem + env(safe-area-inset-top, 0px));
+    bottom: auto;
+    right: 41rem;
+    left: auto;
+    max-width: min(24rem, calc(100vw - 42rem));
+  }
+}
+@media (min-width: 78rem) {
+  body:has(:where(.drawer--wide)) .ops-toasts {
+    top: calc(3.5rem + env(safe-area-inset-top, 0px));
+    bottom: auto;
+    right: 57rem;
+    left: auto;
+    max-width: min(24rem, calc(100vw - 58rem));
+  }
+}
+body:has(.modal-wrap, .pal-wrap, .preview-wrap) .ops-toasts {
+  top: auto;
+  bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px) + 1rem);
+  right: auto;
+  left: 1rem;
+  max-width: min(24rem, calc(100vw - 2rem));
+}
+/* A dialog on a phone is nearly the window's height, its foot all buttons: the notes go over its head instead. Quick Look keeps the bottom, over the file. */
+@media (max-width: 40rem) {
+  body:has(.modal-wrap) .ops-toasts {
+    top: calc(var(--phonebar-h, 0px) + 0.5rem + env(safe-area-inset-top, 0px));
+    bottom: auto;
+  }
 }
 .ops-toast {
   pointer-events: auto;
@@ -627,7 +687,7 @@ select {
   height: 1.25rem;
   border-radius: 50%;
 }
-.ops-toast-text { min-width: 0; overflow-wrap: anywhere; }
+.ops-toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ops-toast--ok .ops-toast-icon { background: var(--ok-dim); color: var(--ok); }
 .ops-toast--info .ops-toast-icon { background: var(--panel-2); color: var(--muted); }
 .ops-toast--err { border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong)); }
