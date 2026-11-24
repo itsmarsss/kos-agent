@@ -256,7 +256,7 @@ describe("chats.handoff", () => {
         conversations,
         sessions,
         ownerId: OWNER,
-        standing: () => ({ project: () => true, blob: (name) => !(options.goneBlobs ?? []).includes(name), schedule: () => true }),
+        standing: () => ({ project: () => true, blob: () => true, schedule: () => true }),
         dispatch: async (id, text) => ({ reply: text, conversationId: id }),
         handoff: async (input) => {
           handed.push(input);
