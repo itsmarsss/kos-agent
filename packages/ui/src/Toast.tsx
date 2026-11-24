@@ -69,6 +69,23 @@ export function toast(note: ToastNote, ms: number | null = note.undo ? UNDO_MS :
 /** How long each note was given, so one held under the pointer or the keys gets all of it again once let go. */
 const spans = new Map<number, number>();
 
+/**
+ * Where the focus was before it came into a toast (a press on Undo takes it
+ * there), to be given back when the toast's button has done its work: the
+ * toast going took the focus to the page's body, and the list the Undo put
+ * a file back in no longer had the keys.
+ */
+let cameFrom: HTMLElement | null = null;
+
+/** A toast's button pressed: its work, the toast gone, and the focus back where it was. */
+function settle(id: number, work?: () => void): void {
+  work?.();
+  dismissToast(id);
+  // Only while the focus is still on the toast: the work may have put it somewhere of its own.
+  if (cameFrom?.isConnected && document.activeElement?.closest(".ops-toasts")) cameFrom.focus({ preventScroll: true });
+  cameFrom = null;
+}
+
 /** A note being read (the pointer on it, or the focus in it, as on its Undo) stays until it is let go. */
 function hold(id: number): void {
   clearTimer(id);
@@ -169,9 +186,16 @@ export function ToastHost(): ReactElement {
               className={`ops-toast ops-toast--${note.kind}`}
               onPointerEnter={() => hold(note.id)}
               onPointerLeave={() => letGo(note.id)}
-              onFocus={() => hold(note.id)}
+              onFocus={(e) => {
+                hold(note.id);
+                // From outside the toasts: that is where it goes back to, nowhere when it came from nowhere.
+                const from = e.relatedTarget;
+                if (!(from instanceof Element && from.closest(".ops-toasts"))) cameFrom = from instanceof HTMLElement ? from : null;
+              }}
               onBlur={(e) => {
                 if (!e.currentTarget.contains(e.relatedTarget as Node | null)) letGo(note.id);
+                // Left the toasts for somewhere else: a later press on one gives the focus back to nothing it once came from.
+                if (!(e.relatedTarget instanceof Element && e.relatedTarget.closest(".ops-toasts"))) cameFrom = null;
               }}
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -189,23 +213,13 @@ export function ToastHost(): ReactElement {
                 <button
                   type="button"
                   className="btn btn--sm btn--ghost"
-                  onClick={() => {
-                    note.undo?.();
-                    dismissToast(note.id);
-                  }}
+                  onClick={() => settle(note.id, note.undo)}
                 >
                   Undo
                 </button>
               )}
-              {/* Every note can be put away now, not only one that waits to be read. */}
-              <IconButton
-                tone="bare"
-                label="Dismiss"
-                onClick={() => {
-                  note.onDismiss?.();
-                  dismissToast(note.id);
-                }}
-              >
+              {/* Every note can be put away now, not only one that waits to be read; focus goes back where it came from. */}
+              <IconButton tone="bare" label="Dismiss" onClick={() => settle(note.id, note.onDismiss)}>
                 <CloseIcon size={12} title="" />
               </IconButton>
             </m.div>

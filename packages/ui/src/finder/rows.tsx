@@ -24,6 +24,8 @@ export interface RowHandlers {
   /** What this page is dragging, drawn faded where it was. */
   dragged?: ReadonlySet<string>;
   press: (e: MouseEvent, entry: DirEntry) => void;
+  /** A press let go without a drag: a click on one of several chosen narrows the choice to it, as in Finder. */
+  release: (e: MouseEvent, entry: DirEntry) => void;
   open: (entry: DirEntry) => void;
   /** Ask for the row's menu, at a point in the window. */
   menu: (at: { x: number; y: number }, entry: DirEntry) => void;
@@ -68,7 +70,7 @@ export function rowProps(entry: DirEntry, h: RowHandlers): {
   onPointerMove: (e: PointerEvent) => void;
   onPointerUp: () => void;
   onPointerCancel: () => void;
-  onClick: () => void;
+  onClick: (e: MouseEvent) => void;
 } {
   return {
     "aria-selected": h.selected.has(entry.path),
@@ -113,10 +115,12 @@ export function rowProps(entry: DirEntry, h: RowHandlers): {
       lift();
       finger = null;
     },
-    onClick: () => {
-      const tapped = finger !== null && !finger.held;
+    onClick: (e) => {
+      const touch = finger;
       finger = null;
+      const tapped = touch !== null && !touch.held;
       if (tapped && h.editing !== entry.path) h.open(entry);
+      else if (touch === null && e.button === 0 && h.editing !== entry.path) h.release(e, entry);
     },
   };
 }

@@ -4,6 +4,7 @@ import { Card, EmptyState, lookOf, PaneHead, StatusPill } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
+import { panelFrame } from "./paneldrawer.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { markInk, markLetter } from "./ProjectMark.js";
 import { isProjectAgent } from "./ProjectsPage.js";
@@ -78,7 +79,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
 
   if (error) {
     return (
-      <aside className="project-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
+      <aside className="project-panel" {...panelFrame(hidden, modal)}>
         <p className="ops-alert ops-alert--err" role="alert">
           {error}
         </p>
@@ -87,7 +88,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
   }
   if (!detail) {
     return (
-      <aside className="project-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
+      <aside className="project-panel" {...panelFrame(hidden, modal)}>
         <p className="ops-muted">Loading…</p>
       </aside>
     );
@@ -121,7 +122,7 @@ export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onE
   };
 
   return (
-    <aside ref={panel} className="project-panel" {...(modal ? { role: "dialog", "aria-modal": true } : {})} aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
+    <aside ref={panel} className="project-panel" {...panelFrame(hidden, modal)} aria-label={`${project.name} workspace`} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is: its mark in its own colour, its name, kind and state,
           what it is for, how much it holds, and what can be done with it. */}
       <PaneHead

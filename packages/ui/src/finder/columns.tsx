@@ -54,10 +54,10 @@ export const LIST_COLUMNS: readonly ColumnSpec[] = [
   { key: "kind", label: "Kind", width: 152, min: 72, rank: 1 },
 ];
 
-/** A panel beside a chat starts narrower: a short date, a short kind. */
+/** A panel beside a chat starts narrower: a short date, a short kind; Size as the page's, since "209 bytes" did not fit in 80. */
 export const PANEL_COLUMNS: readonly ColumnSpec[] = [
   { key: "modified", label: "Date modified", width: 140, min: 96, rank: 2 },
-  { key: "size", label: "Size", width: 80, min: 56, rank: 3 },
+  { key: "size", label: "Size", width: 88, min: 56, rank: 3 },
   { key: "kind", label: "Kind", width: 108, min: 72, rank: 1 },
 ];
 

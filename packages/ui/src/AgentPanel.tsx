@@ -7,6 +7,7 @@ import { api, type AgentInfo } from "./api.js";
 import { scheduleWords } from "./schedule.js";
 import { Drawer } from "./Drawer.js";
 import { ConfirmButton } from "./kit.js";
+import { panelFrame } from "./paneldrawer.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { hrefFor } from "./routes.js";
 import { groupsOf } from "./ToolPicker.js";
@@ -107,14 +108,14 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
 
   if (agent === undefined) {
     return (
-      <aside className="project-panel agent-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
+      <aside className="project-panel agent-panel" {...panelFrame(hidden, modal)}>
         <p className="ops-muted">Loading…</p>
       </aside>
     );
   }
   if (agent === null) {
     return (
-      <aside className="project-panel agent-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
+      <aside className="project-panel agent-panel" {...panelFrame(hidden, modal)}>
         {invalidReason ? (
           <>
             <p className="ops-alert ops-alert--err" role="alert">
@@ -138,7 +139,7 @@ export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onErr
   const title = titleOf(agent.name);
 
   return (
-    <aside className="project-panel agent-panel" {...(modal ? { role: "dialog", "aria-modal": true } : {})} aria-label={`${title}, the blob`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
+    <aside className="project-panel agent-panel" {...panelFrame(hidden, modal)} aria-label={`${title}, the blob`} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is, as a project's pane says it: its face, its name, how it is doing, what it is for. */}
       <PaneHead
         {...(modal && onClose ? { onClose } : {})}

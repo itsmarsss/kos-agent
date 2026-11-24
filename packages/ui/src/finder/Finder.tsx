@@ -15,7 +15,7 @@ import { GalleryView } from "./GalleryView.js";
 import { FILES_LAYOUT, PANEL_LAYOUT } from "./columns.js";
 import { ListView, type ListRow } from "./ListView.js";
 import { FinderMenu, type MenuItem } from "./Menu.js";
-import { EMPTY_SELECTION, clickSelect, freeName, kindOf, moveLead, nameOf, only, parentOf, rememberView, sortBy, sortEntries, trail, typeSelect, viewFor, within, type FinderView, type Selection, type Sort } from "./model.js";
+import { EMPTY_SELECTION, clickSelect, freeName, kindOf, moveLead, nameOf, only, parentOf, releaseSelect, rememberView, sortBy, sortEntries, trail, typeSelect, viewFor, within, type FinderView, type Selection, type Sort } from "./model.js";
 import { MoveDialog } from "./MoveDialog.js";
 import { NewFolderDialog } from "./NewFolderDialog.js";
 import { useFinderOps } from "./ops.js";
@@ -272,10 +272,15 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     };
   }, [query, contents, folder, place.kind, root]);
 
+  /** The folder a search's or Recents' row is in, named as the path bar names it: from this Finder's root, not the workspace's. */
+  const whereOf = (path: string): { name: string; path: string } => {
+    const steps = trail(parentOf(path), root, rootName);
+    return { name: steps.at(-1)?.name ?? rootName, path: pathWords(steps.map((s) => s.name)) };
+  };
   /** The rows in the order they are drawn: what the keys move through. */
   const listRows: ListRow[] = ((): ListRow[] => {
-    if (found) return sortEntries(found.entries, sort).map((e) => ({ entry: e, depth: 0, where: parentOf(e.path), ...(e.text ? { match: `Line ${e.line}: ${e.text}` } : {}) }));
-    if (place.kind === "recents") return (recents ?? []).map((e) => ({ entry: e, depth: 0, where: parentOf(e.path) }));
+    if (found) return sortEntries(found.entries, sort).map((e) => ({ entry: e, depth: 0, where: whereOf(e.path), ...(e.text ? { match: `Line ${e.line}: ${e.text}` } : {}) }));
+    if (place.kind === "recents") return (recents ?? []).map((e) => ({ entry: e, depth: 0, where: whereOf(e.path) }));
     const rows: ListRow[] = [];
     const add = (dir: string, depth: number): void => {
       for (const e of entriesOf(dir) ?? []) {
@@ -408,6 +413,8 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     { label: "Get Info", act: () => setInfoPath(here), divided: true },
     { label: "Copy path", act: () => ops.copyPath([here]) },
     ...(onAsk ? [{ label: "Ask KOS about this folder", act: () => onAsk([here]), divided: true }] : []),
+    // A panel's way to the Files page from the folder it is in, not only from its root (the head's Open in Files).
+    ...(onOpenInFiles ? [{ label: "Open in Files", act: () => onOpenInFiles(here), ...(onAsk ? {} : { divided: true }) }] : []),
     ...(holdsOwn ? [{ label: "Show KOS's files", act: () => setShowOwn(!showOwn), checked: showOwn, divided: true }] : []),
   ];
 
@@ -442,9 +449,9 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     editing,
     over,
     dragged,
+    // The press's own default puts the keys on the list as a pointer's focus; focusing it here drew the keyboard's ring round it.
     press: (e, entry) => {
       if (editing) return;
-      main.current?.focus({ preventScroll: true });
       // A press on what is already chosen keeps the choice, so it can be dragged as one.
       if (!e.shiftKey && !e.metaKey && !e.ctrlKey && sel.paths.includes(entry.path)) {
         setSel((s) => ({ ...s, lead: entry.path, anchor: entry.path }));
@@ -452,6 +459,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
       }
       setSel((s) => clickSelect(s, entry.path, order, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey }));
     },
+    release: (e, entry) => setSel((s) => releaseSelect(s, entry.path, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey })),
     open: openEntry,
     menu: (at, entry) => {
       const keep = sel.paths.includes(entry.path);
@@ -541,9 +549,11 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
       keyMenu();
       return;
     }
+    // Escape takes back one thing here, and with nothing to take back is left to what holds the list (the side panel's drawer).
     if (e.key === "Escape") {
       if (looking) setLooking(false);
-      else setSel(EMPTY_SELECTION);
+      else if (sel.paths.length) setSel(EMPTY_SELECTION);
+      else return;
       handled();
       return;
     }
