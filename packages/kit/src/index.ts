@@ -50,7 +50,7 @@ export { Menu, menuPlace, type MenuItem, type MenuProps, type MenuSide } from ".
 export { ModeChip } from "./ModeChip.js";
 export { announce, ANNOUNCE_GAP_MS, Announcer, type Politeness } from "./Announcer.js";
 export { restoreFocus, tabStops, useFocusTrap, type FocusTrapOptions } from "./useFocusTrap.js";
-export { sheetOpen } from "./layers.js";
+export { openLayer, sheetOpen, type Layer } from "./layers.js";
 export { useSteadyPress } from "./useSteadyPress.js";
 export { overlayScroll, useOverlayScroll } from "./OverlayScroll.js";
 export { Fold, foldOf, MIN_HIDDEN_LINES, type FoldRule } from "./Fold.js";

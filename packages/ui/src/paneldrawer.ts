@@ -81,23 +81,10 @@ export function usePanelDrawer(root: RefObject<HTMLElement | null>, fits: boolea
     }),
     [root],
   );
-  useFocusTrap(panel, open, panel);
+  // Escape shuts it only while it is the sheet on top (layers.ts): a sheet over it, Quick Look too, has it first.
+  useFocusTrap(panel, open, { start: panel, onEscape: () => setOpen(false) });
   useEffect(() => {
     if (fits) setOpen(false);
   }, [fits]);
-  useEffect(() => {
-    if (!open) return;
-    const shut = (e: KeyboardEvent): void => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
-      // Only while it is the sheet on top: a sheet over it is drawn after it (at the body), and one
-      // that leaves the keys where they were (Quick Look) is shut first, not the drawer from under it.
-      const modals = document.querySelectorAll('[aria-modal="true"]');
-      if (modals[modals.length - 1] !== panel.current) return;
-      e.preventDefault();
-      setOpen(false);
-    };
-    window.addEventListener("keydown", shut);
-    return () => window.removeEventListener("keydown", shut);
-  }, [open, panel]);
   return { open, toggle: () => setOpen((v) => !v), close: () => setOpen(false) };
 }

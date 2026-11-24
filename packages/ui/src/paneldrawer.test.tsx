@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useRef, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
+
+import { useFocusTrap } from "@kos/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { api } from "./api.js";
+import { FilePreview } from "./FilePreview.js";
 import { CHAT_ROOM, PANEL_ROOM, panelWidthFor, usePanelDrawer, useRoomFor } from "./paneldrawer.js";
 
 /** The page's width as a ResizeObserver says it: one observer, resized by hand. */
@@ -24,11 +28,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** The chats page's shape, as far as the drawer is concerned: the toggle, the panel, a backdrop while open. */
-function Page({ sheet = false, look = false }: { sheet?: boolean; look?: boolean }): ReactElement {
+/** A sheet opened over the drawer, with its own trap, as Rename is. */
+function Rename({ onClose }: { onClose: () => void }): ReactElement {
+  const box = useRef<HTMLDivElement>(null);
+  useFocusTrap(box, true, { onEscape: onClose });
+  return (
+    <div ref={box} role="dialog" aria-modal="true" aria-label="Rename">
+      <input aria-label="Title" />
+    </div>
+  );
+}
+
+/** The chats page's shape, as far as the drawer is concerned: the toggle, the panel, a backdrop while open, and what opens over it. */
+function Page(): ReactElement {
   const root = useRef<HTMLDivElement>(null);
   const fits = useRoomFor(root, PANEL_ROOM);
   const drawer = usePanelDrawer(root, fits);
+  const [renaming, setRenaming] = useState(false);
+  const [looking, setLooking] = useState<string | null>(null);
   return (
     <div ref={root} data-room={fits ? "column" : "drawer"}>
       <button type="button" className="chats-panel-toggle" aria-pressed={drawer.open} onClick={drawer.toggle}>
@@ -37,14 +54,15 @@ function Page({ sheet = false, look = false }: { sheet?: boolean; look?: boolean
       {drawer.open && <div data-testid="backdrop" onClick={drawer.close} />}
       <aside className="project-panel" aria-label="School workspace" {...(drawer.open ? { role: "dialog", "aria-modal": true } : {})}>
         <button type="button">Open in Files</button>
-        <button type="button">Colour</button>
+        <button type="button" onClick={() => setRenaming(true)}>
+          Rename
+        </button>
+        <button type="button" onClick={() => setLooking("a.md")}>
+          Look
+        </button>
       </aside>
-      {sheet && (
-        <div role="dialog" aria-modal="true" aria-label="Rename">
-          <input aria-label="Title" />
-        </div>
-      )}
-      {look && <div role="dialog" aria-modal="true" aria-label="Quick Look: a.md" />}
+      {renaming && <Rename onClose={() => setRenaming(false)} />}
+      <FilePreview path={looking} quickLook onClose={() => setLooking(null)} />
     </div>
   );
 }
@@ -53,8 +71,8 @@ const frame = (): Promise<void> => act(() => new Promise<void>((r) => requestAni
 const toggle = (): HTMLElement => screen.getByRole("button", { name: "Panel" });
 const isOpen = (): boolean => toggle().getAttribute("aria-pressed") === "true";
 
-async function openNarrow(over: { sheet?: boolean; look?: boolean } = {}): Promise<void> {
-  render(<Page {...over} />);
+async function openNarrow(): Promise<void> {
+  render(<Page />);
   resizeTo(PANEL_ROOM - 100);
   toggle().focus();
   fireEvent.click(toggle());
@@ -68,7 +86,7 @@ describe("the panel's drawer", () => {
     const first = screen.getByRole("button", { name: "Open in Files" });
     expect(document.activeElement).toBe(first);
     fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Colour" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Look" }));
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(isOpen()).toBe(false);
     expect(document.activeElement).toBe(toggle());
@@ -87,20 +105,31 @@ describe("the panel's drawer", () => {
     expect(isOpen()).toBe(false);
   });
 
-  it("leaves an Escape a dialog over it took, or one pressed inside another dialog", async () => {
-    await openNarrow({ sheet: true });
+  it("leaves an Escape a dialog over it took, or one for a sheet over it", async () => {
+    await openNarrow();
     const taken = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
     taken.preventDefault();
     act(() => void window.dispatchEvent(taken));
     expect(isOpen()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await frame();
     fireEvent.keyDown(screen.getByLabelText("Title"), { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Rename" })).toBeNull();
     expect(isOpen()).toBe(true);
   });
 
-  it("leaves an Escape to a sheet over it that left the keys in the panel, as Quick Look does", async () => {
-    await openNarrow({ look: true });
-    fireEvent.keyDown(screen.getByRole("button", { name: "Open in Files" }), { key: "Escape" });
+  it("leaves the first Escape to Quick Look over it, and shuts on a second at once", async () => {
+    vi.spyOn(api, "file").mockResolvedValue({ path: "a.md", size: 1, modifiedAt: 1, text: "a", language: "markdown" });
+    await openNarrow();
+    fireEvent.click(screen.getByRole("button", { name: "Look" }));
+    expect(await screen.findByRole("dialog", { name: "Quick Look: a.md" })).toBeTruthy();
+    // The keys are still in the panel, as Quick Look leaves them.
+    const inPanel = screen.getByRole("button", { name: "Open in Files" });
+    fireEvent.keyDown(inPanel, { key: "Escape" });
     expect(isOpen()).toBe(true);
+    // Shut, though it may still be leaving: the next Escape is the drawer's.
+    fireEvent.keyDown(inPanel, { key: "Escape" });
+    expect(isOpen()).toBe(false);
   });
 
   it("is a column again, and shut, once there is room for it", async () => {
