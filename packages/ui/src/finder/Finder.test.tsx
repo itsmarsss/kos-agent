@@ -432,10 +432,28 @@ describe("the finder", () => {
       });
       expect(search).toHaveBeenCalledWith("projects/garden", "bed", false, expect.any(AbortSignal));
       expect(await screen.findByText("bed-1.md")).toBeTruthy();
-      expect(screen.getByText("projects/garden/beds")).toBeTruthy();
+      // The folder it is in by name, its path the tooltip.
+      expect(screen.getByTitle("Workspace / projects / garden / beds").textContent).toBe("beds");
       // The next keystroke drops the search before it.
       fireEvent.change(screen.getByRole("searchbox", { name: "Search this folder and below" }), { target: { value: "beds" } });
       expect((search.mock.calls[0]![3] as AbortSignal).aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names a found file's folder from a panel's root, not the workspace's", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(api, "searchFiles").mockResolvedValue({ entries: [d("projects/garden/beds/bed-1.md"), d("projects/garden/a.md")], truncated: false });
+    try {
+      render(<Finder root="projects/garden" rootName="Garden" sidebar={false} />);
+      await screen.findByText("a.md");
+      fireEvent.change(screen.getByRole("searchbox", { name: "Search this folder and below" }), { target: { value: "md" } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect((await screen.findByTitle("Garden / beds")).textContent).toBe("beds");
+      expect(document.querySelector('.finder-where[title="Garden"]')?.textContent).toBe("Garden");
     } finally {
       vi.useRealTimers();
     }

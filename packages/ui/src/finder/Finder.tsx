@@ -272,10 +272,15 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     };
   }, [query, contents, folder, place.kind, root]);
 
+  /** The folder a search's or Recents' row is in, named as the path bar names it: from this Finder's root, not the workspace's. */
+  const whereOf = (path: string): { name: string; path: string } => {
+    const steps = trail(parentOf(path), root, rootName);
+    return { name: steps.at(-1)?.name ?? rootName, path: pathWords(steps.map((s) => s.name)) };
+  };
   /** The rows in the order they are drawn: what the keys move through. */
   const listRows: ListRow[] = ((): ListRow[] => {
-    if (found) return sortEntries(found.entries, sort).map((e) => ({ entry: e, depth: 0, where: parentOf(e.path), ...(e.text ? { match: `Line ${e.line}: ${e.text}` } : {}) }));
-    if (place.kind === "recents") return (recents ?? []).map((e) => ({ entry: e, depth: 0, where: parentOf(e.path) }));
+    if (found) return sortEntries(found.entries, sort).map((e) => ({ entry: e, depth: 0, where: whereOf(e.path), ...(e.text ? { match: `Line ${e.line}: ${e.text}` } : {}) }));
+    if (place.kind === "recents") return (recents ?? []).map((e) => ({ entry: e, depth: 0, where: whereOf(e.path) }));
     const rows: ListRow[] = [];
     const add = (dir: string, depth: number): void => {
       for (const e of entriesOf(dir) ?? []) {
