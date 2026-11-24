@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 /** The chats page's shape, as far as the drawer is concerned: the toggle, the panel, a backdrop while open. */
-function Page(): ReactElement {
+function Page({ sheet = false, look = false }: { sheet?: boolean; look?: boolean }): ReactElement {
   const root = useRef<HTMLDivElement>(null);
   const fits = useRoomFor(root, PANEL_ROOM);
   const drawer = usePanelDrawer(root, fits);
@@ -39,9 +39,12 @@ function Page(): ReactElement {
         <button type="button">Open in Files</button>
         <button type="button">Colour</button>
       </aside>
-      <div role="dialog" aria-modal="true" aria-label="Rename">
-        <input aria-label="Title" />
-      </div>
+      {sheet && (
+        <div role="dialog" aria-modal="true" aria-label="Rename">
+          <input aria-label="Title" />
+        </div>
+      )}
+      {look && <div role="dialog" aria-modal="true" aria-label="Quick Look: a.md" />}
     </div>
   );
 }
@@ -50,8 +53,8 @@ const frame = (): Promise<void> => act(() => new Promise<void>((r) => requestAni
 const toggle = (): HTMLElement => screen.getByRole("button", { name: "Panel" });
 const isOpen = (): boolean => toggle().getAttribute("aria-pressed") === "true";
 
-async function openNarrow(): Promise<void> {
-  render(<Page />);
+async function openNarrow(over: { sheet?: boolean; look?: boolean } = {}): Promise<void> {
+  render(<Page {...over} />);
   resizeTo(PANEL_ROOM - 100);
   toggle().focus();
   fireEvent.click(toggle());
@@ -85,12 +88,18 @@ describe("the panel's drawer", () => {
   });
 
   it("leaves an Escape a dialog over it took, or one pressed inside another dialog", async () => {
-    await openNarrow();
+    await openNarrow({ sheet: true });
     const taken = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
     taken.preventDefault();
     act(() => void window.dispatchEvent(taken));
     expect(isOpen()).toBe(true);
     fireEvent.keyDown(screen.getByLabelText("Title"), { key: "Escape" });
+    expect(isOpen()).toBe(true);
+  });
+
+  it("leaves an Escape to a sheet over it that left the keys in the panel, as Quick Look does", async () => {
+    await openNarrow({ look: true });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Open in Files" }), { key: "Escape" });
     expect(isOpen()).toBe(true);
   });
 

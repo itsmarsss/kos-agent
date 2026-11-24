@@ -67,8 +67,8 @@ export interface PanelDrawer {
  * panel's toggle, shut by its backdrop or Escape, never remembered, and shut
  * once there is room again. Open, it is a modal (the panel draws it so): the
  * tab key stays in it, and shut, the focus goes back to the toggle. An
- * Escape a dialog over it already took, or one pressed inside another
- * dialog, is not the drawer's.
+ * Escape a dialog over it already took, or one pressed while any sheet is
+ * over it, is not the drawer's.
  */
 export function usePanelDrawer(root: RefObject<HTMLElement | null>, fits: boolean): PanelDrawer {
   const [open, setOpen] = useState(false);
@@ -89,8 +89,10 @@ export function usePanelDrawer(root: RefObject<HTMLElement | null>, fits: boolea
     if (!open) return;
     const shut = (e: KeyboardEvent): void => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      const modal = e.target instanceof Element ? e.target.closest('[aria-modal="true"]') : null;
-      if (modal && modal !== panel.current) return;
+      // Only while it is the sheet on top: a sheet over it is drawn after it (at the body), and one
+      // that leaves the keys where they were (Quick Look) is shut first, not the drawer from under it.
+      const modals = document.querySelectorAll('[aria-modal="true"]');
+      if (modals[modals.length - 1] !== panel.current) return;
       e.preventDefault();
       setOpen(false);
     };
