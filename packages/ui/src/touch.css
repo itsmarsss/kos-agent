@@ -312,6 +312,10 @@
   .ops-toasts {
     top: calc(var(--phonebar-h) + 0.5rem + env(safe-area-inset-top, 0px));
     bottom: auto;
+    right: 1rem;
+    left: 1rem;
+    width: auto;
+    align-items: stretch;
   }
 }
 
