@@ -79,11 +79,13 @@ export interface SecretUseRow {
   decidedBy?: string;
 }
 
-export type VaultSlotKind = "keyfile" | "passphrase";
+export type VaultSlotKind = "keyfile" | "passphrase" | "device";
 
 export interface VaultStatus {
   state: "absent" | "locked" | "ready";
   slots: VaultSlotKind[];
+  /** The device slots: each a KOS for Mac that opens the vault while its owner is logged in. */
+  devices?: { id: string; name: string }[];
   /** Values the scrubber has masked since the host started. */
   scrubbed: number;
   /** Why a vault that is there is not ready, when it is not the passphrase it waits for. */

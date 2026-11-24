@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, hkdfSync, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, realpathSync, renameSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -8,14 +8,17 @@ import type { SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUs
 import { buildIndex, SCRUB_INDEX_FORMAT, SCRUB_INDEX_VERSION, ScrubIndex, type ScrubIndexFile } from "./scrubindex.js";
 import { checkDir, copyAtomic, excludeFromBackup, fsyncDir, readPrivate, shred, VaultFsError, withFileLock, writeAtomic } from "./vaultfs.js";
 import { checkPolicy, checkUse, checkValues, grantAllowed, hintOf, labelOf, scannedOf, slugOf, type ScannedValue } from "./records.js";
+import { deviceInfo, keyFrom, keyTo, P256_POINT_BYTES, passphraseInfo, passphraseScalar, seal, unseal, type P256Pair } from "./vaultkeys.js";
 
 /**
  * The owner's secrets at rest: one encrypted file, docs/secrets.md.
  *
- * Envelope encryption with key slots, as LUKS does it. Every record is
- * sealed whole (AES-256-GCM) under one data key; the data key is wrapped
- * once per slot, under the key file's 32 bytes or under scrypt of a
- * passphrase. An HMAC over the entry ids and a sequence number, under a key
+ * Envelope encryption with key slots, as LUKS and sops do it. Every record
+ * is sealed whole (AES-256-GCM) under one data key; any one slot opens the
+ * data key: the key file's 32 bytes, a passphrase (scrypt), or a key KOS for
+ * Mac keeps in the Secure Enclave (P-256, vaultkeys.ts). The passphrase is
+ * the recovery slot, never the only way in when a device slot is there. An
+ * HMAC over the slots, the entry ids and a sequence number, under a key
  * derived from the data key, catches an entry dropped, added or put back
  * from an older copy.
  *
@@ -25,8 +28,11 @@ import { checkPolicy, checkUse, checkValues, grantAllowed, hintOf, labelOf, scan
  */
 
 export const VAULT_FORMAT = "kos-vault";
-export const VAULT_VERSION = 1;
-const TAG = "kos-vault/1";
+/** What a vault is written as. Version 1 is read as it is, and made version 2 by its first change. */
+export const VAULT_VERSION = 2;
+export type VaultVersion = 1 | 2;
+
+const tagOf = (version: VaultVersion): string => `kos-vault/${version}`;
 
 /** scrypt as the format fixes it: N = 2^17, r = 8, p = 1, 32 bytes out. */
 export const SCRYPT = { N: 131_072, r: 8, p: 1 } as const;
@@ -44,10 +50,27 @@ const INDEX_KEY_FILE = "scrub.key";
 /** How often a hot caller looks for a change another process made. */
 const POLL_MS = 1_000;
 
+/** The data key under a key-encryption key. */
 interface Wrap {
   alg: "A256GCM";
   nonce: string;
   ct: string;
+}
+
+/** The data key sealed to a P-256 point (vaultkeys.ts): the ephemeral point is kept beside it. */
+interface SealedWrap {
+  alg: "ECDH-P256-A256GCM";
+  epk: string;
+  nonce: string;
+  ct: string;
+}
+
+interface Scrypt {
+  alg: "scrypt";
+  N: number;
+  r: number;
+  p: number;
+  salt: string;
 }
 
 interface KeyfileSlot {
@@ -56,14 +79,37 @@ interface KeyfileSlot {
   wrap: Wrap;
 }
 
-interface PassphraseSlot {
+/** Version 1's passphrase slot: the data key under scrypt's bytes. */
+interface PassphraseSlotV1 {
   id: string;
   kind: "passphrase";
-  kdf: { alg: "scrypt"; N: number; r: number; p: number; salt: string };
+  kdf: Scrypt;
   wrap: Wrap;
 }
 
-type Slot = KeyfileSlot | PassphraseSlot;
+/** Version 2's: the data key sealed to the point scrypt's bytes make, so it is wrapped again without the passphrase. */
+interface PassphraseSlotV2 {
+  id: string;
+  kind: "passphrase";
+  kdf: Scrypt;
+  key: string;
+  wrap: SealedWrap;
+}
+
+/** The data key sealed to a key KOS for Mac keeps in the Secure Enclave, which opens it while the owner is logged in. */
+interface DeviceSlot {
+  id: string;
+  kind: "device";
+  /** What the owner calls that Mac, as it was when the slot was added. */
+  name: string;
+  /** When the Mac opens it: `login`, whenever it runs and the owner is logged in. */
+  unlock: "login";
+  key: string;
+  wrap: SealedWrap;
+}
+
+type PassphraseSlot = PassphraseSlotV1 | PassphraseSlotV2;
+type Slot = KeyfileSlot | PassphraseSlot | DeviceSlot;
 
 interface Entry {
   id: string;
@@ -73,7 +119,7 @@ interface Entry {
 
 export interface VaultFile {
   format: typeof VAULT_FORMAT;
-  version: typeof VAULT_VERSION;
+  version: VaultVersion;
   vault: string;
   dek: string;
   slots: Slot[];
@@ -110,34 +156,32 @@ export class VaultError extends Error {
   }
 }
 
+/** What the host asks the KOS for Mac on this computer to open a device slot with (`vault.unwrap`, docs/computer.md). */
+export interface DeviceUnwrapRequest {
+  vault: string;
+  slot: string;
+  /** The slot's point, so a Mac holding another key says so. */
+  key: string;
+  epk: string;
+}
+
+/** Asks a Mac for a device slot's key-encryption key; throws with the Mac's reason. */
+export type DeviceUnwrapper = (req: DeviceUnwrapRequest) => Promise<Buffer>;
+
 // The format's primitives, exported for the known-answer vectors.
 
-export function entryAad(vault: string, entryId: string, dekId: string): Buffer {
-  return Buffer.from(`${TAG}|${vault}|${entryId}|${dekId}`, "utf8");
+export function entryAad(vault: string, entryId: string, dekId: string, version: VaultVersion = VAULT_VERSION): Buffer {
+  return Buffer.from(`${tagOf(version)}|${vault}|${entryId}|${dekId}`, "utf8");
 }
 
-export function slotAad(vault: string, slotId: string, dekId: string): Buffer {
-  return Buffer.from(`${TAG}|slot|${vault}|${slotId}|${dekId}`, "utf8");
+export function slotAad(vault: string, slotId: string, dekId: string, version: VaultVersion = VAULT_VERSION): Buffer {
+  return Buffer.from(`${tagOf(version)}|slot|${vault}|${slotId}|${dekId}`, "utf8");
 }
 
-/** AES-256-GCM: the ciphertext with its 16-byte tag after it. */
-export function seal(key: Buffer, nonce: Buffer, plain: Buffer, aad: Buffer): Buffer {
-  const cipher = createCipheriv("aes-256-gcm", key, nonce);
-  cipher.setAAD(aad);
-  return Buffer.concat([cipher.update(plain), cipher.final(), cipher.getAuthTag()]);
-}
+export { seal, unseal };
 
-/** The plaintext, or a throw when any byte of key, nonce, ciphertext, tag or AAD is not what was sealed. */
-export function unseal(key: Buffer, nonce: Buffer, sealed: Buffer, aad: Buffer): Buffer {
-  if (sealed.length < 16 || nonce.length !== 12) throw new Error("malformed");
-  const decipher = createDecipheriv("aes-256-gcm", key, nonce);
-  decipher.setAAD(aad);
-  decipher.setAuthTag(sealed.subarray(sealed.length - 16));
-  return Buffer.concat([decipher.update(sealed.subarray(0, sealed.length - 16)), decipher.final()]);
-}
-
-export function indexKey(dek: Buffer): Buffer {
-  return Buffer.from(hkdfSync("sha256", dek, Buffer.alloc(0), `${TAG} index`, 32));
+export function indexKey(dek: Buffer, version: VaultVersion = VAULT_VERSION): Buffer {
+  return Buffer.from(hkdfSync("sha256", dek, Buffer.alloc(0), `${tagOf(version)} index`, 32));
 }
 
 const sha256 = (...parts: Buffer[]): string => {
@@ -147,9 +191,17 @@ const sha256 = (...parts: Buffer[]): string => {
 };
 
 /** What the index MAC says of a slot: everything in it, so no part of one can be swapped for an older copy's. */
-function slotDigest(slot: Slot): string {
-  const kdf = slot.kind === "passphrase" ? `${slot.kdf.alg}|${slot.kdf.N}|${slot.kdf.r}|${slot.kdf.p}|${slot.kdf.salt}` : "";
-  return `${slot.id}:${sha256(Buffer.from(`${slot.kind}|${kdf}|${slot.wrap.alg}|${slot.wrap.nonce}|${slot.wrap.ct}`, "utf8"))}`;
+function slotDigest(slot: Slot, version: VaultVersion): string {
+  const kdf = slot.kind === "passphrase" ? slot.kdf : undefined;
+  if (version === 1) {
+    const params = kdf ? `${kdf.alg}|${kdf.N}|${kdf.r}|${kdf.p}|${kdf.salt}` : "";
+    return `${slot.id}:${sha256(Buffer.from(`${slot.kind}|${params}|${slot.wrap.alg}|${slot.wrap.nonce}|${slot.wrap.ct}`, "utf8"))}`;
+  }
+  // Every field as a JSON array of strings: a name with a `|` in it cannot shift one field into the next.
+  const key = "key" in slot ? slot.key : "";
+  const epk = "epk" in slot.wrap ? slot.wrap.epk : "";
+  const fields = [slot.kind, kdf?.alg ?? "", String(kdf?.N ?? ""), String(kdf?.r ?? ""), String(kdf?.p ?? ""), kdf?.salt ?? "", key, slot.kind === "device" ? slot.name : "", slot.kind === "device" ? slot.unlock : "", slot.wrap.alg, epk, slot.wrap.nonce, slot.wrap.ct];
+  return `${slot.id}:${sha256(Buffer.from(JSON.stringify(fields), "utf8"))}`;
 }
 
 /**
@@ -158,15 +210,15 @@ function slotDigest(slot: Slot): string {
  * ciphertext. An entry pasted in from an older copy (its id the same, its
  * bytes from before) changes its digest, so it is refused like any edit.
  */
-export function indexMac(dek: Buffer, doc: Pick<VaultFile, "vault" | "dek" | "slots" | "entries">, seq: number): string {
-  const slots = [...doc.slots].sort((a, b) => (a.id < b.id ? -1 : 1)).map(slotDigest).join(",");
+export function indexMac(dek: Buffer, doc: Pick<VaultFile, "version" | "vault" | "dek" | "slots" | "entries">, seq: number): string {
+  const slots = [...doc.slots].sort((a, b) => (a.id < b.id ? -1 : 1)).map((s) => slotDigest(s, doc.version)).join(",");
   const entries = [...doc.entries]
     .sort((a, b) => (a.id < b.id ? -1 : 1))
     .map((e) => `${e.id}:${sha256(unb64(e.nonce), unb64(e.ct))}`)
     .join(",");
-  const key = indexKey(dek);
+  const key = indexKey(dek, doc.version);
   try {
-    return createHmac("sha256", key).update(`${TAG}|${doc.vault}|${doc.dek}|${seq}|slots:${slots}|entries:${entries}`).digest("base64");
+    return createHmac("sha256", key).update(`${tagOf(doc.version)}|${doc.vault}|${doc.dek}|${seq}|slots:${slots}|entries:${entries}`).digest("base64");
   } finally {
     key.fill(0);
   }
@@ -187,30 +239,72 @@ function wrapDek(kek: Buffer, dek: Buffer, vault: string, slotId: string, dekId:
   return { alg: "A256GCM", nonce: b64(nonce), ct: b64(seal(kek, nonce, dek, slotAad(vault, slotId, dekId))) };
 }
 
-/** The data key a slot wraps, or undefined when this key-encryption key is not the slot's. */
-function unwrapDek(kek: Buffer, slot: Slot, vault: string, dekId: string): Buffer | undefined {
+/**
+ * The data key sealed to a slot's point, and the key it was sealed under:
+ * the host keeps that key when the slot is the one it opened with, so it
+ * need not ask again after a change of its own.
+ */
+export function sealDek(point: Buffer, dek: Buffer, info: string, aad: Buffer, eph?: P256Pair, nonce: Buffer = randomBytes(12)): { wrap: SealedWrap; kek: Buffer } {
+  const { epk, kek } = keyTo(point, info, eph);
+  return { wrap: { alg: "ECDH-P256-A256GCM", epk: b64(epk), nonce: b64(nonce), ct: b64(seal(kek, nonce, dek, aad)) }, kek };
+}
+
+/** The data key a wrap holds under `kek`, or undefined when it is not the wrap's key. */
+function unwrapDek(kek: Buffer, wrap: Wrap | SealedWrap, aad: Buffer): Buffer | undefined {
   try {
-    if (slot.wrap.alg !== "A256GCM") return undefined;
-    const dek = unseal(kek, unb64(slot.wrap.nonce), unb64(slot.wrap.ct), slotAad(vault, slot.id, dekId));
+    const dek = unseal(kek, unb64(wrap.nonce), unb64(wrap.ct), aad);
     return dek.length === 32 ? dek : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** A passphrase's key-encryption key and the salt it was made with. */
+/** A passphrase's scrypt bytes and the salt they were made with. */
 interface PassphraseKey {
   kek: Buffer;
   salt: Buffer;
 }
 
-function passphraseSlotOf(pass: PassphraseKey, dek: Buffer, vault: string, id: string, dekId: string): PassphraseSlot {
-  return { id, kind: "passphrase", kdf: { alg: "scrypt", ...SCRYPT, salt: b64(pass.salt) }, wrap: wrapDek(pass.kek, dek, vault, id, dekId) };
+/** A version 2 passphrase slot for `pass`: the data key sealed to the point its scrypt bytes make. */
+function passphraseSlotOf(pass: PassphraseKey, dek: Buffer, vault: string, id: string, dekId: string): PassphraseSlotV2 {
+  const pair = passphraseScalar(pass.kek);
+  if (!pair) throw new VaultError("invalid", "that passphrase and salt make no key; try again");
+  pair.priv.fill(0);
+  const sealed = sealDek(pair.pub, dek, passphraseInfo(vault, id), slotAad(vault, id, dekId));
+  sealed.kek.fill(0);
+  return { id, kind: "passphrase", kdf: { alg: "scrypt", ...SCRYPT, salt: b64(pass.salt) }, key: b64(pair.pub), wrap: sealed.wrap };
+}
+
+/** The next slot id no slot has. */
+function nextSlotId(slots: readonly Slot[]): string {
+  let n = 1;
+  while (slots.some((s) => s.id === `s${n}`)) n++;
+  return `s${n}`;
 }
 
 const ENTRY_ID = /^e_[0-9a-f]{16}$/;
 const VAULT_ID = /^v_[0-9a-f]{16}$/;
 const DEK_ID = /^k[1-9][0-9]*$/;
+
+const isText = (v: unknown): v is string => typeof v === "string";
+
+/** A slot of a kind its version has, every field there; nothing in it is believed until the MAC checks. */
+function slotShaped(s: Slot, version: VaultVersion): boolean {
+  if (!s || typeof s !== "object" || !isText(s.id) || !s.wrap || !isText(s.wrap.nonce) || !isText(s.wrap.ct)) return false;
+  const sealed = s.wrap.alg === "ECDH-P256-A256GCM" && isText(s.wrap.epk) && "key" in s && isText(s.key);
+  const kdf = s.kind === "passphrase" ? s.kdf : undefined;
+  const scrypted = kdf !== undefined && kdf !== null && kdf.alg === "scrypt" && isText(kdf.salt) && [kdf.N, kdf.r, kdf.p].every((n) => Number.isSafeInteger(n) && n > 0);
+  switch (s.kind) {
+    case "keyfile":
+      return s.wrap.alg === "A256GCM";
+    case "passphrase":
+      return scrypted && (version === 1 ? s.wrap.alg === "A256GCM" : sealed);
+    case "device":
+      return version === 2 && sealed && isText(s.name) && s.unlock === "login";
+    default:
+      return false;
+  }
+}
 
 /** The file as JSON of the right shape, or why not. Nothing is trusted until the MAC and every entry check. */
 function parseVault(text: string): VaultFile {
@@ -225,7 +319,7 @@ function parseVault(text: string): VaultFile {
     v !== null &&
     typeof v === "object" &&
     v.format === VAULT_FORMAT &&
-    v.version === VAULT_VERSION &&
+    (v.version === 1 || v.version === 2) &&
     typeof v.vault === "string" &&
     VAULT_ID.test(v.vault) &&
     typeof v.dek === "string" &&
@@ -236,14 +330,11 @@ function parseVault(text: string): VaultFile {
     typeof v.index === "object" &&
     Number.isSafeInteger(v.index.seq) &&
     typeof v.index.mac === "string";
-  if (!shaped) throw new VaultError("tampered", "the vault file is not a kos-vault version 1");
+  if (!shaped) throw new VaultError("tampered", "the vault file is not a kos-vault of version 1 or 2");
   for (const s of v.slots) {
-    const ok = s && typeof s.id === "string" && s.wrap && typeof s.wrap.nonce === "string" && typeof s.wrap.ct === "string";
-    const kdf = s.kind === "passphrase" ? s.kdf : undefined;
-    if (!ok || (s.kind !== "keyfile" && s.kind !== "passphrase") || (s.kind === "passphrase" && (!kdf || kdf.alg !== "scrypt" || typeof kdf.salt !== "string"))) {
-      throw new VaultError("tampered", "a key slot in the vault file is malformed");
-    }
+    if (!slotShaped(s, v.version)) throw new VaultError("tampered", "a key slot in the vault file is malformed");
   }
+  if (new Set(v.slots.map((s) => s.id)).size !== v.slots.length) throw new VaultError("tampered", "two key slots in the vault file share an id");
   // Stored in id order, so an entry moved is as plain as one changed.
   for (let i = 0; i < v.entries.length; i++) {
     const e = v.entries[i]!;
@@ -314,11 +405,58 @@ export interface SecretPatch {
   policy?: unknown;
 }
 
-/** What unlocked the data key, kept so a change made elsewhere (a rotate from the CLI) can be followed. */
-interface Opener {
-  kind: VaultSlotKind;
-  kek: Buffer;
+/**
+ * What unlocked the data key, kept so a change made elsewhere (a rotate from
+ * the CLI) can be followed: the key file's bytes, a passphrase's scrypt bytes
+ * (and the salt they belong to), or the key a device slot's ephemeral point
+ * made, which opens that wrap alone.
+ */
+type Opener = { kind: "keyfile"; kek: Buffer } | { kind: "passphrase"; kek: Buffer; salt: string } | { kind: "device"; slot: string; epk: string; kek: Buffer };
+
+/** A device slot as the Secrets page names it. */
+export interface DeviceSlotInfo {
+  id: string;
+  name: string;
 }
+
+/** The data key one slot holds under what `opener` has, or undefined when it is not that slot's. */
+function openSlot(doc: VaultFile, slot: Slot, opener: Opener): Buffer | undefined {
+  if (slot.kind !== opener.kind) return undefined;
+  const aad = slotAad(doc.vault, slot.id, doc.dek, doc.version);
+  switch (opener.kind) {
+    case "keyfile":
+      return unwrapDek(opener.kek, slot.wrap, aad);
+    case "device": {
+      const device = slot as DeviceSlot;
+      return device.id === opener.slot && device.wrap.epk === opener.epk ? unwrapDek(opener.kek, device.wrap, aad) : undefined;
+    }
+    case "passphrase": {
+      const pass = slot as PassphraseSlot;
+      if (pass.kdf.salt !== opener.salt) return undefined;
+      if (!("key" in pass)) return unwrapDek(opener.kek, pass.wrap, aad);
+      const pair = passphraseScalar(opener.kek);
+      if (!pair) return undefined;
+      try {
+        const kek = keyFrom(pair.priv, pair.pub, unb64(pass.wrap.epk), passphraseInfo(doc.vault, pass.id));
+        try {
+          return unwrapDek(kek, pass.wrap, aad);
+        } finally {
+          kek.fill(0);
+        }
+      } catch {
+        return undefined;
+      } finally {
+        pair.priv.fill(0);
+      }
+    }
+  }
+}
+
+/** The data key from the first slot `opener` opens. */
+const openAny = (doc: VaultFile, opener: Opener): Buffer | undefined => doc.slots.reduce<Buffer | undefined>((dek, slot) => dek ?? openSlot(doc, slot, opener), undefined);
+
+/** A Mac's name as a slot keeps it: one line, printable, short. */
+const slotName = (name: string): string => name.replace(/[^\x20-\x7e\u00a0-\uffff]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "KOS for Mac";
 
 export class Vault {
   readonly dir: string;
@@ -342,6 +480,8 @@ export class Vault {
   private dek: Buffer | undefined;
   private opener: Opener | undefined;
   private problem: string | undefined;
+  /** Why the last ask of a Mac to open a device slot failed, while the vault stays locked. */
+  private deviceProblem: string | undefined;
   /** Something the owner should see about a vault that still opened. */
   private warning: string | undefined;
   private held = new Map<string, Held>();
@@ -392,10 +532,10 @@ export class Vault {
     this.refresh();
     const doc = this.present();
     const pass = doc.slots.some((sl) => sl.kind === "passphrase");
-    const kek = pass ? (await this.passphraseOpener(doc, passphrase ?? "")).kek : this.keyBytes();
-    const slot = doc.slots.find((sl) => sl.kind === (pass ? "passphrase" : "keyfile"));
-    const dek = kek && slot ? unwrapDek(kek, slot, doc.vault, doc.dek) : undefined;
-    kek?.fill(0);
+    const key = pass ? undefined : this.keyBytes();
+    const opener: Opener | undefined = pass ? await this.passphraseOpener(doc, passphrase ?? "") : key && { kind: "keyfile", kek: key };
+    const dek = opener && openAny(doc, opener);
+    opener?.kek.fill(0);
     if (!dek) throw new VaultError("locked", "the vault does not open with what was given, so its sequence cannot be vouched for");
     const given = unb64(doc.index.mac);
     const sound = given.length === 32 && timingSafeEqual(given, unb64(indexMac(dek, doc, doc.index.seq)));
@@ -421,13 +561,20 @@ export class Vault {
     this.refresh();
   }
 
-  status(): { state: "absent" | "locked" | "ready"; slots: VaultSlotKind[]; problem?: string } {
+  status(): { state: "absent" | "locked" | "ready"; slots: VaultSlotKind[]; devices?: DeviceSlotInfo[]; problem?: string } {
     this.refresh();
     // A file that is there but will not read is a vault shut, not one missing: init must not write over it.
     if (!this.doc) return { state: this.stamp ? "locked" : "absent", slots: [], ...(this.problem ? { problem: this.problem } : {}) };
     const slots = [...new Set(this.doc.slots.map((s) => s.kind))];
-    const problem = this.problem ?? (this.dek ? this.warning : undefined) ?? (this.dek ? this.indexProblem : this.shut() && this.indexProblem);
-    return { state: this.dek ? "ready" : "locked", slots, ...(problem ? { problem } : {}) };
+    const devices = this.devices();
+    const problem = this.problem ?? (this.dek ? this.warning : this.deviceProblem) ?? (this.dek ? this.indexProblem : this.shut() && this.indexProblem);
+    return { state: this.dek ? "ready" : "locked", slots, ...(devices.length ? { devices } : {}), ...(problem ? { problem } : {}) };
+  }
+
+  /** The device slots: the Macs that open the vault at login. */
+  devices(): DeviceSlotInfo[] {
+    this.refresh();
+    return (this.doc?.slots ?? []).filter((s): s is DeviceSlot => s.kind === "device").map((s) => ({ id: s.id, name: s.name }));
   }
 
   /**
@@ -556,6 +703,7 @@ export class Vault {
     this.opener = opener;
     this.dek = undefined;
     this.problem = undefined;
+    this.deviceProblem = undefined;
     this.stamp = "";
     this.refresh();
     if (!this.dek) throw new VaultError("tampered", this.problem ?? "the vault would not open");
@@ -580,14 +728,62 @@ export class Vault {
     const slot = doc.slots.find((s): s is PassphraseSlot => s.kind === "passphrase");
     if (!slot) throw new VaultError("invalid", "this vault has no passphrase");
     const { N, r, p, salt } = slot.kdf;
-    const kek = await passphraseKek(passphrase, unb64(salt), { N, r, p });
-    const dek = unwrapDek(kek, slot, doc.vault, doc.dek);
+    const opener: Opener = { kind: "passphrase", kek: await passphraseKek(passphrase, unb64(salt), { N, r, p }), salt };
+    const dek = openSlot(doc, slot, opener);
     if (!dek) {
-      kek.fill(0);
+      opener.kek.fill(0);
       throw new VaultError("passphrase", "that is not the vault's passphrase");
     }
     dek.fill(0);
-    return { kind: "passphrase", kek };
+    return opener;
+  }
+
+  /**
+   * A device slot opened by the KOS for Mac on this computer: each slot's
+   * Mac is asked in turn (vault.unwrap), and the first key that opens its
+   * slot opens the vault until the host stops. When none does, the vault
+   * stays locked and its status says why; the passphrase still opens it.
+   */
+  async unlockWithDevice(unwrap: DeviceUnwrapper): Promise<boolean> {
+    this.refresh();
+    if (this.dek) return true;
+    const doc = this.present();
+    this.refuseShared();
+    const slots = doc.slots.filter((s): s is DeviceSlot => s.kind === "device");
+    if (!slots.length) return false;
+    const why: string[] = [];
+    for (const slot of slots) {
+      let kek: Buffer;
+      try {
+        kek = await unwrap({ vault: doc.vault, slot: slot.id, key: slot.key, epk: slot.wrap.epk });
+      } catch (err) {
+        why.push(`${slot.name}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+      const opener: Opener = { kind: "device", slot: slot.id, epk: slot.wrap.epk, kek };
+      const dek = openSlot(doc, slot, opener);
+      if (!dek) {
+        kek.fill(0);
+        why.push(`${slot.name}: its key does not open this vault's slot`);
+        continue;
+      }
+      dek.fill(0);
+      // The passphrase may have opened it while the Mac was asked.
+      if (this.dek) {
+        kek.fill(0);
+        return true;
+      }
+      this.opener?.kek.fill(0);
+      this.opener = opener;
+      this.problem = undefined;
+      this.deviceProblem = undefined;
+      this.stamp = "";
+      this.refresh();
+      if (this.dek) return true;
+      why.push(`${slot.name}: ${this.problem ?? "the vault would not open"}`);
+    }
+    this.deviceProblem = `KOS for Mac did not open the vault (${why.join("; ")}); the passphrase still opens it`;
+    return false;
   }
 
   /**
@@ -610,7 +806,7 @@ export class Vault {
       let opener: Opener;
       if (pass) {
         slot = passphraseSlotOf(pass, dek, vault, "s1", dekId);
-        opener = { kind: "passphrase", kek: pass.kek };
+        opener = { kind: "passphrase", kek: pass.kek, salt: b64(pass.salt) };
         this.dropKeyFile();
       } else {
         const key = this.keyBytes() ?? this.makeKey();
@@ -624,15 +820,24 @@ export class Vault {
   /** scrypt of a new passphrase with a fresh salt: slow, so done before the vault is locked for the write. */
   private async passphraseKey(passphrase: string): Promise<PassphraseKey> {
     if (passphrase.length < 8) throw new VaultError("invalid", "a passphrase is at least 8 characters");
-    const salt = randomBytes(16);
-    return { kek: await passphraseKek(passphrase, salt), salt };
+    for (;;) {
+      const salt = randomBytes(16);
+      const kek = await passphraseKek(passphrase, salt);
+      // One salt in 2^32 makes a scalar out of P-256's range; another salt does not.
+      const pair = passphraseScalar(kek);
+      if (pair) {
+        pair.priv.fill(0);
+        return { kek, salt };
+      }
+      kek.fill(0);
+    }
   }
 
   // Changing
 
   add(input: NewSecret): string {
     return this.locked(() => {
-      const { doc, dek } = this.ready();
+      const { doc, dek } = this.writable();
       const label = labelOf(input.label);
       const kind = input.kind;
       const values = checkValues(kind, input.values, undefined);
@@ -706,7 +911,7 @@ export class Vault {
 
   private change(handle: string, edit: (record: SecretRecord) => SecretRecord): SecretMeta {
     return this.locked(() => {
-      const { doc, dek } = this.ready();
+      const { doc, dek } = this.writable();
       const held = this.held.get(handle);
       if (!held) throw new VaultError("not-found", `there is no secret ${handle}`);
       const next = this.withRecord(handle, (record) => {
@@ -739,7 +944,7 @@ export class Vault {
    * asked, and the slots wrapped again (the same ones, or those `slots`
    * makes), in one write that erases `.prev`.
    */
-  private reseal(change: { dropping?: string; slots?: (dek: Buffer, vault: string, dekId: string) => { slots: Slot[]; opener: Opener } }): void {
+  private reseal(change: { dropping?: string; slots?: (doc: VaultFile, dek: Buffer, dekId: string) => { slots: Slot[]; opener: Opener } }): void {
     const { doc, dek } = this.ready();
     const fresh = randomBytes(32);
     const dekId = `k${Number(doc.dek.slice(1)) + 1}`;
@@ -754,57 +959,168 @@ export class Vault {
           plain.fill(0);
         }
       });
-    const made = change.slots?.(fresh, doc.vault, dekId) ?? { slots: doc.slots.map((sl) => this.rewrap(doc, sl, dek, fresh, dekId)), opener: this.opener! };
-    this.write({ ...doc, dek: dekId, slots: made.slots, entries }, fresh, made.opener, true);
+    const made = change.slots?.(doc, fresh, dekId) ?? this.rewrapAll(doc, dek, fresh, dekId);
+    this.write({ ...doc, version: VAULT_VERSION, dek: dekId, slots: made.slots, entries }, fresh, made.opener, true);
   }
 
-  /** A slot wrapped again under the same key-encryption key: the one that opened it, or the key file's. */
-  private rewrap(doc: VaultFile, slot: Slot, oldDek: Buffer, dek: Buffer, dekId: string): Slot {
-    const kek = this.kekFor(doc, slot, oldDek);
-    try {
-      return { ...slot, wrap: wrapDek(kek, dek, doc.vault, slot.id, dekId) };
-    } finally {
-      if (kek !== this.opener?.kek) kek.fill(0);
-    }
+  /**
+   * The vault open for a change, made version 2 first when it is version 1:
+   * its first change is a whole reseal, every entry and slot in the new form.
+   */
+  private writable(): { doc: VaultFile; dek: Buffer } {
+    const ready = this.ready();
+    if (ready.doc.version === VAULT_VERSION) return ready;
+    this.reseal({});
+    return this.ready();
   }
 
-  private kekFor(doc: VaultFile, slot: Slot, dek: Buffer): Buffer {
-    if (this.opener?.kind === slot.kind) return this.opener.kek;
-    if (slot.kind === "keyfile") {
-      const key = this.keyBytes();
-      const opened = key && unwrapDek(key, slot, doc.vault, doc.dek);
-      if (key && opened && opened.equals(dek)) {
-        opened.fill(0);
-        return key;
+  /**
+   * `slots` wrapped again around a new data key, in version 2's form. The key
+   * file's slot needs the key file; a passphrase or device slot is sealed to
+   * its point and needs nothing secret, but for a version 1 passphrase slot,
+   * whose point is made from the passphrase that opened it. `opener` comes
+   * back changed when it is a device slot sealed again here: the key this
+   * side made for it opens the new wrap.
+   */
+  private rewrapAll(doc: VaultFile, oldDek: Buffer, dek: Buffer, dekId: string, slots: readonly Slot[] = doc.slots, opener: Opener = this.opener!): { slots: Slot[]; opener: Opener } {
+    let next = opener;
+    const out = slots.map((slot): Slot => {
+      const aad = slotAad(doc.vault, slot.id, dekId);
+      if (slot.kind === "keyfile") {
+        const kek = this.keyfileKek(doc, slot, oldDek);
+        try {
+          return { ...slot, wrap: wrapDek(kek, dek, doc.vault, slot.id, dekId) };
+        } finally {
+          if (kek !== this.opener?.kek) kek.fill(0);
+        }
       }
-      key?.fill(0);
-      throw new VaultError("locked", "the key file does not open this vault's key-file slot");
+      if (slot.kind === "passphrase") {
+        const point = "key" in slot ? unb64(slot.key) : this.v1PassphrasePoint(slot);
+        const sealed = sealDek(point, dek, passphraseInfo(doc.vault, slot.id), aad);
+        sealed.kek.fill(0);
+        return { id: slot.id, kind: "passphrase", kdf: slot.kdf, key: b64(point), wrap: sealed.wrap };
+      }
+      const sealed = sealDek(unb64(slot.key), dek, deviceInfo(doc.vault, slot.id), aad);
+      if (next.kind === "device" && next.slot === slot.id) next = { kind: "device", slot: slot.id, epk: sealed.wrap.epk, kek: sealed.kek };
+      else sealed.kek.fill(0);
+      return { ...slot, wrap: sealed.wrap };
+    });
+    return { slots: out, opener: next };
+  }
+
+  /** The key file's bytes, checked against its slot: the one that opened the vault, or the file's. */
+  private keyfileKek(doc: VaultFile, slot: KeyfileSlot, dek: Buffer): Buffer {
+    if (this.opener?.kind === "keyfile") return this.opener.kek;
+    const key = this.keyBytes();
+    const opened = key && openSlot(doc, slot, { kind: "keyfile", kek: key });
+    if (key && opened && opened.equals(dek)) {
+      opened.fill(0);
+      return key;
     }
-    throw new VaultError("locked", "a passphrase slot can only be wrapped again once the passphrase opened the vault");
+    key?.fill(0);
+    throw new VaultError("locked", "the key file does not open this vault's key-file slot");
+  }
+
+  /** A version 1 passphrase slot's point for version 2, made from the scrypt bytes that opened it. */
+  private v1PassphrasePoint(slot: PassphraseSlotV1): Buffer {
+    const opener = this.opener;
+    if (opener?.kind !== "passphrase" || opener.salt !== slot.kdf.salt) throw new VaultError("locked", "a version 1 passphrase slot is moved to version 2 only once the passphrase opened the vault");
+    const pair = passphraseScalar(opener.kek);
+    if (!pair) throw new VaultError("invalid", "this passphrase cannot be moved to the new vault format; change it to finish the upgrade");
+    pair.priv.fill(0);
+    return pair.pub;
   }
 
   /**
    * A passphrase added, or the one there changed: a new data key, wrapped
-   * under the passphrase alone, `.prev` erased and the key file erased, so
-   * nothing on disk opens the vault and from the next start it waits for
-   * the passphrase. The vault must be open.
+   * under the passphrase and every device slot, the key-file slot dropped,
+   * `.prev` erased and the key file erased, so nothing on disk opens the
+   * vault: from the next start it waits for the passphrase or a Mac. The
+   * vault must be open.
    */
   async setPassphrase(passphrase: string): Promise<void> {
     this.ready();
     const pass = await this.passphraseKey(passphrase);
     this.locked(() => {
-      this.reseal({ slots: (dek, vault, dekId) => ({ slots: [passphraseSlotOf(pass, dek, vault, "s1", dekId)], opener: { kind: "passphrase", kek: pass.kek } }) });
+      this.reseal({
+        slots: (doc, dek, dekId) => {
+          const kept = this.rewrapAll(doc, this.dek!, dek, dekId, doc.slots.filter((sl) => sl.kind === "device"));
+          if (kept.opener !== this.opener) kept.opener.kek.fill(0);
+          const id = doc.slots.find((sl) => sl.kind === "passphrase")?.id ?? nextSlotId(kept.slots);
+          const slots = [passphraseSlotOf(pass, dek, doc.vault, id, dekId), ...kept.slots].sort((a, b) => (a.id < b.id ? -1 : 1));
+          return { slots, opener: { kind: "passphrase", kek: pass.kek, salt: b64(pass.salt) } };
+        },
+      });
       this.dropKeyFile();
     });
   }
 
-  /** The passphrase taken off: a new data key under a key file alone, and the vault opens by itself again. The vault must be open. */
+  /** The passphrase taken off: a new data key under a key file alone, and the vault opens by itself again. Refused while a Mac opens it at login: the passphrase is the way back in. */
   removePassphrase(): void {
     this.locked(() => {
       const { doc } = this.ready();
       if (!doc.slots.some((sl) => sl.kind === "passphrase")) throw new VaultError("invalid", "this vault has no passphrase");
+      if (doc.slots.some((sl) => sl.kind === "device")) throw new VaultError("invalid", "turn off unlock at login first: the passphrase is the way back in when the Mac cannot open the vault");
       const key = this.keyBytes() ?? this.makeKey();
-      this.reseal({ slots: (dek, vault, dekId) => ({ slots: [{ id: "s1", kind: "keyfile", wrap: wrapDek(key, dek, vault, "s1", dekId) }], opener: { kind: "keyfile", kek: key } }) });
+      this.reseal({ slots: (now, dek, dekId) => ({ slots: [{ id: "s1", kind: "keyfile", wrap: wrapDek(key, dek, now.vault, "s1", dekId) }], opener: { kind: "keyfile", kek: key } }) });
+    });
+  }
+
+  /**
+   * A device slot: the data key sealed to `key`, a P-256 point whose private
+   * half the KOS for Mac on this computer keeps. Before anything is written
+   * the Mac proves it holds that half: it answers a key sealed to the point
+   * for this slot, which this side made too. Only beside a passphrase, the
+   * way back in should that Mac be lost. The vault must be open.
+   */
+  async addDeviceSlot(name: string, key: Buffer, unwrap: DeviceUnwrapper): Promise<DeviceSlotInfo> {
+    const { doc } = this.ready();
+    if (key.length !== P256_POINT_BYTES || key[0] !== 0x04) throw new VaultError("invalid", "the Mac's key is not a P-256 point");
+    if (!doc.slots.some((sl) => sl.kind === "passphrase")) throw new VaultError("invalid", "set a passphrase first: it is the way back in when the Mac cannot open the vault");
+    if (doc.slots.some((sl) => sl.kind === "device" && sl.key === b64(key))) throw new VaultError("exists", "this Mac already opens the vault at login");
+    const slot = nextSlotId(doc.slots);
+    let probe: { epk: Buffer; kek: Buffer };
+    try {
+      probe = keyTo(key, deviceInfo(doc.vault, slot));
+    } catch {
+      throw new VaultError("invalid", "the Mac's key is not a P-256 point");
+    }
+    const answered = await unwrap({ vault: doc.vault, slot, key: b64(key), epk: b64(probe.epk) });
+    const proved = answered.length === 32 && timingSafeEqual(answered, probe.kek);
+    answered.fill(0);
+    probe.kek.fill(0);
+    if (!proved) throw new VaultError("refused", "KOS for Mac answered with a key that is not this one's; nothing was changed");
+    return this.locked(() => {
+      const { doc: now, dek } = this.writable();
+      if (now.slots.some((sl) => sl.kind === "device" && sl.key === b64(key))) throw new VaultError("exists", "this Mac already opens the vault at login");
+      const id = nextSlotId(now.slots);
+      const sealed = sealDek(key, dek, deviceInfo(now.vault, id), slotAad(now.vault, id, now.dek));
+      sealed.kek.fill(0);
+      const added: DeviceSlot = { id, kind: "device", name: slotName(name), unlock: "login", key: b64(key), wrap: sealed.wrap };
+      this.write({ ...now, slots: [...now.slots, added] }, dek, this.opener!);
+      return { id, name: added.name };
+    });
+  }
+
+  /**
+   * A device slot taken off: a new data key for the rest, `.prev` erased, so
+   * that Mac opens no copy from here on. It takes the passphrase, which then
+   * holds the vault open: the slot going may be the one that opened it.
+   */
+  async removeDeviceSlot(id: string, passphrase: string): Promise<void> {
+    const { doc } = this.ready();
+    if (!doc.slots.some((sl) => sl.kind === "device" && sl.id === id)) throw new VaultError("not-found", `there is no device slot ${id}`);
+    const opener = await this.passphraseOpener(doc, passphrase);
+    this.locked(() => {
+      this.writable();
+      this.reseal({
+        slots: (now, dek, dekId) => {
+          const made = this.rewrapAll(now, this.dek!, dek, dekId, now.slots.filter((sl) => sl.id !== id));
+          if (made.opener !== this.opener) made.opener.kek.fill(0);
+          // The passphrase given matches the slot as it is now: the salt is the same, whatever the CLI did meanwhile.
+          return { slots: made.slots, opener };
+        },
+      });
     });
   }
 
@@ -826,7 +1142,7 @@ export class Vault {
   /** A new key file, and the key-file slot wrapped under it; `.prev`, wrapped under the old key, is erased. Refused while KOS_VAULT_KEY supplies the key. */
   rotateKeyfile(): void {
     this.locked(() => {
-      const { doc, dek } = this.ready();
+      const { doc, dek } = this.writable();
       if (this.options.envKey) throw new VaultError("invalid", "KOS_VAULT_KEY supplies the key: change it there and run rotate with the new one");
       if (!doc.slots.some((sl) => sl.kind === "keyfile")) throw new VaultError("invalid", "this vault has no key-file slot");
       const key = randomBytes(32);
@@ -873,7 +1189,8 @@ export class Vault {
     const mine = doc.slots.find((sl): sl is PassphraseSlot => sl.kind === "passphrase");
     if (mine) (await this.passphraseOpener(doc, passphrase)).kek.fill(0);
     const pass = mine ? undefined : await this.passphraseKey(passphrase);
-    const { doc: now, dek } = this.ready();
+    // The copy is version 2, like the vault after its first change.
+    const { doc: now, dek } = this.locked(() => this.writable());
     const slot = mine ? now.slots.find((sl) => sl.kind === "passphrase")! : passphraseSlotOf(pass!, dek, now.vault, "s1", now.dek);
     pass?.kek.fill(0);
     const copy = { ...now, slots: [slot] };
@@ -932,7 +1249,7 @@ export class Vault {
 
   private openEntry(doc: VaultFile, dek: Buffer, entry: Entry): Buffer {
     try {
-      return unseal(dek, unb64(entry.nonce), unb64(entry.ct), entryAad(doc.vault, entry.id, doc.dek));
+      return unseal(dek, unb64(entry.nonce), unb64(entry.ct), entryAad(doc.vault, entry.id, doc.dek, doc.version));
     } catch {
       throw new VaultError("tampered", `entry ${entry.id} does not open: the vault file was changed outside KOS`);
     }
@@ -991,20 +1308,17 @@ export class Vault {
     return held;
   }
 
-  /** The data key from what opened it before, or from the key file when there is no passphrase to wait for. */
+  /** The data key from what opened it before, or from the key file when there is no passphrase to wait for. A device slot is opened by asking its Mac (unlockWithDevice). */
   private openWith(doc: VaultFile): { dek: Buffer; opener: Opener } | undefined {
-    if (this.opener) {
-      const slot = doc.slots.find((s) => s.kind === this.opener!.kind);
-      const dek = slot && unwrapDek(this.opener.kek, slot, doc.vault, doc.dek);
-      if (dek) return { dek, opener: this.opener };
-    }
-    // A passphrase locks the vault after every start until it is given.
+    const dek = this.opener && openAny(doc, this.opener);
+    if (dek) return { dek, opener: this.opener! };
+    // A passphrase locks the vault after every start until it is given, or a Mac opens it.
     if (doc.slots.some((s) => s.kind === "passphrase")) return undefined;
-    const slot = doc.slots.find((s) => s.kind === "keyfile");
-    if (!slot) return undefined;
+    if (!doc.slots.some((s) => s.kind === "keyfile")) return undefined;
     for (const key of [this.keyBytes(), this.nextKey()]) {
-      const dek = key && unwrapDek(key, slot, doc.vault, doc.dek);
-      if (key && dek) return { dek, opener: { kind: "keyfile", kek: key } };
+      const opener: Opener | undefined = key && { kind: "keyfile", kek: key };
+      const opened = opener && openAny(doc, opener);
+      if (opener && opened) return { dek: opened, opener };
       key?.fill(0);
     }
     throw new VaultError("locked", "the key file does not open this vault");

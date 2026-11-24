@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { entryAad, indexKey, indexMac, passphraseKek, seal, slotAad, unseal, Vault, VaultError, type VaultFile } from "./vault.js";
+import { entryAad, indexKey, indexMac, passphraseKek, seal, sealDek, slotAad, unseal, Vault, VaultError, type DeviceUnwrapper, type VaultFile } from "./vault.js";
+import { deviceInfo, keyFrom, openFromDevice, p256Pair, passphraseScalar, sealToHost, type P256Pair } from "./vaultkeys.js";
 
 const range = (start: number, n: number): Buffer => Buffer.from(Array.from({ length: n }, (_, i) => (start + i) & 255));
 
@@ -32,27 +33,28 @@ const KAT = {
   passphraseKek: "d383505afdc30eca3c262fccd3eba2260547640663d604b3983d8c3144173d4e",
 };
 
-describe("vault format vectors", () => {
+describe("vault format vectors, version 1", () => {
   it("seals an entry under its AAD", () => {
-    const sealed = seal(KAT.dek, KAT.nonce, Buffer.from(KAT.record), entryAad(KAT.vault, KAT.entry, "k1"));
+    const sealed = seal(KAT.dek, KAT.nonce, Buffer.from(KAT.record), entryAad(KAT.vault, KAT.entry, "k1", 1));
     expect(sealed.toString("base64")).toBe(KAT.entryCt);
-    expect(unseal(KAT.dek, KAT.nonce, sealed, entryAad(KAT.vault, KAT.entry, "k1")).toString()).toBe(KAT.record);
+    expect(unseal(KAT.dek, KAT.nonce, sealed, entryAad(KAT.vault, KAT.entry, "k1", 1)).toString()).toBe(KAT.record);
   });
 
   it("refuses an entry read under another id, vault or data key", () => {
     const sealed = Buffer.from(KAT.entryCt, "base64");
-    expect(() => unseal(KAT.dek, KAT.nonce, sealed, entryAad(KAT.vault, "e_00000000000000b2", "k1"))).toThrow();
-    expect(() => unseal(KAT.dek, KAT.nonce, sealed, entryAad("v_fedcba9876543210", KAT.entry, "k1"))).toThrow();
-    expect(() => unseal(KAT.dek, KAT.nonce, sealed, entryAad(KAT.vault, KAT.entry, "k2"))).toThrow();
+    expect(() => unseal(KAT.dek, KAT.nonce, sealed, entryAad(KAT.vault, "e_00000000000000b2", "k1", 1))).toThrow();
+    expect(() => unseal(KAT.dek, KAT.nonce, sealed, entryAad("v_fedcba9876543210", KAT.entry, "k1", 1))).toThrow();
+    expect(() => unseal(KAT.dek, KAT.nonce, sealed, entryAad(KAT.vault, KAT.entry, "k2", 1))).toThrow();
   });
 
   it("wraps the data key in a slot", () => {
-    expect(seal(KAT.kek, KAT.slotNonce, KAT.dek, slotAad(KAT.vault, "s1", "k1")).toString("base64")).toBe(KAT.slotCt);
+    expect(seal(KAT.kek, KAT.slotNonce, KAT.dek, slotAad(KAT.vault, "s1", "k1", 1)).toString("base64")).toBe(KAT.slotCt);
   });
 
   it("derives the index key and MACs the slots and each entry's bytes", () => {
-    expect(indexKey(KAT.dek).toString("hex")).toBe(KAT.indexKey);
+    expect(indexKey(KAT.dek, 1).toString("hex")).toBe(KAT.indexKey);
     const doc = {
+      version: 1 as const,
       vault: KAT.vault,
       dek: "k1",
       slots: [{ id: "s1", kind: "keyfile" as const, wrap: { alg: "A256GCM" as const, nonce: KAT.slotNonce.toString("base64"), ct: KAT.slotCt } }],
@@ -72,6 +74,75 @@ describe("vault format vectors", () => {
   it("matches RFC 7914's scrypt vector at its parameters", async () => {
     const key = await passphraseKek("pleaseletmein", Buffer.from("SodiumChloride"), { N: 16_384, r: 8, p: 1 });
     expect(key.toString("hex")).toBe("7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2");
+  });
+});
+
+
+/*
+ * Version 2's device wrap and `vault.unwrap` answer, worked out apart from
+ * vaultkeys.ts with WebCrypto (ECDH P-256, HKDF-SHA256, AES-GCM, HMAC).
+ * Private scalars: the device 0x01..0x20, the slot's ephemeral 0x21..0x40,
+ * the host's 0x41..0x60, the Mac's 0x61..0x80. docs/secrets.md lists them.
+ */
+const KAT2 = {
+  slot: "s2",
+  devicePub: "BFFcPW6545a5BNP+yn9U/c0MwemXvzddylFa0KbDtANfRTa+OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q=",
+  epk: "BB8UAUa/sbJR+E9N2+DUzc/Xev2YSpUg41eUAh+DErue7JlaCLH6dwTfPcwLUKlmUmP7dxH5X5+KRJxQluR8iSs=",
+  deviceKek: "dd01116d9d877add3e3d39300b02d3e22fc63839f0e60c3ca5bc2942683eb1bb",
+  slotNonce: range(0x90, 12),
+  deviceCt: "B4kuvJZBih43PvkKGWdhU7VQdsXjf5bLcWPstBgcrtgRa1N96HlDBpVMVXasY6aX",
+  hostEpk: "BCYe+9NVDPBo7wE+1zZroy9db+VXtLKrzoreWMuhaKVeF4igsppWpqvsQITAyWvT3LymtQfzXb6p6YVwhHnYvck=",
+  macEpk: "BL1XFLnCBABBHx5R2/9jZH8F0dcLVfwgDGytEML0YU3B5QSFYvcx9UVzwEIk2XOpFqWfUmqCaAdvwc+pKl8UPxk=",
+  answerNonce: range(0xa0, 12),
+  answerCt: "EpbbcSbHkfEcE401B7uuTLjVclhTayRerALyzUtNDTB7Z4iWXdY+S7OrKMew2sEj",
+  passScalar: "76722d10796a28d6569584894263e95d0fd1a7e627412eac59866185985ab9ae",
+  passPub: "BKWjDcecXuDceGHPgMWl3JMQNOZkwWNSGq76iyjJ3PY38Gv2ghmTZAukF7zGlEVw5i68cuRhZ5Cj+mke+oD5/R8=",
+  entryCt:
+    "kfnzNNUk7wpeLNtMG/mpNkRY5ebjDVz0mtnxXV7e1WTT+12UhjE34VJVo4B88bGI7kHG2wtH0KUJ8dUTxkivJtt9fKNpWCCCyAcogt59gGBDnVfCLv8smGJNJgnrHAk1EwLuZPRcQKXzxPvdQe/bqwuXYStwuFK2pPM6ZhVfwv1cxiQVEf1eQGAsTIs=",
+  indexKey: "6697f26db5d19592e42766fd7a33e361b351bcb5b50c0ce4208100c8714be2e5",
+  mac: "CTfLEbIQWQysLbKebQrP/GsYvngI1XUf9/UVfNGkscI=",
+};
+
+const pairOf = (start: number): P256Pair => p256Pair(range(start, 32));
+
+describe("vault format vectors, version 2", () => {
+  it("seals an entry and derives the index key under kos-vault/2", () => {
+    expect(seal(KAT.dek, KAT.nonce, Buffer.from(KAT.record), entryAad(KAT.vault, KAT.entry, "k1")).toString("base64")).toBe(KAT2.entryCt);
+    expect(indexKey(KAT.dek).toString("hex")).toBe(KAT2.indexKey);
+  });
+
+  it("seals the data key to a device's point, and the device makes the same key", () => {
+    const device = pairOf(0x01);
+    expect(device.pub.toString("base64")).toBe(KAT2.devicePub);
+    const { wrap, kek } = sealDek(device.pub, KAT.dek, deviceInfo(KAT.vault, KAT2.slot), slotAad(KAT.vault, KAT2.slot, "k1"), pairOf(0x21), KAT2.slotNonce);
+    expect(wrap).toEqual({ alg: "ECDH-P256-A256GCM", epk: KAT2.epk, nonce: KAT2.slotNonce.toString("base64"), ct: KAT2.deviceCt });
+    expect(kek.toString("hex")).toBe(KAT2.deviceKek);
+    expect(keyFrom(device.priv, device.pub, Buffer.from(KAT2.epk, "base64"), deviceInfo(KAT.vault, KAT2.slot)).toString("hex")).toBe(KAT2.deviceKek);
+    // Under another vault or slot the key is another.
+    expect(keyFrom(device.priv, device.pub, Buffer.from(KAT2.epk, "base64"), deviceInfo(KAT.vault, "s3")).toString("hex")).not.toBe(KAT2.deviceKek);
+  });
+
+  it("answers vault.unwrap sealed to the host's ephemeral point, and the host opens it", () => {
+    const host = pairOf(0x41);
+    expect(host.pub.toString("base64")).toBe(KAT2.hostEpk);
+    const answer = sealToHost(Buffer.from(KAT2.deviceKek, "hex"), host.pub, KAT.vault, KAT2.slot, pairOf(0x61), KAT2.answerNonce);
+    expect(answer).toEqual({ epk: KAT2.macEpk, nonce: KAT2.answerNonce.toString("base64"), ct: KAT2.answerCt });
+    expect(openFromDevice(pairOf(0x41), answer, KAT.vault, KAT2.slot).toString("hex")).toBe(KAT2.deviceKek);
+    expect(() => openFromDevice(pairOf(0x41), answer, KAT.vault, "s3")).toThrow();
+    expect(() => openFromDevice(pairOf(0x42), answer, KAT.vault, KAT2.slot)).toThrow();
+  });
+
+  it("makes a passphrase slot's point from scrypt's bytes", () => {
+    const pair = passphraseScalar(Buffer.from(KAT.passphraseKek, "hex"))!;
+    expect(pair.priv.toString("hex")).toBe(KAT2.passScalar);
+    expect(pair.pub.toString("base64")).toBe(KAT2.passPub);
+  });
+
+  it("MACs a device slot whole, its name included", () => {
+    const slot = { id: KAT2.slot, kind: "device" as const, name: "Studio Mac", unlock: "login" as const, key: KAT2.devicePub, wrap: { alg: "ECDH-P256-A256GCM" as const, epk: KAT2.epk, nonce: KAT2.slotNonce.toString("base64"), ct: KAT2.deviceCt } };
+    const doc = { version: 2 as const, vault: KAT.vault, dek: "k1", slots: [slot], entries: [{ id: KAT.entry, nonce: KAT.nonce.toString("base64"), ct: KAT2.entryCt }] };
+    expect(indexMac(KAT.dek, doc, 7)).toBe(KAT2.mac);
+    expect(indexMac(KAT.dek, { ...doc, slots: [{ ...slot, name: "Other Mac" }] }, 7)).not.toBe(KAT2.mac);
   });
 });
 
@@ -478,4 +549,236 @@ describe("Vault tamper checks", () => {
     writeFile(doc);
     expect(() => vaultAt().add({ label: "x", kind: "note", values: { text: "nothing here" } })).toThrow(VaultError);
   });
+});
+
+/** A version 1 vault as KOS wrote it before device slots: a key-file slot, or a passphrase alone. */
+async function v1Vault(passphrase?: string): Promise<{ vault: string; token: string }> {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const dek = range(0x00, 32);
+  const vault = "v_00000000000000aa";
+  const nonce = range(0x70, 12);
+  const wrap = (kek: Buffer) => ({ alg: "A256GCM" as const, nonce: nonce.toString("base64"), ct: seal(kek, nonce, dek, slotAad(vault, "s1", "k1", 1)).toString("base64") });
+  let slot: VaultFile["slots"][number];
+  if (passphrase) {
+    const salt = range(0x40, 16);
+    slot = { id: "s1", kind: "passphrase", kdf: { alg: "scrypt", N: 131_072, r: 8, p: 1, salt: salt.toString("base64") }, wrap: wrap(await passphraseKek(passphrase, salt)) };
+  } else {
+    const key = range(0x20, 32);
+    writeFileSync(join(dir, "key"), `${key.toString("base64")}\n`, { mode: 0o600 });
+    slot = { id: "s1", kind: "keyfile", wrap: wrap(key) };
+  }
+  const token = "sk_live_from_version_one_0123";
+  const record = {
+    handle: "stripe-ab12",
+    label: "Stripe",
+    kind: "apikey",
+    values: { token },
+    use: { web: { origins: [], frames: [] }, apps: [], http: { hosts: ["api.stripe.com"] } },
+    policy: { ask: "always", unattended: false, chats: null, grants: [] },
+    hint: "••••0123",
+    createdAt: 1,
+    updatedAt: 1,
+    version: 1,
+  };
+  const entryNonce = range(0x60, 12);
+  const entries = [{ id: "e_00000000000000a1", nonce: entryNonce.toString("base64"), ct: seal(dek, entryNonce, Buffer.from(JSON.stringify(record)), entryAad(vault, "e_00000000000000a1", "k1", 1)).toString("base64") }];
+  const doc = { format: "kos-vault" as const, version: 1 as const, vault, dek: "k1", slots: [slot], entries };
+  writeFileSync(join(dir, "vault.kosv"), JSON.stringify({ ...doc, index: { seq: 3, mac: indexMac(dek, doc, 3) } }), { mode: 0o600 });
+  for (const seq of [join(dir, "seq"), `${dir}.seq`]) writeFileSync(seq, `${vault} 3\n`, { mode: 0o600 });
+  return { vault, token };
+}
+
+/** A KOS for Mac stood in for by a software P-256 key: it answers a device slot's key, as the Secure Enclave would. */
+function fakeMac(pair: P256Pair = p256Pair()): { key: Buffer; unwrap: DeviceUnwrapper; asked: () => number } {
+  let asked = 0;
+  return {
+    key: pair.pub,
+    asked: () => asked,
+    unwrap: async (req) => {
+      asked++;
+      if (req.key !== pair.pub.toString("base64")) throw new Error("this Mac holds another key");
+      return keyFrom(pair.priv, pair.pub, Buffer.from(req.epk, "base64"), deviceInfo(req.vault, req.slot));
+    },
+  };
+}
+
+const PASS = "a long passphrase";
+
+describe("Vault version 1", () => {
+  it("reads a key-file vault as it is, and its first change makes it version 2", async () => {
+    const { token } = await v1Vault();
+    const vault = vaultAt();
+    expect(vault.status()).toEqual({ state: "ready", slots: ["keyfile"] });
+    expect(vault.value("stripe-ab12", "token")).toBe(token);
+    // Reading writes nothing.
+    expect(fileOf().version).toBe(1);
+    vault.add({ label: "GitHub", kind: "login", values: { password: "pw-correct-horse" } });
+    const doc = fileOf();
+    expect(doc.version).toBe(2);
+    expect(doc.dek).toBe("k2");
+    // The version 1 copy under the old data key is gone: .prev is the reseal's, from before the add.
+    expect((JSON.parse(readFileSync(join(dir, "vault.kosv.prev"), "utf8")) as VaultFile).version).toBe(2);
+    const fresh = vaultAt();
+    expect(fresh.status().state).toBe("ready");
+    expect(fresh.value("stripe-ab12", "token")).toBe(token);
+    expect(fresh.list()).toHaveLength(2);
+  });
+
+  it("opens a passphrase vault with its passphrase, and moves the passphrase slot to version 2 on the first change", async () => {
+    const { token } = await v1Vault(PASS);
+    const vault = vaultAt();
+    expect(vault.status().state).toBe("locked");
+    await expect(vault.unlock("not the passphrase")).rejects.toMatchObject({ code: "passphrase" });
+    await vault.unlock(PASS);
+    expect(vault.value("stripe-ab12", "token")).toBe(token);
+    expect(fileOf().version).toBe(1);
+    vault.rotateDataKey();
+    const slot = fileOf().slots[0]!;
+    expect(fileOf().version).toBe(2);
+    expect(slot).toMatchObject({ kind: "passphrase", kdf: { salt: range(0x40, 16).toString("base64") }, wrap: { alg: "ECDH-P256-A256GCM" } });
+    const fresh = vaultAt();
+    expect(fresh.status().state).toBe("locked");
+    await fresh.unlock(PASS);
+    expect(fresh.value("stripe-ab12", "token")).toBe(token);
+    // Now a Mac can be added beside it.
+    const mac = fakeMac();
+    await fresh.addDeviceSlot("Studio Mac", mac.key, mac.unwrap);
+    const later = vaultAt();
+    expect(await later.unlockWithDevice(mac.unwrap)).toBe(true);
+    expect(later.value("stripe-ab12", "token")).toBe(token);
+  }, 30_000);
+
+  it("refuses a device slot in a version 1 file", async () => {
+    await v1Vault();
+    const doc = fileOf();
+    doc.slots.push({ id: "s2", kind: "device", name: "Mac", unlock: "login", key: KAT2.devicePub, wrap: { alg: "ECDH-P256-A256GCM", epk: KAT2.epk, nonce: "AAAAAAAAAAAAAAAA", ct: KAT2.deviceCt } });
+    writeFile(doc);
+    expect(vaultAt().status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/malformed/) });
+  });
+});
+
+describe("Vault device slots", () => {
+  async function withMac(): Promise<{ vault: Vault; mac: ReturnType<typeof fakeMac>; handle: string }> {
+    const vault = vaultAt();
+    await vault.init({ passphrase: PASS });
+    const handle = vault.add({ label: "OpenAI", kind: "apikey", values: { token: "sk-proj-device-slot-0123456789" } });
+    const mac = fakeMac();
+    expect(await vault.addDeviceSlot("Studio Mac", mac.key, mac.unwrap)).toEqual({ id: "s2", name: "Studio Mac" });
+    return { vault, mac, handle };
+  }
+
+  it("opens after a restart by asking the Mac, with no passphrase typed", async () => {
+    const { mac, handle } = await withMac();
+    const fresh = vaultAt();
+    expect(fresh.status()).toEqual({ state: "locked", slots: ["passphrase", "device"], devices: [{ id: "s2", name: "Studio Mac" }] });
+    expect(await fresh.unlockWithDevice(mac.unwrap)).toBe(true);
+    expect(fresh.status().state).toBe("ready");
+    expect(fresh.value(handle, "token")).toBe("sk-proj-device-slot-0123456789");
+    // Nothing on disk opens it: no key file.
+    expect(existsSync(join(dir, "key"))).toBe(false);
+  }, 30_000);
+
+  it("stays locked with the reason when the Mac cannot open it, and the passphrase still does", async () => {
+    await withMac();
+    const fresh = vaultAt();
+    expect(await fresh.unlockWithDevice(fakeMac().unwrap)).toBe(false);
+    expect(fresh.status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/Studio Mac: this Mac holds another key.*passphrase still opens it/) });
+    const offline: DeviceUnwrapper = async () => {
+      throw new Error("the device is offline");
+    };
+    expect(await fresh.unlockWithDevice(offline)).toBe(false);
+    expect(fresh.status().problem).toMatch(/offline/);
+    await fresh.unlock(PASS);
+    expect(fresh.status()).toEqual({ state: "ready", slots: ["passphrase", "device"], devices: [{ id: "s2", name: "Studio Mac" }] });
+  }, 30_000);
+
+  it("needs a passphrase beside it, a Mac that proves its key, and one slot per Mac", async () => {
+    const plain = vaultAt();
+    await plain.init();
+    const mac = fakeMac();
+    await expect(plain.addDeviceSlot("Mac", mac.key, mac.unwrap)).rejects.toThrow(/passphrase first/);
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(`${dir}.seq`, { force: true });
+    const vault = vaultAt();
+    await vault.init({ passphrase: PASS });
+    const liar = fakeMac();
+    await expect(vault.addDeviceSlot("Mac", mac.key, liar.unwrap)).rejects.toThrow(/another key/);
+    const wrongAnswer: DeviceUnwrapper = async () => range(0x00, 32);
+    await expect(vault.addDeviceSlot("Mac", mac.key, wrongAnswer)).rejects.toMatchObject({ code: "refused" });
+    expect(fileOf().slots.map((s) => s.kind)).toEqual(["passphrase"]);
+    await vault.addDeviceSlot("Mac", mac.key, mac.unwrap);
+    await expect(vault.addDeviceSlot("Mac", mac.key, mac.unwrap)).rejects.toMatchObject({ code: "exists" });
+    await expect(vault.addDeviceSlot("Mac", Buffer.alloc(65, 4), mac.unwrap)).rejects.toMatchObject({ code: "invalid" });
+    expect(() => vault.removePassphrase()).toThrow(/unlock at login first/);
+  }, 30_000);
+
+  it("keeps working while the Mac opened it: changes, deletes and a new passphrase", async () => {
+    const { mac, handle } = await withMac();
+    const vault = vaultAt();
+    await vault.unlockWithDevice(mac.unwrap);
+    vault.update(handle, { values: { token: "sk-proj-changed-0123456789" } });
+    // A delete rotates the data key: every slot is wrapped again, the Mac's included.
+    const other = vault.add({ label: "Note", kind: "note", values: { text: "a note to delete" } });
+    vault.remove(other);
+    expect(vault.status().state).toBe("ready");
+    await vault.setPassphrase("a different passphrase");
+    expect(vault.status()).toMatchObject({ state: "ready", devices: [{ id: "s2", name: "Studio Mac" }] });
+    const fresh = vaultAt();
+    expect(await fresh.unlockWithDevice(mac.unwrap)).toBe(true);
+    expect(fresh.value(handle, "token")).toBe("sk-proj-changed-0123456789");
+    const typed = vaultAt();
+    await expect(typed.unlock(PASS)).rejects.toMatchObject({ code: "passphrase" });
+    await typed.unlock("a different passphrase");
+    expect(typed.list()).toHaveLength(1);
+  }, 60_000);
+
+  it("follows a change another process made with the Mac's slot wrapped again", async () => {
+    const { mac } = await withMac();
+    const host = vaultAt();
+    await host.unlockWithDevice(mac.unwrap);
+    const cli = vaultAt();
+    await cli.unlock(PASS);
+    cli.rotateDataKey();
+    // The CLI sealed the Mac's slot to a new ephemeral point: the host's key no longer opens it, so it asks again.
+    expect(host.status().state).toBe("locked");
+    expect(await host.unlockWithDevice(mac.unwrap)).toBe(true);
+    expect(mac.asked()).toBe(3);
+  }, 30_000);
+
+  it("takes a Mac off with the passphrase: a new data key, and that Mac opens nothing after", async () => {
+    const { mac, handle } = await withMac();
+    const vault = vaultAt();
+    await vault.unlockWithDevice(mac.unwrap);
+    const before = fileOf().dek;
+    await expect(vault.removeDeviceSlot("s2", "not the passphrase")).rejects.toMatchObject({ code: "passphrase" });
+    await expect(vault.removeDeviceSlot("s9", PASS)).rejects.toMatchObject({ code: "not-found" });
+    await vault.removeDeviceSlot("s2", PASS);
+    expect(vault.status()).toEqual({ state: "ready", slots: ["passphrase"] });
+    expect(fileOf().dek).not.toBe(before);
+    expect(vault.value(handle, "token")).toBe("sk-proj-device-slot-0123456789");
+    const fresh = vaultAt();
+    expect(await fresh.unlockWithDevice(mac.unwrap)).toBe(false);
+    expect(fresh.status().state).toBe("locked");
+  }, 30_000);
+
+  it("refuses a device slot renamed or re-pointed in the file", async () => {
+    await withMac();
+    const renamed = fileOf();
+    const slot = renamed.slots.find((s) => s.kind === "device")! as Extract<VaultFile["slots"][number], { kind: "device" }>;
+    slot.name = "Someone else's Mac";
+    writeFile(renamed);
+    expect(vaultAt().status().state).toBe("locked");
+    const fresh = vaultAt();
+    await expect(fresh.unlock(PASS)).rejects.toMatchObject({ code: "tampered" });
+  }, 30_000);
+
+  it("exports a copy with the passphrase slot alone", async () => {
+    await withMac();
+    const vault = vaultAt();
+    await vault.unlock(PASS);
+    await vault.exportTo(join(dir, "..", "copy.kosv"), PASS);
+    const copy = JSON.parse(readFileSync(join(dir, "..", "copy.kosv"), "utf8")) as VaultFile;
+    expect(copy.version).toBe(2);
+    expect(copy.slots.map((s) => s.kind)).toEqual(["passphrase"]);
+  }, 30_000);
 });
