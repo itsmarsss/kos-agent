@@ -7,7 +7,7 @@ import type { SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUs
 
 import { buildIndex, SCRUB_INDEX_FORMAT, SCRUB_INDEX_VERSION, ScrubIndex, type ScrubIndexFile } from "./scrubindex.js";
 import { checkDir, copyAtomic, excludeFromBackup, fsyncDir, readPrivate, shred, VaultFsError, withFileLock, writeAtomic } from "./vaultfs.js";
-import { checkPolicy, checkUse, checkValues, grantAllowed, hintOf, labelOf, scannedOf, slugOf, type ScannedValue } from "./records.js";
+import { checkPolicy, checkUse, checkValues, grantAllowed, hintOf, labelOf, RecordError, scannedOf, slugOf, type ScannedValue } from "./records.js";
 import { deviceInfo, keyFrom, keyTo, P256_POINT_BYTES, passphraseInfo, passphraseScalar, seal, unseal, type P256Pair } from "./vaultkeys.js";
 
 /**
@@ -654,6 +654,21 @@ export class Vault {
     return this.held.get(handle)?.meta;
   }
 
+  /** The API key KOS itself runs on under a harness name (`use.harness`), while the vault is open. */
+  harness(name: string): SecretMeta | undefined {
+    return this.list().find((meta) => meta.use.harness === name);
+  }
+
+  /** `use` as given, when its harness name is an API key's and no other secret has it. */
+  private harnessChecked(kind: SecretKind, use: SecretUse, self?: string): SecretUse {
+    const name = use.harness;
+    if (!name) return use;
+    if (kind !== "apikey") throw new RecordError("only an API key is a key KOS runs on");
+    const other = [...this.held.values()].find((h) => h.meta.use.harness === name && h.meta.handle !== self);
+    if (other) throw new VaultError("exists", `${other.meta.label} is already KOS's ${name} key`);
+    return use;
+  }
+
   /**
    * One field's value, decrypted from its entry alone; the decrypted buffer
    * is zeroed before this returns. Undefined when there is no such secret
@@ -851,7 +866,7 @@ export class Vault {
         label,
         kind,
         values,
-        use: checkUse(input.use),
+        use: this.harnessChecked(kind, checkUse(input.use)),
         policy: checkPolicy(input.policy, undefined),
         hint: hintOf(kind, values),
         createdAt: now,
@@ -870,7 +885,7 @@ export class Vault {
   update(handle: string, patch: SecretPatch): SecretMeta {
     return this.change(handle, (record) => {
       const values = patch.values === undefined ? record.values : checkValues(record.kind, patch.values, record.values);
-      const use = patch.use !== undefined ? checkUse(patch.use) : record.use;
+      const use = patch.use !== undefined ? this.harnessChecked(record.kind, checkUse(patch.use), record.handle) : record.use;
       const policy = patch.policy !== undefined ? checkPolicy(patch.policy, record.policy) : record.policy;
       return {
         ...record,

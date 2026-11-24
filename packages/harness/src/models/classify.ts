@@ -90,13 +90,15 @@ export function parseClassification(raw: unknown, req: ClassifyRequest, provider
 export class HttpClassifier implements Classifier {
   readonly name = "classifier";
 
-  constructor(private readonly options: { url: string; apiKey?: string; timeoutMs?: number; fetchImpl?: typeof fetch }) {}
+  /** `apiKey` is read at each call: the key may come from a vault opened after the classifier was made. */
+  constructor(private readonly options: { url: string; apiKey?: () => string | undefined; timeoutMs?: number; fetchImpl?: typeof fetch }) {}
 
   async classify(req: ClassifyRequest): Promise<Classification> {
     const fetchImpl = this.options.fetchImpl ?? fetch;
+    const key = this.options.apiKey?.();
     const res = await fetchImpl(this.options.url, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(this.options.apiKey ? { authorization: `Bearer ${this.options.apiKey}` } : {}) },
+      headers: { "content-type": "application/json", ...(key ? { authorization: `Bearer ${key}` } : {}) },
       body: JSON.stringify(req),
       signal: AbortSignal.timeout(this.options.timeoutMs ?? 10_000),
     });

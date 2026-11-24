@@ -27,6 +27,13 @@ export interface SecretUse {
   apps: string[];
   /** API hosts http.fetch may send it to, and how. */
   http: { hosts: string[]; as?: "bearer" | "basic" };
+  /**
+   * The key KOS itself runs on, by its name in the harness: a route's
+   * provider (`openai`, `anthropic`, `custom`, `classifier`, `cohere`), a
+   * channel (`discord`, `twilio`), or any `KOS_SECRET_<NAME>` as `<name>`.
+   * An env value of the same name wins over it. An API key's alone.
+   */
+  harness?: string;
 }
 
 export interface SecretGrant {
