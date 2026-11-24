@@ -2,6 +2,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { clockWords, momentWords, timeCard } from "@kos/shared";
+
 import { EmptyState, listState, noMatchWords } from "./EmptyState.js";
 import { StatusPill } from "./kit.js";
 import { GroupHead, ListHead, NotFound, PaneHead, SearchField, TableGroup, TableHead } from "./PageParts.js";
@@ -93,13 +95,33 @@ describe("StatusPill", () => {
 });
 
 describe("When", () => {
-  it("says a moment in the short words, the clock time on hover, and is no link", () => {
+  it("says a moment in the short words, the time card on hover, and is no link", () => {
     const now = Date.UTC(2026, 10, 22, 12);
-    const { container } = render(<When at={now - 6 * 60_000} now={now} />);
+    const at = now - 6 * 60_000;
+    const { container } = render(<When at={at} now={now} />);
     const time = container.querySelector("time")!;
     expect(time.textContent).toBe("6m ago");
-    expect(time.getAttribute("title")).toBeTruthy();
+    // One tooltip: the kit's card, never the browser's own title beside it.
+    expect(time.getAttribute("title")).toBeNull();
     expect(container.querySelector("a, button")).toBeNull();
+    fireEvent.pointerEnter(time, { pointerType: "mouse" });
+    expect(screen.getByRole("tooltip").textContent).toBe(timeCard(at / 1000).join(""));
+    // The words in the row stay as they were, so the row does not move.
+    expect(time.textContent).toBe("6m ago");
+  });
+
+  it("says the moment when asked, with the same card", () => {
+    const now = Date.UTC(2026, 10, 22, 12);
+    const { container } = render(<When at={now + 3 * 3_600_000} now={now} say="moment" />);
+    expect(container.querySelector("time")?.textContent).toBe(momentWords(now + 3 * 3_600_000, now));
+  });
+
+  it("says the clock time alone when asked, its date for a screen reader", () => {
+    const at = Date.UTC(2026, 10, 22, 16, 9);
+    const { container } = render(<When at={at} now={at + 60_000} say="clock" />);
+    const time = container.querySelector("time")!;
+    expect(time.textContent).toBe(clockWords(at));
+    expect(document.getElementById(time.getAttribute("aria-describedby")!)?.textContent).toBe(timeCard(at / 1000).join(" "));
   });
 });
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentFaces, Announcer, ChatIcon, Chips, ease, faceDataUrl, IconButton, KOS_SEED, KosLook, lookOf, NotFound, overlayScroll, pageArrive, sheetOpen, StatusPill, When } from "@kos/kit";
-import { errorWords, momentWords, slugWords, timeCard } from "@kos/shared";
+import { errorWords, slugWords } from "@kos/shared";
 
 import {
   type FailingJob,
@@ -1385,8 +1385,8 @@ export function App(): React.ReactElement {
             searchText: () => "",
             render: (c) =>
               c.enabled && c.nextRunAt ? (
-                <span className={`sched-when${c.nextRunAt - Date.now() < 3_600_000 ? " sched-when--soon" : ""}`} title={timeCard(c.nextRunAt / 1000).join(" ")}>
-                  {momentWords(c.nextRunAt)}
+                <span className={`sched-when${c.nextRunAt - Date.now() < 3_600_000 ? " sched-when--soon" : ""}`}>
+                  <When at={c.nextRunAt} say="moment" />
                 </span>
               ) : (
                 <span className="ops-muted">—</span>

@@ -1,5 +1,4 @@
-import { timeWords } from "@kos/shared";
-import { ChevronLeft, ChevronRight, IconButton, MoreIcon, Tag, ease, float, useDismiss } from "@kos/kit";
+import { ChevronLeft, ChevronRight, IconButton, MoreIcon, Tag, When, ease, float, useDismiss } from "@kos/kit";
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement, type ReactNode, type Ref } from "react";
 
@@ -112,7 +111,7 @@ export function ArtifactHead(props: ArtifactHeadProps): ReactElement {
         <h1 className="artifact-view-title">{record.title}</h1>
         <span className="artifact-view-meta">
           <Tag>{props.kind}</Tag>
-          <span className="artifact-view-time">{timeWords(record.updatedAt)}</span>
+          <span className="artifact-view-time"><When at={record.updatedAt} /></span>
         </span>
       </div>
       <div className="artifact-view-acts">

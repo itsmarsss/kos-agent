@@ -1,8 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactElement, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
-import { CloseIcon, Count, EmptyState, IconButton, NavIcon, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useFocusTrap, useOverlayScroll } from "@kos/kit";
-import { timeCard, timeWords } from "@kos/shared";
+import { CloseIcon, Count, EmptyState, IconButton, NavIcon, PinIcon, RefChip, SearchIcon, Tag, useDismiss, useFocusTrap, useOverlayScroll, When } from "@kos/kit";
 
 import type { TurnRecall as Recall } from "./api.js";
 import { useEdgeFade } from "./edgefade.js";
@@ -416,9 +415,9 @@ function MomentHead({ moment }: { moment: Moment }): ReactElement {
       {/* A moment whose time was lost says nothing of when rather than "Invalid Date". */}
       {Number.isFinite(when.getTime()) && (
         <span className="recall-tags">
-          <time className="recall-when" dateTime={when.toISOString()} title={timeCard(moment.ts / 1000).join(" ")}>
-            {timeWords(moment.ts)}
-          </time>
+          <span className="recall-when">
+            <When at={moment.ts} />
+          </span>
         </span>
       )}
     </>

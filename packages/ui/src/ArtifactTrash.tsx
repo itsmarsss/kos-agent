@@ -1,5 +1,4 @@
-import { timeWords } from "@kos/shared";
-import { NavIcon } from "@kos/kit";
+import { NavIcon, When } from "@kos/kit";
 import type { ReactElement } from "react";
 
 import type { ArtifactSummary } from "./api.js";
@@ -45,8 +44,8 @@ export function TrashList({
               <span className="artifact-card-meta">
                 <span>{kindOf(a)}</span>
                 <span className="artifact-card-owner">{owner(a)}</span>
-                <span className="artifact-card-time" title="When it was moved to the trash">
-                  {timeWords(a.trashedAt ?? a.updatedAt)}
+                <span className="artifact-card-time">
+                  <When at={a.trashedAt ?? a.updatedAt} />
                 </span>
               </span>
             </span>
