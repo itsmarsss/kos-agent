@@ -228,9 +228,12 @@ login with KOS for Mac** adds the slot (the vault open, a passphrase set);
   reinstall asks the owner to allow KOS for Mac again, as the pairings do.
   The key survives a reinstall. A Mac without a Secure Enclave keeps a
   software P-256 key there instead (`store: software`).
-- Only the KOS on this Mac is answered: the line must be dialled on
-  loopback and proved `here` (Builds and updates), checked by both sides.
-  Any other KOS is refused with `not_here`; the host never asks one.
+- Only the KOS on this Mac is answered, and both sides check it. The host
+  asks only a Mac proved `here` (Builds and updates). The Mac answers only
+  on a line dialled on loopback whose welcome carried KOS's own `here`
+  proof under the same secret, so a loopback tunnel to another KOS cannot
+  use its Secure Enclave. Any other KOS is refused with `not_here`.
+- Not while KOS is halted: the host asks once the kill switch is lifted.
 - When the host starts with a locked vault that has a device slot, and
   whenever a Mac proves it is here or the vault changes while locked, it
   asks that Mac (`vault.unwrap`). A Mac that is away, quits, or answers
@@ -774,7 +777,10 @@ link for a phone over Wi-Fi adds `&pin=<pin>`, the certificate the phone pins
 }
 ```
 
-3. KOS: `{ "t": "welcome", "name": "<device name>", "signature": "<Ed25519 over 'kos-device/1|host|<device nonce>|<device id>'>" }`
+3. KOS: `{ "t": "welcome", "name": "<device name>", "signature": "<Ed25519 over 'kos-device/1|host|<device nonce>|<device id>'>", "here"?: "<HMAC-SHA256 under the local secret over 'kos-device/1|host-here|<device nonce>|<device id>'>" }`.
+   `here` goes only to a Mac that proved it is here, and proves KOS is
+   the one on this computer too; KOS for Mac answers the vault calls only
+   on a line that carried it.
 
 `build` is which build of the app this is, as its build stamped it (see
 [Builds and updates](#builds-and-updates)). An app that sends none, or one

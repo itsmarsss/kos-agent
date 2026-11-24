@@ -156,6 +156,19 @@ open descriptor.
   secrets trust-seq`, which takes the file on disk as the latest. It records
   only a sequence the vault's own MAC vouches for: the data key is opened
   (the key file, or the passphrase it asks for) and the index checked first.
+  A record is `<vault id> <seq> <commitments>`: each commitment is
+  HKDF-SHA256(DEK, empty salt, info `kos-vault/2 commit|<vault>`, 16) as hex,
+  the data keys the record vouches for. Nothing in the vault file can stand
+  in for it: slots are sealed to public points and the MAC is keyed from the
+  DEK, so someone who can write the file could otherwise forge a whole vault
+  of their own that the owner's passphrase or Mac would open. A record
+  naming another vault id, or whose commitments do not include the file's
+  DEK, is refused (trust-seq, if it is a copy the owner restored); a version
+  2 file needs the record outside the folder, which a forger with the folder
+  alone cannot write. A change of data key first writes both records with
+  the old and the new commitment, then the vault, then both with the new
+  one alone, so a crash between leaves either file opening. A record from
+  before commitments vouches for a version 1 file only.
 - `vault.lock`: held while the host or the CLI reads the vault and writes it
   back, so the two never interleave a change. It is written whole (the pid
   into a file of the writer's own, then linked into place); one left by a
@@ -222,10 +235,12 @@ Version 1, written before device slots, is read as it is: `kos-vault/1` in
 every AAD, info and MAC; a passphrase slot's KEK is scrypt's 32 bytes
 (`A256GCM`); a slot digest is
 `<id>:<hex SHA-256 of "<kind>|<alg>|<N>|<r>|<p>|<salt>|<wrap alg>|<wrap nonce>|<wrap ct>">`.
-Its first change makes it version 2 in place: a new DEK, every entry sealed
-again, every slot in version 2's form (a passphrase slot's point made from
-the scrypt bytes that opened it), `.prev` erased, in one write. A device
-slot in a version 1 file is refused.
+Its first change makes it version 2 in place under the same DEK: every
+entry sealed again under version 2's AAD, every slot in version 2's form (a
+passphrase slot's point made from the scrypt bytes that opened it), the
+records given their commitment. The version 1 file is kept as `.prev` until
+the next change of keys erases it; put back, it is refused as older. A
+device slot in a version 1 file is refused.
 
 The vault is refused, and stays locked with the reason in its status, when
 any byte of an entry, slot or MAC changed; when an entry was moved, dropped,
@@ -257,7 +272,8 @@ under a key file again. Both are audited as `secrets.passphrase`.
 ### Device slots
 
 Settings, Secrets, **Unlock at login with KOS for Mac** (the vault open, a
-passphrase set, KOS for Mac connected from this computer): the host asks
+passphrase set and typed again, a try against the unlock budget, KOS for
+Mac connected from this computer): the host asks
 the Mac for its vault key's point (`vault.key`), has the Mac prove it holds
 the private half (`vault.unwrap` of a key the host sealed to that point for
 the new slot), then writes the slot. Audited as `secrets.device`.
@@ -637,7 +653,7 @@ in `packages/shared/src/secrets.ts`.
 | `POST /api/secrets/init` | `{passphrase?}` | `VaultStatus`: a key-file slot when no passphrase, the passphrase slot alone when one is given |
 | `POST /api/secrets/unlock` | `{passphrase}` | `VaultStatus` |
 | `POST /api/secrets/passphrase` | `{current?, passphrase?}` | `VaultStatus`: added or changed when given, taken off when not (refused while a device slot is there); `current` when there is one |
-| `POST /api/secrets/devices` | | `VaultStatus`: a device slot for the KOS for Mac here; 409 when there is none here |
+| `POST /api/secrets/devices` | `{passphrase}` | `VaultStatus`: a device slot for the KOS for Mac here; 400 a wrong passphrase, 409 when there is no Mac here |
 | `POST /api/secrets/devices/remove` | `{slot, passphrase}` | `VaultStatus`: the slot gone, the data key rotated |
 | `GET /api/secrets` | | `{secrets: SecretSummary[]}`, env `KOS_SECRET_*` as `source: "env"` |
 | `POST /api/secrets` | `{label, kind, values, use?, policy?}` | `{handle}` |
@@ -872,7 +888,10 @@ name, the name read first first; `KOS_HOOK_SECRET` as a check), confirms
 `.env`, keeping each name as a comment saying where it went (`# OPENAI_API_KEY= moved to the KOS vault as its openai key`).
 `_HOSTS`, `_MCP`, the dashboard token and every setting stay. A key the
 vault already holds with the same value is only blanked (a run cut short
-finishes); one it holds with another value is left alone, both places. Run
+finishes); one it holds with another value is left alone, both places, and
+so is a key whose names in `.env` hold different values. `.env` is written
+whole (a temp file, synced, renamed over, 0600); a linked one is written
+where the link points. Run
 again, it moves nothing. The running host still holds the old values from
 its environment, which win, until it restarts. Audited as
 `secrets.migrate-env`.

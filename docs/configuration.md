@@ -107,7 +107,9 @@ key there whose `use.harness` names them (`openai`, `discord`, `twilio`,
 takes the name out of this file) and into this file only when there is no
 vault; each key says where its live value is read from. `kos secrets
 migrate-env` moves what this file holds into the vault, after a confirm,
-and blanks the values here, keeping the names as comments. A vault KOS for
+and blanks the values here, keeping the names as comments (written whole;
+a linked file is written where it points; names that hold different values
+for one key are left for you to settle). A vault KOS for
 Mac opens at login is read at once: no restart for a model key, and Discord
 and SMS start when it opens with theirs. The dashboard token stays here.
 See [secrets.md](secrets.md), Keys KOS runs on.
