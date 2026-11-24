@@ -7,3 +7,4 @@ export { deviceInfo, keyFrom, openFromDevice, p256Pair, P256_POINT_BYTES, sealTo
 export { secretsRoutes, SECRETS_PREFIX, type SecretsRoutesDeps, type VaultDevices } from "./routes.js";
 export { Verifiers, type VerifierName } from "./verifiers.js";
 export { harnessNameOf, HARNESS_KEYS } from "./secrets.js";
+export { applyEnvMove, planEnvMove, type EnvMove } from "./migrate.js";
