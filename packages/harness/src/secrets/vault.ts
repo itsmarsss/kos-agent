@@ -235,23 +235,38 @@ export function commitOf(dek: Buffer, vault: string): string {
   return Buffer.from(hkdfSync("sha256", dek, Buffer.alloc(0), `kos-vault/2 commit|${vault}`, 16)).toString("hex");
 }
 
-/** One sequence record: the vault it is of, the highest sequence written, and the data keys it vouches for. */
+/**
+ * One sequence record: the vault it is of, the highest sequence written, the
+ * data keys it vouches for, and the kinds of slot the vault had, so a file
+ * without the passphrase it had is refused whatever opens it.
+ */
 interface SeqRecord {
   vault: string;
   seq: number;
-  /** None in a record written before commitments: such a record vouches for a version 1 file alone. */
+  /** None in a record written before commitments: such a record vouches for a version 1 file alone, until its first open writes it again. */
   commits?: string[];
+  kinds?: VaultSlotKind[];
 }
 
+const SLOT_KINDS: readonly VaultSlotKind[] = ["device", "keyfile", "passphrase"];
+
 function parseRecord(text: string): SeqRecord | undefined {
-  const [vault, seq, commits, extra] = text.trim().split(" ");
+  const [vault, seq, commits, kinds, extra] = text.trim().split(" ");
   if (!vault || !seq || !/^\d+$/.test(seq) || extra !== undefined) return undefined;
   const list = commits?.split(",").filter((c) => /^[0-9a-f]{32}$/.test(c));
   if (commits !== undefined && !list?.length) return undefined;
-  return { vault, seq: Number(seq), ...(list ? { commits: list } : {}) };
+  const slots = kinds?.split(",").filter((k): k is VaultSlotKind => (SLOT_KINDS as readonly string[]).includes(k));
+  return { vault, seq: Number(seq), ...(list ? { commits: list } : {}), ...(slots ? { kinds: slots } : {}) };
 }
 
-const recordLine = (r: SeqRecord): string => `${r.vault} ${r.seq}${r.commits ? ` ${r.commits.join(",")}` : ""}\n`;
+const recordLine = (r: SeqRecord): string => `${r.vault} ${r.seq}${r.commits ? ` ${r.commits.join(",")}${r.kinds ? ` ${r.kinds.join(",") || "-"}` : ""}` : ""}\n`;
+
+/** The kinds of slot a file has, as a record keeps them. */
+const kindsOf = (doc: Pick<VaultFile, "slots">): VaultSlotKind[] => SLOT_KINDS.filter((k) => doc.slots.some((s) => s.kind === k));
+
+/** Why a file is refused as replaced: said plainly, with trust-seq only for an export the owner put back. */
+const replaced = (why: string): string =>
+  `the vault file was replaced outside KOS (${why}): it is not the vault KOS wrote. Do not unlock it. Only if you put back an export yourself, kos secrets trust-seq shows what it holds and takes it`;
 
 export function passphraseKek(passphrase: string, salt: Buffer, params: { N: number; r: number; p: number } = SCRYPT): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -509,6 +524,8 @@ export class Vault {
   private dek: Buffer | undefined;
   private opener: Opener | undefined;
   private problem: string | undefined;
+  /** The sequence records are to be written again for the file that just checked out (settleRecords). */
+  private recordsDue = false;
   /** Why the last ask of a Mac to open a device slot failed, while the vault stays locked. */
   private deviceProblem: string | undefined;
   /** Something the owner should see about a vault that still opened. */
@@ -575,10 +592,20 @@ export class Vault {
       // The file under the lock must still be the one just checked.
       const now = this.doc;
       if (!now || now.vault !== doc.vault || now.index.seq !== doc.index.seq || now.index.mac !== doc.index.mac) throw new VaultError("tampered", "the vault changed while it was being checked; run trust-seq again");
-      this.writeRecords({ vault: doc.vault, seq: doc.index.seq, commits: [commit] });
+      this.writeRecords({ vault: doc.vault, seq: doc.index.seq, commits: [commit], kinds: kindsOf(doc) });
       this.stamp = "";
       this.refresh();
     });
+  }
+
+  /** What trust-seq would take, against what the records say: the file's sequence and slot kinds, and each record's. */
+  seqReport(): { file?: { vault: string; seq: number; slots: VaultSlotKind[] }; records: { path: string; record?: SeqRecord }[] } {
+    this.refresh();
+    const doc = this.doc;
+    return {
+      ...(doc ? { file: { vault: doc.vault, seq: doc.index.seq, slots: kindsOf(doc) } } : {}),
+      records: this.records().map(({ path, record }) => ({ path, ...(record ? { record } : {}) })),
+    };
   }
 
   /** Read the file again if another process changed it, at most once a second: for a caller as hot as the scrubber. */
@@ -1360,7 +1387,10 @@ export class Vault {
       if (record.vault !== doc.vault) throw new VaultError("tampered", `the vault file is not the one KOS wrote here (${path} names another vault)${trust}`);
       if (doc.index.seq < record.seq) throw new VaultError("tampered", `the vault file is older than one KOS wrote (sequence ${doc.index.seq}, last ${record.seq}): an old copy was put back`);
       if (record.commits ? !record.commits.includes(commit) : doc.version !== 1) {
-        throw new VaultError("tampered", `the vault file's data key is not the one KOS last wrote (${path}): it was replaced outside KOS${trust}`);
+        throw new VaultError("tampered", replaced(`its data key is not the one ${path} vouches for`));
+      }
+      if (record.kinds?.includes("passphrase") && !doc.slots.some((s) => s.kind === "passphrase")) {
+        throw new VaultError("tampered", replaced(`the vault had a passphrase and this file has none (${path})`));
       }
     }
     const missing = records.filter((r) => !r.record);
@@ -1453,6 +1483,7 @@ export class Vault {
         this.lockOnly();
       } else {
         this.held = this.verify(doc, opened.dek);
+        this.recordsDue = this.recordsDueFor(doc);
         if (this.dek && this.dek !== opened.dek) this.dek.fill(0);
         this.dek = opened.dek;
         if (this.opener && this.opener !== opened.opener) this.opener.kek.fill(0);
@@ -1464,7 +1495,35 @@ export class Vault {
       this.problem = err instanceof Error ? err.message : String(err);
       this.lockOnly();
     }
+    if (this.recordsDue && this.lockDepth === 0) this.settleRecords();
     if (before !== this.held) this.emit();
+  }
+
+  /**
+   * Whether the records should be written again now a file has checked out:
+   * one from before commitments (the window a v1 vault is open to a file
+   * planted in its folder ends at its first open, not its first change), one
+   * missing, or one still vouching for two data keys after a change of key
+   * was cut short.
+   */
+  private recordsDueFor(doc: VaultFile): boolean {
+    return this.records().some(({ record }) => !record || !record.commits || !record.kinds || record.commits.length > 1 || record.seq < doc.index.seq);
+  }
+
+  /** The records written again for the file that checked out: its sequence, its data key alone, its slot kinds. */
+  private settleRecords(): void {
+    try {
+      this.locked(() => {
+        const doc = this.doc;
+        if (!doc || !this.dek || !this.recordsDue) return;
+        this.writeRecords({ vault: doc.vault, seq: doc.index.seq, commits: [commitOf(this.dek, doc.vault)], kinds: kindsOf(doc) });
+        this.recordsDue = false;
+        this.warning = undefined;
+      });
+    } catch (err) {
+      // Tried again on the next read: the vault opened, and stays open.
+      console.error(`[secrets] the vault's sequence records were not written again: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /** Locked, the file still known. */
@@ -1498,10 +1557,11 @@ export class Vault {
     if (dropPrev) shred(this.prev);
     else if (existsSync(this.file)) copyAtomic(this.file, this.prev, this.dir);
     // A new data key is vouched for beside the old before the vault changes, so a crash between leaves either file opening.
-    if (before && before !== commit) this.writeRecords({ vault: doc.vault, seq: high, commits: [before, commit] });
+    // Only the slot kinds both files have: either may be the one on disk if the write is cut short.
+    if (before && before !== commit) this.writeRecords({ vault: doc.vault, seq: high, commits: [before, commit], kinds: kindsOf(this.doc!).filter((k) => kindsOf(doc).includes(k)) });
     // The vault first, then each sequence record: a crash between leaves a record lower than the vault, never higher.
     writeAtomic(this.file, `${JSON.stringify(next, null, 2)}\n`, this.dir);
-    this.writeRecords({ vault: next.vault, seq, commits: [commit] });
+    this.writeRecords({ vault: next.vault, seq, commits: [commit], kinds: kindsOf(next) });
     if (this.dek && this.dek !== dek) this.dek.fill(0);
     if (this.opener && this.opener.kek !== opener.kek) this.opener.kek.fill(0);
     this.dek = dek;

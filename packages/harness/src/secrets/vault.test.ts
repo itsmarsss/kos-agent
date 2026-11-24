@@ -438,10 +438,12 @@ describe("Vault keys and files", () => {
     expect(vaultAt().status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/older than one KOS wrote/) });
   });
 
-  it("says so when one sequence record is missing, and waits for the owner when both are", async () => {
+  it("writes a missing sequence record again on open, and waits for the owner when both are missing", async () => {
     await twoSecrets();
     rmSync(join(dir, "seq"));
-    expect(vaultAt().status()).toMatchObject({ state: "ready", problem: expect.stringMatching(/last sequence is missing/) });
+    expect(vaultAt().status()).toEqual({ state: "ready", slots: ["keyfile"] });
+    expect(readFileSync(join(dir, "seq"), "utf8")).toBe(readFileSync(`${dir}.seq`, "utf8"));
+    rmSync(join(dir, "seq"));
     rmSync(`${dir}.seq`);
     const v = vaultAt();
     expect(v.status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/kos secrets trust-seq/) });
@@ -615,7 +617,8 @@ describe("Vault version 1", () => {
     vault.add({ label: "GitHub", kind: "login", values: { password: "pw-correct-horse" } });
     const doc = fileOf();
     expect(doc.version).toBe(2);
-    // The same data key, wrapped again: the version 1 file is kept as .prev until a change of keys, and refused if put back.
+    // The same data key, wrapped again. The upgrade's own write kept the version 1 file as .prev; the add that
+    // followed it copied the upgraded file there, so .prev is version 2 now.
     expect(doc.dek).toBe("k1");
     const prev = readFileSync(join(dir, "vault.kosv.prev"), "utf8");
     expect((JSON.parse(prev) as VaultFile).version).toBe(2);
@@ -647,6 +650,49 @@ describe("Vault version 1", () => {
     const later = vaultAt();
     expect(await later.unlockWithDevice(mac.unwrap)).toBe(true);
     expect(later.value("stripe-ab12", "token")).toBe(token);
+  }, 30_000);
+
+  /**
+   * The probe: a version 1 passphrase vault under records from before
+   * commitments, and a version 1 key-file vault planted in its folder (same
+   * id, its own data key, a higher sequence) with a key file beside it. The
+   * first open of the real vault writes the records again with its data key,
+   * so the planted file is refused from then on; the key file opens nothing.
+   */
+  it("ends the window a version 1 vault was open to a planted file at its first open", async () => {
+    const { vault, token } = await v1Vault(PASS);
+    const real = vaultAt();
+    await real.unlock(PASS);
+    expect(real.value("stripe-ab12", "token")).toBe(token);
+    expect(readFileSync(`${dir}.seq`, "utf8")).toMatch(new RegExp(`^${vault} 3 [0-9a-f]{32} passphrase\n$`));
+    expect(fileOf().version).toBe(1);
+    // Planted: a key-file vault of the forger's.
+    const dek = range(0xc0, 32);
+    const key = range(0xd0, 32);
+    const nonce = range(0x70, 12);
+    const slot = { id: "s1", kind: "keyfile" as const, wrap: { alg: "A256GCM" as const, nonce: nonce.toString("base64"), ct: seal(key, nonce, dek, slotAad(vault, "s1", "k1", 1)).toString("base64") } };
+    const doc = { format: "kos-vault" as const, version: 1 as const, vault, dek: "k1", slots: [slot], entries: [] };
+    writeFileSync(join(dir, "vault.kosv"), JSON.stringify({ ...doc, index: { seq: 9, mac: indexMac(dek, doc, 9) } }));
+    writeFileSync(join(dir, "key"), `${key.toString("base64")}\n`, { mode: 0o600 });
+    expect(vaultAt().status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/replaced outside KOS/) });
+  }, 30_000);
+
+  it("refuses a file without the passphrase the records say the vault had, in either version", async () => {
+    const vault = vaultAt();
+    await vault.init({ passphrase: PASS });
+    const id = fileOf().vault;
+    // A key-file vault of the forger's at the same id, its commitment even written into the folder's record.
+    const dek = range(0xc0, 32);
+    const key = range(0xd0, 32);
+    const nonce = range(0x70, 12);
+    const slot = { id: "s1", kind: "keyfile" as const, wrap: { alg: "A256GCM" as const, nonce: nonce.toString("base64"), ct: seal(key, nonce, dek, slotAad(id, "s1", "k1")).toString("base64") } };
+    const doc = { format: "kos-vault" as const, version: 2 as const, vault: id, dek: "k1", slots: [slot], entries: [] };
+    writeFileSync(join(dir, "vault.kosv"), JSON.stringify({ ...doc, index: { seq: 9, mac: indexMac(dek, doc, 9) } }));
+    writeFileSync(join(dir, "key"), `${key.toString("base64")}\n`, { mode: 0o600 });
+    const outside = readFileSync(`${dir}.seq`, "utf8").trim().split(" ");
+    // Even with its commitment in both records, as one who could write them both would: the passphrase it had is missing.
+    for (const path of [join(dir, "seq"), `${dir}.seq`]) writeFileSync(path, `${id} ${outside[1]} ${commitOf(dek, id)} passphrase\n`);
+    expect(vaultAt().status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/had a passphrase and this file has none/) });
   }, 30_000);
 
   it("refuses a device slot in a version 1 file", async () => {
@@ -788,10 +834,10 @@ describe("Vault device slots", () => {
 
   it("refuses a vault forged whole, though the owner's passphrase and Mac open its slots", async () => {
     const { mac } = await withMac();
-    expect(readFileSync(`${dir}.seq`, "utf8")).toMatch(/ [0-9a-f]{32}\n$/);
+    expect(readFileSync(`${dir}.seq`, "utf8")).toMatch(/ [0-9a-f]{32} device,passphrase\n$/);
     forge();
     const fresh = vaultAt();
-    await expect(fresh.unlock(PASS)).rejects.toMatchObject({ code: "tampered", message: expect.stringMatching(/data key is not the one KOS last wrote/) });
+    await expect(fresh.unlock(PASS)).rejects.toMatchObject({ code: "tampered", message: expect.stringMatching(/replaced outside KOS \(its data key is not the one .* vouches for\).*Do not unlock it/) });
     expect(await vaultAt().unlockWithDevice(mac.unwrap)).toBe(false);
     // Under another vault id, at sequence 0.
     forge({ vault: "v_00000000000000ff", seq: 0 });
@@ -823,6 +869,10 @@ describe("Vault device slots", () => {
       const fresh = vaultAt();
       await fresh.unlock(PASS);
       expect(fresh.status().state).toBe("ready");
+      // Opened, the records vouch for the file's data key alone again, at its sequence.
+      const [, seq, commits] = readFileSync(`${dir}.seq`, "utf8").trim().split(" ");
+      expect(commits).toBe(file === oldFile ? oldCommit : newCommit);
+      expect(Number(seq)).toBe((JSON.parse(file.toString()) as VaultFile).index.seq);
     }
   }, 60_000);
 
