@@ -190,20 +190,28 @@ function rules(css: string, property: string): { line: number; selector: string;
   );
 }
 
+/** Glyphs drawn in a box and sized to it, by their class: a project's letter, a caret, a +. */
+const GLYPHS = ["project-mark", "sel-caret", "list-group-caret", "chats-welcome-glyph", "quickask-glyph", "chats-group-add", "rail-group-add"];
+
 /**
  * A size is a step of the scale or `--text-inline` for what sits in a line of
  * words (with the step's own size after it where a page may not declare
- * them), its parent's, or a finger's floor. Four things are not type and keep
- * their own: the root, whose px the rem steps and the density hang from; a
+ * them), its parent's, or a finger's floor over one. Four things are not type and keep
+ * their own, each named exactly: the root, whose px the rem steps and the density hang from; a
  * glyph drawn in a box (a project's letter, a caret, a +), sized to the box;
  * math, which KaTeX sets against its words; and a page drawn to scale (cqw),
  * sized to the picture.
  */
 function sizeOk({ selector, value }: { selector: string; value: string }): boolean {
-  if (/^(var\(--text-(xs|sm|base|md|lg|xl|2xl|inline)(, [\d.]+(px|em))?\)|inherit|var\(--tap-text\)|max\(var\(--tap-text\), 1em\) !important)$/.test(value)) return true;
-  if (/^:root\b/.test(selector)) return true;
-  if (/\.(project-mark|katex|[\w-]*glyph|[\w-]*caret|[\w-]*-add)\b/.test(selector.split(",").at(-1)!.trim().split(/\s+/).at(-1)!)) return true;
-  return /^\d+(\.\d+)?cqw$/.test(value);
+  if (/^(var\(--text-(xs|sm|base|md|lg|xl|2xl|inline)(, [\d.]+(px|em))?\)|inherit|var\(--tap-text\)|max\(var\(--tap-text\), (1em|var\(--text-(xs|sm|base|md|lg|xl|2xl)\))\)( !important)?)$/.test(value)) return true;
+  if (/^\d+(\.\d+)?cqw$/.test(value)) return true;
+  // Every selector in the list must be the root or end at a glyph or math, not only one of them.
+  return selector.split(",").every((one) => {
+    const s = one.trim();
+    if (/^:root(\[[^\]]*\])*$/.test(s)) return true;
+    const classes = (s.split(/\s+|>|\+|~/).filter(Boolean).at(-1) ?? "").match(/\.[\w-]+/g) ?? [];
+    return classes.some((c) => c === ".katex" || GLYPHS.includes(c.slice(1)));
+  });
 }
 
 /** A corner is a token, a capsule (999px), a circle or other share of the box, none, or its parent's. */
