@@ -48,7 +48,7 @@ const HOSTS_SUFFIX = "_HOSTS";
 const MCP_SUFFIX = "_MCP";
 
 /** Credentials the harness holds for itself: scrubbed, never placed. */
-const HARNESS_ENV = ["DISCORD_BOT_TOKEN", "DISCORD_TOKEN", "KOS_DASHBOARD_TOKEN", "KOS_HOOK_SECRET", "KOS_CALLER_TOKEN", "TWILIO_AUTH_TOKEN", "AWS_SECRET_ACCESS_KEY", "KOS_DEVICE_HOST_KEY"];
+export const HARNESS_ENV: readonly string[] = ["DISCORD_BOT_TOKEN", "DISCORD_TOKEN", "KOS_DASHBOARD_TOKEN", "KOS_HOOK_SECRET", "KOS_CALLER_TOKEN", "TWILIO_AUTH_TOKEN", "AWS_SECRET_ACCESS_KEY", "KOS_DEVICE_HOST_KEY"];
 
 /** Any other env var named like a credential is scrubbed too. */
 const CREDENTIAL_NAMED = /(TOKEN|KEY|SECRET|PASSWORD)$/;

@@ -7,6 +7,9 @@ import { promisify } from "node:util";
 
 import { Kernel, SecretsRegistry } from "@kos/harness";
 
+import { credentialsDir, envFilePath } from "./env.js";
+import { credentialModes, leftoverTranscripts, syncedFolder } from "./hygiene.js";
+
 const exec = promisify(execFile);
 
 export interface DoctorOptions {
@@ -48,6 +51,8 @@ export async function runDoctor(options: DoctorOptions): Promise<string> {
       lines.push(`  FAIL ${label}${detail ? ` — ${detail}` : ""}`);
     }
   };
+  /** Worth the owner's attention, not a broken install. */
+  const warn = (label: string, detail: string): void => void lines.push(`  warn ${label}: ${detail}`);
 
   // 22.5 for node:sqlite, which KOS tells the agent's own scripts to use.
   const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
@@ -95,12 +100,13 @@ export async function runDoctor(options: DoctorOptions): Promise<string> {
     existsSync(uiDist) ? uiDist : "pnpm -C packages/ui build",
   );
 
-  const envFile =
-    options.envPath ??
-    (existsSync(join(process.cwd(), ".env"))
-      ? join(process.cwd(), ".env")
-      : join(repoRoot, ".env"));
-  check(existsSync(envFile), ".env file", envFile);
+  // The file the host reads: never one from the current directory.
+  const envFile = options.envPath ?? envFilePath();
+  check(existsSync(envFile), "env file", envFile);
+  const synced = syncedFolder(envFile);
+  if (synced) warn("env file location", `${envFile} is in ${synced}, which may copy its keys off this machine; move it to ~/.kos/env (chmod 600), or point KOS_ENV_FILE outside it`);
+  const opened = credentialModes({ env: process.env, envFile, credentials: credentialsDir() });
+  check(opened.length === 0, "credential file modes", opened.length ? opened.map((f) => f.detail).join("; ") : "env file, ~/.kos, keys and pick credentials owner-only");
 
   const secrets = SecretsRegistry.fromEnv();
   check(
@@ -126,6 +132,10 @@ export async function runDoctor(options: DoctorOptions): Promise<string> {
   );
 
   const ws = options.workspace || join(homedir(), "kos-workspace");
+  const transcripts = leftoverTranscripts(ws);
+  if (transcripts.length) {
+    warn("Claude Code transcripts", `${transcripts.length} kept from before KOS turned them off, holding unscrubbed tool results; delete them once read: ${[...new Set(transcripts.map((p) => dirname(p)))].join(", ")}`);
+  }
   try {
     // Ensure parent is creatable / workspace openable via Kernel.boot.
     check(true, "workspace path", ws);

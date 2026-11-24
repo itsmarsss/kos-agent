@@ -108,14 +108,6 @@ export interface BuildOptions {
    * without waiting for the build to finish and hand them back.
    */
   onStart?: (control: BuildControl) => void;
-  /**
-   * The SDK's id for this conversation, as soon as it says. Kept so a
-   * finished agent can be woken and carry on with what it already knows,
-   * rather than starting again from an empty head in the same folder.
-   */
-  onSession?: (sessionId: string) => void;
-  /** Continue an earlier agent's session instead of starting a new one. */
-  resumeSession?: string;
 }
 
 /**
@@ -492,7 +484,14 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
           permissions: { ask: ["Bash", "WebFetch", "WebSearch"] },
         },
         ...(options.model ? { model: options.model } : {}),
-        ...(options.resumeSession ? { resume: options.resumeSession } : {}),
+        /*
+         * No transcript on disk. Claude Code keeps one under its config
+         * folder (the owner's ~/.claude when it signs in as them), holding
+         * every file the build read and every command's output, where no
+         * scrubber runs. KOS keeps what a build did itself, scrubbed, and a
+         * woken build starts from that (BuildRegistry.wakeTask).
+         */
+        persistSession: false,
         canUseTool,
         maxTurns: options.maxTurns ?? DEFAULT_MAX_TURNS,
         // Streaming frames, so the log can say "thinking" while it thinks
@@ -529,10 +528,6 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
     });
 
     for await (const message of stream) {
-      const anyMessage = message as unknown as Record<string, unknown>;
-      if (typeof anyMessage["session_id"] === "string") {
-        options.onSession?.(anyMessage["session_id"]);
-      }
       if (message.type === "stream_event") {
         /*
          * Frames of the turn in progress. Deliberately not pushed into the

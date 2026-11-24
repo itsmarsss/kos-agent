@@ -55,7 +55,7 @@ import {
 import { KosClient, probeDaemon } from "@kos/client";
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
 import { runDoctor } from "./doctor.js";
-import { envFilePath, loadEnv } from "./env.js";
+import { loadEnv, REPO_ROOT } from "./env.js";
 import {
   SERVICE_LABEL,
   installService,
@@ -392,7 +392,7 @@ async function cmdService(
       label: SERVICE_LABEL,
       node: process.execPath,
       main: SELF,
-      cwd: dirname(envFilePath()),
+      cwd: REPO_ROOT,
       workspace: rootDir,
       host: listenHost(flags.host),
       port: listenPort(flags.port),

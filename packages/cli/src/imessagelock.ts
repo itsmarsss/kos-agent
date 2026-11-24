@@ -51,7 +51,7 @@ export function claimHandle(
   handle: string,
 ): { ok: true; claim: HandleClaim } | { ok: false; heldBy: number } {
   const path = lockPath(handle);
-  mkdirSync(dirname(path), { recursive: true });
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 
   if (existsSync(path)) {
     const held = Number.parseInt(readFileSync(path, "utf8").trim(), 10);
@@ -60,7 +60,7 @@ export function claimHandle(
     }
   }
 
-  writeFileSync(path, String(process.pid), "utf8");
+  writeFileSync(path, String(process.pid), { encoding: "utf8", mode: 0o600 });
   return {
     ok: true,
     claim: {

@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +11,7 @@ import {
   createDashboardServer,
   createDashboardSocket,
   handleApiRequest,
+  HARNESS_ENV,
   InMemoryAdapter,
   Kernel,
   openDatabase,
@@ -47,6 +48,11 @@ import { computerModule } from "./tools.js";
  * refused, and a code, decided in its side panel) and one on a Mac (a password and a code,
  * decided on the phone through the dashboard relay). Every page echoes what
  * goes into it, and the owner pastes values into the dashboard and Discord.
+ * A fourth chat places the env file's keys: one bound to a host goes out
+ * through http.fetch to a stub that echoes every header back, and one bound
+ * to an MCP server goes into the env of a stdio server whose one tool
+ * answers with its whole env. Every name the harness keeps for itself, a
+ * provider key and the boot's write key are canaries too.
  *
  * Afterwards no canary, as it is or in any encoding the scrubber knows, is
  * in the database's files (WAL included) or any table, a transcript, the
@@ -74,7 +80,7 @@ const SITE = "https://shop.example";
 const PROVIDER = "https://js.stripe.com";
 const SAFARI = { name: "Safari", bundle: "com.apple.Safari" };
 /** What each chat is, said in the owner's first words. */
-const MARK = { kos: "[in KOS's browser]", chrome: "[in my Chrome]", mac: "[on my Mac]" } as const;
+const MARK = { kos: "[in KOS's browser]", chrome: "[in my Chrome]", mac: "[on my Mac]", env: "[with my keys]" } as const;
 type Surface = keyof typeof MARK;
 
 /** The value as it is and as the scrubber's encodings write it; a card's digits however they are spaced. */
@@ -107,6 +113,27 @@ function filesText(dir: string): string {
   return out.join("\n");
 }
 
+/**
+ * A stdio MCP server whose one tool answers with its whole env, and writes
+ * it to the file named by its first argument, for the suite to read what it
+ * was started with before any scrubber saw it.
+ */
+const ENV_DUMP_SERVER = `
+import { writeFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+const send = (m) => process.stdout.write(JSON.stringify(m) + "\\n");
+createInterface({ input: process.stdin }).on("line", (line) => {
+  const m = JSON.parse(line);
+  if (m.method === "initialize") send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: m.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "envdump", version: "1.0.0" } } });
+  else if (m.method === "tools/list") send({ jsonrpc: "2.0", id: m.id, result: { tools: [{ name: "env", description: "The server's env", inputSchema: { type: "object", properties: {} } }] } });
+  else if (m.method === "tools/call") {
+    const env = JSON.stringify(process.env);
+    writeFileSync(process.argv[2], env);
+    send({ jsonrpc: "2.0", id: m.id, result: { content: [{ type: "text", text: env }] } });
+  } else if (m.id !== undefined) send({ jsonrpc: "2.0", id: m.id, error: { code: -32601, message: "no such method" } });
+});
+`;
+
 describe("the leak suite: no secret or code escapes any surface", { timeout: 90_000 }, () => {
   let home: string;
   let root: string;
@@ -127,6 +154,20 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
   const chats = {} as Record<Surface, string>;
   const canary = { password: `pw-${rand(20)}`, card: luhnCard(), amex: luhnCard(), token: `sk_live_${rand(28)}`, codes: [`${rand(4)}-${rand(4)}`.toUpperCase(), `${rand(8)}`.toUpperCase(), `${rand(3)}${rand(4)}`.toUpperCase()] };
   const handles = { login: "", card: "", amex: "", key: "" };
+  /** The env file's keys: every name the harness keeps for itself, a provider key, one bound to a host and one to an MCP server. */
+  const envCanary: Record<string, string> = {
+    ...Object.fromEntries(HARNESS_ENV.map((name) => [name, `env-${rand(24)}`])),
+    OPENAI_API_KEY: `sk-proj-${rand(40)}`,
+    KOS_SECRET_ECHO: `echo-${rand(24)}`,
+    KOS_SECRET_TOOLKEY: `tool-${rand(24)}`,
+  };
+  const envWas: Record<string, string | undefined> = {};
+  /** The stub that echoes every request back, and what each request carried. */
+  let echo: Server;
+  let echoPort = 0;
+  const echoed: string[] = [];
+  /** Where the MCP server writes the env it was started with. */
+  let dumped = "";
   let ownerChrome: OwnerChrome;
   /** Everything that went out, as each surface saw it. */
   const requests: GenerateRequest[] = [];
@@ -173,19 +214,43 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
         ["secrets.type", { secret: "code", field: "code", intent: "finish signing in" }],
         ["secrets.type", { secret: otpIn(last), field: "code", intent: "finish signing in" }],
       ][n] as [string, Record<string, unknown>] | undefined,
+    env: (n) =>
+      [
+        ["http.fetch", { url: `http://127.0.0.1:${echoPort}/echo?key={{secret:echo}}`, headers: { authorization: "Bearer {{secret:echo}}" } }],
+        ["mcp.envdump.env", {}],
+      ][n] as [string, Record<string, unknown>] | undefined,
   };
 
   beforeAll(async () => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "kos-leaks-home-")));
     process.env["HOME"] = home;
-    root = mkdtempSync(join(tmpdir(), "kos-leaks-"));
+    root = realpathSync(mkdtempSync(join(tmpdir(), "kos-leaks-")));
+    echo = createServer((req, res) => {
+      const seen = JSON.stringify({ method: req.method, url: req.url, headers: req.headers });
+      echoed.push(seen);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(seen);
+    });
+    await new Promise<void>((r) => echo.listen(0, "127.0.0.1", r));
+    echoPort = (echo.address() as AddressInfo).port;
+    const env = { ...envCanary, KOS_SECRET_ECHO_HOSTS: "127.0.0.1", KOS_SECRET_TOOLKEY_MCP: "envdump", KOS_FETCH_LAN: `loopback:${echoPort}` };
+    for (const [name, value] of Object.entries(env)) {
+      envWas[name] = process.env[name];
+      process.env[name] = value;
+    }
+    // The MCP server, named in the workspace's mcp.json with only a reference to its key.
+    dumped = join(root, "envdump.json");
+    writeFileSync(join(root, "envdump.mjs"), ENV_DUMP_SERVER);
+    mkdirSync(join(root, "ws"));
+    writeFileSync(join(root, "ws", "mcp.json"), JSON.stringify({ servers: { envdump: { command: process.execPath, args: [join(root, "envdump.mjs"), dumped], env: { TOOL_KEY: "{{secret:toolkey}}" } } } }));
     vault = new Vault({ dir: join(root, "vault") });
     await vault.init();
     handles.login = vault.add({ label: "Shop login", kind: "login", values: { username: "owner", password: canary.password }, use: { web: { origins: [SITE] }, apps: [SAFARI.bundle] } });
     handles.card = vault.add({ label: "Visa", kind: "card", values: { number: canary.card, expiry: "04/29", cvc: "123" }, use: { web: { origins: [SITE], frames: [PROVIDER] } } });
     handles.amex = vault.add({ label: "Amex", kind: "card", values: { number: canary.amex }, use: { web: { origins: [SITE] } } });
     handles.key = vault.add({ label: "Stripe", kind: "apikey", values: { token: canary.token }, use: { http: { hosts: ["api.stripe.com"] } } });
-    const secrets = new SecretsRegistry();
+    // As the host builds it: from the env, the vault attached.
+    const secrets = SecretsRegistry.fromEnv();
     secrets.attachVault(vault);
 
     const hostKey = generateKeyPairSync("ed25519").privateKey;
@@ -362,18 +427,23 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
     socket?.close();
     await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
     kernel?.close();
+    await new Promise<void>((r) => (echo ? echo.close(() => r()) : r()));
     process.env["HOME"] = was;
+    for (const [name, value] of Object.entries(envWas)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     for (const dir of [root, home]) if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   /** Which canaries are in `text`, in any form. */
   const leaks = (text: string): string[] => {
     const digits = text.replace(/[\s.+_/-]|%20/g, "");
-    const all = [canary.password, canary.token, canary.card, canary.amex, ...canary.codes];
+    const all = [canary.password, canary.token, canary.card, canary.amex, ...canary.codes, ...Object.values(envCanary), WRITE_KEY];
     return all.filter((c) => formsOf(c).some((form) => text.includes(form)) || ((c === canary.card || c === canary.amex) && digits.includes(c)));
   };
   /** Each ask decided where the owner would: KOS's browser on the dashboard, the owner's Chrome in its side panel, the Mac from the phone. */
-  const decideAll = (codes: Record<Surface, string>): (() => void) => {
+  const decideAll = (codes: Record<Exclude<Surface, "env">, string>): (() => void) => {
     const decided = new Set<number>();
     let call = 0;
     const timer = setInterval(() => {
@@ -402,6 +472,7 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
       kos: `${MARK.kos} Sign me in at ${SITE}; my card is ${canary.card.match(/.{4}/g)!.join(" ")}, my password is ${canary.password}.`,
       chrome: `${MARK.chrome} Pay with my Visa.`,
       mac: `${MARK.mac} Sign me in in Safari.`,
+      env: `${MARK.env} Check the echo service with my key, then what the env tool sees.`,
     };
     // Baseline: the scan sees what was pasted.
     expect(leaks(said.kos).sort()).toEqual([canary.password, canary.card].sort());
@@ -416,6 +487,10 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
       // And texts the card's number to KOS.
       await sms.receive({ channel: "sms", senderId: "owner", text: `card ${canary.card.match(/.{4}/g)!.join("-")} for the shop` });
       await vi.waitFor(() => expect(sms.sent.some((m) => !/Decide on the dashboard/.test(m.msg.text ?? ""))).toBe(true), { timeout: 10_000 });
+      // And pastes the env file's keys and the boot's write key on Discord.
+      const before = discord.sent.length;
+      await discord.receive({ channel: "discord", senderId: "owner", text: `my OpenAI key is ${envCanary["OPENAI_API_KEY"]}, the bot's ${envCanary["DISCORD_TOKEN"]} and the write key ${WRITE_KEY}` });
+      await vi.waitFor(() => expect(discord.sent.length).toBeGreaterThan(before), { timeout: 10_000 });
     } finally {
       stop();
     }
@@ -444,6 +519,15 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
     expect(sent).toMatch(/Not filled: the field would not take \[secret otp_[0-9a-f]{8}\.code\].*kept as otp_/);
     expect(sent).toMatch(/Not typed: Safari would not take \[secret otp_[0-9a-f]{8}\.code\].*kept as otp_/);
     expect(discord.sent.some((m) => /Decide on the dashboard or a paired device/.test(m.msg.text ?? ""))).toBe(true);
+    // The key bound to the host went there, in its header and its query, and no other key of the env did.
+    expect(echoed).toHaveLength(1);
+    expect(echoed[0]).toContain(`Bearer ${envCanary["KOS_SECRET_ECHO"]}`);
+    expect(echoed[0]).toContain(`?key=${envCanary["KOS_SECRET_ECHO"]}`);
+    expect(leaks(echoed[0]!)).toEqual([envCanary["KOS_SECRET_ECHO"]]);
+    // The MCP server was started with the key bound to it, and with no other credential of the host's.
+    expect(leaks(readFileSync(dumped, "utf8"))).toEqual([envCanary["KOS_SECRET_TOOLKEY"]]);
+    expect(sent).toContain("[secret echo]");
+    expect(sent).toContain("[secret toolkey]");
 
     // The hub sent each value in the one call that places it; every other frame holds none.
     const carrying = frames.filter((f) => leaks(f.text).length > 0).map((f) => JSON.parse(f.text) as { method?: string });
@@ -462,6 +546,7 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
     const rowsOf = (name: string): string => JSON.stringify(db.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}"`).raw().all(), (_k, v: unknown) => (Buffer.isBuffer(v) ? v.toString("latin1") : typeof v === "bigint" ? String(v) : v));
     const messages = await Promise.all(Object.values(chats).map((id) => handleApiRequest(kernel, { method: "GET", path: `/api/conversations/${encodeURIComponent(id)}/messages` })));
     const memory = await handleApiRequest(kernel, { method: "GET", path: "/api/memory", url: "/api/memory?limit=500" });
+    const settings = await Promise.all(["/api/settings", "/api/settings/models", "/api/status"].map((path) => handleApiRequest(kernel, { method: "GET", path })));
     const ws = kernel.workspace.root;
     const surfaces: [string, string][] = [
       ["model requests and tool results", JSON.stringify(requests)],
@@ -471,6 +556,7 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
       ["transcripts", JSON.stringify(Object.values(chats).map((id) => kernel.sessions.get(id)))],
       ["conversation messages", JSON.stringify(messages.map((m) => m.body))],
       ["memory", JSON.stringify(memory.body)],
+      ["the dashboard's settings and status", JSON.stringify(settings.map((s) => s.body))],
       ["embedder inputs", embedded.join("\n")],
       ["audit_log", rowsOf("audit_log")],
       ["pending_actions", rowsOf("pending_actions")],
