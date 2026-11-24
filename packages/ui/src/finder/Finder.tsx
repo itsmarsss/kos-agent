@@ -442,9 +442,9 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
     editing,
     over,
     dragged,
+    // The press's own default puts the keys on the list as a pointer's focus; focusing it here drew the keyboard's ring round it.
     press: (e, entry) => {
       if (editing) return;
-      main.current?.focus({ preventScroll: true });
       // A press on what is already chosen keeps the choice, so it can be dragged as one.
       if (!e.shiftKey && !e.metaKey && !e.ctrlKey && sel.paths.includes(entry.path)) {
         setSel((s) => ({ ...s, lead: entry.path, anchor: entry.path }));
