@@ -186,11 +186,14 @@ export function ToastHost(): ReactElement {
               onPointerLeave={() => letGo(note.id)}
               onFocus={(e) => {
                 hold(note.id);
+                // From outside the toasts: that is where it goes back to, nowhere when it came from nowhere.
                 const from = e.relatedTarget;
-                if (from instanceof HTMLElement && !from.closest(".ops-toasts")) cameFrom = from;
+                if (!(from instanceof Element && from.closest(".ops-toasts"))) cameFrom = from instanceof HTMLElement ? from : null;
               }}
               onBlur={(e) => {
                 if (!e.currentTarget.contains(e.relatedTarget as Node | null)) letGo(note.id);
+                // Left the toasts for somewhere else: a later press on one gives the focus back to nothing it once came from.
+                if (!(e.relatedTarget instanceof Element && e.relatedTarget.closest(".ops-toasts"))) cameFrom = null;
               }}
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}

@@ -49,6 +49,31 @@ describe("a toast", () => {
     fireEvent.click(undo);
     expect(document.activeElement).toBe(list);
   });
+
+  it("forgets where the focus came from once it has left the toasts", () => {
+    render(
+      <>
+        <button type="button">The list</button>
+        <button type="button">Elsewhere</button>
+        <ToastHost />
+        <Toast note={{ kind: "ok", text: "Moved a.md to the Trash", undo: () => undefined }} />
+      </>,
+    );
+    const list = screen.getByRole("button", { name: "The list" });
+    const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+    const undo = screen.getByRole("button", { name: "Undo" });
+    // Tabbed in from the list, then away to somewhere else.
+    list.focus();
+    fireEvent.focusIn(undo, { relatedTarget: list });
+    fireEvent.focusOut(undo, { relatedTarget: elsewhere });
+    elsewhere.focus();
+    // A later press on Undo with nothing focused before it: the list is not where it goes back to.
+    elsewhere.blur();
+    fireEvent.focusIn(undo, { relatedTarget: null });
+    undo.focus();
+    fireEvent.click(undo);
+    expect(document.activeElement).not.toBe(list);
+  });
 });
 
 describe("the toast queue", () => {
