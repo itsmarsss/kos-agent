@@ -34,19 +34,23 @@ enum VaultKeyStore {
   /// The key, made and kept the first time.
   static func key() throws -> VaultKey {
     if let kept = try read() { return try open(kept) }
-    let made: Kept
-    if SecureEnclave.isAvailable {
-      var problem: Unmanaged<CFError>?
-      guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, .privateKeyUsage, &problem) else {
-        throw DeviceError(.internal, "The Secure Enclave key's access could not be set: \(problem?.takeRetainedValue().localizedDescription ?? "unknown").")
-      }
-      made = Kept(store: "enclave", data: try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access).dataRepresentation)
-    } else {
-      made = Kept(store: "software", data: P256.KeyAgreement.PrivateKey().rawRepresentation)
-    }
+    let made = enclaveKey() ?? Kept(store: "software", data: P256.KeyAgreement.PrivateKey().rawRepresentation)
     try save(made)
     Log.app.notice("made a vault key (\(made.store, privacy: .public))")
     return try open(made)
+  }
+
+  /// A new key in the Secure Enclave, usable once the Mac has been unlocked since it started; nil on a Mac without
+  /// one, or one that refuses, where a software key is kept instead (and KOS is told so, as `store`).
+  private static func enclaveKey() -> Kept? {
+    guard SecureEnclave.isAvailable,
+          let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, .privateKeyUsage, nil) else { return nil }
+    do {
+      return Kept(store: "enclave", data: try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access).dataRepresentation)
+    } catch {
+      Log.app.error("the Secure Enclave made no vault key: \(error.localizedDescription, privacy: .public)")
+      return nil
+    }
   }
 
   private static func open(_ kept: Kept) throws -> VaultKey {
