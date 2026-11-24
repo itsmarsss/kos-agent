@@ -18,7 +18,7 @@ export interface ToastNote {
   kind: ToastTone;
   text: string;
   undo?: () => void;
-  /** Shown with a close of its own, for a note that stays until it is read. */
+  /** Called when the owner puts the note away with its close (every note has one), not when it times out. */
   onDismiss?: () => void;
   /** Still under way (an export): the working dots after the words, in place of a mark. */
   working?: boolean;
@@ -149,8 +149,9 @@ const MARK: Record<ToastTone, () => ReactElement> = {
 
 /**
  * The one place toasts are drawn: a stack in the top-right corner, under
- * the page head, each with a mark that says how it
- * went and Undo when it can be undone. Mounted once, by the app.
+ * the page head, moved clear of an open sheet's fields (styles.css), newest
+ * first, each with a mark that says how it went and Undo when it can be
+ * undone. Mounted once, by the app.
  */
 export function ToastHost(): ReactElement {
   const list = useSyncExternalStore(subscribe, () => shown);
@@ -158,7 +159,8 @@ export function ToastHost(): ReactElement {
   return createPortal(
     <div className="ops-toasts">
       <AnimatePresence initial={false}>
-        {list.map((note) => {
+        {/* Newest first, so the order read and tabbed through is the order seen. */}
+        {[...list].reverse().map((note) => {
           const Mark = MARK[note.kind];
           return (
             <m.div
