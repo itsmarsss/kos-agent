@@ -53,4 +53,5 @@ export { restoreFocus, tabStops, useFocusTrap, type FocusTrapOptions } from "./u
 export { sheetOpen } from "./layers.js";
 export { useSteadyPress } from "./useSteadyPress.js";
 export { overlayScroll, useOverlayScroll } from "./OverlayScroll.js";
+export { Fold, foldOf, MIN_HIDDEN_LINES, type FoldRule } from "./Fold.js";
 export * from "./icons.js";

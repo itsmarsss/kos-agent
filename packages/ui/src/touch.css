@@ -193,6 +193,12 @@
   select {
     font-size: max(var(--tap-text), 1em) !important;
   }
+  /* The composer's mirror is a div, so the floor above missed it: the words
+     under the caret were drawn at 15 px and the caret's at 16. The size is
+     set on what both inherit from instead. */
+  .hl {
+    font-size: max(var(--tap-text), var(--text-lg));
+  }
 }
 
 @media (hover: none) {
@@ -309,6 +315,10 @@
   .ops-toasts {
     top: calc(var(--phonebar-h) + 0.5rem + env(safe-area-inset-top, 0px));
     bottom: auto;
+    right: 1rem;
+    left: 1rem;
+    width: auto;
+    align-items: stretch;
   }
 }
 

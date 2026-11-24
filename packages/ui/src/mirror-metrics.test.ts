@@ -58,4 +58,16 @@ describe("composer mirror metrics", () => {
     // they drift apart.
     expect(css).toContain(".hl-mirror,\n.hl textarea.hl-area {");
   });
+
+  it("gives neither a scrollbar lane, which only the textarea would take", () => {
+    expect(ruleFor(".hl-mirror,\n.hl textarea.hl-area")).toContain("scrollbar-width: none");
+    expect(css).toContain(".hl textarea.hl-area::-webkit-scrollbar { display: none; }");
+  });
+
+  it("sizes the words under a finger where both inherit them", () => {
+    // touch.css floors every textarea at 16 px; the mirror is a div, so the
+    // floor has to reach it through .hl or the caret drifts off the words.
+    const touch = readFileSync(join(__dirname, "touch.css"), "utf8");
+    expect(touch).toMatch(/\.hl \{\s*font-size: max\(var\(--tap-text\), var\(--text-lg\)\);/);
+  });
 });

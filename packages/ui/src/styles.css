@@ -585,15 +585,21 @@ select {
 /* A word from KOS about what just happened (Toast.tsx): one stack at the
    bottom, centred, lifted over the composer when one is on screen, each note
    with a mark that says how it went and Undo when it can be undone. */
+/*
+ * The top-right corner, under the page head: out of the composer and the
+ * thread being read. Centred over the composer, a note sat on the very place
+ * the owner was typing and reading. Newest at the top.
+ */
 .ops-toasts {
   position: fixed;
-  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
-  left: 1rem;
+  top: calc(3.5rem + env(safe-area-inset-top, 0px));
   right: 1rem;
+  left: auto;
   z-index: 90;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  width: min(24rem, calc(100vw - 2rem));
   gap: 0.4rem;
   pointer-events: none;
 }
@@ -603,8 +609,8 @@ select {
   align-items: center;
   gap: 0.55rem;
   /* The window less its gutters on a phone; a comfortable line on a desk. */
-  max-width: min(36rem, 100%);
-  padding: 0.45rem 0.95rem 0.45rem 0.55rem;
+  max-width: 100%;
+  padding: 0.35rem 0.35rem 0.35rem 0.55rem;
   border-radius: var(--r-md);
   border: 1px solid var(--line-strong);
   background: var(--panel);
@@ -2554,7 +2560,12 @@ li:hover .chats-more,
   overflow-wrap: break-word;
   word-break: normal;
   box-sizing: border-box;
+  /* No lane for a scrollbar: the textarea took one the moment it scrolled
+     and the mirror, which never scrolls by itself, did not, so a full box
+     wrapped its lines six pixels apart. Its thumb is the kit's overlay. */
+  scrollbar-width: none;
 }
+.hl textarea.hl-area::-webkit-scrollbar { display: none; }
 /* The mirror paints the surface and the text; the textarea on top contributes
    only its border, caret and selection. Given a background of its own the
    textarea covered the mirror completely. */
@@ -2568,6 +2579,10 @@ li:hover .chats-more,
   z-index: 0;
 }
 .hl textarea.hl-area {
+  /* A block, not inline: an inline textarea left a descender's gap under it
+     that the mirror took as height, so at the foot of a long draft the two
+     stopped scrolling six pixels apart. */
+  display: block;
   position: relative;
   z-index: 1;
   width: 100%;
