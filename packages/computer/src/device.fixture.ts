@@ -29,7 +29,7 @@ export class FakeDevice {
   readonly answers = new Map<string, Answer>();
   /** Calls with no scripted answer, by method, newest last: answered later with `answer`. */
   private readonly unanswered = new Map<string, unknown[]>();
-  welcome: { name: string; signature: string } | undefined;
+  welcome: { name: string; signature: string; here?: string } | undefined;
   closed: { code: number; reason: string } | undefined;
   state: DeviceState = { consent: "device", permissions: { screen: true, input: true }, displays: [{ id: 1, width: 1512, height: 982, scale: 2, main: true }] };
 
@@ -111,7 +111,7 @@ export class FakeDevice {
   private receive(text: string): void {
     const msg = JSON.parse(text) as Record<string, unknown>;
     if (msg.t === "challenge") this.challenge = msg.nonce as string;
-    else if (msg.t === "welcome") this.welcome = { name: msg.name as string, signature: msg.signature as string };
+    else if (msg.t === "welcome") this.welcome = { name: msg.name as string, signature: msg.signature as string, ...(typeof msg.here === "string" ? { here: msg.here } : {}) };
     else if (msg.t === "face") this.faces.push(msg.face as Record<string, unknown>);
     else if (msg.t === "update") this.updates.push(msg);
     else if (msg.t === "theme") {

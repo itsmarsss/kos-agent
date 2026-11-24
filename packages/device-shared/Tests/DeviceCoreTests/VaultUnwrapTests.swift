@@ -72,3 +72,14 @@ private func params(slot: String = "s2", key: String = devicePoint, hostEpk host
   #expect(try !KOSAddress("https://kos.example.ts.net").isLoopback)
   #expect(try !KOSAddress("https://192.168.1.4:4317").isLoopback)
 }
+
+@Test func hostHereProofMatchesTheHostsAndNothingElse() throws {
+  // keys.ts hostHereProof with the secret 0x07 * 32, the device nonce `devnonce`, the device `dev_mac`.
+  let file = FileManager.default.temporaryDirectory.appendingPathComponent("kos-here-\(UUID().uuidString).key")
+  try Data(repeating: 7, count: 32).base64EncodedString().write(to: file, atomically: true, encoding: .utf8)
+  defer { try? FileManager.default.removeItem(at: file) }
+  let proof = "rnG/WpIHI9mE+rT/6PI5NJxbHBA+H1lyjYmTTpd3eMo="
+  #expect(HereProof.verifyHost(proof: proof, deviceNonce: "devnonce", deviceId: "dev_mac", keyFile: file))
+  #expect(!HereProof.verifyHost(proof: proof, deviceNonce: "othernonce", deviceId: "dev_mac", keyFile: file))
+  #expect(!HereProof.verifyHost(proof: proof, deviceNonce: "devnonce", deviceId: "dev_mac", keyFile: file.appendingPathExtension("missing")))
+}

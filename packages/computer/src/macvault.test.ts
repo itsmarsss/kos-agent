@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
-import { hereProof, rawPublicKey } from "./keys.js";
+import { hereProof, hostHereProof, rawPublicKey } from "./keys.js";
 import { MacVault, unlockAtLogin } from "./macvault.js";
 import { DeviceStore } from "./store.js";
 
@@ -118,6 +118,14 @@ describe("the vault opened by KOS for Mac", () => {
     expect(vault.status().state).toBe("ready");
     stop();
   }, 30_000);
+
+  it("tells a Mac proved here that KOS is here, and no other", async () => {
+    const { connect, id } = setup();
+    const mac = await connect();
+    expect(mac.welcome?.here).toBe(hostHereProof(localKey, mac.nonce, id));
+    expect((await connect({ proved: false })).welcome?.here).toBeUndefined();
+    expect((await connect({ local: false })).welcome?.here).toBeUndefined();
+  });
 
   it("asks no Mac that is not proved here: one through a proxy, or one without the here proof", async () => {
     for (const line of [{ local: false }, { proved: false }]) {

@@ -107,6 +107,8 @@ export interface Welcome {
   t: "welcome";
   name: string;
   signature: string;
+  /** To a Mac that proved it is here: KOS's proof that it is the KOS on this computer (keys.ts, hostHereProof). */
+  here?: string;
 }
 
 export interface StateUpdate extends Partial<DeviceState> {

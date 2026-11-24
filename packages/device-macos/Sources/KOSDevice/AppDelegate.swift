@@ -117,8 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     controller.yieldKeys = { [unowned self] in await chat.yieldKeys() }
     controller.ownMenuOpen = { [unowned self] in menu.isOpen }
     controller.dashboards = { [unowned self] in pairings.compactMap { PagePlace.hostEntry(of: $0.kos) } }
-    // KOS on this Mac: dialled on loopback, with the secret only this computer's KOS keeps beside it to read.
-    controller.isHere = { [unowned self] origin in (try? pairing(origin)?.kosAddress().isLoopback) == true && HereProof.available() }
+    // KOS on this Mac: dialled on loopback, and its welcome proved it holds the secret only this computer's KOS keeps.
+    controller.isHere = { [unowned self] origin in (try? pairing(origin)?.kosAddress().isLoopback) == true && lines[origin]?.isHere == true }
     controller.onOwnerStop = { [unowned self] origin, conversation in
       if chat.isMine(origin: origin, conversation: conversation) { chat.tellStop() }
     }
@@ -207,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let line = Connection(log: Log.line, app: .mac, build: build)
     // On KOS's own computer this proves it, so KOS may rebuild this app there; elsewhere there is no secret to read.
     line.here = { nonce, device in HereProof.sign(hostNonce: nonce, deviceId: device) }
+    line.hostHere = { nonce, device, proof in HereProof.verifyHost(proof: proof, deviceNonce: nonce, deviceId: device) }
     line.state = { [unowned self] in currentState(for: id) }
     // The chat's calls carry the chat, not the computer: they go to the window, every other call to the controller.
     line.onCall = { [unowned self] call in

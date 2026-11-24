@@ -1,7 +1,7 @@
 export * from "./protocol.js";
 export { BUILD_SOURCES, STAMP_FILE, buildFiles, buildId, commitOf, readBuild, readStamp, sourceBuild, stampOf, type Build, type BuildKind } from "./builds.js";
 export { DeviceUpdates, buildKindOf, decide, type DecideInput, type Decision, type MacInstaller, type UpdateAction, type UpdateReason, type UpdateState, type UpdateStatus, type UpdatesDeps } from "./updates.js";
-export { hereProof, loadHostKey, loadLocalKey, nonce, publicKeyFromRaw, rawPublicKey, signText, verifyHere, verifyText, type HostKey } from "./keys.js";
+export { hereProof, hostHereProof, loadHostKey, loadLocalKey, nonce, publicKeyFromRaw, rawPublicKey, signText, verifyHere, verifyText, type HostKey } from "./keys.js";
 export { DeviceStore, cleanName, DEFAULT_SETTINGS, MAX_ASK_MINUTES, type ComputerSettings, type Device, type PushEnv, type PushSettings, type PushTarget, type UpdateAttempt, type UpdateOutcome } from "./store.js";
 export { PairingCodes, CODE_TTL_MS, type PairingCode } from "./pairing.js";
 export { DeviceError, DeviceLink, type Socket } from "./link.js";

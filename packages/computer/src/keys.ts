@@ -107,6 +107,16 @@ export function loadLocalKey(path: string): Buffer {
   return key;
 }
 
+/**
+ * What KOS sends a device on this computer in its welcome, the other way
+ * round: HMAC-SHA256 with that secret over the device's nonce bound to its
+ * id. KOS for Mac answers the vault calls only on a line that carried it, so
+ * a loopback tunnel to another KOS cannot ask its Secure Enclave anything.
+ */
+export function hostHereProof(key: Buffer, deviceNonce: string, deviceId: string): string {
+  return createHmac("sha256", key).update(`kos-device/1|host-here|${deviceNonce}|${deviceId}`, "utf8").digest("base64");
+}
+
 /** What a device on this computer sends as `here`: HMAC-SHA256 with that secret over KOS's nonce bound to its id. */
 export function hereProof(key: Buffer, hostNonce: string, deviceId: string): string {
   return createHmac("sha256", key).update(`kos-device/1|here|${hostNonce}|${deviceId}`, "utf8").digest("base64");

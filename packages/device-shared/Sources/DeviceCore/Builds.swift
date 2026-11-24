@@ -98,9 +98,13 @@ public enum HereProof {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kos/device-local.key")
   }
 
-  /// Whether the secret is here to read: this Mac is the computer KOS runs on.
-  public static func available(keyFile: URL = keyFile) -> Bool {
-    sign(hostNonce: "", deviceId: "", keyFile: keyFile) != nil
+  /// Whether KOS's welcome proves it holds the same secret: HMAC-SHA256 over this device's nonce bound to its id,
+  /// compared in constant time. False when there is no secret to read.
+  public static func verifyHost(proof: String, deviceNonce: String, deviceId: String, keyFile: URL = keyFile) -> Bool {
+    guard let text = try? String(contentsOf: keyFile, encoding: .utf8),
+          let key = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)), key.count == 32,
+          let given = Data(base64Encoded: proof) else { return false }
+    return HMAC<SHA256>.isValidAuthenticationCode(given, authenticating: Data("kos-device/1|host-here|\(deviceNonce)|\(deviceId)".utf8), using: SymmetricKey(data: key))
   }
 
   /// The proof for one hello; none when there is no secret to read, as on another computer.
