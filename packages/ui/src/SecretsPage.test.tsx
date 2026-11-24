@@ -334,7 +334,10 @@ describe("unlock at login with KOS for Mac", () => {
     serve("ready", { "POST /api/secrets/devices": () => on }, { slots: ["passphrase"], mac: { name: "Studio Mac" } });
     render(<SecretsPage />);
     fireEvent.click(await screen.findByText("Unlock at login with KOS for Mac"));
-    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/api/secrets/devices")).toBe(true));
+    const pass = (await screen.findByLabelText(/^Passphrase/)) as HTMLInputElement;
+    fireEvent.change(pass, { target: { value: "a long passphrase" } });
+    fireEvent.submit(pass.form!);
+    await waitFor(() => expect(calls.find((c) => c.method === "POST" && c.path === "/api/secrets/devices")?.body).toEqual({ passphrase: "a long passphrase" }));
     expect(await screen.findByText("KOS for Mac now opens the vault at login.")).toBeTruthy();
   });
 

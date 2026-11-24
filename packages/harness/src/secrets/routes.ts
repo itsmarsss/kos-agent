@@ -95,10 +95,20 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
     return { ...vault.status(), scrubbed: secrets.scrubbed(), ...(here ? { mac: "reason" in here ? { reason: here.reason } : { name: here.name } } : {}) };
   };
 
-  /** Unlock at login: a device slot for the Mac here, after it proves its key. */
-  async function addDevice(): Promise<ApiResponse> {
+  /**
+   * Unlock at login: a device slot for the Mac here, after it proves its
+   * key. It takes the passphrase, a try against the unlock budget: from then
+   * on the vault opens with no one typing it, which only its owner says.
+   */
+  async function addDevice(body: Record<string, unknown>): Promise<ApiResponse> {
     const here = deps.devices?.here();
     if (!here || "reason" in here) return fail(409, here?.reason ?? "this KOS has no computer use, so no Mac can open the vault");
+    if (!vault.hasPassphrase()) return fail(400, "set a passphrase first: it is the way back in when the Mac cannot open the vault");
+    if (!admitUnlock()) return tooManyTries();
+    if (!(await vault.checkPassphrase(text(body.passphrase) ?? ""))) {
+      deps.audit({ tool: "secrets.device", args: { change: "add", device: here.id }, result: "refused: not the passphrase", isError: true });
+      return fail(400, "that is not the vault's passphrase");
+    }
     const key = await deps.devices!.key(here.id);
     const added = await vault.addDeviceSlot(here.name, key, deps.devices!.unwrapper(here.id));
     deps.audit({ tool: "secrets.device", args: { change: "add", slot: added.id, device: here.id }, result: `${added.name} opens the vault at login`, isError: false });
@@ -242,7 +252,7 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
         return ok(status());
       }
       if (method === "POST" && name === "passphrase") return passphrase(body);
-      if (method === "POST" && name === "devices") return addDevice();
+      if (method === "POST" && name === "devices") return addDevice(body);
       if (method === "POST" && name === "rotate") {
         vault.rotateDataKey();
         deps.audit({ tool: "secrets.rotate", args: { what: "data key" }, result: "rotated", isError: false });

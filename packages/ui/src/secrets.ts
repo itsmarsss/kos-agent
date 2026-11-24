@@ -67,7 +67,7 @@ export const secretsApi = {
   /** Add or change the passphrase (`passphrase` given), or remove it; `current` when the vault has one. */
   passphrase: (change: { current?: string; passphrase?: string }) => call<VaultStatus>("POST", "/api/secrets/passphrase", change),
   /** Unlock at login: a device slot for the KOS for Mac on this computer. */
-  addDevice: () => call<VaultStatus>("POST", "/api/secrets/devices"),
+  addDevice: (passphrase: string) => call<VaultStatus>("POST", "/api/secrets/devices", { passphrase }),
   /** Take a Mac's device slot off; the passphrase holds the vault open from then. */
   removeDevice: (slot: string, passphrase: string) => call<VaultStatus>("POST", "/api/secrets/devices/remove", { slot, passphrase }),
   wipe: (passphrase?: string) => call<VaultStatus>("POST", "/api/secrets/wipe", { confirm: "wipe", ...(passphrase ? { passphrase } : {}) }),

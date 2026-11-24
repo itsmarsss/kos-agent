@@ -208,7 +208,10 @@ describe("unlock at login", () => {
     routes = secretsRoutes({ vault, secrets, uses, audit: (e) => audited.push(e), devices: macHere() });
     await call("POST", "/api/secrets/init", { passphrase: "a long passphrase" });
     expect((await call("GET", "/api/secrets/status")).body).toMatchObject({ mac: { name: "Studio Mac" } });
-    const added = await call("POST", "/api/secrets/devices", {});
+    expect(await call("POST", "/api/secrets/devices", {})).toMatchObject({ status: 400, body: { error: "that is not the vault's passphrase" } });
+    expect(await call("POST", "/api/secrets/devices", { passphrase: "not it at all" })).toMatchObject({ status: 400 });
+    expect(audited.at(-1)).toMatchObject({ tool: "secrets.device", result: "refused: not the passphrase", isError: true });
+    const added = await call("POST", "/api/secrets/devices", { passphrase: "a long passphrase" });
     expect(added.body).toMatchObject({ state: "ready", slots: ["passphrase", "device"], devices: [{ id: "s2", name: "Studio Mac" }] });
     expect(audited.at(-1)).toMatchObject({ tool: "secrets.device", args: { change: "add", slot: "s2" }, isError: false });
     expect((await call("POST", "/api/secrets/devices/remove", { slot: "s2", passphrase: "not it at all" })).status).toBe(400);
