@@ -4053,6 +4053,8 @@ export function createDashboardServer(
   // This boot's write key: in memory and in the page alone. In the container there is none: the token is the proof.
   const { writeKey: givenKey, ...rest } = given;
   const options: DashboardServerOptions = given.tokenForWrites ? rest : { ...rest, writeKey: givenKey ?? randomBytes(32).toString("base64url") };
+  // A credential like any other: looked for in everything KOS keeps or shows, so a pasted copy is masked at the door.
+  if (options.writeKey) kernel.secrets.watch("write-key", options.writeKey);
   return createServer((req: IncomingMessage, res: ServerResponse) => {
     void (async () => {
       const method = req.method ?? "GET";

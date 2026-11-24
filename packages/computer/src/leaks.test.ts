@@ -51,8 +51,8 @@ import { computerModule } from "./tools.js";
  * A fourth chat places the env file's keys: one bound to a host goes out
  * through http.fetch to a stub that echoes every header back, and one bound
  * to an MCP server goes into the env of a stdio server whose one tool
- * answers with its whole env. Every name the harness keeps for itself and
- * a provider key are canaries too.
+ * answers with its whole env. Every name the harness keeps for itself, a
+ * provider key and the boot's write key are canaries too.
  *
  * Afterwards no canary, as it is or in any encoding the scrubber knows, is
  * in the database's files (WAL included) or any table, a transcript, the
@@ -439,7 +439,7 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
   /** Which canaries are in `text`, in any form. */
   const leaks = (text: string): string[] => {
     const digits = text.replace(/[\s.+_/-]|%20/g, "");
-    const all = [canary.password, canary.token, canary.card, canary.amex, ...canary.codes, ...Object.values(envCanary)];
+    const all = [canary.password, canary.token, canary.card, canary.amex, ...canary.codes, ...Object.values(envCanary), WRITE_KEY];
     return all.filter((c) => formsOf(c).some((form) => text.includes(form)) || ((c === canary.card || c === canary.amex) && digits.includes(c)));
   };
   /** Each ask decided where the owner would: KOS's browser on the dashboard, the owner's Chrome in its side panel, the Mac from the phone. */
@@ -487,9 +487,9 @@ describe("the leak suite: no secret or code escapes any surface", { timeout: 90_
       // And texts the card's number to KOS.
       await sms.receive({ channel: "sms", senderId: "owner", text: `card ${canary.card.match(/.{4}/g)!.join("-")} for the shop` });
       await vi.waitFor(() => expect(sms.sent.some((m) => !/Decide on the dashboard/.test(m.msg.text ?? ""))).toBe(true), { timeout: 10_000 });
-      // And pastes the env file's keys on Discord.
+      // And pastes the env file's keys and the boot's write key on Discord.
       const before = discord.sent.length;
-      await discord.receive({ channel: "discord", senderId: "owner", text: `my OpenAI key is ${envCanary["OPENAI_API_KEY"]}, and the bot's ${envCanary["DISCORD_TOKEN"]}` });
+      await discord.receive({ channel: "discord", senderId: "owner", text: `my OpenAI key is ${envCanary["OPENAI_API_KEY"]}, the bot's ${envCanary["DISCORD_TOKEN"]} and the write key ${WRITE_KEY}` });
       await vi.waitFor(() => expect(discord.sent.length).toBeGreaterThan(before), { timeout: 10_000 });
     } finally {
       stop();
