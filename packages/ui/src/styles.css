@@ -64,7 +64,9 @@
   --text-md: 0.875rem;    /* controls and anything you read a sentence of */
   --text-lg: 0.9375rem;   /* section titles */
   --text-xl: 1.125rem;    /* page titles */
-  --text-2xl: 1.375rem;   /* the one heading on a page */
+  --text-2xl: 1.375rem;
+  /* Code, a path, an id or a chip set inside a line of words, against its size (INLINE_EM). */
+  --text-inline: 0.92em;   /* the one heading on a page */
 }
 
 /*
@@ -552,7 +554,7 @@ select {
 
 .ops-mono {
   font-family: var(--mono);
-  font-size: 0.82em;
+  font-size: var(--text-inline);
 }
 /* A hint set in mono keeps the hint's size, not mono's smaller one. */
 .hint.ops-mono { font-size: var(--text-base); }
@@ -1053,13 +1055,13 @@ select {
 
 .kos-chart-tick {
   fill: var(--chart-ink-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
 .kos-chart-value {
   fill: var(--chart-ink);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .kos-chart-line {
@@ -4135,7 +4137,7 @@ li:hover .chats-more,
 .device-code {
   margin: 0;
   font-family: var(--mono);
-  font-size: 1.6rem;
+  font-size: var(--text-2xl);
   letter-spacing: 0.18em;
   color: var(--accent);
 }
@@ -4663,14 +4665,14 @@ body.is-arranging { user-select: none; }
 .map-link--danger { stroke: var(--danger); }
 .map-link--ok { stroke: color-mix(in srgb, var(--ok) 55%, var(--line-strong)); }
 .map-hub circle { fill: var(--accent-dim); stroke: var(--accent); stroke-width: 1.4; }
-.map-hub-label { fill: var(--text); font-size: 14px; font-weight: 600; letter-spacing: 0.04em; }
+.map-hub-label { fill: var(--text); font-size: var(--text-md); font-weight: 600; letter-spacing: 0.04em; }
 .map-node { cursor: pointer; text-decoration: none; }
 .map-node rect { fill: var(--panel-2); stroke: var(--line); stroke-width: 1; transition: stroke 150ms ease; }
 .map-node:hover rect, .map-node:focus-visible rect { stroke: var(--accent); }
 .map-node:focus-visible { outline: none; }
 .map-node--more rect, .map-node--empty rect { fill: transparent; stroke-dasharray: 3 3; }
-.map-name { fill: var(--text); font-size: 12.5px; }
-.map-sub { fill: var(--faint); font-size: 10.5px; }
+.map-name { fill: var(--text); font-size: var(--text-sm); }
+.map-sub { fill: var(--faint); font-size: var(--text-xs); }
 .map-dot { fill: var(--faint); }
 .map-dot--accent { fill: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
 .map-dot--ok { fill: var(--ok); }
@@ -5512,7 +5514,7 @@ a.health {
 .cron-hook {
   flex-basis: 100%;
   margin-top: 0.4rem;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .cron-spend {
@@ -5556,7 +5558,7 @@ a.health {
 .know-review-item { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
 .know-review-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .know-pages { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
-.know-page { white-space: pre-wrap; font-size: 0.85rem; max-height: 24rem; overflow: auto; }
+.know-page { white-space: pre-wrap; font-size: var(--text-base); max-height: 24rem; overflow: auto; }
 
 /* Memory: one page, six tabs. */
 .mem { --stack: 1rem; display: flex; flex-direction: column; gap: var(--stack); min-width: 0; }
@@ -8122,8 +8124,8 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 .ov-sheet-scroll { flex: 1; min-height: 0; overflow: auto; max-height: min(74vh, 58rem); background: var(--panel); overscroll-behavior: contain; }
 .ov-sheet-grid { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: var(--text-base); font-variant-numeric: tabular-nums lining-nums; }
 .ov-sheet-grid :where(th, td) { height: 2.125rem; max-width: 36ch; padding: 0 0.75rem; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ov-sheet-grid thead th { position: sticky; top: 0; z-index: 2; height: 1.6rem; background: var(--panel-2); color: var(--muted); font: 500 0.625rem / 1 var(--mono); letter-spacing: 0.04em; text-align: center; }
-.ov-sheet-grid .ov-rownum { position: sticky; left: 0; z-index: 1; min-width: 2.75rem; padding: 0 0.55rem; background: var(--panel-2); color: var(--muted); font: 500 0.6875rem / 1 var(--mono); text-align: right; }
+.ov-sheet-grid thead th { position: sticky; top: 0; z-index: 2; height: 1.6rem; background: var(--panel-2); color: var(--muted); font: 500 var(--text-xs) / 1 var(--font); letter-spacing: 0.04em; text-align: center; }
+.ov-sheet-grid .ov-rownum { position: sticky; left: 0; z-index: 1; min-width: 2.75rem; padding: 0 0.55rem; background: var(--panel-2); color: var(--muted); font: 500 var(--text-xs) / 1 var(--font); text-align: right; }
 .ov-sheet-grid thead .ov-rownum { z-index: 3; }
 .ov-sheet-grid--headed .ov-head-row > * { position: sticky; top: 1.6rem; z-index: 2; background: var(--panel-2); color: var(--text); font-weight: 600; font-size: var(--text-sm); }
 .ov-sheet-grid--headed .ov-head-row > .ov-rownum { z-index: 3; }
@@ -8226,7 +8228,7 @@ img.ov-shape { object-fit: fill; }
 /* The token prompt: the one thing a tab without KOS's token can see. */
 .token-gate { min-height: 100dvh; display: grid; place-items: center; padding-inline: 16px; background: var(--bg); }
 .token-gate__card { width: min(30rem, 100%); display: grid; gap: 0.75rem; }
-.token-gate__title { margin: 0; font-size: 1.25rem; }
+.token-gate__title { margin: 0; font-size: var(--text-xl); }
 /* A fold of settings few owners need: closed by default, its summary a quiet link. */
 .settings-more > summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); padding: 6px 0; }
 .settings-more[open] > summary { margin-bottom: 8px; }

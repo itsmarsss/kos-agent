@@ -80,7 +80,7 @@
   gap: 0.28em;
   padding: 0.04em 0.45em;
   border-radius: var(--r-sm);
-  font-size: 0.92em;
+  font-size: var(--text-inline);
   font-weight: 600;
   line-height: 1.35;
   /* Aligned by its label's baseline, so the chip's text sits exactly on
@@ -251,7 +251,7 @@ button.chip-ref:hover, a.chip-ref:hover { border-color: color-mix(in srgb, curre
 @media (prefers-reduced-motion: reduce) { .kos-tip { animation: none; } }
 .md code {
   font-family: var(--mono);
-  font-size: 0.9em;
+  font-size: var(--text-inline);
   background: var(--panel-2);
   padding: 0.05rem 0.3rem;
   border-radius: var(--r-xs);
@@ -547,7 +547,7 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
 .tile[data-tone="muted"] { --tone: var(--muted); }
 .line-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .line-text strong, .line-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.line-text span { color: var(--muted); font-size: 11.5px; }
+.line-text span { color: var(--muted); font-size: var(--text-xs); }
 /* A setting's row: its detail runs to as many lines as it needs. */
 .line-text--wrap strong, .line-text--wrap span { white-space: normal; }
 
@@ -566,7 +566,7 @@ mark.marked { background: none; color: var(--accent); font-weight: 600; }
   text-align: left;
   cursor: pointer;
 }
-.drawer-row .line-text strong { font-size: 13px; }
+.drawer-row .line-text strong { font-size: var(--text-base); }
 /* `wrap`, as KOS for Mac's DrawerRow is: a title on one line, its detail on up to two, set as tight as the Mac sets them. */
 .drawer-row--wrap .line-text { line-height: 1.25; }
 .drawer-row--wrap .line-text span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
@@ -708,13 +708,13 @@ p.list-loading { padding: 4px 0; }
 .kos-ask-steps { margin: 2px 0 0; padding: 0 0 0 1.4em; color: var(--text); font-size: var(--text-md); font-weight: 500; line-height: 1.6; overflow-wrap: break-word; }
 .kos-ask-steps li::marker { color: var(--faint); font-variant-numeric: tabular-nums; }
 .kos-ask-steps--one { padding: 0; }
-.keycap { display: inline-block; min-width: 1.5em; margin: 0 1px; padding: 0 0.35em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-xs); background: var(--panel-2); color: var(--text); font: 500 0.88em/1.45 var(--mono); text-align: center; vertical-align: 0.05em; white-space: nowrap; }
+.keycap { display: inline-block; min-width: 1.5em; margin: 0 1px; padding: 0 0.35em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-xs); background: var(--panel-2); color: var(--text); font: 500 var(--text-inline)/1.45 var(--mono); text-align: center; vertical-align: 0.05em; white-space: nowrap; }
 .kos-ask-risk { display: flex; flex-wrap: wrap; gap: 4px; }
 .kos-ask-detached { margin: 0; padding: 6px 8px; border-radius: var(--r-xs); background: var(--warn-dim); color: var(--warn); font-size: var(--text-sm); line-height: 1.4; }
 .kos-ask-secret { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-width: 0; }
 .kos-ask-secret-what { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--text-sm); line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
 .kos-ask-secret-what svg { flex: none; color: var(--faint); }
-.kos-ask-secret-what code { color: var(--muted); font-size: 0.92em; }
+.kos-ask-secret-what code { color: var(--muted); font-size: var(--text-inline); }
 .kos-ask-secret-fields { color: var(--muted); }
 .kos-ask-secret-origin { margin: 0; font-size: var(--text-lg); line-height: 1.3; overflow-wrap: anywhere; }
 .kos-ask-secret-origin strong { font-weight: 700; }
