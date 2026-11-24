@@ -182,7 +182,8 @@ export function ToastHost(): ReactElement {
           return (
             <m.div
               key={note.id}
-              layout
+              // Its place only: a wider note arriving widens the column, and a size animation squashed the others meanwhile.
+              layout="position"
               className={`ops-toast ops-toast--${note.kind}`}
               onPointerEnter={() => hold(note.id)}
               onPointerLeave={() => letGo(note.id)}
