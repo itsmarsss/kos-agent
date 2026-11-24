@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { useRef, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PANEL_ROOM, usePanelDrawer, useRoomFor } from "./paneldrawer.js";
+import { CHAT_ROOM, PANEL_ROOM, panelWidthFor, usePanelDrawer, useRoomFor } from "./paneldrawer.js";
 
 /** The page's width as a ResizeObserver says it: one observer, resized by hand. */
 let resizeTo: (width: number) => void = () => undefined;
@@ -102,5 +102,20 @@ describe("the panel's drawer", () => {
     resizeTo(PANEL_ROOM + 1);
     expect(isOpen()).toBe(false);
     expect(toggle().closest("[data-room]")?.getAttribute("data-room")).toBe("column");
+  });
+});
+
+describe("the panel's width", () => {
+  it("is the owner's while the chat keeps its room, and gives way, not under its least, when it would not", () => {
+    expect(panelWidthFor(300, 1240, 240, 160)).toBe(300);
+    expect(panelWidthFor(640, 1240, 240, 160)).toBe(1240 - 240 - CHAT_ROOM);
+    // The list folded: its room is the panel's to take.
+    expect(panelWidthFor(640, 1240, 0, 160)).toBe(640);
+    expect(panelWidthFor(300, PANEL_ROOM + 20, 240, 160)).toBe(180);
+    expect(panelWidthFor(300, PANEL_ROOM - 100, 240, 160)).toBe(160);
+  });
+
+  it("is as asked before the page is laid out", () => {
+    expect(panelWidthFor(420, 0, 240, 160)).toBe(420);
   });
 });

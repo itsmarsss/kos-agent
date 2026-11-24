@@ -10,17 +10,41 @@ import { useEffect, useMemo, useState, type RefObject } from "react";
  */
 export const PANEL_ROOM = 880;
 
-/** Whether the element is wider than the given width, kept up as it resizes. */
-export function useRoomFor(ref: RefObject<HTMLElement | null>, width: number): boolean {
-  const [fits, setFits] = useState(true);
+/**
+ * The chat's least beside the panel, the grid's gaps included: what is left
+ * at PANEL_ROOM once the list (240) and the panel at its narrowest (160)
+ * are drawn. Dragged wider than this leaves, the panel stops; it squeezed
+ * the chat to 350 px at 1440, its title on two lines and its box cut.
+ */
+export const CHAT_ROOM = 480;
+
+/** The element's width as laid out, kept up as it resizes; 0 until it has been. */
+export function useWidthOf(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver !== "function") return;
-    const watch = new ResizeObserver(([entry]) => entry && setFits(entry.contentRect.width > width));
+    const watch = new ResizeObserver(([entry]) => entry && setWidth(entry.contentRect.width));
     watch.observe(el);
     return () => watch.disconnect();
-  }, [ref, width]);
-  return fits;
+  }, [ref]);
+  return width;
+}
+
+/** Whether the element is wider than the given width, kept up as it resizes; so until it has been laid out. */
+export function useRoomFor(ref: RefObject<HTMLElement | null>, width: number): boolean {
+  const room = useWidthOf(ref);
+  return room === 0 || room > width;
+}
+
+/**
+ * How wide the panel is drawn: as wide as the owner made it, while the chat
+ * keeps CHAT_ROOM beside it and the list; never under the panel's least.
+ * `room` is the page's width (0 before it is laid out: as wanted).
+ */
+export function panelWidthFor(wanted: number, room: number, list: number, least: number): number {
+  if (room <= 0) return wanted;
+  return Math.max(least, Math.min(wanted, Math.floor(room - list - CHAT_ROOM)));
 }
 
 /**
