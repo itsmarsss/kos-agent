@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactElement } from "react";
 
 import { clockWords, errorWords, formatDuration, kindWord, STATE_WORDS, stateOfRun, stepLine, summarizeAction } from "@kos/shared";
 
-import { ChatIcon, Chips, IconButton, StatusPill } from "@kos/kit";
+import { ChatIcon, Chips, IconButton, StatusPill, When } from "@kos/kit";
 
 import type { AuditRecord, Conversation, CronJob, Project, RunRecord } from "./api.js";
 import { ListPage } from "./ListPage.js";
@@ -274,7 +274,7 @@ export function HistoryPage({
           width: "12%",
           render: (r) => (
             <span className="ops-muted hist-when">
-              {clockWords(r.at)}
+              <When at={r.at} say="clock" />
               {r.kind === "run" && r.run.durationMs ? <span className="hist-took"> · took {formatDuration(r.run.durationMs)}</span> : null}
             </span>
           ),

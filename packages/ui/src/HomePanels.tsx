@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { errorWords, momentWords, STATE_WORDS, stateOfRun, stepLine, timeWords } from "@kos/shared";
-import { CloseIcon, ease, EmptyState, Face, GroupHead, IconButton, moodOf, RefChip, rise, StatusDot, type Tone } from "@kos/kit";
+import { CloseIcon, ease, EmptyState, Face, GroupHead, IconButton, moodOf, RefChip, rise, StatusDot, type Tone, When } from "@kos/kit";
 import { AnimatePresence, m } from "motion/react";
 
 import { titleOf } from "./AgentEditor.js";
@@ -287,7 +287,7 @@ export function Panel({
                     </button>
                     <span className="panel-row-side">
                       {f.streak > 1 ? `${f.streak}x · ` : ""}
-                      {timeWords(f.since)}
+                      <When at={f.since} />
                       {/* Without this the only way to clear a failure the
                           owner has already handled is to wait for the job to
                           succeed, which for a nightly job means a red header
@@ -416,7 +416,7 @@ export function Panel({
                 <li key={t.id}>
                   <span className={`panel-row ${t.isError ? "is-error" : ""}`}>
                     <StepRow tool={t.tool} args={t.args} />
-                    <span className="panel-row-side">{timeWords(t.createdAt)}</span>
+                    <span className="panel-row-side"><When at={t.createdAt} /></span>
                   </span>
                 </li>
               ))}
@@ -475,7 +475,7 @@ export function Panel({
                           ? "needs you"
                           : c.activity === "error"
                             ? "failed"
-                            : timeWords(c.updatedAt)}
+                            : <When at={c.updatedAt} />}
                     </span>
                   </button>
                 </li>
@@ -509,8 +509,8 @@ export function Panel({
                           <span className="panel-row-project"> {data.projects.find((p) => p.slug === c.projectSlug)?.name ?? c.projectSlug}</span>
                         )}
                       </span>
-                      <span className="panel-row-side" title={next.has(c.id) ? scheduleWords(c.schedule) : undefined}>
-                        {next.has(c.id) ? momentWords(next.get(c.id)!) : scheduleWords(c.schedule)}
+                      <span className="panel-row-side">
+                        {next.has(c.id) ? <When at={next.get(c.id)!} say="moment" /> : scheduleWords(c.schedule)}
                       </span>
                     </span>
                   </li>

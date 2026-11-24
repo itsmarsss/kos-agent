@@ -1,4 +1,4 @@
-import { Chips, Count, EmptyState, Face, NavIcon, NotFound, PlusIcon, Skeleton, type ChipOption } from "@kos/kit";
+import { Chips, Count, EmptyState, Face, NavIcon, NotFound, PlusIcon, Skeleton, When, type ChipOption } from "@kos/kit";
 import { SPAN_COLUMNS, WORKSPACE_SCOPE, type ArtifactKind, type HtmlPage, type WidgetOutline, timeWords } from "@kos/shared";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
@@ -121,7 +121,7 @@ function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary
             <span className="artifact-card-owner">
               <OwnerMark record={a} projects={projects} />
             </span>
-            <span className="artifact-card-time">{timeWords(a.updatedAt)}</span>
+            <span className="artifact-card-time"><When at={a.updatedAt} /></span>
           </span>
         </span>
       </button>

@@ -309,7 +309,8 @@ describe("the gallery's trash", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Trash/ }));
     expect(screen.getByRole("heading", { name: /^Trash/ })).toBeTruthy();
     expect(cards("Trash")).toEqual(["Old memo"]);
-    expect(screen.getByTitle("When it was moved to the trash").textContent).toBe("3m ago");
+    // When it went, in the one time words, its date in full on the time's card.
+    expect(document.querySelector(".artifact-card-time time")?.textContent).toBe("3m ago");
     fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
     expect(cards()).toEqual(["Q4 brief", "Garden pitch"]);
   });
