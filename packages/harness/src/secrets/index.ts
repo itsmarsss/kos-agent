@@ -1,4 +1,4 @@
-export { SecretsRegistry } from "./secrets.js";
+export { HARNESS_ENV, SecretsRegistry } from "./secrets.js";
 export { hasSecretRef, placeSecrets, usesSecret, type Placed, type SecretSlots } from "./inject.js";
 export { Scrubber, scrubDeep } from "./scrub.js";
 export { scrubShapes } from "./shapes.js";
