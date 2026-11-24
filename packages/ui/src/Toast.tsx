@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
@@ -140,28 +140,6 @@ export function Toast({ note }: { note: ToastNote | null | undefined | false }):
   return null;
 }
 
-/**
- * Above the composer when one is on screen, so a note never covers the box
- * being typed in, and centred on it: on the column it lifts over, not on the
- * window, which beside the chat list put it off to one side of the box.
- */
-function useLift(): { lift: number; centre: number | null } {
-  const [lift, setLift] = useState<{ lift: number; centre: number | null }>({ lift: 0, centre: null });
-  const list = useSyncExternalStore(subscribe, () => shown);
-  useLayoutEffect(() => {
-    if (list.length === 0) return;
-    const measure = (): void => {
-      const box = document.querySelector<HTMLElement>(".composer");
-      const at = box && box.offsetParent !== null ? box.getBoundingClientRect() : null;
-      setLift(at && at.top < window.innerHeight ? { lift: Math.max(0, window.innerHeight - at.top), centre: at.left + at.width / 2 } : { lift: 0, centre: null });
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [list]);
-  return lift;
-}
-
 const MARK: Record<ToastTone, () => ReactElement> = {
   ok: () => <CheckIcon size={12} title="" />,
   info: () => <InfoIcon size={12} />,
@@ -170,19 +148,15 @@ const MARK: Record<ToastTone, () => ReactElement> = {
 };
 
 /**
- * The one place toasts are drawn: a stack at the bottom, centred, lifted
- * over the composer when there is one, each with a mark that says how it
+ * The one place toasts are drawn: a stack in the top-right corner, under
+ * the page head, each with a mark that says how it
  * went and Undo when it can be undone. Mounted once, by the app.
  */
 export function ToastHost(): ReactElement {
   const list = useSyncExternalStore(subscribe, () => shown);
-  const { lift, centre } = useLift();
-  // Centred on the composer's column: the stack is as wide as twice the room on the box's nearer side.
-  const half = centre === null ? null : Math.min(centre, window.innerWidth - centre);
-  const place = lift ? { bottom: `calc(${lift}px + 0.75rem)`, ...(half !== null ? { left: `${centre! - half}px`, right: `${window.innerWidth - centre! - half}px` } : {}) } : undefined;
   // On the body: a pane that is hidden (the thread, on a phone showing the list) hides what is fixed inside it too.
   return createPortal(
-    <div className="ops-toasts" style={place}>
+    <div className="ops-toasts">
       <AnimatePresence initial={false}>
         {list.map((note) => {
           const Mark = MARK[note.kind];
@@ -197,9 +171,9 @@ export function ToastHost(): ReactElement {
               onBlur={(e) => {
                 if (!e.currentTarget.contains(e.relatedTarget as Node | null)) letGo(note.id);
               }}
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
+              exit={{ opacity: 0, x: 24 }}
               transition={spring}
             >
               {!note.working && (
@@ -221,18 +195,17 @@ export function ToastHost(): ReactElement {
                   Undo
                 </button>
               )}
-              {note.onDismiss && (
-                <IconButton
-                  tone="bare"
-                  label="Dismiss"
-                  onClick={() => {
-                    note.onDismiss?.();
-                    dismissToast(note.id);
-                  }}
-                >
-                  <CloseIcon size={12} title="" />
-                </IconButton>
-              )}
+              {/* Every note can be put away now, not only one that waits to be read. */}
+              <IconButton
+                tone="bare"
+                label="Dismiss"
+                onClick={() => {
+                  note.onDismiss?.();
+                  dismissToast(note.id);
+                }}
+              >
+                <CloseIcon size={12} title="" />
+              </IconButton>
             </m.div>
           );
         })}
