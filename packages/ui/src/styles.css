@@ -2503,16 +2503,21 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
   height: 1.5rem;
   z-index: 2;
   opacity: 0;
-  transition: opacity var(--hover);
+  transition: background-color var(--hover), color var(--hover);
 }
 /* The dots take the timestamp's place rather than sitting on top of it: both
-   were in the same corner, so hovering put one over the other. */
+   are in the same corner. They swap in one frame, both ways: faded across
+   each other, the two were drawn at half strength in one spot. A hidden time
+   takes no pointer, so its card never opens over the dots. */
 li:hover .chats-more,
-.chats-more:focus-visible {
+.chats-more:focus-visible,
+.chats-more[aria-expanded="true"] {
   opacity: 1;
   color: var(--muted);
 }
-li:hover .chats-item-when { opacity: 0; }
+@media (hover: hover) {
+  li:is(:hover, :has(.chats-more:focus-visible, .chats-more[aria-expanded="true"])) .chats-item-when { visibility: hidden; }
+}
 .chats-more:active:not(:disabled) { transform: translateY(-50%) scale(var(--press-scale)); }
 .chats-more:hover,
 .chats-more[aria-expanded="true"] {
@@ -2735,7 +2740,6 @@ li:hover .chats-item-when { opacity: 0; }
 .chats-item-when {
   color: var(--faint);
   font-size: var(--text-base);
-  transition: opacity var(--hover);
 }
 /* Messages waiting behind the turn, beside the dot that says it is running. */
 .chats-queued {
@@ -7146,7 +7150,7 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .chats-list--root .chats-scroll ul { flex: none; overflow: visible; padding: 0; }
 .chats-list--root ul.chats-streams { padding: 0.1rem 0 0.3rem; }
 /* A stream has no menu, so its time stays put on hover. */
-.chats-streams li:hover .chats-item-when { opacity: 1; }
+.chats-streams li:hover .chats-item-when { visibility: visible; }
 
 .chats-lead { flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center; }
 /* A slot only in the root rail, where dots line up with faces and marks; a
