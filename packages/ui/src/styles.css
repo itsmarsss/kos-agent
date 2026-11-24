@@ -846,7 +846,7 @@ select {
 /* A number you read at a glance next to its unit, not a sentence. */
 .kos-input--num {
   width: 6.5rem;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-base);
   text-align: right;
 }
@@ -3664,7 +3664,7 @@ li:hover .chats-more,
 .know-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); line-height: 1.45; }
 .know-meta { display: flex; align-items: center; gap: 0.5rem; min-width: 0; color: var(--faint); font-size: var(--text-sm); }
 .know-meta .tag { padding: 0 0.45rem; font-size: var(--text-xs); color: var(--muted); }
-.know-key { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); }
+.know-key { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--muted); }
 .know-from { flex: none; white-space: nowrap; }
 .know-tags { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .know-when { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
@@ -4255,7 +4255,7 @@ li:hover .chats-more,
 }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .agent-dir { font-family: var(--mono); font-size: var(--text-base); }
-.agent-time { color: var(--faint); font-size: var(--text-sm); font-family: var(--mono); }
+.agent-time { color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .agent-latest {
   margin: 0;
   padding-left: 1.35rem;
@@ -4477,7 +4477,7 @@ li:hover .chats-more,
 }
 .ext-item-text:hover .ext-item-name { color: var(--accent); }
 .ext-item-name { font-size: var(--text-md); color: var(--text); }
-.ext-item-version, .ext-item-needs { color: var(--faint); font-size: var(--text-xs); font-family: var(--mono); }
+.ext-item-version, .ext-item-needs { color: var(--faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .ext-item-blurb {
   color: var(--muted);
   font-size: var(--text-sm);
@@ -5212,7 +5212,7 @@ a.health {
 
 .spend-pop-day {
   color: var(--muted);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The shape of the month, beside the numbers rather than instead of them. */
@@ -5263,7 +5263,6 @@ a.health {
 
 .spend-pop-facts dd {
   margin: 0;
-  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-size: var(--text-sm);
   white-space: nowrap;
@@ -5286,7 +5285,6 @@ a.health {
    hold digits. */
 .set-limit {
   width: 8rem;
-  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -6932,7 +6930,7 @@ a.health {
 .agents-invalid { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.6rem 0.7rem; border: 1px dashed var(--warn); border-radius: var(--r-md); }
 .agents-editor { padding: 1rem; }
 .agents-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem 1.2rem; }
-.agents-brief { font-family: var(--mono); font-size: var(--text-sm); line-height: 1.5; resize: vertical; }
+.agents-brief { font-size: var(--text-md); line-height: 1.5; resize: vertical; }
 .agents-actions { flex-wrap: wrap; }
 @media (max-width: 720px) { .agents-split { grid-template-columns: 1fr; } }
 /* The blobs as the projects are: a grid of cards, one height to a row. */
