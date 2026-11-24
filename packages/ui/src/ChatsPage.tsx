@@ -20,7 +20,7 @@ import { SecretOffer } from "./SecretOffer.js";
 import { VoiceInput } from "./VoiceInput.js";
 
 import { ContextMeter } from "./ContextMeter.js";
-import { blobOf, byAttention, groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
+import { byAttention, groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
 import { AgentPanel } from "./AgentPanel.js";
 import { ConfirmButton } from "./kit.js";
 import { Gutter } from "./Gutter.js";
@@ -847,7 +847,7 @@ export function ChatsPage({
    */
   const agentThread = agent ? conversations.find((c) => c.id === `agent:${agent.name}`) : undefined;
   const agentInstances = useMemo(
-    () => (agent ? conversations.filter((c) => blobOf(c) === agent.name && !c.archived).sort(byAttention) : []),
+    () => (agent ? conversations.filter((c) => c.blob === agent.name && !c.archived).sort(byAttention) : []),
     [agent, conversations],
   );
   /*
@@ -2338,7 +2338,7 @@ export function ChatsPage({
                     {(() => {
                       const crumbs: { label: string; id: string }[] = [];
                       if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
-                      const blob = blobOf(active);
+                      const blob = active.blob;
                       // A blob's work for a project sits under the blob; the project only asked.
                       if (blob) {
                         crumbs.push({ label: conversations.find((c) => c.id === `agent:${blob}`)?.title ?? blob, id: `agent:${blob}` });
@@ -2366,7 +2366,7 @@ export function ChatsPage({
                     {active.kind === "project" && <span className="chats-role"><span className="sr-only">, </span>Orchestrator</span>}
                     {(active.kind === "agent" || active.role) && <span className="chats-role"><span className="sr-only">, </span>Blob</span>}
                   </h1>
-                  {blobOf(active) && active.projectSlug && (
+                  {active.blob && active.projectSlug && (
                     <p className="chats-lineage">
                       Asked by{" "}
                       <button type="button" className="link" onClick={() => onOpen(`project:${active.projectSlug}`)}>

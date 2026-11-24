@@ -627,6 +627,13 @@ export interface Conversation {
   projectSlug: string | null;
   /** The role this runs as, when it is a blob or an instance of one: blobs/<role>/blob.md. */
   role?: string | null;
+  /**
+   * The blob whose work this is, when it runs as one for a project that
+   * asked and the blob still exists: listed under the blob, never among the
+   * project's chats. The project it carries is the one that asked. A removed
+   * blob's work is an ordinary chat of its project again.
+   */
+  blob?: string;
   /** What the owner set about its role's face, when it runs as one. */
   face?: FaceLook;
   /** What sort of thread this is, for grouping in the list. */

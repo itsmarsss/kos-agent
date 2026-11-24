@@ -630,7 +630,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   const phoneChat = surfaceChat("phone");
   /** Where a chat lives, as a device's chat list groups it: KOS at the root, a project, or a blob. */
   const placeOf = (c: { projectSlug: string | null; role: string | null }): PanelPlaceOf => {
-    if (c.role) return { kind: "blob", name: kernel.labelFor("blob", c.role) ?? c.role };
+    // A removed blob's threads are ordinary chats again, of their project or the root.
+    if (c.role && kernel.standing.blob(c.role)) return { kind: "blob", name: kernel.labelFor("blob", c.role) ?? c.role };
     if (c.projectSlug) return { kind: "project", name: kernel.labelFor("project", c.projectSlug) ?? c.projectSlug };
     return { kind: "kos" };
   };

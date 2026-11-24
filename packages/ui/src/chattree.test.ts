@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Conversation } from "./api.js";
-import { groupChats, placeOf, projectSummary } from "./chattree.js";
+import { blobThread, groupChats, placeOf, projectSummary } from "./chattree.js";
 
 function convo(id: string, over: Partial<Conversation> = {}): Conversation {
   return {
@@ -33,11 +33,30 @@ describe("the conversation tree", () => {
   });
 
   it("keeps a blob's work for a project out of the project's list, and opens it on the blob's page", () => {
-    const asked = convo("cmwtr85gv2:owner", { projectSlug: "interview_prep", role: "follow-ups", title: "Follow ups" });
+    const asked = convo("cmwtr85gv2:owner", { projectSlug: "interview_prep", role: "follow-ups", blob: "follow-ups", title: "Follow ups" });
     const tree = groupChats([asked, convo("mock", { projectSlug: "interview_prep" })]);
     expect(tree.byProject.get("interview_prep")?.map((c) => c.id)).toEqual(["mock"]);
     expect(tree.roots).toEqual([]);
     expect(placeOf(asked.id, asked)).toEqual({ name: "blobs", blob: "follow-ups", id: asked.id });
+  });
+
+  it("gives a removed blob's work back to its project", () => {
+    // The host names no blob once the blob is gone; the role alone does not make it the blob's.
+    const left = convo("cmwtr85gv2:owner", { projectSlug: "interview_prep", role: "follow-ups", title: "Follow ups" });
+    expect(groupChats([left]).byProject.get("interview_prep")?.map((c) => c.id)).toEqual([left.id]);
+    expect(placeOf(left.id, left)).toEqual({ name: "project", slug: "interview_prep", id: left.id });
+  });
+
+  it("shows on a blob's page only that blob's own work", () => {
+    const mine = convo("c1", { projectSlug: "p", role: "follow-ups", blob: "follow-ups" });
+    const theirs = convo("c2", { projectSlug: "p", role: "recap", blob: "recap" });
+    const plain = convo("c3");
+    const list = [mine, theirs, plain];
+    expect(blobThread("follow-ups", undefined, list)).toBe("agent:follow-ups");
+    expect(blobThread("follow-ups", "c1", list)).toBe("c1");
+    expect(blobThread("follow-ups", "c2", list)).toBe("agent:follow-ups");
+    expect(blobThread("follow-ups", "c3", list)).toBe("agent:follow-ups");
+    expect(blobThread("follow-ups", "c1", undefined)).toBe("c1");
   });
 
   it("lists the busy agents first, then the newest", () => {
