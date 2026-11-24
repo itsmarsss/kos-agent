@@ -15,7 +15,7 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import { BEHAVIOUR_KEY } from "./behaviour.js";
 import type { NotifyPayload } from "../tools/notify.js";
 import { withoutTurnContext } from "./context.js";
-import { askedBy, isProjectChat } from "./conversations.js";
+import { blobOf, isProjectChat } from "./conversations.js";
 import { Kernel } from "./kernel.js";
 import { SKILLS_KEY } from "../skills/settings.js";
 import { turnStop } from "./caller.js";
@@ -2044,8 +2044,10 @@ describe("KOS end-to-end flows", () => {
 
     // The thread is the blob's: asked by Career, never one of Career's chats.
     expect(thread).toMatchObject({ projectSlug: career.slug, role: "follow-ups" });
-    expect(askedBy(thread)).toBe(career.slug);
-    expect(isProjectChat(thread, career.slug)).toBe(false);
+    expect(blobOf(thread, kernel.standing)).toBe("follow-ups");
+    expect(isProjectChat(thread, career.slug, kernel.standing)).toBe(false);
+    // Its Discord home is the blob's channel, so its thread goes there and is read by the blob's audience.
+    expect(kernel.threadHome(thread.id)).toBe("agent:follow-ups");
     const places = kernel.surfaceChannels();
     expect(places.find((p) => p.key === `project:${career.slug}`)?.threads?.map((t) => t.conversationId)).not.toContain(thread.id);
     expect(places.find((p) => p.key === "agent:follow-ups")?.threads?.map((t) => t.conversationId)).toEqual([thread.id]);
@@ -2057,6 +2059,17 @@ describe("KOS end-to-end flows", () => {
     expect(said).toContain(`Asked Follow ups to draft a thank-you to each contact · Open @chat:[${thread.id}]`);
     expect(said).toContain("kos:card");
     expect(said).toContain("Wrote to Sam.");
+
+    // Who reads its thread is who reads the blob's channel, where it sits, not the project's.
+    kernel.setChannelAudience("agent:follow-ups", "guests");
+    expect(kernel.channelAudiences()[kernel.threadHome(thread.id)!]).toBe("guests");
+    expect(kernel.channelAudiences()[`project:${career.slug}`]).toBeUndefined();
+
+    // The blob removed: nothing stands for it, so the thread is Career's chat again, laid out under Career.
+    kernel.roles.remove("follow-ups");
+    expect(isProjectChat(thread, career.slug, kernel.standing)).toBe(true);
+    expect(kernel.threadHome(thread.id)).toBe(`project:${career.slug}`);
+    expect(kernel.surfaceChannels().find((p) => p.key === `project:${career.slug}`)?.threads?.map((t) => t.conversationId)).toContain(thread.id);
   });
 
   it("KOS gets a router brief so the hierarchy is a behaviour", async () => {

@@ -5,7 +5,7 @@ import { heardWith } from "../models/heard.js";
 import { saidText } from "../models/types.js";
 import { guestOrigin } from "../kernel/caller.js";
 import { reachesAll } from "../kernel/caretaker.js";
-import { standingKind, type Conversation, type ConversationStore, type Standing } from "../kernel/conversations.js";
+import { blobOf, standingKind, type Conversation, type ConversationStore, type Standing } from "../kernel/conversations.js";
 import type { CongregationMember } from "../kernel/progress.js";
 import type { SessionStore } from "../kernel/session.js";
 
@@ -79,7 +79,7 @@ function inScopeFor(deps: ChatToolDeps): (c: { id: string; projectSlug: string |
  * of the project's chats. The root and Maintenance list everything.
  */
 function listedFor(deps: ChatToolDeps): (c: { role: string | null }) => boolean {
-  return (c) => c.role === null || reachesAll(deps.scope?.());
+  return (c) => blobOf(c, deps.standing()) === null || reachesAll(deps.scope?.());
 }
 
 export interface ChatToolDeps {
@@ -392,7 +392,8 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
       throw new Error(`${target.title} is ${what} and cannot be ${verb}`);
     }
     if (!inScopeFor(deps)(target)) throw new Error(`${target.title} is not in your reach: it belongs to another project`);
-    if (!listedFor(deps)(target)) throw new Error(`${target.title} is the ${target.role} blob's thread, not this project's, and cannot be ${verb} from here`);
+    const blob = blobOf(target, deps.standing());
+    if (blob && !listedFor(deps)(target)) throw new Error(`${target.title} is the ${blob} blob's thread, not this project's, and cannot be ${verb} from here`);
     return target;
   };
 

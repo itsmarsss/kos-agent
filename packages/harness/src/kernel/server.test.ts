@@ -460,6 +460,21 @@ describe("handleApiRequest", () => {
     kernel.roles.remove("research");
   });
 
+  it("lists a blob's work for a project as the blob's while the blob exists", async () => {
+    const career = kernel.standUpProject({ name: "Career", type: "tracker" });
+    kernel.roles.write({ name: "follow-ups", description: "Writes follow-ups", brief: "You write.", memory: "shared" });
+    const work = kernel.spawnAgent("follow-ups", career.slug);
+    const blobOfListed = async (): Promise<string | undefined> =>
+      ((await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" })).body as { id: string; blob?: string }[]).find((c) => c.id === work.id)?.blob;
+    expect(await blobOfListed()).toBe("follow-ups");
+    // Its own thread is the blob's by kind, not as work for a project.
+    kernel.ensureAgentConversation("follow-ups");
+    const own = ((await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" })).body as { id: string; blob?: string }[]).find((c) => c.id === "agent:follow-ups");
+    expect(own?.blob).toBeUndefined();
+    kernel.roles.remove("follow-ups");
+    expect(await blobOfListed()).toBeUndefined();
+  });
+
   it("keeps the dashboard's theme in the workspace, tells devices of a change and carries it on the status", async () => {
     const get = async (path: string): Promise<unknown> => (await handleApiRequest(kernel, { method: "GET", path })).body;
     expect(await get("/api/settings/theme")).toEqual({ theme: "system", chosen: false });

@@ -177,7 +177,7 @@ import { assertFits, attachmentBlocks, readAttachments, type Attachment, type Ke
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId, primarySessionId, upkeepSessionId } from "./session.js";
 import type { TurnMade } from "./turnmade.js";
-import { ConversationStore, type Conversation, conversationKind, isProjectChat, projectConversationId, standingKind, type Standing } from "./conversations.js";
+import { blobOf, ConversationStore, type Conversation, conversationKind, isProjectChat, projectConversationId, standingKind, type Standing } from "./conversations.js";
 import {
   needsKernel,
   parseChatCommand,
@@ -3510,7 +3510,7 @@ export class Kernel {
         const slug = current?.projectSlug ?? null;
         const agents = this.conversations
           .list(userId)
-          .filter((c) => c.projectSlug && !c.id.startsWith("project:") && isProjectChat(c, slug ?? c.projectSlug));
+          .filter((c) => c.projectSlug && !c.id.startsWith("project:") && isProjectChat(c, slug ?? c.projectSlug, this.standing));
         if (agents.length === 0) {
           return { reply: slug ? "No agents in this project yet. `/agent` starts one." : "No agents in any project yet." };
         }
@@ -3536,7 +3536,7 @@ export class Kernel {
         const slug = current?.projectSlug ?? null;
         const pool = this.conversations
           .list(userId)
-          .filter((c) => (slug ? isProjectChat(c, slug) && !c.id.startsWith("project:") : true));
+          .filter((c) => (slug ? isProjectChat(c, slug, this.standing) && !c.id.startsWith("project:") : true));
         const found = resolveConversation(pool, command.target);
         if (!found) return { reply: `No chat matches “${command.target}”. \`/agents\` lists them.` };
         if (found.id === conversationId) return { reply: "That is this chat. Just say it." };
@@ -3855,7 +3855,7 @@ export class Kernel {
         category: "Blobs",
         audience: of(agentConversationId(r.name)),
         // The work it does for projects that asked: the blob's, so under its channel.
-        threads: chats.filter((c) => c.role === r.name && c.id !== agentConversationId(r.name) && !roomPlaceOf(c.id)).map((c) => ({ conversationId: c.id, title: c.title })),
+        ...this.blobThreads(r.name, chats),
       })),
       ...this.manifest
         .list()
@@ -3867,9 +3867,17 @@ export class Kernel {
           category: "Projects",
           audience: of(`project:${p.slug}`),
           // Every open chat of the project, the orchestrator's own and the rooms (shown in their places) aside.
-          threads: chats.filter((c) => isProjectChat(c, p.slug) && c.id !== `project:${p.slug}` && !roomPlaceOf(c.id)).map((c) => ({ conversationId: c.id, title: c.title })),
+          threads: chats.filter((c) => isProjectChat(c, p.slug, this.standing) && c.id !== `project:${p.slug}` && !roomPlaceOf(c.id)).map((c) => ({ conversationId: c.id, title: c.title })),
         })),
     ];
+  }
+
+  /** A blob's work for the projects that asked, laid out under its channel; nothing when there is none. */
+  private blobThreads(name: string, chats: Conversation[]): { threads?: { conversationId: string; title: string }[] } {
+    const threads = chats
+      .filter((c) => c.role === name && c.id !== agentConversationId(name) && !roomPlaceOf(c.id))
+      .map((c) => ({ conversationId: c.id, title: c.title }));
+    return threads.length > 0 ? { threads } : {};
   }
 
   /** Which server thread stands for which chat; absent threads are new chats when spoken in. */
@@ -3908,6 +3916,9 @@ export class Kernel {
     const chat = this.conversations.get(conversationId);
     // A room is shown in its own place, never in a thread of its project's.
     if (!chat || roomPlaceOf(chat.id)) return undefined;
+    // A blob's work for a project sits under the blob's channel and is read by its audience.
+    const blob = blobOf(chat, this.standing);
+    if (blob && chat.id !== agentConversationId(blob)) return agentConversationId(blob);
     if (chat.projectSlug) return chat.id === projectConversationId(chat.projectSlug) ? undefined : `project:${chat.projectSlug}`;
     const kind = conversationKind(chat, owner);
     if (kind === "schedule") return orchestratorId(owner);

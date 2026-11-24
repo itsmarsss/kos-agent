@@ -47,8 +47,10 @@ async function harness(
     hide?: string[];
     /** No conversation is dispatching, as from a bare registry call. */
     anonymous?: boolean;
-    /** The schedules that still exist, by id; every project and blob does. */
+    /** The schedules that still exist, by id; every project does. */
     schedules?: number[];
+    /** The blobs that were removed; every other blob exists. */
+    goneBlobs?: string[];
   } = {},
 ): Promise<Harness> {
   const conversations = new ConversationStore(ws.db);
@@ -70,7 +72,7 @@ async function harness(
       conversations,
       sessions,
       ownerId: OWNER,
-      standing: () => ({ project: () => true, blob: () => true, schedule: (id) => (options.schedules ?? []).includes(id) }),
+      standing: () => ({ project: () => true, blob: (name) => !(options.goneBlobs ?? []).includes(name), schedule: (id) => (options.schedules ?? []).includes(id) }),
       dispatch: (id, text) => {
         asked.push({ id, text });
         return dispatch(id, text);
@@ -189,6 +191,17 @@ describe("a blob's work for a project", () => {
     const rootListed = JSON.parse((await (await harness(ws)).registry.execute("chats.list", {})).content) as { id: string }[];
     expect(rootListed.map((c) => c.id)).toContain(asked.id);
   });
+
+  it("is the project's chat again once the blob is removed: listed, and the project's to put away", async () => {
+    const h = await harness(ws, { scope: "interview_prep", goneBlobs: ["follow-ups"] });
+    const asked = h.conversations.create({ userId: OWNER, title: "Follow ups", projectSlug: "interview_prep", role: "follow-ups" });
+    const listed = JSON.parse((await h.registry.execute("chats.list", {})).content) as { id: string }[];
+    expect(listed.map((c) => c.id)).toEqual([asked.id]);
+    expect((await h.registry.execute("chats.archive", { id: asked.id })).isError).toBe(false);
+    expect(h.conversations.get(asked.id)?.archived).toBe(true);
+    expect((await h.registry.execute("chats.delete", { id: asked.id })).isError).toBe(false);
+    expect(h.conversations.get(asked.id)).toBeUndefined();
+  });
 });
 
 describe("a schedule's thread", () => {
@@ -243,7 +256,7 @@ describe("chats.handoff", () => {
         conversations,
         sessions,
         ownerId: OWNER,
-        standing: () => ({ project: () => true, blob: () => true, schedule: () => true }),
+        standing: () => ({ project: () => true, blob: (name) => !(options.goneBlobs ?? []).includes(name), schedule: () => true }),
         dispatch: async (id, text) => ({ reply: text, conversationId: id }),
         handoff: async (input) => {
           handed.push(input);

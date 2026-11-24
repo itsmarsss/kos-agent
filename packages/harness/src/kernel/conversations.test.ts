@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { askedBy, ConversationStore, isProjectChat, titleFromText } from "./conversations.js";
+import { blobOf, ConversationStore, isProjectChat, titleFromText } from "./conversations.js";
 import { SessionStore } from "./session.js";
 
 describe("titleFromText", () => {
@@ -168,17 +168,23 @@ describe("ConversationStore", () => {
 });
 
 describe("whose a thread is", () => {
-  it("keeps a blob's work for a project under the blob, the project only as who asked", () => {
+  const blobs = new Set(["follow-ups"]);
+  const standing = { blob: (name: string) => blobs.has(name) };
+
+  it("keeps a blob's work for a project under the blob while the blob exists, and gives it back once it is gone", () => {
     // As a blob dispatched from Career was stored before, with no change to the row.
     const asked = { projectSlug: "interview_prep", role: "follow-ups" };
-    expect(isProjectChat(asked, "interview_prep")).toBe(false);
-    expect(askedBy(asked)).toBe("interview_prep");
+    expect(blobOf(asked, standing)).toBe("follow-ups");
+    expect(isProjectChat(asked, "interview_prep", standing)).toBe(false);
 
     const own = { projectSlug: "interview_prep", role: null };
-    expect(isProjectChat(own, "interview_prep")).toBe(true);
-    expect(isProjectChat(own, "garden")).toBe(false);
-    expect(askedBy(own)).toBeNull();
-    // A blob's own thread is asked by no one.
-    expect(askedBy({ projectSlug: null, role: "follow-ups" })).toBeNull();
+    expect(isProjectChat(own, "interview_prep", standing)).toBe(true);
+    expect(isProjectChat(own, "garden", standing)).toBe(false);
+    expect(blobOf(own, standing)).toBeNull();
+
+    // The blob removed: nothing stands for it, so the thread is the project's again.
+    blobs.delete("follow-ups");
+    expect(blobOf(asked, standing)).toBeNull();
+    expect(isProjectChat(asked, "interview_prep", standing)).toBe(true);
   });
 });
