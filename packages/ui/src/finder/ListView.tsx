@@ -7,7 +7,7 @@ import type { DirEntry } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { FILES_LAYOUT, useColumns, type ColumnLayout } from "./columns.js";
 import { levelStyle, treeStyle } from "./indent.js";
-import { dateWords, kindOf, parentOf, sortBy, type Sort, type SortKey } from "./model.js";
+import { dateWords, kindOf, sortBy, type Sort, type SortKey } from "./model.js";
 import { EntryName, rowId, rowProps, stateClass, type RowHandlers } from "./rows.js";
 
 /**
@@ -22,8 +22,8 @@ export interface ListRow {
   depth: number;
   /** A folder's state under its triangle; undefined for a file. */
   open?: boolean;
-  /** A search's or Recents' row: the folder it is in, in place of the triangle. */
-  where?: string;
+  /** A search's or Recents' row: the folder it is in, in place of the triangle; by name, its path from the root the tooltip. */
+  where?: { name: string; path: string };
   /** A contents search's line that matched. */
   match?: string;
 }
@@ -98,7 +98,15 @@ export function ListView({ rows, sort, onSort, onToggle, h, empty, reading = fal
             <FileIcon name={entry.name} kind={entry.kind} size={16} />
             <span className="finder-name-wrap">
               <EntryName entry={entry} h={h} />
-              {(where !== undefined || match) && <span className="finder-where">{match ?? (where === "." ? "Workspace" : where ?? parentOf(entry.path))}</span>}
+              {match ? (
+                <span className="finder-where">{match}</span>
+              ) : (
+                where && (
+                  <span className="finder-where" title={where.path}>
+                    {where.name}
+                  </span>
+                )
+              )}
             </span>
           </span>
           {keys.slice(1).map((key) => (

@@ -26,7 +26,7 @@ import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
 import { ListView } from "./ListView.js";
 const noop = () => undefined;
-const handlers = { selected: new Set(), lead: null, editing: null, over: null, press: noop, open: noop, menu: noop, renamed: noop, drag: () => ({ draggable: true, onDragStart: noop, onDragEnd: noop }), drop: () => ({ onDragOver: noop, onDragLeave: noop, onDrop: noop }) };
+const handlers = { selected: new Set(), lead: null, editing: null, over: null, press: noop, release: noop, open: noop, menu: noop, renamed: noop, drag: () => ({ draggable: true, onDragStart: noop, onDragEnd: noop }), drop: () => ({ onDragOver: noop, onDragLeave: noop, onDrop: noop }) };
 let root;
 window.mount = (width, names) => {
   root?.unmount();

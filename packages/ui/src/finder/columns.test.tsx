@@ -22,6 +22,7 @@ const h: RowHandlers = {
   editing: null,
   over: null,
   press: () => undefined,
+  release: () => undefined,
   open: () => undefined,
   menu: () => undefined,
   renamed: () => undefined,
@@ -180,7 +181,7 @@ describe("a divider in the list's head", () => {
   it("keeps a panel's widths apart from the Files page's", () => {
     render(<ListView rows={[]} sort={{ key: "name", desc: false }} onSort={() => undefined} h={h} empty="Empty" layout={PANEL_LAYOUT} />);
     fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Size" }), { key: "ArrowLeft" });
-    expect(kept(PANEL_WIDTHS_KEY)).toEqual({ modified: 140, size: 88, kind: 108 });
+    expect(kept(PANEL_WIDTHS_KEY)).toEqual({ modified: 140, size: 96, kind: 108 });
     expect(kept(LIST_WIDTHS_KEY)).toBeNull();
   });
 

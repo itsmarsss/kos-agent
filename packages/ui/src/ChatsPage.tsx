@@ -31,7 +31,7 @@ import { ProjectPanel } from "./ProjectPanel.js";
 import { ArtifactRail, ArtifactStrip, type RailOwner, useArtifactTitles, useOwnedArtifacts } from "./ArtifactRail.js";
 import { ArtifactViewer, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
 import { chatIdOf } from "./artifactowner.js";
-import { PANEL_ROOM, usePanelDrawer, useRoomFor } from "./paneldrawer.js";
+import { PANEL_ROOM, panelWidthFor, usePanelDrawer, useWidthOf } from "./paneldrawer.js";
 import { ArtifactOpen, type ArtifactOpeners } from "./ArtifactStep.js";
 import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
@@ -1023,7 +1023,11 @@ export function ChatsPage({
    * remembered: the next narrow visit starts on the chat.
    */
   const root = useRef<HTMLDivElement>(null);
-  const panelFits = useRoomFor(root, PANEL_ROOM);
+  const pageW = useWidthOf(root);
+  const panelFits = pageW === 0 || pageW > PANEL_ROOM;
+  /** The panel as drawn, and as wide as a drag may take it: the chat keeps its room beside it. */
+  const panelShownW = panelWidthFor(panelW, pageW, collapsed ? 0 : railW, PANEL_W.min);
+  const panelMaxW = panelWidthFor(PANEL_W.max, pageW, collapsed ? 0 : railW, PANEL_W.min);
   const drawer = usePanelDrawer(root, panelFits);
   const panelShown = panelFits ? panelOpen : drawer.open;
   const togglePanel = (): void => (panelFits ? rememberPanel() : drawer.toggle());
@@ -1636,7 +1640,7 @@ export function ChatsPage({
       <div
         className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active || composing ? "has-view" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && panelFits && !panelOpen ? "panel-hidden" : ""} ${(project || agent) && drawer.open ? "is-panel-drawer" : ""} ${resizing ? "is-resizing" : ""}`}
         ref={root}
-        style={{ "--rail-w": `${railW}px`, "--panel-w": `${panelW}px` } as CSSProperties}
+        style={{ "--rail-w": `${railW}px`, "--panel-w": `${panelShownW}px` } as CSSProperties}
       >
         {narrow && listOpen && (
           <div className="chats-backdrop" aria-hidden="true" onClick={() => setListOpen(false)} />
@@ -2964,9 +2968,9 @@ export function ChatsPage({
           <Gutter
             className="chats-gutter--panel"
             label="the workspace panel"
-            value={panelW}
+            value={panelShownW}
             min={PANEL_W.min}
-            max={PANEL_W.max}
+            max={panelMaxW}
             fallback={PANEL_W.fallback}
             grows="left"
             onChange={(w) => {

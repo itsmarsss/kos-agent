@@ -8111,8 +8111,10 @@ button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outlin
 }
 
 /* The finder inside a project's card: the card is its frame, so it draws none
-   of its own, and its height is bounded so it scrolls rather than growing the panel. */
-.project-files .finder { height: clamp(18rem, 62vh, 34rem); border: 0; border-radius: 0; background: transparent; }
+   of its own. It is as tall as its folder, up to a bound past which it
+   scrolls rather than growing the panel: a fixed height left a folder of two
+   files a box of empty rows that pushed the artifacts and tables out of view. */
+.project-files .finder { height: auto; min-height: 13rem; max-height: clamp(18rem, 62vh, 34rem); border: 0; border-radius: 0; background: transparent; }
 
 /* —— Office files, drawn (OfficeView.tsx) —— */
 /* An Office file fills the window: the grid, the slides or the page scroll in themselves, under their own heads. */
