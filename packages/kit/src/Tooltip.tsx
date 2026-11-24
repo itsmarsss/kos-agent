@@ -60,6 +60,12 @@ export interface TooltipAnchorProps {
 export interface TooltipProps {
   /** What the card says. */
   tip: ReactNode;
+  /**
+   * What the card says in words, for a screen reader whether or not it is
+   * open: the element's description, or its link's or button's when it sits
+   * in one.
+   */
+  describe?: string;
   /** The one element it points at, which takes the anchor's props: a ref, focus and the pointer. */
   children: ReactElement<TooltipAnchorProps>;
 }
@@ -68,18 +74,22 @@ export interface TooltipProps {
  * A small card over what it explains, as Discord shows a time.
  *
  * It opens at once under the pointer, and a tap toggles it where there is no
- * pointer to hover. It is no tab stop of its own, since a long chat would be
- * one per time, but focus that lands on it another way (a screen reader, a
- * script) opens it, as does focus on a link or button it sits inside, which
- * it then leaves the only focusable one. A press away or Escape closes it;
+ * pointer to hover (not inside a link or button, whose tap opens what it
+ * opens). It is no tab stop of its own, since a long chat would be one per
+ * time, but focus that lands on it another way (a screen reader, a script)
+ * opens it, as does keyboard focus on a link or button it sits inside, which
+ * it then leaves the only focusable one; a press that focuses the row does
+ * not. It never points at an element hidden in its place. A press away or
+ * Escape closes it;
  * a scroll or resize carries it along with its element, and closes it only
  * when the element leaves the window. One is open at a time. It sits above
  * its element, below when there is no room above, and inside the window side
  * to side, its arrow on the element. It is drawn at the body, so a bubble
  * that clips its overflow does not cut it off.
  */
-export function Tooltip({ tip, children }: TooltipProps): ReactElement {
+export function Tooltip({ tip, describe, children }: TooltipProps): ReactElement {
   const id = useId();
+  const describedBy = useId();
   const [open, setOpen] = useState(false);
   const [spot, setSpot] = useState<Spot | null>(null);
   const anchor = useRef<HTMLElement>(null);
@@ -95,7 +105,10 @@ export function Tooltip({ tip, children }: TooltipProps): ReactElement {
 
   useEffect(() => {
     if (!host) return undefined;
-    const show = (): void => setOpen(true);
+    // A press focuses the link or button it lands on; only focus the keys moved there opens the card.
+    const show = (): void => {
+      if (host.matches(":focus-visible")) setOpen(true);
+    };
     const hide = (): void => setOpen(false);
     host.addEventListener("focus", show);
     host.addEventListener("blur", hide);
@@ -104,6 +117,17 @@ export function Tooltip({ tip, children }: TooltipProps): ReactElement {
       host.removeEventListener("blur", hide);
     };
   }, [host]);
+
+  // The row is what a screen reader lands on, so the words describe it.
+  useEffect(() => {
+    if (!host || !describe) return undefined;
+    const before = host.getAttribute("aria-describedby");
+    host.setAttribute("aria-describedby", [before, describedBy].filter(Boolean).join(" "));
+    return () => {
+      if (before === null) host.removeAttribute("aria-describedby");
+      else host.setAttribute("aria-describedby", before);
+    };
+  }, [host, describe, describedBy]);
 
   // Escape is heard last and passed on: a card the pointer merely rests on must not
   // swallow the Escape meant for the preview, drawer or dialog it sits in. A scroll
@@ -130,6 +154,11 @@ export function Tooltip({ tip, children }: TooltipProps): ReactElement {
       const at = anchor.current?.getBoundingClientRect();
       const box = card.current?.getBoundingClientRect();
       if (!at || !box) return;
+      // An element hidden in its place (a rail's time under the row's ⋯) has no card to point at.
+      if (getComputedStyle(anchor.current!).visibility === "hidden") {
+        setOpen(false);
+        return;
+      }
       if (at.bottom < 0 || at.top > window.innerHeight || at.right < 0 || at.left > window.innerWidth) {
         setOpen(false);
         return;
@@ -160,7 +189,7 @@ export function Tooltip({ tip, children }: TooltipProps): ReactElement {
   const anchorProps: TooltipAnchorProps = {
     ref: anchor,
     tabIndex: host ? undefined : -1,
-    "aria-describedby": open ? id : undefined,
+    "aria-describedby": describe && !host ? describedBy : open ? id : undefined,
     onPointerEnter: (event) => {
       if (!touch(event)) setOpen(true);
     },
@@ -171,7 +200,8 @@ export function Tooltip({ tip, children }: TooltipProps): ReactElement {
       tapping.current = touch(event);
     },
     onClick: () => {
-      if (tapping.current) setOpen((was) => !was);
+      // Inside a row, a tap opens the row; the card would only flash before the page changes.
+      if (tapping.current && !host) setOpen((was) => !was);
       tapping.current = false;
     },
     onFocus: () => {
@@ -183,6 +213,14 @@ export function Tooltip({ tip, children }: TooltipProps): ReactElement {
   return (
     <>
       {cloneElement(children, anchorProps)}
+      {/* Kept at the body, out of the row's own words. */}
+      {describe &&
+        createPortal(
+          <span id={describedBy} hidden>
+            {describe}
+          </span>,
+          document.body,
+        )}
       {open &&
         createPortal(
           <div
