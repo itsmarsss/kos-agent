@@ -2018,7 +2018,7 @@ describe("KOS end-to-end flows", () => {
 
   it("a blob a project asks works with the project's tables in a thread of the blob's, and the project's chat keeps a line and a card", async () => {
     // Answered by whose turn it is: the blob's brief marks its own.
-    const blob = [toolCall("b1", "sql", { sql: "SELECT name FROM career_contacts" }), text("Wrote to Sam.")];
+    const blob = [toolCall("b1", "sql", { sql: "SELECT name FROM career_contacts" }), text("Wrote to Sam with key sk-live-0123456789abcdef.")];
     const project = [toolCall("p1", "blobs.dispatch", { agent: "follow-ups", task: "Draft a thank-you to each contact." }), text("Asked Follow ups.")];
     const requests: GenerateRequest[] = [];
     kernel = await boot({
@@ -2032,10 +2032,11 @@ describe("KOS end-to-end flows", () => {
     kernel.migrator.migrate(career.slug, { op: "create_table", table: "contacts", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "name", type: "TEXT" }] });
     kernel.workspace.db.prepare(`INSERT INTO ${career.slug}_contacts (name) VALUES (?)`).run("Sam");
     kernel.roles.write({ name: "follow-ups", description: "Writes follow-ups", brief: "You write follow-ups.", memory: "shared" });
+    kernel.secrets.set("MAIL_KEY", "sk-live-0123456789abcdef");
 
     await kernel.handleProjectTurn(career.slug, "have follow-ups thank my contacts");
     const thread = kernel.conversations.list("owner").find((c) => c.role === "follow-ups" && c.id !== "agent:follow-ups")!;
-    await vi.waitFor(() => expect(JSON.stringify(kernel.sessions.get(thread.id))).toContain("Wrote to Sam."));
+    await vi.waitFor(() => expect(JSON.stringify(kernel.sessions.get(thread.id))).toContain("Wrote to Sam with key"));
 
     // Its reach is the project's, as before: it read the project's table.
     const read = requests.flatMap((r) => r.messages).flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result" && b.toolUseId === "b1") as { content: unknown; isError?: boolean };
@@ -2058,7 +2059,9 @@ describe("KOS end-to-end flows", () => {
     const said = JSON.stringify(kernel.sessions.get(career.conversationId));
     expect(said).toContain(`Asked Follow ups to draft a thank-you to each contact · Open @chat:[${thread.id}]`);
     expect(said).toContain("kos:card");
-    expect(said).toContain("Wrote to Sam.");
+    expect(said).toContain("> Wrote to Sam with key");
+    // The card quotes the blob, scrubbed: a secret in its reply is not kept in Career's chat.
+    expect(said).not.toContain("sk-live-0123456789abcdef");
 
     // Who reads its thread is who reads the blob's channel, where it sits, not the project's.
     kernel.setChannelAudience("agent:follow-ups", "guests");

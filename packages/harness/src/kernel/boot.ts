@@ -656,7 +656,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
       // The chat that asked gets its line and card from the tool; the owner is told here.
       onDispatchDone: (_id, title, reply) => kernelRef?.caretaker.tell(`${title} answered: ${reply.slice(0, 600)}`),
-      note: (id, text) => kernelRef?.noteIn(id, text),
+      // The card quotes the blob's reply, so a secret in it is scrubbed before it is kept.
+      note: (id, text) => kernelRef?.noteIn(id, kernelRef.secrets.scrub(text)),
     }),
     ...(options.extraModules ?? []),
   ];

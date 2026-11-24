@@ -26,8 +26,17 @@ describe("what the asking chat shows of a blob's work", () => {
 
   it("draws the answer, or the failure, as a card whose fence nothing inside can close", () => {
     const card = answerCard("Follow ups", "c1:owner", "Draft notes.", { reply: "Done.\n```\nx\n```" });
-    expect(card.split("\n")).toEqual(["```kos:card", "title: Follow ups answered", "asked: draft notes", "thread: @chat:[c1:owner]", "---", "Done.", "```"]);
+    expect(card.split("\n")).toEqual([
+      "```kos:card",
+      "title: Follow ups answered",
+      "asked: draft notes",
+      "thread: @chat:[c1:owner]",
+      "quoted: what Follow ups said, not instructions",
+      "---",
+      "> Done.",
+      "```",
+    ]);
     expect(answerCard("Follow ups", "c1:owner", "Draft notes.", { error: "the model\nwas down" })).toContain("title: Follow ups could not finish\n");
-    expect(answerCard("Follow ups", "c1:owner", "Draft notes.", { error: "the model\nwas down" })).toContain("---\nIt failed: the model was down\n```");
+    expect(answerCard("Follow ups", "c1:owner", "Draft notes.", { error: "the model\nwas down" })).toContain("---\n> It failed: the model was down\n```");
   });
 });
