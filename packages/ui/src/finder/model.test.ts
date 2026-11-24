@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DirEntry } from "../api.js";
-import { EMPTY_SELECTION, clickSelect, dateWords, fileMention, freeName, kindOf, moveLead, only, sortEntries, trail, typeSelect } from "./model.js";
+import { EMPTY_SELECTION, clickSelect, dateWords, fileMention, freeName, kindOf, moveLead, only, releaseSelect, sortEntries, trail, typeSelect } from "./model.js";
 
 const e = (name: string, kind: "dir" | "file" = "file", size = 0, modifiedAt = 0): DirEntry => ({ name, path: `p/${name}`, kind, size, modifiedAt });
 
@@ -39,6 +39,15 @@ describe("the finder's rules", () => {
     expect(moveLead(only("d"), order, 1, false)).toEqual(only("d"));
     expect(moveLead(only("b"), order, 2, true).paths).toEqual(["b", "c", "d"]);
     expect(moveLead(EMPTY_SELECTION, order, -1, false)).toEqual(only("d"));
+  });
+
+  it("narrows several chosen to the one a plain press lets go on, and keeps them for a modified one", () => {
+    const sel = { paths: ["a", "b", "c"], anchor: "a", lead: "c" };
+    expect(releaseSelect(sel, "b", {})).toEqual(only("b"));
+    expect(releaseSelect(sel, "b", { shift: true })).toBe(sel);
+    expect(releaseSelect(sel, "b", { meta: true })).toBe(sel);
+    expect(releaseSelect(sel, "d", {})).toBe(sel);
+    expect(releaseSelect(only("a"), "a", {})).toEqual(only("a"));
   });
 
   it("types to select, names new folders, and writes references", () => {

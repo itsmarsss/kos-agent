@@ -15,7 +15,7 @@ import { GalleryView } from "./GalleryView.js";
 import { FILES_LAYOUT, PANEL_LAYOUT } from "./columns.js";
 import { ListView, type ListRow } from "./ListView.js";
 import { FinderMenu, type MenuItem } from "./Menu.js";
-import { EMPTY_SELECTION, clickSelect, freeName, kindOf, moveLead, nameOf, only, parentOf, rememberView, sortBy, sortEntries, trail, typeSelect, viewFor, within, type FinderView, type Selection, type Sort } from "./model.js";
+import { EMPTY_SELECTION, clickSelect, freeName, kindOf, moveLead, nameOf, only, parentOf, releaseSelect, rememberView, sortBy, sortEntries, trail, typeSelect, viewFor, within, type FinderView, type Selection, type Sort } from "./model.js";
 import { MoveDialog } from "./MoveDialog.js";
 import { NewFolderDialog } from "./NewFolderDialog.js";
 import { useFinderOps } from "./ops.js";
@@ -452,6 +452,7 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, focusL
       }
       setSel((s) => clickSelect(s, entry.path, order, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey }));
     },
+    release: (e, entry) => setSel((s) => releaseSelect(s, entry.path, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey })),
     open: openEntry,
     menu: (at, entry) => {
       const keep = sel.paths.includes(entry.path);

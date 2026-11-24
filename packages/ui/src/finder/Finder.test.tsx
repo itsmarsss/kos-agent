@@ -97,6 +97,20 @@ describe("the finder", () => {
     expect(screen.getByText("5 of 5 items")).toBeTruthy();
   });
 
+  it("narrows a choice of several to the one clicked, but keeps them all for a drag", async () => {
+    await openGarden();
+    fireEvent.mouseDown(row("projects/garden/a.md"));
+    fireEvent.mouseDown(row("projects/garden/c.txt"), { shiftKey: true });
+    fireEvent.click(row("projects/garden/c.txt"), { shiftKey: true });
+    expect(chosen()).toHaveLength(3);
+    // Pressed on one already chosen: all are kept, so a drag would take them all.
+    fireEvent.mouseDown(row("projects/garden/b.txt"));
+    expect(chosen()).toHaveLength(3);
+    // Let go with no drag: that one alone.
+    fireEvent.click(row("projects/garden/b.txt"));
+    expect(chosen()).toEqual(["projects/garden/b.txt"]);
+  });
+
   it("goes to a name as it is typed", async () => {
     await openGarden();
     key("p");

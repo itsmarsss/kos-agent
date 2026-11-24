@@ -22,6 +22,7 @@ const h: RowHandlers = {
   editing: null,
   over: null,
   press: () => undefined,
+  release: () => undefined,
   open: () => undefined,
   menu: () => undefined,
   renamed: () => undefined,
