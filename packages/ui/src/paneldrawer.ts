@@ -1,5 +1,5 @@
 import { useFocusTrap } from "@kos/kit";
-import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
 
 /**
  * The chats page's third column, the project's or the blob's panel, as a
@@ -21,9 +21,14 @@ export const CHAT_ROOM = 480;
 /** The element's width as laid out, kept up as it resizes; 0 until it has been. */
 export function useWidthOf(ref: RefObject<HTMLElement | null>): number {
   const [width, setWidth] = useState(0);
-  useEffect(() => {
+  // Measured before the first paint, so a narrow window does not draw the panel at its kept width and then slide.
+  useLayoutEffect(() => {
     const el = ref.current;
-    if (!el || typeof ResizeObserver !== "function") return;
+    if (!el) return;
+    // Its content box, as the observer reports it.
+    const style = getComputedStyle(el);
+    setWidth(el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) || 0);
+    if (typeof ResizeObserver !== "function") return;
     const watch = new ResizeObserver(([entry]) => entry && setWidth(entry.contentRect.width));
     watch.observe(el);
     return () => watch.disconnect();
