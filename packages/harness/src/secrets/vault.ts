@@ -561,14 +561,15 @@ export class Vault {
     this.refresh();
   }
 
-  status(): { state: "absent" | "locked" | "ready"; slots: VaultSlotKind[]; devices?: DeviceSlotInfo[]; problem?: string } {
+  status(): { state: "absent" | "locked" | "ready"; slots: VaultSlotKind[]; devices?: DeviceSlotInfo[]; problem?: string; atLogin?: string } {
     this.refresh();
     // A file that is there but will not read is a vault shut, not one missing: init must not write over it.
     if (!this.doc) return { state: this.stamp ? "locked" : "absent", slots: [], ...(this.problem ? { problem: this.problem } : {}) };
     const slots = [...new Set(this.doc.slots.map((s) => s.kind))];
     const devices = this.devices();
-    const problem = this.problem ?? (this.dek ? this.warning : this.deviceProblem) ?? (this.dek ? this.indexProblem : this.shut() && this.indexProblem);
-    return { state: this.dek ? "ready" : "locked", slots, ...(devices.length ? { devices } : {}), ...(problem ? { problem } : {}) };
+    const problem = this.problem ?? (this.dek ? this.warning : undefined) ?? (this.dek ? this.indexProblem : this.shut() && this.indexProblem);
+    const atLogin = this.dek ? undefined : this.deviceProblem;
+    return { state: this.dek ? "ready" : "locked", slots, ...(devices.length ? { devices } : {}), ...(problem ? { problem } : {}), ...(atLogin ? { atLogin } : {}) };
   }
 
   /** The device slots: the Macs that open the vault at login. */

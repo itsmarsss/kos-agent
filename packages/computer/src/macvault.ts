@@ -105,7 +105,7 @@ export function unlockAtLogin(deps: { vault: Vault; hub: DeviceHub; macs: MacVau
     asking = true;
     try {
       const opened = await vault.unlockWithDevice(macs.anyHere());
-      log(opened ? "secrets: KOS for Mac opened the vault" : `secrets: ${vault.status().problem ?? "KOS for Mac did not open the vault"}`);
+      log(opened ? "secrets: KOS for Mac opened the vault" : `secrets: ${vault.status().atLogin ?? "KOS for Mac did not open the vault"}`);
     } catch (err) {
       log(`secrets: KOS for Mac did not open the vault: ${words(err)}`);
     } finally {

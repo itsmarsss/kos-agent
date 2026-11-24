@@ -327,3 +327,48 @@ describe("the Secrets page", () => {
     expect(writes).not.toHaveBeenCalled();
   });
 });
+
+describe("unlock at login with KOS for Mac", () => {
+  it("is offered beside a passphrase when KOS for Mac runs here, and adds the slot", async () => {
+    const on: VaultStatus = { state: "ready", slots: ["passphrase", "device"], devices: [{ id: "s2", name: "Studio Mac" }], scrubbed: 3, mac: { name: "Studio Mac" } };
+    serve("ready", { "POST /api/secrets/devices": () => on }, { slots: ["passphrase"], mac: { name: "Studio Mac" } });
+    render(<SecretsPage />);
+    fireEvent.click(await screen.findByText("Unlock at login with KOS for Mac"));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/api/secrets/devices")).toBe(true));
+    expect(await screen.findByText("KOS for Mac now opens the vault at login.")).toBeTruthy();
+  });
+
+  it("says why it cannot be turned on: no passphrase, or no Mac here", async () => {
+    serve("ready", {}, { slots: ["keyfile"], mac: { name: "Studio Mac" } });
+    render(<SecretsPage />);
+    const button = (await screen.findByText("Unlock at login with KOS for Mac")) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText(/Set a passphrase first/)).toBeTruthy();
+    cleanup();
+    serve("ready", {}, { slots: ["passphrase"], mac: { reason: "KOS for Mac is not running on this computer" } });
+    render(<SecretsPage />);
+    expect(((await screen.findByText("Unlock at login with KOS for Mac")) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("KOS for Mac is not running on this computer")).toBeTruthy();
+  });
+
+  it("shows the Mac that opens it, and turns it off with the passphrase", async () => {
+    const off: VaultStatus = { state: "ready", slots: ["passphrase"], scrubbed: 3, mac: { name: "Studio Mac" } };
+    serve("ready", { "POST /api/secrets/devices/remove": () => off }, { slots: ["passphrase", "device"], devices: [{ id: "s2", name: "Studio Mac" }], mac: { name: "Studio Mac" } });
+    render(<SecretsPage />);
+    expect(await screen.findByText("At login, by KOS for Mac on Studio Mac; the passphrase is the way back in")).toBeTruthy();
+    expect(screen.queryByText("Remove passphrase")).toBeNull();
+    fireEvent.click(screen.getByText("Turn off"));
+    const pass = (await screen.findByLabelText(/^Passphrase/)) as HTMLInputElement;
+    fireEvent.change(pass, { target: { value: "a long passphrase" } });
+    fireEvent.submit(pass.form!);
+    await waitFor(() => expect(calls.find((c) => c.path === "/api/secrets/devices/remove")?.body).toEqual({ slot: "s2", passphrase: "a long passphrase" }));
+  });
+
+  it("says when the vault is locked that the Mac opens it, and why it did not", async () => {
+    serve("locked", {}, { slots: ["passphrase", "device"], devices: [{ id: "s2", name: "Studio Mac" }], atLogin: "KOS for Mac did not open the vault (Studio Mac: the device is offline); the passphrase still opens it" });
+    render(<SecretsPage />);
+    expect(await screen.findByText(/KOS for Mac on Studio Mac opens the vault when it connects/)).toBeTruthy();
+    expect(screen.getByText(/the device is offline/)).toBeTruthy();
+    expect(screen.getByLabelText(/^Passphrase/)).toBeTruthy();
+  });
+});

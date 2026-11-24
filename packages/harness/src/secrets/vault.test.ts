@@ -682,12 +682,12 @@ describe("Vault device slots", () => {
     await withMac();
     const fresh = vaultAt();
     expect(await fresh.unlockWithDevice(fakeMac().unwrap)).toBe(false);
-    expect(fresh.status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/Studio Mac: this Mac holds another key.*passphrase still opens it/) });
+    expect(fresh.status()).toMatchObject({ state: "locked", atLogin: expect.stringMatching(/Studio Mac: this Mac holds another key.*passphrase still opens it/) });
     const offline: DeviceUnwrapper = async () => {
       throw new Error("the device is offline");
     };
     expect(await fresh.unlockWithDevice(offline)).toBe(false);
-    expect(fresh.status().problem).toMatch(/offline/);
+    expect(fresh.status().atLogin).toMatch(/offline/);
     await fresh.unlock(PASS);
     expect(fresh.status()).toEqual({ state: "ready", slots: ["passphrase", "device"], devices: [{ id: "s2", name: "Studio Mac" }] });
   }, 30_000);

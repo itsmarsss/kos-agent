@@ -92,6 +92,8 @@ export interface VaultStatus {
   scrubbed: number;
   /** Why a vault that is there is not ready, when it is not the passphrase it waits for. */
   problem?: string;
+  /** Why KOS for Mac did not open a locked vault at login; the passphrase still does. */
+  atLogin?: string;
 }
 
 /** What a new secret or an edit gives as its values; an omitted or empty one is unchanged. */

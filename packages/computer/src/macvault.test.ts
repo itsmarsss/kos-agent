@@ -120,10 +120,10 @@ describe("the vault opened by KOS for Mac", () => {
     // An answer sealed for another slot: the host's open refuses it.
     mac.answers.set("vault.unwrap", (p) => ({ ok: true, result: { ...sealToHost(Buffer.alloc(32, 1), Buffer.from(p.hostEpk as string, "base64"), p.vault as string, "s9") } }));
     expect(await vault.unlockWithDevice(macs.anyHere())).toBe(false);
-    expect(vault.status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/not sealed to this request/) });
+    expect(vault.status()).toMatchObject({ state: "locked", atLogin: expect.stringMatching(/not sealed to this request/) });
     mac.answers.set("vault.unwrap", () => ({ ok: false, code: "key", message: "This Mac holds another vault key." }));
     expect(await vault.unlockWithDevice(macs.anyHere())).toBe(false);
-    expect(vault.status().problem).toMatch(/another vault key/);
+    expect(vault.status().atLogin).toMatch(/another vault key/);
     await vault.unlock(PASS);
     expect(vault.status().state).toBe("ready");
   }, 30_000);

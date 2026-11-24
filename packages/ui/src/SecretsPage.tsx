@@ -191,6 +191,7 @@ function UnlockCard({ status, onDone }: { status: VaultStatus; onDone: (s: Vault
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const waits = status.slots.includes("passphrase") && !status.problem;
+  const mac = status.devices?.[0]?.name;
   const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     // Read, and cleared only once it has worked: a failed try (KOS restarting, say) keeps what was typed.
@@ -216,9 +217,10 @@ function UnlockCard({ status, onDone }: { status: VaultStatus; onDone: (s: Vault
     <Card title="Vault" pill={<Pill tone="warn">Locked</Pill>} className="secret-gate">
       <form className="secret-gate-form" onSubmit={(e) => void submit(e)} autoComplete="off">
         <p className="hint">
-          {waits ? "The vault has a passphrase, so it stays locked after KOS starts. " : ""}
+          {waits && mac ? `KOS for Mac on ${mac} opens the vault when it connects; until then, or if it cannot, type the passphrase. ` : waits ? "The vault has a passphrase, so it stays locked after KOS starts. " : ""}
           Until it is unlocked, KOS cannot fill anything from it, and its values are not masked word for word in what KOS writes; only their shapes (a card number, a key) are.
         </p>
+        {waits && status.atLogin && <p className="secret-warn">{status.atLogin}</p>}
         {waits && (
           <div className="secret-gate-row">
             <SecretField label="Passphrase" name="passphrase" autoFocus />
@@ -233,10 +235,18 @@ function UnlockCard({ status, onDone }: { status: VaultStatus; onDone: (s: Vault
   );
 }
 
-/** The vault itself: how it opens, what was masked since boot, its passphrase, rotating its key and wiping it. */
+/** How the vault opens, in words: each way in, the passphrase named as the way back. */
+export function unlocksWords(status: VaultStatus): string {
+  const macs = (status.devices ?? []).map((d) => d.name);
+  if (macs.length) return `At login, by KOS for Mac on ${macs.join(" or ")}; the passphrase is the way back in`;
+  return status.slots.includes("passphrase") ? "When you type the passphrase" : "On its own when KOS starts";
+}
+
+/** The vault itself: how it opens, what was masked since boot, its passphrase, unlock at login, rotating its key and wiping it. */
 function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: VaultStatus) => void }): ReactElement {
   const hasPassphrase = status.slots.includes("passphrase");
-  const [open, setOpen] = useState<"passphrase" | "wipe" | null>(null);
+  const devices = status.devices ?? [];
+  const [open, setOpen] = useState<"passphrase" | "wipe" | "login-off" | null>(null);
   const [typed, setTyped] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -257,7 +267,7 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
       setBusy(false);
     }
   };
-  const toggle = (which: "passphrase" | "wipe"): void => {
+  const toggle = (which: "passphrase" | "wipe" | "login-off"): void => {
     setOpen((o) => (o === which ? null : which));
     setError(null);
     setTyped("");
@@ -279,8 +289,8 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
       <dl className="secret-facts">
         <div>
           <dt>Unlocks</dt>
-          <dd title={hasPassphrase ? "The vault has a passphrase and no key file" : "A key file on this computer, outside the workspace, opens it"}>
-            {hasPassphrase ? "When you type the passphrase" : "On its own when KOS starts"}
+          <dd title={devices.length ? "KOS for Mac keeps a key in this Mac's Secure Enclave that opens the vault while you are logged in" : hasPassphrase ? "The vault has a passphrase and no key file" : "A key file on this computer, outside the workspace, opens it"}>
+            {unlocksWords(status)}
           </dd>
         </div>
         <div>
@@ -299,6 +309,33 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
         </button>
         {note && <span className="hint">{note}</span>}
       </div>
+      <LoginUnlock status={status} busy={busy} open={open === "login-off"} onAdd={() => void run(secretsApi.addDevice, "KOS for Mac now opens the vault at login.")} onToggleOff={() => toggle("login-off")} />
+      {open === "login-off" && devices[0] && (
+        <form
+          className="secret-wipe"
+          aria-label="Turn off unlock at login"
+          autoComplete="off"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const { passphrase } = takeSecretValues(e.currentTarget);
+            if (!passphrase) return setError("Type the passphrase.");
+            void run(() => secretsApi.removeDevice(devices[0]!.id, passphrase), "KOS for Mac no longer opens the vault; it waits for the passphrase after each start.");
+          }}
+        >
+          <p className="hint">After this the vault waits for the passphrase after each start. The vault gets a new key, so this Mac opens no copy of it either.</p>
+          <div className="secret-gate-row">
+            <SecretField label="Passphrase" name="passphrase" autoFocus />
+          </div>
+          <div className="secret-vault-acts secret-confirm-acts">
+            <button type="button" className="btn" onClick={() => setOpen(null)}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn--primary" disabled={busy}>
+              Turn off
+            </button>
+          </div>
+        </form>
+      )}
       {/* Apart from the routine two, and said for what it is. */}
       <div className="secret-vault-danger">
         <span className="hint">Erase the vault and every secret in it, for good.</span>
@@ -312,7 +349,9 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
             changePassphrase(e.currentTarget, false);
           }}>
           <p className="hint">
-            {hasPassphrase
+            {devices.length
+              ? "Change it; it stays the way back in. To go back to the key file, turn off unlock at login first."
+              : hasPassphrase
               ? "Change it, or remove it to go back to the key file. Either needs the current one."
               : "With a passphrase the key file is erased: the vault is locked after each start until you type it, and a forgotten passphrase loses every secret."}
           </p>
@@ -325,7 +364,7 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
             <button type="submit" className="btn btn--primary" disabled={busy}>
               {hasPassphrase ? "Change passphrase" : "Set passphrase"}
             </button>
-            {hasPassphrase && (
+            {hasPassphrase && !devices.length && (
               <button type="button" className="btn" disabled={busy} onClick={(e) => changePassphrase(e.currentTarget.form!, true)}>
                 Remove passphrase
               </button>
@@ -366,5 +405,35 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
       )}
       {error && <p className="field-error" role="alert">{error}</p>}
     </Card>
+  );
+}
+
+/**
+ * Unlock at login with KOS for Mac: on, the Mac on this computer opens the
+ * vault whenever it connects, from a key in its Secure Enclave; off, the
+ * passphrase after each start. Offered beside a passphrase only, which stays
+ * the way back in.
+ */
+function LoginUnlock({ status, busy, open, onAdd, onToggleOff }: { status: VaultStatus; busy: boolean; open: boolean; onAdd: () => void; onToggleOff: () => void }): ReactElement | null {
+  const device = status.devices?.[0];
+  if (device) {
+    return (
+      <div className="secret-vault-acts">
+        <span className="hint">Unlock at login with KOS for Mac on {device.name}: on.</span>
+        <button type="button" className="btn btn--sm" aria-expanded={open} onClick={onToggleOff}>
+          Turn off
+        </button>
+      </div>
+    );
+  }
+  if (!status.mac) return null;
+  const why = !status.slots.includes("passphrase") ? "Set a passphrase first: it is the way back in if the Mac cannot open the vault." : "reason" in status.mac ? status.mac.reason : undefined;
+  return (
+    <div className="secret-vault-acts">
+      <button type="button" className="btn" disabled={busy || why !== undefined} title="KOS for Mac keeps a key in this Mac's Secure Enclave and opens the vault whenever you are logged in, with no passphrase to type" onClick={onAdd}>
+        Unlock at login with KOS for Mac
+      </button>
+      <span className="hint">{why ?? `On ${"name" in status.mac ? status.mac.name : "this Mac"}; the passphrase stays the way back in.`}</span>
+    </div>
   );
 }
