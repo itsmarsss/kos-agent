@@ -14,7 +14,7 @@ export { SECRET_FIELDS, SECRET_KINDS, SECRET_REQUIRED, type SecretFieldName, typ
 export * from "./modules/index.js";
 export { JailError, resolvePath } from "./jail/index.js";
 export { Workspace, openDatabase, DB_FILENAME, type Db } from "./store/index.js";
-export { deviceInfo, hasSecretRef, keyFrom, openFromDevice, p256Pair, P256_POINT_BYTES, scrubDeep, sealToHost, scrubShapes, usesSecret, SecretsRegistry, secretsRoutes, Vault, VaultError, vaultDir, type DeviceSlotInfo, type DeviceUnwrapper, type DeviceUnwrapRequest, type P256Pair, type SecretMeta, type UnwrapAnswer, type VaultDevices, Verifiers, harnessNameOf, HARNESS_KEYS, applyEnvMove, planEnvMove, type EnvMove } from "./secrets/index.js";
+export { applyEnvMove, deviceInfo, HARNESS_ENV, HARNESS_KEYS, harnessNameOf, hasSecretRef, keyFrom, openFromDevice, p256Pair, P256_POINT_BYTES, planEnvMove, scrubDeep, scrubShapes, sealToHost, usesSecret, SecretsRegistry, secretsRoutes, Vault, VaultError, vaultDir, Verifiers, type DeviceSlotInfo, type DeviceUnwrapper, type DeviceUnwrapRequest, type EnvMove, type P256Pair, type SecretMeta, type UnwrapAnswer, type VaultDevices } from "./secrets/index.js";
 export { SecretUses } from "./ops/secretuses.js";
 export * from "./models/index.js";
 export * from "./risk/index.js";

@@ -134,6 +134,13 @@ describe("the file secrets live in", () => {
       writeEnvFile(envPath, workspace, { OPENAI_API_KEY: "new" });
       expect(statSync(envPath).mode & 0o777).toBe(0o600);
     });
+
+    it("makes a new install's folder, owner-only", () => {
+      const fresh = join(root, "home", ".kos", "env");
+      writeEnvFile(fresh, workspace, { OPENAI_API_KEY: "sk-x" });
+      expect(statSync(join(root, "home", ".kos")).mode & 0o777).toBe(0o700);
+      expect(statSync(fresh).mode & 0o777).toBe(0o600);
+    });
   });
 
   describe("showing a key without giving it away", () => {

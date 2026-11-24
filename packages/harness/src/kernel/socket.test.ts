@@ -117,14 +117,17 @@ describe("the dashboard's socket", () => {
     ws.send(JSON.stringify({ op: "watch", channel: "events" }));
     await until(() => heard.length > 0);
     expect(heard[0]).toMatchObject({ channel: "events", event: { kind: "turn-start", conversationId: "c1" } });
+    // A stream's tail is held back while the boot's key is looked for in it, and goes out by the turn's end.
     kernel.progress.emit({ kind: "delta", conversationId: "c1", of: "text", text: "hello" });
-    await until(() => heard.length > 1);
+    kernel.progress.emit({ kind: "turn-end", conversationId: "c1" });
+    await until(() => heard.length > 2);
     expect(heard[1]).toMatchObject({ channel: "events", event: { kind: "delta", text: "hello" } });
     ws.send(JSON.stringify({ op: "unwatch", channel: "events" }));
     await new Promise((r) => setTimeout(r, 30));
     kernel.progress.emit({ kind: "delta", conversationId: "c1", of: "text", text: "unheard" });
+    kernel.progress.emit({ kind: "turn-end", conversationId: "c1" });
     await new Promise((r) => setTimeout(r, 30));
-    expect(heard).toHaveLength(2);
+    expect(heard).toHaveLength(3);
   });
 
   it("tells the browser's status, and says why a hand on a tab that is not there went nowhere", async () => {

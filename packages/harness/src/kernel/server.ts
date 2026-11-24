@@ -188,6 +188,12 @@ export interface DashboardServerOptions {
    */
   envPath?: string;
   /**
+   * Where a pick's credential files go (Google's OAuth client and tokens):
+   * beside the env file when unset. Never ~/.kos, which every jailed
+   * program, an MCP server among them, is denied.
+   */
+  credentialsDir?: string;
+  /**
    * Explicit cross-origin allowlist. The dashboard is same-origin (the server
    * serves the built UI itself), so this is empty by default and no CORS
    * headers are sent; a wildcard would let any page in the browser reach the
@@ -2494,8 +2500,8 @@ export async function handleApiRequest(
    * Say something to an agent that has finished.
    *
    * A finished build's process is gone, so this starts another one in the
-   * same folder resuming the same SDK session: it keeps what it already
-   * worked out rather than reading the folder again from nothing. Without
+   * same folder, told what the last one was asked, did and touched: it
+   * carries on rather than reading the folder again from nothing. Without
    * this, a build that stopped one step short was a dead end.
    */
   if (method === "POST" && path === "/api/builds/wake") {
@@ -2512,13 +2518,9 @@ export async function handleApiRequest(
       return { status: 409, body: { error: "KOS is halted" } };
     }
     void kernel.registry
-      .execute("builds.run", {
-        dir: build.dir,
-        task: text,
-        ...(build.sessionId ? { resume: build.sessionId } : {}),
-      })
+      .execute("builds.run", { dir: build.dir, task: kernel.builds.wakeTask(id, text) ?? text })
       .catch(() => undefined);
-    return ok({ woke: true, dir: build.dir, resumed: Boolean(build.sessionId) });
+    return ok({ woke: true, dir: build.dir });
   }
 
   /** Remove a finished agent from the list. */
@@ -3731,17 +3733,17 @@ export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId:
 }
 
 /**
- * Where a pick's placeholders point: the workspace, and a `secrets` folder
- * beside the settings file for credentials, which is outside the workspace
- * by rule and ignored by git where the settings file is a checkout's. Made
- * when a pick wants it, so the owner has somewhere to put the file. Without
- * a settings file, under the workspace's own .kos, which the agent's tools
- * refuse to read.
+ * Where a pick's placeholders point: the workspace, and the host's
+ * credentials folder, else a `secrets` folder beside the settings file,
+ * which is outside the workspace by rule and ignored by git where the
+ * settings file is a checkout's. Made when a pick wants it, so the owner has
+ * somewhere to put the file. Without either, under the workspace's own .kos,
+ * which the agent's tools refuse to read.
  */
 function pickPlaces(kernel: Kernel, options: DashboardServerOptions): PickPlaces {
   return {
     workspace: kernel.workspace.root,
-    secrets: options.envPath ? join(dirname(options.envPath), "secrets") : join(kernel.workspace.root, ".kos", "secrets"),
+    secrets: options.credentialsDir ?? (options.envPath ? join(dirname(options.envPath), "secrets") : join(kernel.workspace.root, ".kos", "secrets")),
   };
 }
 
@@ -4033,6 +4035,8 @@ export function createDashboardServer(
   // This boot's write key: in memory and in the page alone. In the container there is none: the token is the proof.
   const { writeKey: givenKey, ...rest } = given;
   const options: DashboardServerOptions = given.tokenForWrites ? rest : { ...rest, writeKey: givenKey ?? randomBytes(32).toString("base64url") };
+  // A credential like any other: looked for in everything KOS keeps or shows, so a pasted copy is masked at the door.
+  if (options.writeKey) kernel.secrets.watch("write-key", options.writeKey);
   return createServer((req: IncomingMessage, res: ServerResponse) => {
     void (async () => {
       const method = req.method ?? "GET";

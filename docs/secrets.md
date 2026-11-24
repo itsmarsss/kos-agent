@@ -721,7 +721,7 @@ rules (docs/computer.md, The clipboard):
 ## Leak tests
 
 A canary is never found, as it is or in any encoding the scrubber knows,
-anywhere KOS keeps or shows text. Two suites check it end to end:
+anywhere KOS keeps or shows text. Four suites check it end to end:
 
 - `computer/src/leaks.test.ts`, on fakes, fast: a real kernel, approvals,
   device hub, panels, dashboard server and socket, with stub inference and
@@ -731,19 +731,38 @@ anywhere KOS keeps or shows text. Two suites check it end to end:
   type a password and a code on a Mac (decided on the phone through the
   relay); every page echoes what goes in, a field and the Mac each turn the
   first code away in words that hold it, and the owner pastes values on the
-  dashboard, Discord and SMS. Then a compaction, a memory pass, an
-  artifact's export and a backup. It looks in the database's files (WAL and
+  dashboard, Discord and SMS. A fourth chat places env keys: one bound to
+  a host goes out through `http.fetch` to a stub that echoes every header
+  and the query back, and one bound to an MCP server goes into the env of
+  a stdio server whose tool answers with its whole env. Every `HARNESS_ENV`
+  name, a provider key, both bound keys and the boot's write key are
+  canaries, the owner pastes some on Discord, and the stub and the server
+  are checked to have been handed their own key and no other. Then a
+  compaction, a memory pass, an artifact's export and a backup. It looks in the database's files (WAL and
   `kos.snapshot.sqlite` included) and every table, transcripts, the audit,
   the asks, memory and the embedder's inputs, what KOS printed, Discord's
   and SMS's sends, the dashboard socket's frames, every frame the hub sent
   but the `secret.fill` and `keys.secret` that carry a value, what the model
-  was sent, the compaction's summary, the export, and the workspace's files
-  and git objects.
+  was sent, the compaction's summary, the export, the workspace's files
+  and git objects, and what the settings and status routes answer.
+- `harness/src/secrets/leak.sdk.test.ts`, through the real Agent SDK with a
+  stub in place of Claude Code that keeps a transcript under its config
+  folder, as the CLI does, unless told not to: a chat turn on the SDK
+  engine whose tool answers with env keys, and a build, signed in both
+  ways, that reads a key in its folder. Under a temp HOME nothing holds a
+  key afterwards (`~/.claude/projects` and `~/.kos/claude` among it), and
+  the CLI was handed no key it did not need. Builds and chat turns both
+  run with `persistSession: false`; a woken build is told what the last
+  one was asked, did and touched, from KOS's own scrubbed record.
 - `harness/src/secrets/leak.chrome.test.ts`, in a real Chrome: a login, a
   card in another origin's frame and a one-time code into KOS's browser on
   a page that echoes into its text, its title and its console, then looks,
   a refused script and a `javascript:` address, and no picture shows the
   magenta the values are drawn in.
+- `browser-extension/src/secretfill.chrome.test.ts`, the built KOS for
+  Chrome in a real Chrome: after its fills and refusals, no value is in
+  what it sent KOS, its stored log (`ExtensionLog`, in session and local
+  storage), the rest of its storage, or what it tells its pages.
 
 ## On the Mac
 

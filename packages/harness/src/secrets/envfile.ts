@@ -1,5 +1,5 @@
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 /**
  * Reading and writing the file secrets live in.
@@ -246,6 +246,8 @@ export function writeEnvFile(
   }
 
   const body = lines.join("\n").replace(/\n*$/, "\n");
+  // A new install's file is the first thing in ~/.kos, which is the owner's alone.
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(path, body, { mode: 0o600 });
   try {
     // Set explicitly as well: writeFileSync only applies the mode when it
