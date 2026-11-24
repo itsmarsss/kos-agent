@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { GAITS } from "./blobmotion.js";
-import { COLOURS, FLOAT_SHADOW, HOVER, isDrawnTheme, isThemeMode, LIGHT_COLOURS, PRESS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TOUCH, TYPE, type ColourToken } from "./design.js";
+import { COLOURS, FLOAT_SHADOW, HOVER, INLINE_EM, isDrawnTheme, isThemeMode, LIGHT_COLOURS, PRESS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TOUCH, TYPE, WEIGHTS, type ColourToken } from "./design.js";
 import { KOS_SEED, drawingOf, lookOf } from "./face.js";
 
 /**
@@ -90,6 +90,7 @@ describe("the design tokens", () => {
       for (const [step, rem] of Object.entries(TYPE)) {
         expect(new RegExp(`--text-${step}:\\s*(\\d+(?:\\.\\d+)?)rem`).exec(all)?.[1], `${surface} --text-${step}`).toBe(String(rem));
       }
+      expect(declared(all, "text-inline"), `${surface} --text-inline`).toBe(`${INLINE_EM}em`);
     });
   }
 
@@ -177,6 +178,34 @@ function declarations(css: string, property: string): { line: number; value: str
   return [...bare.matchAll(new RegExp(`(?:^|[;{\\s])${property}:\\s*([^;}]+)`, "g"))].map((m) => ({ line: bare.slice(0, m.index).split("\n").length, value: m[1]!.trim() }));
 }
 
+/** Each rule's selector with its declarations of a property: innermost rules, comments set aside. */
+function rules(css: string, property: string): { line: number; selector: string; value: string }[] {
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
+  return [...bare.matchAll(/([^{};]*)\{([^{}]*)\}/g)].flatMap((rule) =>
+    [...rule[2]!.matchAll(new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`, "g"))].map((d) => ({
+      line: bare.slice(0, rule.index + rule[1]!.length + 1 + d.index).split("\n").length,
+      selector: rule[1]!.trim(),
+      value: d[1]!.trim(),
+    })),
+  );
+}
+
+/**
+ * A size is a step of the scale or `--text-inline` for what sits in a line of
+ * words (with the step's own size after it where a page may not declare
+ * them), its parent's, or a finger's floor. Four things are not type and keep
+ * their own: the root, whose px the rem steps and the density hang from; a
+ * glyph drawn in a box (a project's letter, a caret, a +), sized to the box;
+ * math, which KaTeX sets against its words; and a page drawn to scale (cqw),
+ * sized to the picture.
+ */
+function sizeOk({ selector, value }: { selector: string; value: string }): boolean {
+  if (/^(var\(--text-(xs|sm|base|md|lg|xl|2xl|inline)(, [\d.]+(px|em))?\)|inherit|var\(--tap-text\)|max\(var\(--tap-text\), 1em\) !important)$/.test(value)) return true;
+  if (/^:root\b/.test(selector)) return true;
+  if (/\.(project-mark|katex|[\w-]*glyph|[\w-]*caret|[\w-]*-add)\b/.test(selector.split(",").at(-1)!.trim().split(/\s+/).at(-1)!)) return true;
+  return /^\d+(\.\d+)?cqw$/.test(value);
+}
+
 /** A corner is a token, a capsule (999px), a circle or other share of the box, none, or its parent's. */
 const cornerOk = (value: string): boolean => value.split(/\s+/).every((v) => /^var\(--r-(xs|sm|md|lg)\)$/.test(v) || /^(0|999px|inherit|\d+(\.\d+)?%)$/.test(v));
 
@@ -210,9 +239,18 @@ describe("the web sheets keep to the tokens", () => {
       expect(off.map((d) => `line ${d.line}: ${d.value}`)).toEqual([]);
     });
 
-    it(`${sheet} sets type at 400, 500, 600 or 700 only`, () => {
-      const off = declarations(css, "font-weight").filter((d) => !/^(400|500|600|700|inherit|normal|var\(--title-weight(, 700)?\))$/.test(d.value));
+    it(`${sheet} sets type at ${WEIGHTS.join(", ")} only`, () => {
+      const off = declarations(css, "font-weight").filter((d) => !(WEIGHTS.map(String).includes(d.value) || /^(inherit|var\(--title-weight(, 700)?\))$/.test(d.value)));
       expect(off.map((d) => `line ${d.line}: ${d.value}`)).toEqual([]);
+    });
+
+    it(`${sheet} sets type only at a step of the scale`, () => {
+      // The shorthand's size: what stands after its weight, before its line height.
+      const shorthand = rules(css, "font")
+        .filter((d) => d.value !== "inherit")
+        .map((d) => ({ ...d, value: /^(?:(?:\d{3}|italic|normal)\s+)*(var\([^)]*\)|[\d.]+[a-z%]+)/.exec(d.value)?.[1] ?? d.value }));
+      const off = [...rules(css, "font-size"), ...shorthand].filter((d) => !sizeOk(d));
+      expect(off.map((d) => `line ${d.line}: ${d.selector} ${d.value}`)).toEqual([]);
     });
 
     it(`${sheet} casts only the floating shadow`, () => {
