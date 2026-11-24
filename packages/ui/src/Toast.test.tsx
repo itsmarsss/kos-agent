@@ -32,6 +32,23 @@ describe("a toast", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(undo).toHaveBeenCalledOnce();
   });
+
+  it("gives the focus back to where it came from once its Undo is pressed", () => {
+    render(
+      <>
+        <button type="button">The list</button>
+        <ToastHost />
+        <Toast note={{ kind: "ok", text: "Moved a.md to the Trash", undo: () => undefined }} />
+      </>,
+    );
+    const list = screen.getByRole("button", { name: "The list" });
+    const undo = screen.getByRole("button", { name: "Undo" });
+    list.focus();
+    fireEvent.focusIn(undo, { relatedTarget: list });
+    undo.focus();
+    fireEvent.click(undo);
+    expect(document.activeElement).toBe(list);
+  });
 });
 
 describe("the toast queue", () => {
