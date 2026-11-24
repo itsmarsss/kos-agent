@@ -262,6 +262,36 @@ describe("a blob's work for a project", () => {
     expect(within(rail).getByRole("link", { name: /^Career/ }).getAttribute("href")).toBe("#/blobs/follow-ups/cmwtr85gv2%3Aowner");
   });
 
+  it("wears the Blob tag only while the blob exists", async () => {
+    serve(() => ({ events: [] }));
+    const left: Conversation = { ...asked, id: "c-left", title: "Left behind", blob: undefined };
+    for (const [c, tagged] of [[asked, true], [left, false]] as const) {
+      const view = render(
+        <ChatsPage
+          conversations={[c]}
+          projects={[career]}
+          activeId={c.id}
+          pendingApprovals={new Set()}
+          approvals={[]}
+          deciding={new Set()}
+          agents={[]}
+          onOpenAgent={() => undefined}
+          crons={[]}
+          onEditCron={() => undefined}
+          onOpen={() => undefined}
+          onOpenProject={() => undefined}
+          onAside={() => undefined}
+          onNotice={() => undefined}
+          onChanged={() => undefined}
+          onDecide={() => undefined}
+        />,
+      );
+      const heading = await screen.findByRole("heading", { level: 1, name: new RegExp(c.title) });
+      expect(heading.textContent?.includes("Blob")).toBe(tagged);
+      view.unmount();
+    }
+  });
+
   it("is not among the chats of the project that asked", async () => {
     scoped({ project: "interview_prep" });
     const rail = await screen.findByRole("complementary", { name: "Chats in this project" });

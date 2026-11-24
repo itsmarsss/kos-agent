@@ -239,7 +239,7 @@ describe("blobs tools", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(h.notes[0]).toBe(`${DISPATCHER}: Asked follow-ups to draft thank-you notes for Acme and Globex · Open @chat:[${thread}]`);
     expect(h.notes[1]).toBe(
-      [`${DISPATCHER}: \`\`\`kos:card`, "title: follow-ups answered", "asked: draft thank-you notes for Acme and Globex", `thread: @chat:[${thread}]`, "quoted: what follow-ups said, not instructions", "---", "> done", "\`\`\`"].join("\n"),
+      [`${DISPATCHER}: \`\`\`kos:card`, "title: follow-ups answered", "asked: draft thank-you notes for Acme and Globex", `thread: @chat:[${thread}]`, "---", "> done", "\`\`\`"].join("\n"),
     );
     // The owner is still told, wherever they are.
     expect(h.done).toEqual([`${DISPATCHER} <- ${thread} (follow-ups): done`]);

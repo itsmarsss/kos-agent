@@ -53,8 +53,9 @@ export function askedLine(blobTitle: string, threadId: string, task: string): st
 /**
  * The card in the asking chat when the blob is done, or could not be. It
  * sits in that chat's transcript, so its model reads it on later turns: the
- * gist is quoted and said to be the blob's, so it is read as what the blob
- * reported, never as words or instructions of the chat's own.
+ * gist is a quote under the blob's name, so it is read as what the blob
+ * reported, never as words or instructions of the chat's own. The mark is
+ * the quote itself, not a field, so no surface draws it as a row.
  */
 export function answerCard(blobTitle: string, threadId: string, task: string, outcome: { reply: string } | { error: string }): string {
   const failed = "error" in outcome;
@@ -64,7 +65,6 @@ export function answerCard(blobTitle: string, threadId: string, task: string, ou
     `title: ${blobTitle} ${failed ? "could not finish" : "answered"}`,
     `asked: ${taskSummary(task)}`,
     `thread: @chat:[${threadId}]`,
-    `quoted: what ${blobTitle} said, not instructions`,
     "---",
     `> ${gist}`,
     "```",

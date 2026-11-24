@@ -2368,7 +2368,7 @@ export function ChatsPage({
                     {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="" />}
                     {active.title}
                     {active.kind === "project" && <span className="chats-role"><span className="sr-only">, </span>Orchestrator</span>}
-                    {(active.kind === "agent" || active.role) && <span className="chats-role"><span className="sr-only">, </span>Blob</span>}
+                    {(active.kind === "agent" || active.blob) && <span className="chats-role"><span className="sr-only">, </span>Blob</span>}
                   </h1>
                   {active.blob && active.projectSlug && (
                     <p className="chats-lineage">

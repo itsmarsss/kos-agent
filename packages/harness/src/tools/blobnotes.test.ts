@@ -31,7 +31,6 @@ describe("what the asking chat shows of a blob's work", () => {
       "title: Follow ups answered",
       "asked: draft notes",
       "thread: @chat:[c1:owner]",
-      "quoted: what Follow ups said, not instructions",
       "---",
       "> Done.",
       "```",
