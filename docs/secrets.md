@@ -2,10 +2,13 @@
 
 The model never sees a secret. KOS holds two kinds:
 
-- **Harness keys** in the host's `.env` (`ANTHROPIC_API_KEY`, `KOS_SECRET_<NAME>`),
-  as before. They stay there.
+- **Keys KOS runs on**: a model provider's, a channel's, an integration's
+  (`OPENAI_API_KEY`, `DISCORD_TOKEN`, `KOS_SECRET_<NAME>`). Each is read by
+  its harness name from the host's `.env` when it is set there, which always
+  wins, else from the vault's API key that names it (Keys KOS runs on,
+  below). `kos secrets migrate-env` moves them from `.env` into the vault.
 - **The owner's secrets**: logins, cards, API keys and notes, in an encrypted
-  vault outside the workspace. This page is about the vault.
+  vault outside the workspace.
 
 The agent names a secret by its handle and never by its value. A value is
 resolved in the harness at the moment of a call, only where a tool declared a
@@ -40,7 +43,8 @@ Record, sealed whole (metadata included):
   "use": {
     "web": { "origins": ["https://github.com"], "frames": [] },
     "apps": [],
-    "http": { "hosts": [], "as": "bearer" }
+    "http": { "hosts": [], "as": "bearer" },
+    "harness": "openai"
   },
   "policy": { "ask": "always", "unattended": false, "chats": null, "grants": [] },
   "hint": "••••••••",
@@ -55,6 +59,9 @@ Record, sealed whole (metadata included):
 - `use.apps`: Mac bundle ids.
 - `use.http.hosts`: where `http.fetch` may send it, as `KOS_SECRET_<NAME>_HOSTS`
   does for an env key. Bound nowhere, it is sent nowhere.
+- `use.harness`: an API key's alone, and one secret's per name: the key KOS
+  itself runs on under that harness name (Keys KOS runs on). Lowercase
+  letters, digits and `_`.
 - `policy.ask`: `always`, `turn` (one yes covers the turn) or `site` (a
   remembered grant skips the ask, still audited). Grants are added only by an
   approval and taken back only by the owner. A grant on an origin no longer in
@@ -71,6 +78,54 @@ Record, sealed whole (metadata included):
   side panel beside the page, its card carrying the secret's block.
 - The hint never holds enough of a value to matter: a card's last four, a
   key's last four when it is longer than twelve, eight dots for a login.
+
+## Keys KOS runs on
+
+The router's providers, the channels, and the integrations reach their keys
+by harness name, never by a provider's brand in core logic:
+
+| Harness name | Env names, read in this order |
+| --- | --- |
+| `anthropic` | `ANTHROPIC_API_KEY` |
+| `openai` | `OPENAI_API_KEY` |
+| `custom` | `KOS_SECRET_CUSTOM` (the owner's own endpoint) |
+| `classifier` | `KOS_SECRET_CLASSIFIER` |
+| `cohere` | `KOS_SECRET_COHERE` |
+| `discord` | `KOS_SECRET_DISCORD`, `DISCORD_TOKEN`, `DISCORD_BOT_TOKEN` |
+| `twilio` | `KOS_SECRET_TWILIO`, `TWILIO_AUTH_TOKEN` |
+| `<name>` | `KOS_SECRET_<NAME>` |
+
+The env wins: a key set in `.env` is the one used, whatever the vault
+holds. Without one, the vault's API key whose `use.harness` is that name is
+used while the vault is open. Every read is at the moment of use: a model
+call, an embedding, a classifier call, a channel starting. A vault that
+opens after boot (KOS for Mac at login, the passphrase) is used at once:
+the router picks its default routes from the keys there are at each call,
+the embedder likewise (vectors are tagged with the embedder that made them,
+so two never mix), and Discord and SMS, held at boot for want of a key,
+start when the vault opens with theirs. A provider key from the vault goes
+where the env's would (`api.openai.com`, `api.anthropic.com`) unless its
+entry names hosts; `KOS_SECRET_<NAME>_HOSTS` and `_MCP` still bind by name.
+
+The dashboard's Settings, Providers, saves a key into the vault while it is
+open, and takes it out of `.env` under every name it is read by, so the env
+does not shadow it; into `.env` only when there is no vault; and refuses
+while the vault is locked. Each key says where its live value is read from
+(`in .env`, `in the vault`).
+
+The dashboard token stays in `.env`: the kos CLI sends it and it signs short
+links, so KOS needs the value.
+
+### Verifiers
+
+A secret KOS only compares is kept as a check, never as the value: the hook
+secret (`KOS_HOOK_SECRET`), when set from Settings, is HMAC-SHA256 of
+`kos-verifier/1|<value>` under a host pepper (`~/.kos/verifier.pepper`, 32
+random bytes), in `~/.kos/verifiers.json` (both 0600). A copy of the file
+names nothing; with the pepper it can be guessed at, which is why both live
+in `~/.kos`, denied to every jailed program. `KOS_HOOK_SECRET` in `.env`
+wins; Settings refuses to set a check while it is there. A hook's bearer is
+compared against the check in constant time.
 
 ## The vault
 
@@ -101,6 +156,30 @@ open descriptor.
   secrets trust-seq`, which takes the file on disk as the latest. It records
   only a sequence the vault's own MAC vouches for: the data key is opened
   (the key file, or the passphrase it asks for) and the index checked first.
+  A record is `<vault id> <seq> <commitments> <slot kinds>`: each commitment is
+  HKDF-SHA256(DEK, empty salt, info `kos-vault/2 commit|<vault>`, 16) as hex,
+  the data keys the record vouches for. Nothing in the vault file can stand
+  in for it: slots are sealed to public points and the MAC is keyed from the
+  DEK, so someone who can write the file could otherwise forge a whole vault
+  of their own that the owner's passphrase or Mac would open. A record
+  naming another vault id, or whose commitments do not include the file's
+  DEK, is refused (trust-seq, if it is a copy the owner restored); a version
+  2 file needs the record outside the folder, which a forger with the folder
+  alone cannot write. A change of data key first writes both records with
+  the old and the new commitment, then the vault, then both with the new
+  one alone, so a crash between leaves either file opening. The slot kinds
+  (`device,passphrase`, say) are the vault's: a file without a passphrase
+  slot is refused while a record says it had one, so a passphrase vault
+  cannot be swapped for a key-file one, whatever version, whatever opens it.
+  Whenever a file checks out and a record is missing, older than it, still
+  vouches for two data keys, or is from before commitments, both records are
+  written again for that file, under the lock. A record from before
+  commitments vouches for a version 1 file only, and only until that first
+  open after an upgrade of KOS: a file planted in the folder before then (a
+  key-file vault with its own key file) cannot be told from the owner's, which
+  is the one window left. A file refused as replaced says so plainly; `kos
+  secrets trust-seq` is only for an export the owner put back, and shows the
+  file's sequence and slot kinds against each record's before it asks.
 - `vault.lock`: held while the host or the CLI reads the vault and writes it
   back, so the two never interleave a change. It is written whole (the pid
   into a file of the writer's own, then linked into place); one left by a
@@ -111,34 +190,68 @@ open descriptor.
 Node has no `F_FULLFSYNC`, so on macOS a power cut can still lose a write
 the disk had cached; the rename keeps the file all-old or all-new.
 
-Format, version 1:
+Format, version 2:
 
 ```json
 {
-  "format": "kos-vault", "version": 1, "vault": "v_<16 hex>", "dek": "k1",
+  "format": "kos-vault", "version": 2, "vault": "v_<16 hex>", "dek": "k1",
   "slots": [
-    { "id": "s1", "kind": "keyfile", "wrap": { "alg": "A256GCM", "nonce": "<12 B>", "ct": "<DEK + tag>" } }
+    { "id": "s1", "kind": "passphrase",
+      "kdf": { "alg": "scrypt", "N": 131072, "r": 8, "p": 1, "salt": "<16 B>" },
+      "key": "<65 B P-256 point>",
+      "wrap": { "alg": "ECDH-P256-A256GCM", "epk": "<65 B>", "nonce": "<12 B>", "ct": "<DEK + tag>" } },
+    { "id": "s2", "kind": "device", "name": "Studio Mac", "unlock": "login",
+      "key": "<65 B P-256 point>",
+      "wrap": { "alg": "ECDH-P256-A256GCM", "epk": "<65 B>", "nonce": "<12 B>", "ct": "<DEK + tag>" } }
   ],
   "entries": [{ "id": "e_<16 hex>", "nonce": "<12 B>", "ct": "<record + tag>" }],
   "index": { "seq": 42, "mac": "<HMAC-SHA256>" }
 }
 ```
 
-Binary fields are base64. Cryptography is AES-256-GCM, scrypt, HKDF-SHA256
-and HMAC-SHA256 only:
+A key-file slot is `{ "id", "kind": "keyfile", "wrap": { "alg": "A256GCM", "nonce", "ct" } }`.
+
+Binary fields are base64. Cryptography is AES-256-GCM, scrypt, HKDF-SHA256,
+HMAC-SHA256 and P-256 ECDH only:
 
 - An entry is the record's JSON under the data key (DEK), a fresh 96-bit
-  nonce on every write, AAD `kos-vault/1|<vault>|<entry id>|<dek id>`.
-- A slot is the DEK under a key-encryption key, AAD
-  `kos-vault/1|slot|<vault>|<slot id>|<dek id>`. The key file's KEK is its 32
-  bytes; a passphrase's is scrypt(NFC passphrase, salt, N=2^17, r=8, p=1, 32).
+  nonce on every write, AAD `kos-vault/2|<vault>|<entry id>|<dek id>`.
+- A slot holds the DEK, AAD `kos-vault/2|slot|<vault>|<slot id>|<dek id>`:
+  - `keyfile`: under the key file's 32 bytes (`A256GCM`).
+  - `passphrase`, `device`: sealed to the slot's P-256 point
+    (`ECDH-P256-A256GCM`), as age-plugin-se does it: an ephemeral P-256 key
+    (its point is `epk`), ECDH with the slot's point, the key
+    HKDF-SHA256(shared x-coordinate, salt `epk` then the slot's point, info
+    `kos-vault/2 device|<vault>|<slot id>` or `kos-vault/2 passphrase|<vault>|<slot id>`,
+    32), the DEK under it. Sealing needs only the point, so any slot is
+    wrapped again under a new DEK whatever opened the vault; opening needs
+    the private half.
+  - A passphrase slot's private half is HKDF-SHA256(scrypt(NFC passphrase,
+    salt, N=2^17, r=8, p=1, 32), empty salt, info `kos-vault/2 passphrase key`, 32)
+    as a P-256 scalar (a salt that makes one out of range, one in 2^32, is
+    drawn again).
+  - A device slot's private half is KOS for Mac's vault key, in its Secure
+    Enclave ([computer.md](computer.md), The vault at login). `name` is what
+    the Mac was called when the slot was added; `unlock` is `login`, the one
+    mode so far (a Touch ID mode would gate the enclave key on biometry).
 - The index MAC is HMAC-SHA256 under HKDF-SHA256(DEK, empty salt, info
-  `kos-vault/1 index`, 32) over
-  `kos-vault/1|<vault>|<dek id>|<seq>|slots:<slot digests>|entries:<entry digests>`.
-  A slot digest is `<id>:<hex SHA-256 of "<kind>|<alg>|<N>|<r>|<p>|<salt>|<wrap alg>|<wrap nonce>|<wrap ct>">`
-  (the kdf fields empty for a key-file slot), slots in id order. An entry
-  digest is `<id>:<hex SHA-256 of nonce bytes then ciphertext bytes>`,
+  `kos-vault/2 index`, 32) over
+  `kos-vault/2|<vault>|<dek id>|<seq>|slots:<slot digests>|entries:<entry digests>`.
+  A slot digest is `<id>:<hex SHA-256 of the JSON array of strings [kind, kdf alg, N, r, p, salt, key, name, unlock, wrap alg, epk, nonce, ct]>`,
+  every absent field `""` and numbers as decimal strings, slots in id order.
+  An entry digest is `<id>:<hex SHA-256 of nonce bytes then ciphertext bytes>`,
   entries in id order, joined by `,`. Entries are stored in id order.
+
+Version 1, written before device slots, is read as it is: `kos-vault/1` in
+every AAD, info and MAC; a passphrase slot's KEK is scrypt's 32 bytes
+(`A256GCM`); a slot digest is
+`<id>:<hex SHA-256 of "<kind>|<alg>|<N>|<r>|<p>|<salt>|<wrap alg>|<wrap nonce>|<wrap ct>">`.
+Its first change makes it version 2 in place under the same DEK: every
+entry sealed again under version 2's AAD, every slot in version 2's form (a
+passphrase slot's point made from the scrypt bytes that opened it), the
+records given their commitment. The version 1 file is kept as `.prev` until
+the next change of keys erases it; put back, it is refused as older. A
+device slot in a version 1 file is refused.
 
 The vault is refused, and stays locked with the reason in its status, when
 any byte of an entry, slot or MAC changed; when an entry was moved, dropped,
@@ -146,27 +259,52 @@ added, or swapped for another entry's bytes; when an entry's nonce and
 ciphertext were pasted back from an older copy of the same entry (its digest
 changes); or when the sequence is lower than the last one written.
 
-A vault has one slot:
+Slots, any one of which opens the DEK:
 
-- `keyfile`, when there is no passphrase: the vault opens by itself at start.
-- `passphrase` alone, when there is one:
-
-  ```json
-  { "id": "s1", "kind": "passphrase",
-    "kdf": { "alg": "scrypt", "N": 131072, "r": 8, "p": 1, "salt": "<16 B>" },
-    "wrap": { "alg": "A256GCM", "nonce": "<12 B>", "ct": "<DEK + tag>" } }
-  ```
-
-  No key file is written, and nothing on disk opens the vault: it is locked
-  after every start until the passphrase is given (the dashboard, or `kos
-  secrets unlock`). The passphrase is a real second factor; no key file, and
+- `keyfile` alone, when there is no passphrase: the vault opens by itself at
+  start.
+- `passphrase`: no key file is written, and nothing on disk opens the vault:
+  it is locked after every start until the passphrase is given (the
+  dashboard, or `kos secrets unlock`), or a Mac opens it. No key file, and
   no `KOS_VAULT_KEY`, opens it.
+- `device`, beside a passphrase only: the KOS for Mac on this computer opens
+  the vault whenever it connects while the owner is logged in, with no
+  prompt (Device slots). **The passphrase is the recovery slot, never the
+  only way in, and a device slot never the only way either**: one is added
+  only beside a passphrase, and the passphrase cannot be taken off while
+  one is there.
 
 Adding a passphrase to a key-file vault rotates the data key, wraps the new
-one under the passphrase alone, and crypto-erases the key file and `.prev`;
-a key file found later beside a vault no slot of which uses one is erased
-as soon as the vault opens. Taking it off wraps the DEK under a key file
-again. Both are audited as `secrets.passphrase`.
+one under the passphrase (and every device slot), and crypto-erases the key
+file and `.prev`; a key file found later beside a vault no slot of which
+uses one is erased as soon as the vault opens. Taking it off wraps the DEK
+under a key file again. Both are audited as `secrets.passphrase`.
+
+### Device slots
+
+Settings, Secrets, **Unlock at login with KOS for Mac** (the vault open, a
+passphrase set and typed again, a try against the unlock budget, KOS for
+Mac connected from this computer): the host asks
+the Mac for its vault key's point (`vault.key`), has the Mac prove it holds
+the private half (`vault.unwrap` of a key the host sealed to that point for
+the new slot), then writes the slot. Audited as `secrets.device`.
+
+At start, and whenever a Mac proves it is here or the vault changes while
+locked, a locked vault with a device slot asks the Mac (`vault.unwrap`,
+[computer.md](computer.md)); the host's ephemeral key seals the answer, the
+host opens the slot with it, and the vault is open until the host stops. A
+Mac that is away or answers wrong leaves the vault locked: the status's
+`atLogin` says why (the Secrets page shows it above the passphrase box), and
+the host's log says it as `secrets: ...`. A change another process made
+(the CLI's rotate) seals the slot to a new ephemeral point; the host then
+asks the Mac again.
+
+**Turn off** takes the passphrase (a try against the unlock budget): the
+slot goes, the data key is rotated and `.prev` erased, so that Mac opens no
+copy from then on, and the passphrase holds the vault open.
+
+Reveal, export and wipe keep their passphrase step-up however the vault was
+opened.
 
 Operations:
 
@@ -179,8 +317,8 @@ Operations:
   memory zeroed. On APFS and on an SSD the old blocks may outlive the
   overwrite (copy-on-write, wear levelling); the erase holds because the keys
   are gone, not because the blocks are.
-- Export: a copy with the passphrase slot alone, so the key file does not
-  travel with it. A vault with no passphrase gets one for the copy.
+- Export: a copy with the passphrase slot alone, so neither the key file
+  nor a Mac opens it. A vault with no passphrase gets one for the copy.
 - An entry is decrypted into a Buffer for one use and the Buffer zeroed. The
   strings a value becomes in JavaScript cannot be wiped, nor can the
   scrubber's copies of every value; that is a known limit.
@@ -522,10 +660,12 @@ in `packages/shared/src/secrets.ts`.
 
 | Route | Body | Answer |
 | --- | --- | --- |
-| `GET /api/secrets/status` | | `VaultStatus` |
+| `GET /api/secrets/status` | | `VaultStatus`: `state`, `slots` (their kinds), `devices?` (`{id, name}` of each device slot), `mac?` (`{name}` of the KOS for Mac here, or `{reason}` there is none), `problem?`, `atLogin?` (why the Mac did not open it) |
 | `POST /api/secrets/init` | `{passphrase?}` | `VaultStatus`: a key-file slot when no passphrase, the passphrase slot alone when one is given |
 | `POST /api/secrets/unlock` | `{passphrase}` | `VaultStatus` |
-| `POST /api/secrets/passphrase` | `{current?, passphrase?}` | `VaultStatus`: added or changed when given, taken off when not; `current` when there is one |
+| `POST /api/secrets/passphrase` | `{current?, passphrase?}` | `VaultStatus`: added or changed when given, taken off when not (refused while a device slot is there); `current` when there is one |
+| `POST /api/secrets/devices` | `{passphrase}` | `VaultStatus`: a device slot for the KOS for Mac here; 400 a wrong passphrase, 409 when there is no Mac here |
+| `POST /api/secrets/devices/remove` | `{slot, passphrase}` | `VaultStatus`: the slot gone, the data key rotated |
 | `GET /api/secrets` | | `{secrets: SecretSummary[]}`, env `KOS_SECRET_*` as `source: "env"` |
 | `POST /api/secrets` | `{label, kind, values, use?, policy?}` | `{handle}` |
 | `PATCH /api/secrets/:handle` | `{label?, values?, use?, policy?}` | `SecretSummary`; an empty value is unchanged |
@@ -745,12 +885,28 @@ kos secrets rotate [--passphrase | --no-passphrase | --key]
 kos secrets export <file>
 kos secrets trust-seq [--yes]
 kos secrets wipe [--yes]
+kos secrets migrate-env [--dry-run] [--yes]
 ```
 
 They work on the vault file, with or without a running host, and write to
 the workspace's audit log as the dashboard does (`secrets.passphrase`,
 `secrets.rotate`, `secrets.trust-seq`, `secrets.wipe`); the host reads
 a change on its next use. `unlock` gives the passphrase to the running host.
+`migrate-env` lists the keys KOS runs on that `.env` holds (by harness
+name, the name read first first; `KOS_HOOK_SECRET` as a check), confirms
+(type `move`, or `--yes`), writes each as a vault API key with
+`use.harness` (the hook secret as a verifier), then blanks the values in
+`.env`, keeping each name as a comment saying where it went (`# OPENAI_API_KEY= moved to the KOS vault as its openai key`).
+`_HOSTS`, `_MCP`, the dashboard token and every setting stay. A key the
+vault already holds with the same value is only blanked (a run cut short
+finishes); one it holds with another value is left alone, both places, and
+so is a key whose names in `.env` hold different values. `.env` is written
+whole (a temp file, synced, renamed over, 0600); a linked one is written
+where the link points. Run
+again, it moves nothing. The running host still holds the old values from
+its environment, which win, until it restarts. Audited as
+`secrets.migrate-env`.
+
 A value is never taken from the command line: it is typed at a prompt that
 does not echo, or piped on stdin as the main field's value or a JSON object
 of fields:
@@ -779,3 +935,28 @@ HMAC with WebCrypto, scrypt with `openssl kdf ... SCRYPT`). Bytes are hex.
   `04+O45DO+QbFDTgHede6WyIrP4OmVJWUnhY0ranqLgE=`.
 - scrypt of `correct horse battery staple`, salt `404142...4f`, N=2^17 r=8
   p=1: `d383505afdc30eca3c262fccd3eba2260547640663d604b3983d8c3144173d4e`.
+
+The lines above are version 1's (`kos-vault/1`). Version 2, worked out with
+WebCrypto, and checked by KOS for Mac's VaultUnwrapTests too:
+
+- The entry above under `kos-vault/2|v_0123456789abcdef|e_00000000000000a1|k1`:
+  `kfnzNNUk7wpeLNtMG/mpNkRY5ebjDVz0mtnxXV7e1WTT+12UhjE34VJVo4B88bGI7kHG2wtH0KUJ8dUTxkivJtt9fKNpWCCCyAcogt59gGBDnVfCLv8smGJNJgnrHAk1EwLuZPRcQKXzxPvdQe/bqwuXYStwuFK2pPM6ZhVfwv1cxiQVEf1eQGAsTIs=`.
+  Index key `6697f26db5d19592e42766fd7a33e361b351bcb5b50c0ce4208100c8714be2e5`.
+- Device slot `s2`: the device's scalar 0x01 to 0x20, point
+  `BFFcPW6545a5BNP+yn9U/c0MwemXvzddylFa0KbDtANfRTa+OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q=`;
+  the ephemeral scalar 0x21 to 0x40, `epk`
+  `BB8UAUa/sbJR+E9N2+DUzc/Xev2YSpUg41eUAh+DErue7JlaCLH6dwTfPcwLUKlmUmP7dxH5X5+KRJxQluR8iSs=`;
+  the slot's key `dd01116d9d877add3e3d39300b02d3e22fc63839f0e60c3ca5bc2942683eb1bb`;
+  nonce `909192939495969798999a9b`, wrapped DEK
+  `B4kuvJZBih43PvkKGWdhU7VQdsXjf5bLcWPstBgcrtgRa1N96HlDBpVMVXasY6aX`.
+- `vault.unwrap` of that slot: the host's scalar 0x41 to 0x60 (`hostEpk`
+  `BCYe+9NVDPBo7wE+1zZroy9db+VXtLKrzoreWMuhaKVeF4igsppWpqvsQITAyWvT3LymtQfzXb6p6YVwhHnYvck=`),
+  the Mac's 0x61 to 0x80 (`epk`
+  `BL1XFLnCBABBHx5R2/9jZH8F0dcLVfwgDGytEML0YU3B5QSFYvcx9UVzwEIk2XOpFqWfUmqCaAdvwc+pKl8UPxk=`),
+  nonce `a0a1a2a3a4a5a6a7a8a9aaab`, `ct`
+  `EpbbcSbHkfEcE401B7uuTLjVclhTayRerALyzUtNDTB7Z4iWXdY+S7OrKMew2sEj`.
+- The passphrase above's scalar
+  `76722d10796a28d6569584894263e95d0fd1a7e627412eac59866185985ab9ae`, point
+  `BKWjDcecXuDceGHPgMWl3JMQNOZkwWNSGq76iyjJ3PY38Gv2ghmTZAukF7zGlEVw5i68cuRhZ5Cj+mke+oD5/R8=`.
+- MAC at seq 7, DEK id `k1`, over the device slot above (named `Studio Mac`,
+  `unlock` `login`) and the version 2 entry: `CTfLEbIQWQysLbKebQrP/GsYvngI1XUf9/UVfNGkscI=`.

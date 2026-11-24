@@ -27,6 +27,13 @@ export interface SecretUse {
   apps: string[];
   /** API hosts http.fetch may send it to, and how. */
   http: { hosts: string[]; as?: "bearer" | "basic" };
+  /**
+   * The key KOS itself runs on, by its name in the harness: a route's
+   * provider (`openai`, `anthropic`, `custom`, `classifier`, `cohere`), a
+   * channel (`discord`, `twilio`), or any `KOS_SECRET_<NAME>` as `<name>`.
+   * An env value of the same name wins over it. An API key's alone.
+   */
+  harness?: string;
 }
 
 export interface SecretGrant {
@@ -79,15 +86,21 @@ export interface SecretUseRow {
   decidedBy?: string;
 }
 
-export type VaultSlotKind = "keyfile" | "passphrase";
+export type VaultSlotKind = "keyfile" | "passphrase" | "device";
 
 export interface VaultStatus {
   state: "absent" | "locked" | "ready";
   slots: VaultSlotKind[];
+  /** The device slots: each a KOS for Mac that opens the vault while its owner is logged in. */
+  devices?: { id: string; name: string }[];
+  /** Whether the KOS for Mac on this computer can open the vault at login: its name, or why not. Absent without computer use. */
+  mac?: { name: string } | { reason: string };
   /** Values the scrubber has masked since the host started. */
   scrubbed: number;
   /** Why a vault that is there is not ready, when it is not the passphrase it waits for. */
   problem?: string;
+  /** Why KOS for Mac did not open a locked vault at login; the passphrase still does. */
+  atLogin?: string;
 }
 
 /** What a new secret or an edit gives as its values; an omitted or empty one is unchanged. */

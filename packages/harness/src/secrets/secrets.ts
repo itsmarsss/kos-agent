@@ -4,7 +4,7 @@ import { OneTimeCodes } from "./codes.js";
 import { MIN_SCANNED, Scrubber, STREAM_REACH, type Watched } from "./scrub.js";
 import { SHAPE_REACH, scrubShapes } from "./shapes.js";
 import type { SecretCaller } from "./inject.js";
-import type { Vault } from "./vault.js";
+import type { SecretMeta, Vault } from "./vault.js";
 
 /**
  * Secrets registry. The model never sees a secret value: the agent references
@@ -30,6 +30,11 @@ import type { Vault } from "./vault.js";
  * `use.http.hosts` binds it as `_HOSTS` does. Every vault value is
  * scrubbed. An env name wins over a handle; a handle always ends in four
  * random characters after a dash, so the two rarely meet.
+ *
+ * The keys KOS itself runs on (a provider's, a channel's) are read by their
+ * harness name (`HARNESS_KEYS`): from the env when it has one, which always
+ * wins, else from the vault's API key whose `use.harness` names it. Read at
+ * each use, so a vault that opens after boot is used at once.
  */
 
 const PROVIDER_ENV: Record<string, string> = {
@@ -41,6 +46,22 @@ const PROVIDER_ENV: Record<string, string> = {
 const PROVIDER_HOSTS: Record<string, string[]> = {
   anthropic: ["api.anthropic.com"],
   openai: ["api.openai.com"],
+};
+
+/**
+ * The keys KOS itself runs on, by harness name, and the env names each is
+ * read from, the canonical one first. Any `KOS_SECRET_<NAME>` is `<name>`
+ * too. Names are the router's and the channels', never a provider's brand
+ * in core logic: `custom` is whatever endpoint the owner set.
+ */
+export const HARNESS_KEYS: Readonly<Record<string, readonly string[]>> = {
+  anthropic: ["ANTHROPIC_API_KEY"],
+  openai: ["OPENAI_API_KEY"],
+  custom: ["KOS_SECRET_CUSTOM"],
+  classifier: ["KOS_SECRET_CLASSIFIER"],
+  cohere: ["KOS_SECRET_COHERE"],
+  discord: ["KOS_SECRET_DISCORD", "DISCORD_TOKEN", "DISCORD_BOT_TOKEN"],
+  twilio: ["KOS_SECRET_TWILIO", "TWILIO_AUTH_TOKEN"],
 };
 
 const KOS_SECRET_PREFIX = "KOS_SECRET_";
@@ -66,11 +87,23 @@ export interface SecretBinding {
 
 const list = (value: string): string[] => value.split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
 
+/** The harness name an env var holds a key under, or undefined: `KOS_SECRET_<NAME>` is `<name>`, its `_HOSTS` and `_MCP` are not keys. */
+export function harnessNameOf(envName: string): string | undefined {
+  for (const [name, envs] of Object.entries(HARNESS_KEYS)) if (envs.includes(envName)) return name;
+  if (!envName.startsWith(KOS_SECRET_PREFIX) || envName.endsWith(HOSTS_SUFFIX) || envName.endsWith(MCP_SUFFIX)) return undefined;
+  return envName.slice(KOS_SECRET_PREFIX.length).toLowerCase() || undefined;
+}
+
+/** Where a key KOS runs on is read from now: the env (under which name), or the vault (which secret). */
+export type KeySource = { source: "env"; env: string } | { source: "vault"; handle: string; label: string };
+
 export class SecretsRegistry {
   private readonly map: Map<string, string>;
   private readonly bindings: Map<string, SecretBinding>;
   /** Values scrubbed but never placed: the harness's own credentials, by name. */
   private readonly watched: Map<string, string>;
+  /** The env's value of each harness key it has, and the name it was under. */
+  private readonly harnessEnv: Map<string, { env: string; value: string }>;
   /** Watched values handed in at run time (a key file), kept across reloads. */
   private readonly kept = new Map<string, string>();
   /** Built on first use after any change, so it always looks for today's values. */
@@ -86,10 +119,11 @@ export class SecretsRegistry {
   /** The one-time codes the owner types on a card, held in memory alone and looked for while held (codes.ts). */
   readonly codes = new OneTimeCodes();
 
-  constructor(entries: Record<string, string> = {}, bindings: Record<string, SecretBinding> = {}, watched: Record<string, string> = {}) {
+  constructor(entries: Record<string, string> = {}, bindings: Record<string, SecretBinding> = {}, watched: Record<string, string> = {}, harnessEnv: Record<string, { env: string; value: string }> = {}) {
     this.map = new Map(Object.entries(entries));
     this.bindings = new Map(Object.entries(bindings));
     this.watched = new Map(Object.entries(watched));
+    this.harnessEnv = new Map(Object.entries(harnessEnv));
     this.codes.onChange(() => (this.scrubber = undefined));
   }
 
@@ -117,7 +151,12 @@ export class SecretsRegistry {
       if (!value || value.length < WATCHED_MIN || placed.has(value) || key.startsWith(KOS_SECRET_PREFIX)) continue;
       if (HARNESS_ENV.includes(key) || CREDENTIAL_NAMED.test(key)) watched[key.toLowerCase()] = value;
     }
-    return new SecretsRegistry(entries, bindings, watched);
+    const harnessEnv: Record<string, { env: string; value: string }> = {};
+    for (const [name, envs] of Object.entries(HARNESS_KEYS)) {
+      const found = envs.find((e) => env[e]?.trim());
+      if (found) harnessEnv[name] = { env: found, value: env[found]!.trim() };
+    }
+    return new SecretsRegistry(entries, bindings, watched, harnessEnv);
   }
 
   /** Read the vault's entries too, from now on; the scrubber follows every change to it. */
@@ -142,7 +181,42 @@ export class SecretsRegistry {
   }
 
   get(name: string): string | undefined {
-    return this.map.get(name) ?? this.fromVault(name);
+    // A harness key the env holds under a name the agent may not use (DISCORD_TOKEN) is not taken from the vault either.
+    return this.map.get(name) ?? (this.harnessEnv.has(name) ? undefined : this.fromHarness(name)) ?? this.fromVault(name);
+  }
+
+  /**
+   * A key KOS itself runs on (a provider's, a channel's), by harness name:
+   * the env's when it has one, which always wins, else the vault's API key
+   * whose `use.harness` names it, while the vault is open. Read at each use.
+   */
+  credential(name: string): string | undefined {
+    return this.harnessEnv.get(name)?.value ?? this.map.get(name) ?? this.fromHarness(name);
+  }
+
+  /** Where a harness key is read from now, or undefined when neither the env nor the open vault has it. */
+  sourceOf(name: string): KeySource | undefined {
+    const env = this.harnessEnv.get(name)?.env ?? (this.map.has(name) ? `${KOS_SECRET_PREFIX}${name.toUpperCase()}` : undefined);
+    if (env) return { source: "env", env };
+    const meta = this.harnessMeta(name);
+    return meta ? { source: "vault", handle: meta.handle, label: meta.label } : undefined;
+  }
+
+  /** The vault's API key KOS runs on under `name`, while the vault is open. */
+  private harnessMeta(name: string): SecretMeta | undefined {
+    return this.vault?.status().state === "ready" ? this.vault.harness(name) : undefined;
+  }
+
+  private fromHarness(name: string): string | undefined {
+    const meta = this.harnessMeta(name);
+    return meta ? this.vault!.value(meta.handle, "token") : undefined;
+  }
+
+  /** The vault entry a name means for the agent: a handle (or a field of one), else a harness name; env names never reach here. */
+  private vaultMeta(name: string): SecretMeta | undefined {
+    if (this.map.has(name)) return undefined;
+    const ref = this.vaultRef(name);
+    return ref ? this.vault!.get(ref.handle) : this.harnessMeta(name);
   }
 
   /**
@@ -151,8 +225,7 @@ export class SecretsRegistry {
    * and only in the chats its policy names. Env secrets have no policy.
    */
   policyRefusal(name: string, who: SecretCaller | undefined): string | undefined {
-    const ref = this.map.has(name) ? undefined : this.vaultRef(name);
-    const policy = ref ? this.vault!.get(ref.handle)?.policy : undefined;
+    const policy = this.vaultMeta(name)?.policy;
     if (!policy) return undefined;
     if (who?.guest) return `Secret ${name} is the owner's; a guest's turn never uses one.`;
     if (!who?.attended && !policy.unattended) return `Secret ${name} needs the owner present: its policy keeps it from unattended turns.`;
@@ -162,7 +235,7 @@ export class SecretsRegistry {
 
   /** Whether `name` is a vault entry's handle (or one of its fields) rather than an env name. */
   inVault(name: string): boolean {
-    return !this.map.has(name) && this.vaultRef(name) !== undefined;
+    return this.vaultMeta(name) !== undefined;
   }
 
   /** The names KOS_SECRET_* and the provider keys go by, for a list of what the env file holds. */
@@ -197,8 +270,10 @@ export class SecretsRegistry {
 
   /** The hosts a secret may be sent to; undefined when it is bound to none. */
   hostsOf(name: string): string[] | undefined {
-    const ref = this.map.has(name) ? undefined : this.vaultRef(name);
-    const bound = ref ? this.vault!.get(ref.handle)?.use.http.hosts : this.bindings.get(name)?.hosts;
+    const meta = this.vaultMeta(name);
+    // A harness key from the vault goes where the env's would when the entry names no hosts of its own.
+    const own = meta?.use.http.hosts;
+    const bound = own?.length ? own : meta && meta.use.harness !== name ? undefined : (this.bindings.get(name)?.hosts ?? (meta ? PROVIDER_HOSTS[name] : undefined));
     return bound?.length ? bound : undefined;
   }
 
@@ -227,7 +302,7 @@ export class SecretsRegistry {
    * does the vault: its entries are read from it, not copied.
    */
   adopt(fresh: SecretsRegistry): void {
-    for (const [mine, theirs] of [[this.map, fresh.map], [this.bindings, fresh.bindings], [this.watched, fresh.watched]] as const) {
+    for (const [mine, theirs] of [[this.map, fresh.map], [this.bindings, fresh.bindings], [this.watched, fresh.watched], [this.harnessEnv, fresh.harnessEnv]] as const) {
       mine.clear();
       for (const [name, value] of theirs) (mine as Map<string, unknown>).set(name, value);
     }

@@ -21,7 +21,7 @@ describe("classification", () => {
       seen.push({ url: String(url), auth: (init?.headers as Record<string, string>)?.authorization, body: JSON.parse(String(init?.body)) });
       return new Response(JSON.stringify({ label: "durable", confidence: 0.93 }), { status: 200 });
     }) as typeof fetch;
-    const c = new HttpClassifier({ url: "https://jev.example/classify", apiKey: "k", fetchImpl });
+    const c = new HttpClassifier({ url: "https://jev.example/classify", apiKey: () => "k", fetchImpl });
     expect(await c.classify(choice)).toEqual({ label: "durable", confidence: 0.93, provider: "classifier" });
     expect(seen[0]).toMatchObject({ url: "https://jev.example/classify", auth: "Bearer k" });
     expect((seen[0]!.body as { labels: string[] }).labels).toEqual(["durable", "passing"]);

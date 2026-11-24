@@ -142,13 +142,37 @@ export function callerBlobOf(conversationId: string | undefined, conversations: 
   return id ? { name: role, id } : undefined;
 }
 
+const EMBED_DIMENSION = 256;
+
+/**
+ * The embedder the keys there are now pick, read again at each call: a key
+ * from a vault KOS for Mac opens after boot is used at once. Vectors are
+ * tagged with the embedder that made them, so a switch never mixes two.
+ */
+function liveEmbedder(secrets: SecretsRegistry): EmbeddingProvider {
+  let current: { key: string; provider: EmbeddingProvider } | undefined;
+  const now = (): EmbeddingProvider => {
+    const key = `${secrets.get("openai") ?? ""}\n${secrets.get("cohere") ?? ""}`;
+    if (current?.key !== key) current = { key, provider: pickEmbedder(secrets) };
+    return current.provider;
+  };
+  return {
+    get name() {
+      return now().name;
+    },
+    dimension: EMBED_DIMENSION,
+    embed: (texts, mode) => now().embed(texts, mode),
+  };
+}
+
+
 function pickEmbedder(secrets: SecretsRegistry): EmbeddingProvider {
   const openai = secrets.get("openai");
   if (openai) {
     return new OpenAIEmbeddingProvider({
       apiKey: openai,
       model: "text-embedding-3-small",
-      dimension: 256,
+      dimension: EMBED_DIMENSION,
     });
   }
   const cohere = secrets.get("cohere");
@@ -156,10 +180,10 @@ function pickEmbedder(secrets: SecretsRegistry): EmbeddingProvider {
     return new CohereEmbeddingProvider({
       apiKey: cohere,
       model: "embed-english-v3.0",
-      dimension: 256,
+      dimension: EMBED_DIMENSION,
     });
   }
-  return new HashingEmbeddingProvider(256);
+  return new HashingEmbeddingProvider(EMBED_DIMENSION);
 }
 
 function ensureDefaultBackupCron(crons: CronStore): void {
@@ -278,8 +302,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const callers = new CallerStore(workspace.db);
   const secretUses = new SecretUses(workspace.db);
   const pageLog = new PageLog(workspace.db);
-  const embedder = pickEmbedder(secrets);
-  const events = new EventLog(workspace.db, embedder.dimension, Date.now, embedder.name);
+  const embedder = liveEmbedder(secrets);
+  const events = new EventLog(workspace.db, embedder.dimension, Date.now, () => embedder.name);
   const memoryRetriever = new MemoryRetriever(facts, events, embedder);
 
   const turnMade = new TurnMade();

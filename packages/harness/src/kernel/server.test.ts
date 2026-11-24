@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { Verifiers } from "../secrets/verifiers.js";
 import { DRAWN_KEY, GUEST_TOOLS, Kernel, orchestratorId } from "./kernel.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
@@ -1392,6 +1393,19 @@ describe("handleApiRequest", () => {
           headers: { authorization: "Bearer anything" },
         });
         expect(res.status).toBe(403);
+      });
+
+      it("takes a secret set from Settings, kept only as a check, and none other", async () => {
+        job();
+        const dir = mkdtempSync(join(tmpdir(), "kos-hook-check-"));
+        const verifiers = new Verifiers(dir);
+        verifiers.set("hook", "hook-from-settings-0123");
+        const fire = (secret: string) => handleApiRequest(kernel, { method: "POST", path: "/api/hooks/poke", headers: { authorization: `Bearer ${secret}` } }, { verifiers });
+        expect((await fire("hook-from-settings-0123")).status).toBe(202);
+        expect((await fire("not-the-secret")).status).toBe(401);
+        const status = await handleApiRequest(kernel, { method: "GET", path: "/api/status" }, { verifiers });
+        expect((status.body as { hooks: boolean }).hooks).toBe(true);
+        rmSync(dir, { recursive: true, force: true });
       });
 
       it("will not start a paused job, or one that does not exist", async () => {

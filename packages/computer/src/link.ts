@@ -2,7 +2,7 @@ import { scrubDeep } from "@kos/harness";
 
 import type { Build } from "./builds.js";
 import type { HostKey } from "./keys.js";
-import { nonce, signText, verifyHere, verifyText } from "./keys.js";
+import { hostHereProof, nonce, signText, verifyHere, verifyText } from "./keys.js";
 import {
   CLOSE,
   PROTOCOL_VERSION,
@@ -204,7 +204,9 @@ export class DeviceLink {
       this.here = this.deps.local === true && (!mac || (this.deps.localKey !== undefined && verifyHere(this.deps.localKey, this.challenge, device.id, frame.here)));
       this.state = { consent: frame.consent, permissions: frame.permissions, displays: frame.displays };
       const signature = signText(this.deps.hostKey.privateKey, hostProof(frame.nonce, device.id));
-      this.socket.send(JSON.stringify({ t: "welcome", name: device.name, signature }));
+      // A Mac proved here is told KOS is here too, with the same secret: it opens the vault only for this KOS.
+      const here = mac && this.here && this.deps.localKey ? { here: hostHereProof(this.deps.localKey, frame.nonce, device.id) } : {};
+      this.socket.send(JSON.stringify({ t: "welcome", name: device.name, signature, ...here }));
       this.deps.onReady(this);
       return;
     }

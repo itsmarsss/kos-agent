@@ -53,6 +53,7 @@ import {
   type NotifySent,
   type OutboundMessage,
   type PendingAction,
+  Verifiers,
 } from "@kos/harness";
 import { createComputerUse, readApnsEnv, type Glance, type PanelArtifact, type PanelArtifacts, type PanelDeps, type PanelPlaceOf } from "@kos/computer";
 import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
@@ -106,18 +107,19 @@ function defaultUiDist(): string | undefined {
   return existsSync(join(candidate, "index.html")) ? candidate : undefined;
 }
 
-function discordCreds(): { token: string; ownerId: string; guildId?: string } | null {
-  const token =
-    process.env.KOS_SECRET_DISCORD ??
-    process.env.DISCORD_TOKEN ??
-    process.env.DISCORD_BOT_TOKEN;
+/**
+ * Discord as the env sets it up: whose bot it is, and the server it lays out.
+ * The token is not here: it is KOS's `discord` key, from the env or the vault
+ * (SecretsRegistry.credential), read when Discord starts.
+ */
+function discordCreds(): { ownerId: string; guildId?: string } | null {
   const ownerId =
     process.env.KOS_OWNER_DISCORD ?? process.env.DISCORD_OWNER_ID;
-  if (!token || !ownerId) return null;
+  if (!ownerId) return null;
   // A server of the owner's KOS lives in, with a channel per project and
   // per blob. Without it, KOS is a DM.
   const guildId = process.env.KOS_DISCORD_GUILD?.trim();
-  return { token, ownerId, ...(guildId ? { guildId } : {}) };
+  return { ownerId, ...(guildId ? { guildId } : {}) };
 }
 
 /**
@@ -129,17 +131,17 @@ function discordCreds(): { token: string; ownerId: string; guildId?: string } | 
  */
 /**
  * SMS through Twilio, when the owner set it up. Four values, none of them
- * in code: the account, its auth token (a secret), the number KOS sends
+ * in code: the account, its auth token (a secret: KOS's `twilio` key, from
+ * the env or the vault, read when it is needed), the number KOS sends
  * from, and the owner's own number.
  */
-function smsConfig(): { accountSid: string; authToken: string; from: string; owner: string; publicUrl?: string } | null {
+function smsConfig(): { accountSid: string; from: string; owner: string; publicUrl?: string } | null {
   const accountSid = process.env.KOS_TWILIO_SID?.trim();
-  const authToken = (process.env.KOS_SECRET_TWILIO ?? process.env.TWILIO_AUTH_TOKEN)?.trim();
   const from = process.env.KOS_TWILIO_FROM?.trim();
   const owner = process.env.KOS_OWNER_SMS?.trim();
-  if (!accountSid || !authToken || !from || !owner) return null;
+  if (!accountSid || !from || !owner) return null;
   const publicUrl = process.env.KOS_PUBLIC_URL?.trim();
-  return { accountSid, authToken, from, owner, ...(publicUrl ? { publicUrl } : {}) };
+  return { accountSid, from, owner, ...(publicUrl ? { publicUrl } : {}) };
 }
 
 function imessageConfig(): { handle: string; dbPath: string } | null {
@@ -470,11 +472,33 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   let imessageAdapter: IMessageAdapter | undefined;
   let imessageClaim: HandleClaim | undefined;
   let imessageRuntime: ReturnType<typeof connectChannel> | undefined;
+  /*
+   * The owner's vault (docs/secrets.md), outside the workspace, read through
+   * the same registry as the env file's keys: `{{secret:<handle>}}` resolves,
+   * and every value it holds is scrubbed from what KOS keeps and shows.
+   */
+  const vault = Vault.fromEnv(process.env, isContained(), options.rootDir);
+  const secrets = SecretsRegistry.fromEnv();
+  secrets.attachVault(vault);
+  // The vault holds the key now: out of the environment, so no program KOS starts, and no reload, sees it; still scrubbed.
+  const vaultKey = process.env.KOS_VAULT_KEY;
+  delete process.env.KOS_VAULT_KEY;
+  if (vaultKey) secrets.watch("kos_vault_key", vaultKey.trim());
+  const vaultState = vault.status();
+  if (vaultState.problem) console.error(`secrets: ${vaultState.problem}`);
+  // Whatever the host prints, to a terminal or daemon.log, carries no value either.
+  scrubOutput((text) => secrets.scrub(text));
+  /*
+   * A channel whose key may be in a vault that is still locked waits for it:
+   * the key is the env's, or the vault's once it opens (KOS for Mac at
+   * login, or the passphrase), and the channel starts then, no restart.
+   */
+  const mayHold = (name: string): boolean => secrets.credential(name) !== undefined || vault.status().state === "locked";
   const wantDiscord = options.discord !== false;
-  const creds = discordCreds();
+  const creds = discordCreds() && mayHold("discord") ? discordCreds() : null;
   if (options.requireDiscord && !creds) {
     throw new Error(
-      "Discord required but KOS_SECRET_DISCORD/DISCORD_TOKEN and KOS_OWNER_DISCORD/DISCORD_OWNER_ID are not set",
+      "Discord required but its token (DISCORD_TOKEN, or KOS's discord key in the vault) and KOS_OWNER_DISCORD/DISCORD_OWNER_ID are not set",
     );
   }
 
@@ -493,7 +517,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
    */
   const surfaces = new Map<string, () => ChannelAdapter | undefined>();
   surfaces.set("discord", () => adapter);
-  const sms = smsConfig();
+  const sms = smsConfig() && mayHold("twilio") ? smsConfig() : null;
   let smsAdapter: SmsAdapter | undefined;
   if (sms) surfaces.set("sms", () => smsAdapter);
   /** The surface a message goes to when none is named: the first one wired. */
@@ -772,22 +796,6 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.
   const browserPort = Number(process.env.KOS_BROWSER_PORT ?? "");
 
-  /*
-   * The owner's vault (docs/secrets.md), outside the workspace, read through
-   * the same registry as the env file's keys: `{{secret:<handle>}}` resolves,
-   * and every value it holds is scrubbed from what KOS keeps and shows.
-   */
-  const vault = Vault.fromEnv(process.env, isContained(), options.rootDir);
-  const secrets = SecretsRegistry.fromEnv();
-  secrets.attachVault(vault);
-  // The vault holds the key now: out of the environment, so no program KOS starts, and no reload, sees it; still scrubbed.
-  const vaultKey = process.env.KOS_VAULT_KEY;
-  delete process.env.KOS_VAULT_KEY;
-  if (vaultKey) secrets.watch("kos_vault_key", vaultKey.trim());
-  const vaultState = vault.status();
-  if (vaultState.problem) console.error(`secrets: ${vaultState.problem}`);
-  // Whatever the host prints, to a terminal or daemon.log, carries no value either.
-  scrubOutput((text) => secrets.scrub(text));
 
   const kernel = await Kernel.boot({
     rootDir: options.rootDir,
@@ -945,6 +953,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
     // Where existing installs keep them, beside the repository's .env, whichever env file is read.
     credentialsDir: credentialsDir(),
     ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
+    // The hook secret set from Settings, kept as a check beside KOS's other keys.
+    verifiers: new Verifiers(join(homedir(), ".kos")),
     host: options.host,
     meta,
     extensions: [
@@ -953,6 +963,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
         vault,
         secrets: kernel.secrets,
         uses: kernel.secretUses,
+        devices: computer.vaultDevices,
         audit: (entry) => void kernel.audit.record({ ...entry, userId: kernel.profile.ownerId }),
       }),
     ],
@@ -962,7 +973,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
             // Signed over the URL Twilio was given, which a tunnel or proxy
             // may hide from the request; the owner can say it outright.
             const signedUrl = sms.publicUrl ? `${sms.publicUrl.replace(/\/$/, "")}/api/sms/inbound` : url;
-            if (!verifyTwilioSignature(signedUrl, params, signature, sms.authToken)) return false;
+            const authToken = secrets.credential("twilio");
+            if (!authToken || !verifyTwilioSignature(signedUrl, params, signature, authToken)) return false;
             if (smsAdapter) await smsAdapter.receive(params);
             return true;
           },
@@ -1061,7 +1073,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   }
 
   console.log(`KOS host on http://${options.host}:${options.port}`);
-  if (options.hookSecret) console.log("hooks: POST /api/hooks/<job name>");
+  if (options.hookSecret || dashboard.verifiers?.has("hook")) console.log("hooks: POST /api/hooks/<job name>");
   console.log(`workspace: ${kernel.workspace.root}`);
   console.log(`session: ${primarySessionId(kernel.profile.ownerId)}`);
   if (siteServer) console.log(`sites: http://${options.host}:${sitesPort}`);
@@ -1070,12 +1082,14 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
 
   /** Discord, logged in and laid out. A login that fails throws, and its adapter is let go: discord.js reconnects only after one that worked. */
   const startDiscord = async (creds: NonNullable<ReturnType<typeof discordCreds>>): Promise<void> => {
+    const token = kernel.secrets.credential("discord");
+    if (!token) throw new Error("no Discord token: set DISCORD_TOKEN in .env, or keep it in the vault as KOS's discord key");
     // Where a reference in a reply, or a chat a slash command names, links
     // to: the public URL when there is one; otherwise this host, which is
     // right on the machine it runs on.
     const dashboardUrl = dashboardUrlFor(options.host, options.port);
     adapter = new DiscordAdapter({
-      token: creds.token,
+      token,
       scrub: (text) => kernel.secrets.scrub(text),
       ownerId: creds.ownerId,
       dashboardUrl,
@@ -1422,6 +1436,20 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
    * waiting longer each time; one refused for its token or intents is not,
    * since trying again cannot mend it.
    */
+  /**
+   * `start` now when KOS's `name` key is there; else once the vault opens
+   * with it (KOS for Mac at login, the passphrase), said in the log.
+   */
+  const whenKeyed = async (label: string, name: string, start: () => Promise<void>): Promise<void> => {
+    if (kernel.secrets.credential(name)) return start();
+    console.log(`${label}: waiting for the vault to open: its key is not in .env`);
+    const off = vault.onChange(() => {
+      if (stopping || !kernel.secrets.credential(name)) return;
+      off();
+      console.log(`${label}: the vault opened with its key; starting`);
+      void start();
+    });
+  };
   const discordUp = async (creds: NonNullable<ReturnType<typeof discordCreds>>, attempt: number): Promise<void> => {
     const result = await startSurface("Discord", () => startDiscord(creds), surfaceDeps);
     if (result.started) {
@@ -1439,14 +1467,16 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
     discordRetry = setTimeout(() => void discordUp(creds, attempt + 1), wait);
     discordRetry.unref();
   };
-  if (wantDiscord && creds) await discordUp(creds, 0);
+  if (wantDiscord && creds) await whenKeyed("Discord", "discord", () => discordUp(creds, 0));
   else if (wantDiscord) console.log("Discord: skipped (set DISCORD_TOKEN + KOS_OWNER_DISCORD to enable)");
   else console.log("Discord: off (--no-discord; serve implies it, serve --discord turns it on)");
 
   const startSms = async (sms: NonNullable<ReturnType<typeof smsConfig>>): Promise<void> => {
+    const authToken = kernel.secrets.credential("twilio");
+    if (!authToken) throw new Error("no Twilio auth token: set TWILIO_AUTH_TOKEN in .env, or keep it in the vault as KOS's twilio key");
     smsAdapter = new SmsAdapter({
       accountSid: sms.accountSid,
-      authToken: sms.authToken,
+      authToken,
       from: sms.from,
       owner: sms.owner,
       ...(sms.publicUrl ? { publicUrl: sms.publicUrl } : {}),
@@ -1466,7 +1496,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
     }
     console.log(`SMS: texts to ${sms.from} from your number arrive at POST /api/sms/inbound`);
   };
-  if (sms) await startSurface("SMS", () => startSms(sms), surfaceDeps);
+  if (sms) await whenKeyed("SMS", "twilio", () => startSurface("SMS", () => startSms(sms), surfaceDeps).then(() => undefined));
 
   /*
    * iMessage, when the owner has said which thread.

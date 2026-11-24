@@ -18,6 +18,10 @@ public enum CallMethod: String, CaseIterable, Sendable {
   case keysSecret = "keys.secret"
   /// The clipboard read once, outside any session: a preview for the owner's card, then the text they said yes to.
   case clipboardRead = "clipboard.read"
+  /// This Mac's vault key's point, made the first time: only for the KOS on this Mac (docs/secrets.md, Device slots).
+  case vaultKey = "vault.key"
+  /// A device slot's key, sealed to the host's ephemeral point: only for the KOS on this Mac.
+  case vaultUnwrap = "vault.unwrap"
 }
 
 public enum EventName: String, Sendable {

@@ -33,6 +33,8 @@ final class DeviceController {
   var ownMenuOpen: () -> Bool = { false }
   /// The KOS this Mac is paired with, each as `host:port`: KOS never acts on their dashboards, where approvals are decided.
   var dashboards: () -> [String] = { [] }
+  /// Whether a KOS runs on this Mac itself: only it is answered about the owner's vault.
+  var isHere: (String) -> Bool = { _ in false }
   /// KOS's own addresses as the live session's KOS named them (session.begin `kosHosts`).
   private var kosHosts: [String] = []
   /// Every address of a KOS's dashboard known here.
@@ -113,8 +115,28 @@ final class DeviceController {
     case .clipboardRead:
       // No session: KOS asks the owner for each read on its own card, and never in a turn they are not at.
       return await answer(call) { try ClipboardResult.answer(call.params(ClipboardReadParams.self), from: SystemClipboard()) }
+    case .vaultKey:
+      // No session either: the vault opens at login, with no one at the screen. Only the KOS on this Mac asks.
+      return await answer(call) {
+        try self.hereOnly(origin)
+        return VaultKeyResult(try VaultKeyStore.key())
+      }
+    case .vaultUnwrap:
+      return await answer(call) {
+        try self.hereOnly(origin)
+        let answered = try VaultUnwrap.answer(call.params(VaultUnwrapParams.self), key: VaultKeyStore.key())
+        Log.app.notice("opened a vault slot for the KOS on this Mac")
+        return answered
+      }
     default:
       return await inTurn { await self.answer(call) { try await self.act(method, call, from: origin) } }
+    }
+  }
+
+  /// Refused unless `origin` is the KOS running on this Mac.
+  private func hereOnly(_ origin: String) throws {
+    guard isHere(origin) else {
+      throw DeviceError(.notHere, "Only the KOS on this Mac opens its vault with this Mac's key.")
     }
   }
 
@@ -493,7 +515,7 @@ final class DeviceController {
         throw error
       }
 
-    case .sessionBegin, .sessionEnd, .sessionStatus, .clipboardRead:
+    case .sessionBegin, .sessionEnd, .sessionStatus, .clipboardRead, .vaultKey, .vaultUnwrap:
       throw DeviceError(.internal, "\(method.rawValue) is not an action.")
     }
   }

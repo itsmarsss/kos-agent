@@ -732,6 +732,23 @@ export class DeviceHub {
     return link.call(method, params, timeoutMs);
   }
 
+  /** The KOS for Macs proved to run on this computer (loopback, no proxy, the here proof), online now. */
+  macsHere(): Device[] {
+    return [...this.links.values()].filter((l) => l.ready && l.local && l.device!.platform === "macos").map((l) => l.device!);
+  }
+
+  /**
+   * A call about the owner's vault (vault.key, vault.unwrap; docs/computer.md,
+   * The vault): only to a KOS for Mac proved to run on this computer. Not
+   * held by the kill switch: opening the vault acts on nothing.
+   */
+  async vaultCall(deviceId: string, method: "vault.key" | "vault.unwrap", params: Record<string, unknown>, timeoutMs = PANEL_TIMEOUT_MS): Promise<Record<string, unknown>> {
+    const link = this.links.get(deviceId);
+    if (!link?.ready) throw new DeviceError("offline", "that Mac is not connected to KOS");
+    if (!this.macsHere().some((d) => d.id === deviceId)) throw new DeviceError("not_here", "only the KOS for Mac on the computer KOS runs on holds a key to the vault");
+    return link.call(method, params, timeoutMs);
+  }
+
   /** End a session here and tell the device, without waiting on it: the overlay goes as soon as it hears. */
   private release(session: Session, why: EndReason, by: string): void {
     this.drop(session, why, by);

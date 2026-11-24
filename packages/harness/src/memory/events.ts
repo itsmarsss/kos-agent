@@ -95,12 +95,16 @@ export function ftsQuery(text: string): string | null {
 export class EventLog {
   private readonly vecTable: string;
 
+  private get provider(): string {
+    return typeof this.providerOf === "function" ? this.providerOf() : this.providerOf;
+  }
+
   constructor(
     private readonly db: Db,
     readonly dimension: number,
     private readonly now: () => number = Date.now,
-    /** Which embedder made the vectors; another provider's are not comparable. */
-    private readonly provider: string = "unknown",
+    /** Which embedder makes the vectors, read at each write and search; another provider's are not comparable. */
+    private readonly providerOf: string | (() => string) = "unknown",
   ) {
     sqliteVec.load(db);
     db.exec(`

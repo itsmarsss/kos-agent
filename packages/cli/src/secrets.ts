@@ -1,8 +1,13 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 
 import type { KosClient } from "@kos/client";
-import { isContained, SECRET_FIELDS, SECRET_KINDS, SECRET_REQUIRED, Vault, VaultError, type SecretFieldName, type SecretKind, type SecretValues, type VaultStatus } from "@kos/harness";
+import { applyEnvMove, isContained, planEnvMove, SECRET_FIELDS, SECRET_KINDS, SECRET_REQUIRED, Vault, VaultError, Verifiers, type EnvMove, type SecretFieldName, type SecretKind, type SecretValues, type VaultStatus } from "@kos/harness";
+
+import { envFilePath } from "./env.js";
 
 /**
  * `kos secrets`: the vault from a terminal (docs/secrets.md, CLI).
@@ -29,6 +34,9 @@ export const SECRETS_USAGE = [
   "  export <file>                a copy only the passphrase opens",
   "  trust-seq [--yes]            take the vault on disk as the latest when both sequence records are gone",
   "  wipe [--yes]                 crypto-erase the vault and its key (a passphrase vault asks for it)",
+  "  migrate-env [--dry-run] [--yes]",
+  "                               move the keys KOS runs on out of .env: provider and channel keys into",
+  "                               the vault, the hook secret into a check; their values blanked in .env",
 ].join("\n");
 
 /** The fields a terminal asks for without echo: the ones that are secret on their own. */
@@ -44,6 +52,9 @@ export interface SecretsCli {
   out?: (line: string) => void;
   /** The workspace, which the vault's folder must not be inside. */
   workspace?: string;
+  /** The env file migrate-env reads, and the checks it keeps the hook secret as; the host's own by default. */
+  envPath?: string;
+  verifiers?: Verifiers;
   /** Into the workspace's audit log: a passphrase added or taken off is recorded as the dashboard records it. */
   audit?: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean }) => void;
 }
@@ -101,6 +112,29 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
 
   const confirmed = async (what: string, word: string): Promise<boolean> => flags.yes === true || (await ask(`${what} Type ${word} to go on: `, false)).trim() === word;
 
+  /** migrate-env: list what would move, confirm, move it, blank it in .env. Run again, nothing moves. */
+  const migrateEnv = async (): Promise<number> => {
+    const path = cli.envPath ?? envFilePath();
+    if (!existsSync(path)) throw new VaultError("invalid", `there is no env file at ${path}`);
+    if (vault.status().state === "absent") throw new VaultError("absent", "there is no vault to move keys into: kos secrets init --passphrase, or Settings, Secrets");
+    await open();
+    const verifiers = cli.verifiers ?? new Verifiers(join(homedir(), ".kos"));
+    const moves = planEnvMove(readFileSync(path, "utf8"), vault, verifiers);
+    if (moves.length === 0) {
+      out(`nothing in ${path} to move`);
+      return 0;
+    }
+    out(`From ${path}:`);
+    for (const move of moves) out(`  ${moveWords(move)}`);
+    if (flags["dry-run"] === true) return 0;
+    if (!moves.some((m) => m.state !== "differs")) return 1;
+    if (!(await confirmed("Their values are blanked in .env; the names stay, commented.", "move"))) return 1;
+    const done = applyEnvMove(path, moves, vault, verifiers);
+    cli.audit?.({ tool: "secrets.migrate-env", args: { from: "cli", moved: done.flatMap((m) => m.envs) }, result: `${done.length} moved out of .env`, isError: false });
+    out(`moved ${done.length}. Restart KOS (kos restart): the running host still holds them from .env, which wins until it starts again.`);
+    return 0;
+  };
+
   try {
     switch (rest[0]) {
       case "init": {
@@ -111,6 +145,7 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
       case "status": {
         const s = vault.status();
         out(`vault: ${s.state}${s.slots.length ? ` (${s.slots.join(", ")})` : ""}${s.problem ? `: ${s.problem}` : ""}`);
+        for (const device of s.devices ?? []) out(`  opens at login on ${device.name} (KOS for Mac)`);
         const client = await cli.live?.();
         if (client) {
           const host = await client.get<VaultStatus>("/api/secrets/status");
@@ -157,8 +192,8 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
         if (flags.passphrase === true) {
           const had = vault.hasPassphrase();
           await vault.setPassphrase(await newPassphrase());
-          cli.audit?.({ tool: "secrets.passphrase", args: { change: had ? "change" : "add", from: "cli" }, result: "passphrase slot only, key file erased", isError: false });
-          out("passphrase set: it is the vault's only key now, and the key file is erased");
+          cli.audit?.({ tool: "secrets.passphrase", args: { change: had ? "change" : "add", from: "cli" }, result: "passphrase set, key file erased", isError: false });
+          out("passphrase set, and the key file erased: the vault opens with it, or with KOS for Mac where unlock at login is on");
         } else if (flags["no-passphrase"] === true) {
           vault.removePassphrase();
           cli.audit?.({ tool: "secrets.passphrase", args: { change: "remove", from: "cli" }, result: "key-file slot only", isError: false });
@@ -185,7 +220,13 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
       }
       case "trust-seq": {
         if (vault.status().state === "absent") throw new VaultError("absent", "there is no vault");
-        if (!(await confirmed("This takes the vault file on disk as the latest, though nothing records its sequence. Only do this if you did not put an older copy back.", "trust"))) return 1;
+        // What would be taken, against what the records say, before anyone types trust.
+        const report = vault.seqReport();
+        if (report.file) out(`the file: vault ${report.file.vault}, sequence ${report.file.seq}, slots ${report.file.slots.join(", ") || "none"}`);
+        for (const { path, record } of report.records) {
+          out(record ? `${path}: vault ${record.vault}, sequence ${record.seq}${record.kinds ? `, slots ${record.kinds.join(", ") || "none"}` : ""}` : `${path}: missing`);
+        }
+        if (!(await confirmed("This takes the vault file on disk as the latest, whatever the records say. Only do this for a vault you put back yourself; a file you did not put there was replaced by someone else.", "trust"))) return 1;
         await vault.trustSeq(vault.hasPassphrase() ? await ask("Vault passphrase: ", true) : undefined);
         cli.audit?.({ tool: "secrets.trust-seq", args: { from: "cli" }, result: "sequence records written again", isError: false });
         const s = vault.status();
@@ -200,6 +241,8 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
         out("vault wiped");
         return 0;
       }
+      case "migrate-env":
+        return await migrateEnv();
       default:
         out(SECRETS_USAGE);
         return rest[0] === undefined || rest[0] === "help" ? 0 : 1;
@@ -232,4 +275,13 @@ async function valuesFor(kind: SecretKind, io: { ask: (q: string, hidden: boolea
     if (value) values[field] = value;
   }
   return values as SecretValues;
+}
+
+/** One planned move, as the list before the confirm says it. */
+function moveWords(move: EnvMove): string {
+  const names = move.envs.join(", ");
+  const to = "verifier" in move.to ? "a check in ~/.kos: KOS keeps no copy, so keep yours" : `the vault, as KOS's ${move.to.harness} key`;
+  if (move.aliases) return `${names}: these hold different values, so which is meant is yours to say; left as they are`;
+  if (move.state === "differs") return `${names}: ${"verifier" in move.to ? "a check of another value is kept" : `the vault's ${move.to.harness} key holds another value`}; left as it is`;
+  return `${names} -> ${to}${move.state === "kept" ? " (already there; only blanked in .env)" : ""}`;
 }

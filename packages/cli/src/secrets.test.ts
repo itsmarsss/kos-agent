@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Vault } from "@kos/harness";
+import { SecretsRegistry, Vault, Verifiers } from "@kos/harness";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runSecrets, type SecretsCli } from "./secrets.js";
@@ -114,5 +114,95 @@ describe("kos secrets", () => {
     expect(await runSecrets(["list"], {}, cli())).toBe(0);
     expect(await runSecrets(["init"], { passphrase: true }, cli(["one passphrase", "another one"]))).toBe(1);
     expect(lines.at(-1)).toMatch(/differ/);
+  });
+});
+
+describe("kos secrets migrate-env", () => {
+  const ENV = ["# KOS", "OPENAI_API_KEY=sk-proj-env-canary-0123456789", "DISCORD_TOKEN=discord-env-canary-0123456789", "KOS_SECRET_STRIPE=sk_live_env_canary_0123", "KOS_SECRET_STRIPE_HOSTS=api.stripe.com", "KOS_HOOK_SECRET=hook-env-canary-0123", "KOS_DASHBOARD_TOKEN=dash-env-canary-0123", "KOS_PORT=4317", ""].join("\n");
+  const at = (answers: string[] = []): SecretsCli => ({ ...cli(answers), envPath: join(root, ".env"), verifiers: new Verifiers(join(root, "kos")) });
+
+  beforeEach(() => writeFileSync(join(root, ".env"), ENV, { mode: 0o600 }));
+
+  it("lists what it would move on a dry run, and changes nothing", async () => {
+    await runSecrets(["init"], {}, cli());
+    expect(await runSecrets(["migrate-env"], { "dry-run": true }, at())).toBe(0);
+    expect(lines).toContain("  OPENAI_API_KEY -> the vault, as KOS's openai key");
+    expect(lines).toContain("  DISCORD_TOKEN -> the vault, as KOS's discord key");
+    expect(lines).toContain("  KOS_SECRET_STRIPE -> the vault, as KOS's stripe key");
+    expect(lines.some((l) => l.startsWith("  KOS_HOOK_SECRET -> a check"))).toBe(true);
+    expect(lines.join("\n")).not.toMatch(/DASHBOARD|HOSTS|KOS_PORT/);
+    expect(readFileSync(join(root, ".env"), "utf8")).toBe(ENV);
+    expect(new Vault({ dir: join(root, "secrets") }).list()).toEqual([]);
+  });
+
+  it("moves after the confirm, blanks the values, keeps the names, and moves nothing the second time", async () => {
+    await runSecrets(["init"], {}, cli());
+    expect(await runSecrets(["migrate-env"], {}, at(["no"]))).toBe(1);
+    expect(readFileSync(join(root, ".env"), "utf8")).toBe(ENV);
+    expect(await runSecrets(["migrate-env"], {}, at(["move"]))).toBe(0);
+    const file = readFileSync(join(root, ".env"), "utf8");
+    for (const canary of ["sk-proj-env-canary", "discord-env-canary", "sk_live_env_canary", "hook-env-canary"]) expect(file).not.toContain(canary);
+    expect(file).toContain("# OPENAI_API_KEY= moved to the KOS vault as its openai key (kos secrets list)");
+    expect(file).toContain("# KOS_HOOK_SECRET= kept as a check in ~/.kos (Settings, Providers)");
+    expect(file).toContain("KOS_SECRET_STRIPE_HOSTS=api.stripe.com");
+    expect(file).toContain("KOS_DASHBOARD_TOKEN=dash-env-canary-0123");
+    const vault = new Vault({ dir: join(root, "secrets") });
+    const secrets = SecretsRegistry.fromEnv({ KOS_SECRET_STRIPE_HOSTS: "api.stripe.com" } as NodeJS.ProcessEnv);
+    secrets.attachVault(vault);
+    expect(secrets.credential("openai")).toBe("sk-proj-env-canary-0123456789");
+    expect(secrets.credential("discord")).toBe("discord-env-canary-0123456789");
+    expect(secrets.get("stripe")).toBe("sk_live_env_canary_0123");
+    expect(secrets.hostsOf("stripe")).toEqual(["api.stripe.com"]);
+    expect(new Verifiers(join(root, "kos")).matches("hook", "hook-env-canary-0123")).toBe(true);
+    lines = [];
+    expect(await runSecrets(["migrate-env"], {}, at())).toBe(0);
+    expect(lines).toEqual([`nothing in ${join(root, ".env")} to move`]);
+    expect(vault.list()).toHaveLength(3);
+  });
+
+  it("finishes a run cut short: a key already in the vault with the same value is only blanked; another value is left alone", async () => {
+    await runSecrets(["init"], {}, cli());
+    const vault = new Vault({ dir: join(root, "secrets") });
+    vault.add({ label: "OpenAI", kind: "apikey", values: { token: "sk-proj-env-canary-0123456789" }, use: { harness: "openai" } });
+    vault.add({ label: "Discord", kind: "apikey", values: { token: "another-discord-token-0123" }, use: { harness: "discord" } });
+    expect(await runSecrets(["migrate-env"], { yes: true }, at())).toBe(0);
+    expect(lines).toContain("  OPENAI_API_KEY -> the vault, as KOS's openai key (already there; only blanked in .env)");
+    expect(lines).toContain("  DISCORD_TOKEN: the vault's discord key holds another value; left as it is");
+    const file = readFileSync(join(root, ".env"), "utf8");
+    expect(file).not.toContain("sk-proj-env-canary");
+    expect(file).toContain("DISCORD_TOKEN=discord-env-canary-0123456789");
+    expect(vault.list().filter((m) => m.use.harness === "openai")).toHaveLength(1);
+  });
+
+  it("leaves names that disagree, writes .env whole, and keeps a link to it", async () => {
+    await runSecrets(["init"], {}, cli());
+    const real = join(root, "real.env");
+    writeFileSync(real, `${ENV}KOS_SECRET_DISCORD=another-discord-value-0123\n`, { mode: 0o600 });
+    rmSync(join(root, ".env"));
+    symlinkSync(real, join(root, ".env"));
+    expect(await runSecrets(["migrate-env"], { yes: true }, at())).toBe(0);
+    expect(lines).toContain("  KOS_SECRET_DISCORD, DISCORD_TOKEN: these hold different values, so which is meant is yours to say; left as they are");
+    expect(lstatSync(join(root, ".env")).isSymbolicLink()).toBe(true);
+    const file = readFileSync(real, "utf8");
+    expect(file).toContain("DISCORD_TOKEN=discord-env-canary-0123456789");
+    expect(file).not.toContain("sk-proj-env-canary");
+    expect(statSync(real).mode & 0o777).toBe(0o600);
+  });
+
+  it("needs a vault to move into", async () => {
+    expect(await runSecrets(["migrate-env"], { yes: true }, at())).toBe(1);
+    expect(lines.at(-1)).toMatch(/no vault to move keys into/);
+  });
+});
+
+describe("kos secrets trust-seq", () => {
+  it("shows the file's sequence and slots against the records before it takes the file", async () => {
+    await runSecrets(["init"], {}, cli());
+    rmSync(join(root, "secrets", "seq"));
+    rmSync(join(root, "secrets.seq"));
+    expect(await runSecrets(["trust-seq"], {}, cli(["no"]))).toBe(1);
+    expect(lines).toEqual(expect.arrayContaining([expect.stringMatching(/^the file: vault v_[0-9a-f]{16}, sequence 1, slots keyfile$/), `${join(root, "secrets", "seq")}: missing`, `${join(root, "secrets.seq")}: missing`]));
+    expect(await runSecrets(["trust-seq"], {}, cli(["trust"]))).toBe(0);
+    expect(readFileSync(join(root, "secrets.seq"), "utf8")).toMatch(/ 1 [0-9a-f]{32} keyfile\n$/);
   });
 });

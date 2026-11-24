@@ -31,7 +31,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
  */
 export const WRITABLE_SECRETS: Record<
   string,
-  { label: string; hint: string; aliases?: string[] }
+  { label: string; hint: string; aliases?: string[]; verifier?: "hook" }
 > = {
   OPENAI_API_KEY: { label: "OpenAI", hint: "sk-…" },
   ANTHROPIC_API_KEY: { label: "Anthropic", hint: "sk-ant-…" },
@@ -51,6 +51,13 @@ export const WRITABLE_SECRETS: Record<
   KOS_DASHBOARD_TOKEN: {
     label: "Dashboard token",
     hint: "When set, every API request must carry it. Set one if KOS is reachable beyond this machine.",
+  },
+  // Only ever compared, so KOS keeps a check of it (verifiers.ts), never the
+  // value: saved here it goes nowhere KOS could read it back from.
+  KOS_HOOK_SECRET: {
+    label: "Hook secret",
+    hint: "What a webhook sends as its bearer to start a job at POST /api/hooks/<job>. KOS keeps only a check of it: copy it before you save.",
+    verifier: "hook",
   },
 };
 

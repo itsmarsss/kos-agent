@@ -194,15 +194,21 @@ export function originAllowed(origin: string, allowed: readonly string[]): boole
 export function checkUse(given: unknown): SecretUse {
   if (given === undefined || given === null) return { web: { origins: [], frames: [] }, apps: [], http: { hosts: [] } };
   if (typeof given !== "object" || Array.isArray(given)) throw new RecordError("use is an object of web, apps and http");
-  const u = given as { web?: { origins?: unknown; frames?: unknown }; apps?: unknown; http?: { hosts?: unknown; as?: unknown } };
+  const u = given as { web?: { origins?: unknown; frames?: unknown }; apps?: unknown; http?: { hosts?: unknown; as?: unknown }; harness?: unknown };
   const as = u.http?.as;
   if (as !== undefined && as !== null && as !== "bearer" && as !== "basic") throw new RecordError("http.as is bearer or basic");
+  const harness = u.harness === undefined || u.harness === null || u.harness === "" ? undefined : u.harness;
+  if (harness !== undefined && (typeof harness !== "string" || !HARNESS_NAME.test(harness))) throw new RecordError("harness is a name like openai or stripe: lowercase letters, digits and _");
   return {
     web: { origins: listOf(u.web?.origins, checkOrigin, "web.origins"), frames: listOf(u.web?.frames, checkOrigin, "web.frames") },
     apps: listOf(u.apps, checkApp, "apps"),
     http: { hosts: listOf(u.http?.hosts, checkHost, "http.hosts"), ...(as ? { as } : {}) },
+    ...(harness ? { harness } : {}),
   };
 }
+
+/** A harness name: what a provider or channel key goes by, `KOS_SECRET_<NAME>` lowercased. */
+export const HARNESS_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 /** How a secret asks. Grants are never set here: only an approval adds one, and only the owner takes one back. */
 export function checkPolicy(given: unknown, before: SecretPolicy | undefined): SecretPolicy {

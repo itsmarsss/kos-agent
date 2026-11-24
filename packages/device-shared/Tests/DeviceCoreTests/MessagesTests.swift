@@ -20,7 +20,9 @@ struct MessagesTests {
 
   @Test func readsAWelcome() throws {
     let message = try Inbound.decode(Data(#"{"t":"welcome","name":"Studio","signature":"sig"}"#.utf8))
-    #expect(message == .welcome(name: "Studio", signature: "sig"))
+    #expect(message == .welcome(name: "Studio", signature: "sig", here: nil))
+    let here = try Inbound.decode(Data(#"{"t":"welcome","name":"Studio","signature":"sig","here":"proof"}"#.utf8))
+    #expect(here == .welcome(name: "Studio", signature: "sig", here: "proof"))
   }
 
   @Test func readsACallAndItsParamsOnceTheMethodIsKnown() throws {
@@ -169,7 +171,7 @@ struct MessagesTests {
     #expect(CallMethod.allCases.map(\.rawValue) == [
       "session.begin", "session.end", "session.status", "screen.capture", "pointer.move", "pointer.click", "pointer.drag",
       "pointer.scroll", "keys.type", "keys.press", "keys.focus", "keys.secret",
-      "clipboard.read",
+      "clipboard.read", "vault.key", "vault.unwrap",
     ])
   }
 }

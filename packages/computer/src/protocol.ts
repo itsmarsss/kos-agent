@@ -107,6 +107,8 @@ export interface Welcome {
   t: "welcome";
   name: string;
   signature: string;
+  /** To a Mac that proved it is here: KOS's proof that it is the KOS on this computer (keys.ts, hostHereProof). */
+  here?: string;
 }
 
 export interface StateUpdate extends Partial<DeviceState> {
@@ -134,7 +136,9 @@ export type ErrorCode =
   | "origin"
   | "field"
   | "secret_field"
-  | "partial";
+  | "partial"
+  | "not_here"
+  | "key";
 
 export interface Reply {
   t: "reply";
@@ -176,6 +180,8 @@ export type Method =
   | "secret.picture"
   | "tab.origins"
   | "clipboard.read"
+  | "vault.key"
+  | "vault.unwrap"
   | PanelMethod;
 
 /**

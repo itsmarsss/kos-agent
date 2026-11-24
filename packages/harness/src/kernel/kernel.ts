@@ -844,7 +844,7 @@ export class Kernel {
     this.pageLog = args.pageLog;
     const configured = parseClassifierEndpoint(args.settings.get(CLASSIFIER_KEY));
     this.classifier = configured
-      ? new HttpClassifier({ url: configured.url, ...(args.secrets.get("classifier") ? { apiKey: args.secrets.get("classifier")! } : {}) })
+      ? new HttpClassifier({ url: configured.url, apiKey: () => args.secrets.get("classifier") })
       : new LlmClassifier(args.inference);
     this.permissions = args.permissions;
     this.decisions = new Decisions({
@@ -5352,7 +5352,7 @@ export class Kernel {
     const parsed = parseClassifierEndpoint({ url }, {});
     this.settings.set(CLASSIFIER_KEY, parsed ?? {});
     this.classifier = parsed
-      ? new HttpClassifier({ url: parsed.url, ...(this.secrets.get("classifier") ? { apiKey: this.secrets.get("classifier")! } : {}) })
+      ? new HttpClassifier({ url: parsed.url, apiKey: () => this.secrets.get("classifier") })
       : new LlmClassifier(this.inference);
     return parsed;
   }

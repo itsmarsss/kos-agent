@@ -64,7 +64,8 @@ public struct DeviceState: Equatable, Sendable {
 /// A message from KOS.
 public enum Inbound: Equatable {
   case challenge(protocol: Int, nonce: String)
-  case welcome(name: String, signature: String)
+  /// `here`: KOS's proof it runs on this computer, sent to a Mac that proved the same (HereProof.verifyHost).
+  case welcome(name: String, signature: String, here: String?)
   case call(Call)
   case face(FaceDrawing)
   /// The dashboard's theme and the palette it is drawn in, after the welcome and whenever either changes.
@@ -81,7 +82,7 @@ public enum Inbound: Equatable {
       return .challenge(protocol: m.protocolVersion, nonce: m.nonce)
     case "welcome":
       let m = try decoder.decode(WelcomeBody.self, from: data)
-      return .welcome(name: m.name, signature: m.signature)
+      return .welcome(name: m.name, signature: m.signature, here: m.here)
     case "call":
       let m = try decoder.decode(CallHeader.self, from: data)
       return .call(Call(id: m.id, method: m.method, raw: data))
@@ -121,6 +122,7 @@ public enum Inbound: Equatable {
   private struct WelcomeBody: Decodable {
     let name: String
     let signature: String
+    let here: String?
   }
 
   private struct FaceBody: Decodable {

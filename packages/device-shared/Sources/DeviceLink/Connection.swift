@@ -53,6 +53,10 @@ public final class Connection: NSObject {
   public var onUpdate: ((UpdateNotice) -> Void)?
   /// The proof this device runs on KOS's computer, for a hello to KOS's nonce (HereProof); none sends none.
   public var here: ((_ hostNonce: String, _ deviceId: String) -> String?)?
+  /// Whether KOS's proof in its welcome shows it runs on this computer, over this device's nonce (HereProof.verifyHost).
+  public var hostHere: ((_ deviceNonce: String, _ deviceId: String, _ proof: String) -> Bool)?
+  /// The KOS on this line proved, in its welcome, that it runs on this computer.
+  public private(set) var isHere = false
   /// What to tell KOS about this device in the hello.
   public var state: () -> DeviceState = { DeviceState(consent: .device, permissions: Permissions(screen: false, input: false), displays: []) }
 
@@ -213,6 +217,7 @@ public final class Connection: NSObject {
     handshakeTimer = nil
     let wasProven = proven
     proven = false
+    isHere = false
     generation += 1
     task?.cancel(with: code, reason: nil)
     task = nil
@@ -306,7 +311,7 @@ public final class Connection: NSObject {
         here: here?(nonce, pairing.deviceId), state: state())
       if let hello { task.send(.string(String(decoding: hello, as: UTF8.self))) { _ in } }
 
-    case .welcome(let name, let signature):
+    case .welcome(let name, let signature, let hereProof):
       guard !proven else { return }
       let payload = Handshake.hostPayload(deviceNonce: deviceNonce, deviceId: pairing.deviceId)
       guard let hostKey = try? pairing.pinnedHostKey(), hostKey.verify(signature: signature, payload: payload) else {
@@ -318,6 +323,7 @@ public final class Connection: NSObject {
         return
       }
       proven = true
+      isHere = hereProof.map { hostHere?(deviceNonce, pairing.deviceId, $0) == true } ?? false
       handshakeTimer?.invalidate()
       backoff.reset()
       status = .connected(name: name)

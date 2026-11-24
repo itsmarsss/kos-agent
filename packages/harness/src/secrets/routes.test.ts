@@ -10,6 +10,8 @@ import { SecretUses } from "../ops/secretuses.js";
 import { REVEAL_WINDOW_MS, secretsRoutes } from "./routes.js";
 import { SecretsRegistry } from "./secrets.js";
 import { Vault } from "./vault.js";
+import { deviceInfo, keyFrom, p256Pair } from "./vaultkeys.js";
+import type { VaultDevices } from "./routes.js";
 
 let root: string;
 let vault: Vault;
@@ -188,4 +190,43 @@ describe("secrets routes on a vault that is not open", () => {
       expect((await call(method, path, {})).status).toBe(409);
     }
   }, 20_000);
+});
+
+describe("unlock at login", () => {
+  /** The Mac here, its key in software where the Secure Enclave would be. */
+  function macHere(): VaultDevices {
+    const pair = p256Pair();
+    return {
+      here: () => ({ id: "dev_mac", name: "Studio Mac" }),
+      key: async () => pair.pub,
+      unwrapper: () => async (req) => keyFrom(pair.priv, pair.pub, Buffer.from(req.epk, "base64"), deviceInfo(req.vault, req.slot)),
+    };
+  }
+
+  it("adds the Mac here as a slot beside the passphrase, and takes it off with the passphrase", async () => {
+    const secrets = new SecretsRegistry();
+    routes = secretsRoutes({ vault, secrets, uses, audit: (e) => audited.push(e), devices: macHere() });
+    await call("POST", "/api/secrets/init", { passphrase: "a long passphrase" });
+    expect((await call("GET", "/api/secrets/status")).body).toMatchObject({ mac: { name: "Studio Mac" } });
+    expect(await call("POST", "/api/secrets/devices", {})).toMatchObject({ status: 400, body: { error: "that is not the vault's passphrase" } });
+    expect(await call("POST", "/api/secrets/devices", { passphrase: "not it at all" })).toMatchObject({ status: 400 });
+    expect(audited.at(-1)).toMatchObject({ tool: "secrets.device", result: "refused: not the passphrase", isError: true });
+    const added = await call("POST", "/api/secrets/devices", { passphrase: "a long passphrase" });
+    expect(added.body).toMatchObject({ state: "ready", slots: ["passphrase", "device"], devices: [{ id: "s2", name: "Studio Mac" }] });
+    expect(audited.at(-1)).toMatchObject({ tool: "secrets.device", args: { change: "add", slot: "s2" }, isError: false });
+    expect((await call("POST", "/api/secrets/devices/remove", { slot: "s2", passphrase: "not it at all" })).status).toBe(400);
+    expect(audited.at(-1)).toMatchObject({ tool: "secrets.device", isError: true });
+    const removed = await call("POST", "/api/secrets/devices/remove", { slot: "s2", passphrase: "a long passphrase" });
+    expect(removed.body).toMatchObject({ state: "ready", slots: ["passphrase"] });
+  }, 30_000);
+
+  it("says why when there is no Mac here, and needs a passphrase first", async () => {
+    const away: VaultDevices = { here: () => ({ reason: "KOS for Mac is not running on this computer" }), key: async () => Buffer.alloc(0), unwrapper: () => async () => Buffer.alloc(0) };
+    routes = secretsRoutes({ vault, secrets: new SecretsRegistry(), uses, audit: () => undefined, devices: away });
+    await call("POST", "/api/secrets/init", {});
+    expect((await call("GET", "/api/secrets/status")).body).toMatchObject({ mac: { reason: "KOS for Mac is not running on this computer" } });
+    expect(await call("POST", "/api/secrets/devices", {})).toMatchObject({ status: 409, body: { error: "KOS for Mac is not running on this computer" } });
+    routes = secretsRoutes({ vault, secrets: new SecretsRegistry(), uses, audit: () => undefined, devices: macHere() });
+    expect(await call("POST", "/api/secrets/devices", {})).toMatchObject({ status: 400, body: { error: expect.stringMatching(/passphrase first/) } });
+  });
 });

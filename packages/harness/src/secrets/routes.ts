@@ -5,7 +5,7 @@ import type { SecretUses } from "../ops/secretuses.js";
 import { maskSecret } from "./envfile.js";
 import { isKind, RecordError } from "./records.js";
 import type { SecretsRegistry } from "./secrets.js";
-import { VaultError, type SecretMeta, type Vault } from "./vault.js";
+import { VaultError, type DeviceUnwrapper, type SecretMeta, type Vault } from "./vault.js";
 
 /**
  * The owner's Secrets page, as routes (docs/secrets.md, Routes).
@@ -25,10 +25,22 @@ export const REVEAL_WINDOW_MS = 10 * 60_000;
 /** Passphrase tries (unlock, and the current one asked to change it) in the same window, kept apart from reveals. */
 export const UNLOCKS_PER_WINDOW = 5;
 
+/** The KOS for Mac on this computer, as the vault's device slot needs it (the computer module's, macvault.ts). */
+export interface VaultDevices {
+  /** The Mac here that would hold the slot's key, or why there is none now. */
+  here(): { id: string; name: string } | { reason: string };
+  /** Its vault key, made the first time it is asked: an uncompressed P-256 point. */
+  key(device: string): Promise<Buffer>;
+  /** Asks that Mac to open a device slot (vault.unwrap). */
+  unwrapper(device: string): DeviceUnwrapper;
+}
+
 export interface SecretsRoutesDeps {
   vault: Vault;
   secrets: SecretsRegistry;
   uses: SecretUses;
+  /** The Mac a device slot is added on; without it, unlock at login is not offered. */
+  devices?: VaultDevices;
   /** Into the audit log: names, handles and fields, never a value. */
   audit: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean }) => void;
 }
@@ -78,7 +90,45 @@ function segment(raw: string): string | undefined {
 export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
   const { vault, secrets, uses } = deps;
 
-  const status = (): VaultStatus => ({ ...vault.status(), scrubbed: secrets.scrubbed() });
+  const status = (): VaultStatus => {
+    const here = deps.devices?.here();
+    return { ...vault.status(), scrubbed: secrets.scrubbed(), ...(here ? { mac: "reason" in here ? { reason: here.reason } : { name: here.name } } : {}) };
+  };
+
+  /**
+   * Unlock at login: a device slot for the Mac here, after it proves its
+   * key. It takes the passphrase, a try against the unlock budget: from then
+   * on the vault opens with no one typing it, which only its owner says.
+   */
+  async function addDevice(body: Record<string, unknown>): Promise<ApiResponse> {
+    const here = deps.devices?.here();
+    if (!here || "reason" in here) return fail(409, here?.reason ?? "this KOS has no computer use, so no Mac can open the vault");
+    if (!vault.hasPassphrase()) return fail(400, "set a passphrase first: it is the way back in when the Mac cannot open the vault");
+    if (!admitUnlock()) return tooManyTries();
+    if (!(await vault.checkPassphrase(text(body.passphrase) ?? ""))) {
+      deps.audit({ tool: "secrets.device", args: { change: "add", device: here.id }, result: "refused: not the passphrase", isError: true });
+      return fail(400, "that is not the vault's passphrase");
+    }
+    const key = await deps.devices!.key(here.id);
+    const added = await vault.addDeviceSlot(here.name, key, deps.devices!.unwrapper(here.id));
+    deps.audit({ tool: "secrets.device", args: { change: "add", slot: added.id, device: here.id }, result: `${added.name} opens the vault at login`, isError: false });
+    return ok(status());
+  }
+
+  /** A device slot taken off, with the passphrase: a try against the unlock budget. */
+  async function removeDevice(body: Record<string, unknown>): Promise<ApiResponse> {
+    const slot = text(body.slot);
+    if (!slot) return fail(400, "slot is required");
+    if (!admitUnlock()) return tooManyTries();
+    try {
+      await vault.removeDeviceSlot(slot, text(body.passphrase) ?? "");
+    } catch (err) {
+      if (err instanceof VaultError && err.code === "passphrase") deps.audit({ tool: "secrets.device", args: { change: "remove", slot }, result: "refused: not the passphrase", isError: true });
+      throw err;
+    }
+    deps.audit({ tool: "secrets.device", args: { change: "remove", slot }, result: "device slot removed, data key rotated", isError: false });
+    return ok(status());
+  }
 
   const summaryOf = (meta: SecretMeta, last: Map<string, number>): SecretSummary => {
     const { version: _version, ...rest } = meta;
@@ -128,7 +178,7 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
     if (next) await vault.setPassphrase(next);
     else if (had) vault.removePassphrase();
     else return fail(400, "this vault has no passphrase to take off; give one to add it");
-    deps.audit({ tool: "secrets.passphrase", args: { change: next ? (had ? "change" : "add") : "remove" }, result: next ? "passphrase slot only, key file erased" : "key-file slot only", isError: false });
+    deps.audit({ tool: "secrets.passphrase", args: { change: next ? (had ? "change" : "add") : "remove" }, result: next ? "passphrase set, key file erased" : "key-file slot only", isError: false });
     return ok(status());
   }
 
@@ -202,6 +252,7 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
         return ok(status());
       }
       if (method === "POST" && name === "passphrase") return passphrase(body);
+      if (method === "POST" && name === "devices") return addDevice(body);
       if (method === "POST" && name === "rotate") {
         vault.rotateDataKey();
         deps.audit({ tool: "secrets.rotate", args: { what: "data key" }, result: "rotated", isError: false });
@@ -246,6 +297,7 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
       return ok({ ok: true });
     }
 
+    if (parts.length === 2 && parts[0] === "devices" && parts[1] === "remove" && method === "POST") return removeDevice(body);
     const handle = segment(parts[0]!);
     if (!handle) return fail(400, "not a handle");
     if (!isEnv(handle) && vault.status().state !== "ready") return fail(409, vault.status().problem ?? "the vault is not open");

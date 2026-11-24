@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
-import { requireServices, SecretUses, type ApiExtension, type ApprovalRequest, type AuditEntry, type BrowserElsewhere, type KosModule, type ModuleContext } from "@kos/harness";
+import { requireServices, SecretUses, type ApiExtension, type ApprovalRequest, type AuditEntry, type BrowserElsewhere, type KosModule, type ModuleContext, type VaultDevices } from "@kos/harness";
 import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
 import type { Build, BuildKind } from "./builds.js";
@@ -10,6 +10,7 @@ import { DeviceHub } from "./hub.js";
 import { loadHostKey, loadLocalKey } from "./keys.js";
 import type { ApnsSender } from "./apns.js";
 import { DeviceLan, type LanOptions } from "./lan.js";
+import { MacVault, unlockAtLogin } from "./macvault.js";
 import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, type PanelDeps } from "./panel.js";
 import { PhonePush, pushConfig, type ApnsEnv } from "./push.js";
 import { deviceRoutes, deviceSocketServer } from "./routes.js";
@@ -83,6 +84,8 @@ export interface ComputerUse {
   phone: DevicePanel;
   /** A new ask, pushed to each paired phone that gave KOS a token, once push has an APNs key. */
   push: { asked(req: ApprovalRequest): void };
+  /** The KOS for Mac on this computer, for the vault's device slot (macvault.ts). */
+  vaultDevices: VaultDevices;
   routes: ApiExtension;
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
   close(): Promise<void>;
@@ -130,11 +133,13 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let secretUses: SecretUses | undefined;
   let push: PhonePush | undefined;
   let unpushed: (() => void) | undefined;
+  let unlocking: (() => void) | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
   const mac = new DevicePanel(MAC_PANEL, options.panels.mac);
   const phone = new DevicePanel(PHONE_PANEL, options.panels.phone);
   const lan = options.lan ? new DeviceLan(() => (active ? hub : undefined), options.lan) : undefined;
+  const vaultDevices = new MacVault(() => (active ? hub : undefined));
   // The owner leaving a chat on a device ends the session that chat holds there.
   panel.onLeave((c) => active?.left(c, "browser"));
   mac.onLeave((c) => active?.left(c, "computer"));
@@ -219,6 +224,19 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       waits = events ? tellWaits(events, devices) : undefined;
       // Settled anywhere, however it settled: the phones it was pushed to take it down.
       unpushed = events?.on("approval:decided", (e) => void push?.settled(String(e.id)));
+      // A vault a Mac here opens at login is opened as soon as that Mac connects.
+      const vault = secrets.attached();
+      const log = options.updates?.log ?? ((line: string) => console.error(line));
+      unlocking = vault
+        ? unlockAtLogin({
+            vault,
+            hub: devices,
+            macs: vaultDevices,
+            log,
+            halted: options.halted,
+            ...(events ? { onResumed: (resumed: () => void) => events.on("halt:changed", (e) => (e.halted ? undefined : resumed())) } : {}),
+          })
+        : undefined;
       active = computerModule({
         hub,
         chrome,
@@ -276,6 +294,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       waits = undefined;
       unpushed?.();
       unpushed = undefined;
+      unlocking?.();
+      unlocking = undefined;
       panel.attach(undefined);
       mac.attach(undefined);
       phone.attach(undefined);
@@ -318,6 +338,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     mac,
     phone,
     push: { asked: (req) => void (active ? push?.asked(req) : undefined) },
+    vaultDevices,
     routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf, lan, () => (active ? updates : undefined), () => (active ? push : undefined)),
     upgrade: (req, socket, head) => sockets.upgrade(req, socket, head),
     async close() {

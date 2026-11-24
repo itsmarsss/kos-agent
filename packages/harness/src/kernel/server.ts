@@ -100,16 +100,9 @@ import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize, pictures
 /** Where the owner's home arrangement lives. */
 export const HOME_LAYOUT_KEY = "home.layout";
 import { saveProfile } from "./profile.js";
-import {
-  findSecret,
-  isInside,
-  isWritableKey,
-  maskSecret,
-  namesFor,
-  writeEnvFile,
-  WRITABLE_SECRETS,
-  WRITABLE_SETTINGS,
-} from "../secrets/envfile.js";
+import { isInside, isWritableKey, WRITABLE_SETTINGS } from "../secrets/envfile.js";
+import { keyStoreOf, KeyStoreError, maskedKeys, saveSettingsKeys } from "../secrets/keystore.js";
+import type { Verifiers } from "../secrets/verifiers.js";
 import { contextWindowFor } from "../models/windows.js";
 
 export interface ApiRequest {
@@ -180,9 +173,11 @@ export interface DashboardServerOptions {
    * The secret an outside service sends to fire a job by name through
    * `POST /api/hooks/<name>`. Its own secret, not the dashboard token: a
    * hook caller can start a job the owner wrote and nothing else. Unset
-   * means there are no hooks.
+   * means the check below, when there is one.
    */
   hookSecret?: string;
+  /** Checks of secrets KOS only compares (the hook secret set from Settings), never the values. */
+  verifiers?: Verifiers;
   /** Bind policy hint for logs; enforcement is host-level. Default loopback. */
   host?: string;
   /** Hosted-mode metadata for /api/health and /api/status (daemon). */
@@ -647,10 +642,10 @@ export async function handleApiRequest(
    */
   if (path.startsWith(HOOKS_PREFIX)) {
     if (method !== "POST") return { status: 405, body: { error: "POST only" } };
-    if (!options.hookSecret) {
-      return { status: 403, body: { error: "hooks are off: set KOS_HOOK_SECRET" } };
+    if (!hooksOn(options)) {
+      return { status: 403, body: { error: "hooks are off: set a hook secret in Settings, or KOS_HOOK_SECRET" } };
     }
-    if (!authorized(req, options.hookSecret)) {
+    if (!hookAuthorized(req, options)) {
       return { status: 401, body: { error: "unauthorized" } };
     }
     const name = decodeURIComponent(path.slice(HOOKS_PREFIX.length));
@@ -787,7 +782,7 @@ export async function handleApiRequest(
       projects: kernel.manifest.list().length,
       pages: kernel.pages.list().length,
       discord: options.meta?.discord === true,
-      hooks: options.hookSecret !== undefined,
+      hooks: hooksOn(options),
       pid: options.meta?.pid ?? process.pid,
       workspace: options.meta?.workspace ?? kernel.workspace.root,
       orchestratorId: orchestratorId(kernel.profile.ownerId),
@@ -2206,7 +2201,7 @@ export async function handleApiRequest(
     // Values are never sent back, only whether one is set and its last four
     // characters, which is enough to tell two keys apart and no use to anyone.
     const envPath = options.envPath;
-    const secrets = maskedSecrets();
+    const secrets = maskedKeys(kernel.secrets, process.env, options.verifiers);
     const settings: Record<string, { label: string; hint: string; value: string }> = {};
     for (const [key, meta] of Object.entries(WRITABLE_SETTINGS)) {
       settings[key] = { ...meta, value: process.env[key] ?? "" };
@@ -2229,6 +2224,8 @@ export async function handleApiRequest(
       // whose answer is in a comment in another file.
       envWritable:
         envPath !== undefined && !isInside(kernel.workspace.root, envPath),
+      // Where a key KOS runs on saved here goes: the vault while it is open, .env without one.
+      keysGo: keyStoreOf(kernel.secrets.attached()),
       secrets,
       settings,
       sitesUrl: sitesBaseUrl() ?? null,
@@ -2255,20 +2252,18 @@ export async function handleApiRequest(
     }
 
     try {
-      const result = writeEnvFile(envPath, kernel.workspace.root, values);
-      // Applied to this process too, so a key saved here works on the next
-      // turn rather than on the next restart.
-      for (const [key, value] of Object.entries(values)) {
-        // Aliases as well: leaving DISCORD_TOKEN set in this process would
-        // keep Discord running after the owner cleared the field for it.
-        for (const name of namesFor(key)) delete process.env[name];
-        if (value !== null && value !== "") process.env[key] = value;
-      }
+      // Keys KOS runs on go to the vault while it is open; the rest, and every
+      // key without a vault, to .env. Applied to this process too, aliases
+      // included, so a key saved works on the next turn, not the next restart.
+      const result = saveSettingsKeys(values, { vault: kernel.secrets.attached(), ...(options.verifiers ? { verifiers: options.verifiers } : {}), envPath, workspaceRoot: kernel.workspace.root });
       kernel.reloadSecrets();
-      return ok({ ...result, secrets: maskedSecrets() });
+      if (result.stored === "vault" && result.written.length + result.cleared.length > 0) {
+        void kernel.audit.record({ tool: "secrets.write", args: { from: "settings", written: result.written, cleared: result.cleared }, result: "kept in the vault", isError: false, userId: kernel.profile.ownerId });
+      }
+      return ok({ ...result, secrets: maskedKeys(kernel.secrets, process.env, options.verifiers) });
     } catch (err) {
       return {
-        status: 400,
+        status: err instanceof KeyStoreError ? 409 : 400,
         body: { error: err instanceof Error ? err.message : String(err) },
       };
     }
@@ -3430,31 +3425,16 @@ function transcriptOf(
   return out;
 }
 
-/**
- * Every writable secret, masked, as the settings page shows them.
- *
- * `storedAs` names where the value actually is when that is not the canonical
- * name. The page said "not set" for a working Discord token because it looked
- * only at KOS_SECRET_DISCORD while the token was under DISCORD_TOKEN.
- */
-function maskedSecrets(): Record<
-  string,
-  { label: string; hint: string; masked: string | null; storedAs?: string }
-> {
-  const out: Record<
-    string,
-    { label: string; hint: string; masked: string | null; storedAs?: string }
-  > = {};
-  for (const [key, meta] of Object.entries(WRITABLE_SECRETS)) {
-    const found = findSecret(key);
-    out[key] = {
-      label: meta.label,
-      hint: meta.hint,
-      masked: maskSecret(found?.value),
-      ...(found && found.name !== key ? { storedAs: found.name } : {}),
-    };
-  }
-  return out;
+/** Whether hooks are on: a hook secret in the env, or a check of one set from Settings. */
+function hooksOn(options: DashboardServerOptions): boolean {
+  return options.hookSecret !== undefined || options.verifiers?.has("hook") === true;
+}
+
+/** Whether a hook's request carries its secret: the env's, which wins, else the one Settings keeps a check of. */
+function hookAuthorized(req: ApiRequest, options: DashboardServerOptions): boolean {
+  if (options.hookSecret !== undefined) return authorized(req, options.hookSecret);
+  const given = bearerOf(req) ?? header(req.headers ?? {}, "x-kos-token");
+  return given !== undefined && options.verifiers?.matches("hook", given) === true;
 }
 
 /** The bearer a request carries, if any. */
@@ -3676,7 +3656,7 @@ export function bodyMax(path: string): number {
  * body being read, so nobody without the token makes KOS hold their upload.
  */
 export function mayReadBody(kernel: Kernel, req: ApiRequest, options: DashboardServerOptions): boolean {
-  if (req.path.startsWith(HOOKS_PREFIX)) return !!options.hookSecret && authorized(req, options.hookSecret);
+  if (req.path.startsWith(HOOKS_PREFIX)) return hookAuthorized(req, options);
   if (req.path.startsWith(CALLER_PREFIX)) {
     const bearer = bearerOf(req);
     return !!bearer && kernel.callers.authenticate(bearer) !== undefined;

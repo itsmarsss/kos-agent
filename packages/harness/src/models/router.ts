@@ -127,12 +127,30 @@ export class ModelRouter {
     cacheWriteTokens?: number;
   }) => void;
 
+  /** The table before the owner chose anything: fixed, or read from the keys there are at each call. */
+  private readonly defaults: () => RoutingTable;
+  /** What the owner chose, over the defaults. */
+  private chosen: Partial<RoutingTable> = {};
+  /** Screen work back on reasoning, whatever the defaults say. */
+  private screenFollows = false;
+
+  /**
+   * `routing` a function: the defaults are read again at each call, so a key
+   * that arrives after boot (a vault opened by KOS for Mac) picks the table
+   * it would have picked had it been there at start.
+   */
   constructor(
     providers: Provider[],
-    private routing: RoutingTable,
+    routing: RoutingTable | (() => RoutingTable),
     private readonly secrets: SecretsRegistry,
   ) {
     this.providers = new Map(providers.map((p) => [p.name, p]));
+    this.defaults = typeof routing === "function" ? routing : () => routing;
+  }
+
+  private get routing(): RoutingTable {
+    const { screen, ...rest } = { ...this.defaults(), ...this.chosen } as RoutingTable;
+    return this.screenFollows || !screen ? rest : { ...rest, screen };
   }
 
   /**
@@ -160,15 +178,17 @@ export class ModelRouter {
 
   /** Screen work back on the reasoning route, as when nothing was chosen for it. */
   followReasoning(): void {
-    const { screen: _gone, ...rest } = this.routing;
-    this.routing = rest;
+    const { screen: _gone, ...rest } = this.chosen;
+    this.chosen = rest;
+    this.screenFollows = true;
   }
 
   setRoute(task: Task, route: Route): void {
     if (!this.providers.has(route.provider)) {
       throw new Error(`no provider registered for route: ${route.provider}`);
     }
-    this.routing = { ...this.routing, [task]: route };
+    this.chosen = { ...this.chosen, [task]: route };
+    if (task === "screen") this.screenFollows = false;
   }
 
   /** The full spec for a task, so a caller can show what is set. */
@@ -262,5 +282,5 @@ export function createDefaultRouter(
   const providers: Provider[] = [new AnthropicProvider(), new OpenAIProvider()];
   // The owner's own endpoint: a URL and, if it wants one, a key.
   if (options.customBaseUrl) providers.push(new OpenAICompatibleProvider(options.customBaseUrl));
-  return new ModelRouter(providers, routing ?? routingForSecrets(secrets), secrets);
+  return new ModelRouter(providers, routing ?? (() => routingForSecrets(secrets)), secrets);
 }
