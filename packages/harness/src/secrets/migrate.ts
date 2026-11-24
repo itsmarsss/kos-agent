@@ -1,9 +1,11 @@
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname } from "node:path";
 
 import { parseEnvFile, WRITABLE_SECRETS } from "./envfile.js";
 import { HARNESS_KEYS, harnessNameOf } from "./secrets.js";
 import type { Vault } from "./vault.js";
 import type { VerifierName, Verifiers } from "./verifiers.js";
+import { writeAtomic } from "./vaultfs.js";
 
 /**
  * `kos secrets migrate-env` (docs/secrets.md, CLI): the keys KOS runs on
@@ -25,6 +27,8 @@ export interface EnvMove {
   to: { harness: string } | { verifier: VerifierName };
   /** `move`: written then blanked; `kept`: already there with this value, only blanked; `differs`: another value is there, left alone. */
   state: "move" | "kept" | "differs";
+  /** Set when `differs` is the env's own: its names hold different values, so which is meant is the owner's to say. */
+  aliases?: true;
 }
 
 const VERIFIED: Readonly<Record<string, VerifierName>> = { KOS_HOOK_SECRET: "hook" };
@@ -43,6 +47,10 @@ export function planEnvMove(text: string, vault: Vault, verifiers: Verifiers): E
     const order = HARNESS_KEYS[name] ?? keys;
     const envs = [...keys].sort((a, b) => order.indexOf(a) - order.indexOf(b));
     const value = env[envs[0]!]!.trim();
+    if (envs.some((e) => env[e]!.trim() !== value)) {
+      moves.push({ envs, to: { harness: name }, state: "differs", aliases: true });
+      continue;
+    }
     const held = vault.harness(name);
     const state = !held ? "move" : vault.value(held.handle, "token") === value ? "kept" : "differs";
     moves.push({ envs, to: { harness: name }, state });
@@ -77,7 +85,9 @@ export function applyEnvMove(path: string, moves: readonly EnvMove[], vault: Vau
     const where = key ? blanked.get(key) : undefined;
     return where ? `# ${key}= ${where}` : line;
   });
-  writeFileSync(path, lines.join("\n"), { mode: 0o600 });
-  chmodSync(path, 0o600);
+  // Written whole or not at all: a temp file (0600, no link followed) synced and renamed over. A linked .env is
+  // written where the link points, so the link stays.
+  const real = realpathSync(path);
+  writeAtomic(real, lines.join("\n"), dirname(real));
   return done;
 }

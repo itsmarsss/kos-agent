@@ -275,6 +275,7 @@ async function valuesFor(kind: SecretKind, io: { ask: (q: string, hidden: boolea
 function moveWords(move: EnvMove): string {
   const names = move.envs.join(", ");
   const to = "verifier" in move.to ? "a check in ~/.kos: KOS keeps no copy, so keep yours" : `the vault, as KOS's ${move.to.harness} key`;
+  if (move.aliases) return `${names}: these hold different values, so which is meant is yours to say; left as they are`;
   if (move.state === "differs") return `${names}: ${"verifier" in move.to ? "a check of another value is kept" : `the vault's ${move.to.harness} key holds another value`}; left as it is`;
   return `${names} -> ${to}${move.state === "kept" ? " (already there; only blanked in .env)" : ""}`;
 }

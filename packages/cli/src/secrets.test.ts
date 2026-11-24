@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -172,6 +172,21 @@ describe("kos secrets migrate-env", () => {
     expect(file).not.toContain("sk-proj-env-canary");
     expect(file).toContain("DISCORD_TOKEN=discord-env-canary-0123456789");
     expect(vault.list().filter((m) => m.use.harness === "openai")).toHaveLength(1);
+  });
+
+  it("leaves names that disagree, writes .env whole, and keeps a link to it", async () => {
+    await runSecrets(["init"], {}, cli());
+    const real = join(root, "real.env");
+    writeFileSync(real, `${ENV}KOS_SECRET_DISCORD=another-discord-value-0123\n`, { mode: 0o600 });
+    rmSync(join(root, ".env"));
+    symlinkSync(real, join(root, ".env"));
+    expect(await runSecrets(["migrate-env"], { yes: true }, at())).toBe(0);
+    expect(lines).toContain("  KOS_SECRET_DISCORD, DISCORD_TOKEN: these hold different values, so which is meant is yours to say; left as they are");
+    expect(lstatSync(join(root, ".env")).isSymbolicLink()).toBe(true);
+    const file = readFileSync(real, "utf8");
+    expect(file).toContain("DISCORD_TOKEN=discord-env-canary-0123456789");
+    expect(file).not.toContain("sk-proj-env-canary");
+    expect(statSync(real).mode & 0o777).toBe(0o600);
   });
 
   it("needs a vault to move into", async () => {
