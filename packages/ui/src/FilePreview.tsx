@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactElement, typ
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
-import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, IconButton, Markdown, spring } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, IconButton, Markdown, openLayer, spring } from "@kos/kit";
 import { bytesWords, errorWords, timeWords } from "@kos/shared";
 
 import { api, type FileContent, type FileText } from "./api.js";
@@ -287,6 +287,18 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
   // The words instead of the document; back to the file on every step.
   const [raw, setRaw] = useState(false);
   useEffect(() => setRaw(false), [path]);
+  /*
+   * A sheet over the page while a file is open, though it leaves the keys
+   * where they were (Quick Look's stay on the list): what is under it (the
+   * side panel's drawer) knows it is not on top and leaves it the Escape.
+   */
+  const sheet = useRef<HTMLDivElement>(null);
+  const open = Boolean(path);
+  useEffect(() => {
+    if (!open) return undefined;
+    const layer = openLayer(() => sheet.current);
+    return layer.close;
+  }, [open]);
 
   const local = path ? locals?.[path] : undefined;
   const isLocal = local !== undefined;
@@ -377,6 +389,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
           <m.div className="preview-backdrop" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={ease} />
           <div className="preview-wrap">
             <m.div
+              ref={sheet}
               className="preview"
               role="dialog"
               aria-modal="true"

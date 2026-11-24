@@ -143,6 +143,16 @@ export function clickSelect(sel: Selection, path: string, order: string[], mods:
   return only(path);
 }
 
+/**
+ * A plain press let go on a row, with no drag between: a press on one of
+ * several chosen kept them all so they could be dragged as one, and letting
+ * go narrows the choice to that one, as Finder does.
+ */
+export function releaseSelect(sel: Selection, path: string, mods: { shift?: boolean; meta?: boolean }): Selection {
+  if (mods.shift || mods.meta || sel.paths.length < 2 || !sel.paths.includes(path)) return sel;
+  return only(path);
+}
+
 /** The arrow keys: the lead moves by `delta` (a row, or a row of tiles); with Shift the selection grows from the anchor. */
 export function moveLead(sel: Selection, order: string[], delta: number, extend: boolean): Selection {
   if (!order.length) return sel;

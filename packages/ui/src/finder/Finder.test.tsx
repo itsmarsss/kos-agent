@@ -97,6 +97,41 @@ describe("the finder", () => {
     expect(screen.getByText("5 of 5 items")).toBeTruthy();
   });
 
+  it("narrows a choice of several to the one clicked, but keeps them all for a drag", async () => {
+    await openGarden();
+    fireEvent.mouseDown(row("projects/garden/a.md"));
+    fireEvent.mouseDown(row("projects/garden/c.txt"), { shiftKey: true });
+    fireEvent.click(row("projects/garden/c.txt"), { shiftKey: true });
+    expect(chosen()).toHaveLength(3);
+    // Pressed on one already chosen: all are kept, so a drag would take them all.
+    fireEvent.mouseDown(row("projects/garden/b.txt"));
+    expect(chosen()).toHaveLength(3);
+    // Let go with no drag: that one alone.
+    fireEvent.click(row("projects/garden/b.txt"));
+    expect(chosen()).toEqual(["projects/garden/b.txt"]);
+  });
+
+  it("clears the choice on Escape, and leaves a second Escape to what holds it", async () => {
+    await openGarden();
+    fireEvent.mouseDown(row("projects/garden/a.md"));
+    const first = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => void main().dispatchEvent(first));
+    expect(first.defaultPrevented).toBe(true);
+    expect(chosen()).toEqual([]);
+    const second = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => void main().dispatchEvent(second));
+    expect(second.defaultPrevented).toBe(false);
+  });
+
+  it("opens the folder it is in on the Files page from a panel's menu", async () => {
+    const onOpenInFiles = vi.fn();
+    render(<Finder root="projects/garden" rootName="Garden" path="projects/garden/beds" sidebar={false} onOpenInFiles={onOpenInFiles} />);
+    await screen.findByText("bed-1.md");
+    fireEvent.contextMenu(main(), { button: 2, clientX: 5, clientY: 5 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open in Files" }));
+    expect(onOpenInFiles).toHaveBeenCalledWith("projects/garden/beds");
+  });
+
   it("goes to a name as it is typed", async () => {
     await openGarden();
     key("p");
@@ -418,10 +453,28 @@ describe("the finder", () => {
       });
       expect(search).toHaveBeenCalledWith("projects/garden", "bed", false, expect.any(AbortSignal));
       expect(await screen.findByText("bed-1.md")).toBeTruthy();
-      expect(screen.getByText("projects/garden/beds")).toBeTruthy();
+      // The folder it is in by name, its path the tooltip.
+      expect(screen.getByTitle("Workspace / projects / garden / beds").textContent).toBe("beds");
       // The next keystroke drops the search before it.
       fireEvent.change(screen.getByRole("searchbox", { name: "Search this folder and below" }), { target: { value: "beds" } });
       expect((search.mock.calls[0]![3] as AbortSignal).aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names a found file's folder from a panel's root, not the workspace's", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(api, "searchFiles").mockResolvedValue({ entries: [d("projects/garden/beds/bed-1.md"), d("projects/garden/a.md")], truncated: false });
+    try {
+      render(<Finder root="projects/garden" rootName="Garden" sidebar={false} />);
+      await screen.findByText("a.md");
+      fireEvent.change(screen.getByRole("searchbox", { name: "Search this folder and below" }), { target: { value: "md" } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect((await screen.findByTitle("Garden / beds")).textContent).toBe("beds");
+      expect(document.querySelector('.finder-where[title="Garden"]')?.textContent).toBe("Garden");
     } finally {
       vi.useRealTimers();
     }
