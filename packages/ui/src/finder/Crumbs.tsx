@@ -25,11 +25,16 @@ export interface Crumb {
 
 /**
  * How much a step gives way, by its place: each further out gives far more
- * than the one inside it, so the left goes first. The last is 1, not less:
- * flex lets factors summing under 1 take only that share of the overflow.
+ * than the one inside it, so the left goes first. Far more, not a little:
+ * flex shares the overflow by these factors, and at 64 times the last step
+ * still took a fraction of a pixel, enough to draw "boo…" for "books" while
+ * the step before it had room to give. The last is 1, not less: flex lets
+ * factors summing under 1 take only that share of the overflow. Capped so
+ * the browser's float holds the sum of a deep path's.
  */
-const SHRINK_BASE = 64;
-const shrinkOf = (i: number, n: number): number => SHRINK_BASE ** (n - 1 - i);
+const SHRINK_BASE = 1e6;
+const SHRINK_MAX_POWER = 5;
+export const shrinkOf = (i: number, n: number): number => SHRINK_BASE ** Math.min(n - 1 - i, SHRINK_MAX_POWER);
 
 export function Crumbs({ items, label, className, title }: { items: Crumb[]; label: string; className: string; title: string }): ReactElement {
   return (
