@@ -233,6 +233,25 @@ export function standingKind(
   return gone ? "chat" : kind;
 }
 
+/**
+ * The blob whose work a thread is, when the blob still exists.
+ *
+ * A blob a project asked for help works in a thread stamped with the
+ * project's slug, because the slug is what lets it read the project's tables
+ * and files for that job. The thread is still the blob's: listed under the
+ * blob, the project only as who asked. Once the blob is removed nothing
+ * stands for it, and the thread is an ordinary chat of wherever its slug
+ * puts it, as a removed blob's own thread is.
+ */
+export function blobOf(conversation: Pick<Conversation, "role">, standing: Pick<Standing, "blob">): string | null {
+  return conversation.role !== null && standing.blob(conversation.role) ? conversation.role : null;
+}
+
+/** Whether a chat is one of a project's own, listed among its chats: stamped with its slug and no blob's work. */
+export function isProjectChat(conversation: Pick<Conversation, "projectSlug" | "role">, slug: string, standing: Pick<Standing, "blob">): boolean {
+  return conversation.projectSlug === slug && blobOf(conversation, standing) === null;
+}
+
 /** Threads the owner cannot rename, archive or delete. */
 export function isFixed(
   conversation: Pick<Conversation, "id" | "channel">,

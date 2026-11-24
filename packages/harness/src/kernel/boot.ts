@@ -654,11 +654,10 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       jobOf: (name) => kernelRef!.agentJob(name),
       setJobEnabled: (name, enabled) => kernelRef!.setAgentJobEnabled(name, enabled),
       dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
-      onDispatchDone: (id, title, reply, from) => {
-        const summary = `${title} answered: ${reply.slice(0, 600)}`;
-        if (from) kernelRef?.noteIn(from, summary);
-        kernelRef?.caretaker.tell(summary);
-      },
+      // The chat that asked gets its line and card from the tool; the owner is told here.
+      onDispatchDone: (_id, title, reply) => kernelRef?.caretaker.tell(`${title} answered: ${reply.slice(0, 600)}`),
+      // The card quotes the blob's reply, so a secret in it is scrubbed before it is kept.
+      note: (id, text) => kernelRef?.noteIn(id, kernelRef.secrets.scrub(text)),
     }),
     ...(options.extraModules ?? []),
   ];

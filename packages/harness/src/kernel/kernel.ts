@@ -177,7 +177,7 @@ import { assertFits, attachmentBlocks, readAttachments, type Attachment, type Ke
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId, primarySessionId, upkeepSessionId } from "./session.js";
 import type { TurnMade } from "./turnmade.js";
-import { ConversationStore, type Conversation, conversationKind, projectConversationId, standingKind, type Standing } from "./conversations.js";
+import { blobOf, ConversationStore, type Conversation, conversationKind, isProjectChat, projectConversationId, standingKind, type Standing } from "./conversations.js";
 import {
   needsKernel,
   parseChatCommand,
@@ -3510,7 +3510,7 @@ export class Kernel {
         const slug = current?.projectSlug ?? null;
         const agents = this.conversations
           .list(userId)
-          .filter((c) => c.projectSlug && !c.id.startsWith("project:") && (!slug || c.projectSlug === slug));
+          .filter((c) => c.projectSlug && !c.id.startsWith("project:") && isProjectChat(c, slug ?? c.projectSlug, this.standing));
         if (agents.length === 0) {
           return { reply: slug ? "No agents in this project yet. `/agent` starts one." : "No agents in any project yet." };
         }
@@ -3536,7 +3536,7 @@ export class Kernel {
         const slug = current?.projectSlug ?? null;
         const pool = this.conversations
           .list(userId)
-          .filter((c) => (slug ? c.projectSlug === slug && !c.id.startsWith("project:") : true));
+          .filter((c) => (slug ? isProjectChat(c, slug, this.standing) && !c.id.startsWith("project:") : true));
         const found = resolveConversation(pool, command.target);
         if (!found) return { reply: `No chat matches “${command.target}”. \`/agents\` lists them.` };
         if (found.id === conversationId) return { reply: "That is this chat. Just say it." };
@@ -3789,6 +3789,28 @@ export class Kernel {
     return this.channelAudiences()[this.roomOf(conversationId)?.key ?? conversationId];
   }
 
+  /**
+   * Whether a chat's thread is read by the owner alone: its own audience
+   * (a room's by its place's), else its home channel's.
+   *
+   * A binding records no parent channel, so a blob's work may sit in a
+   * thread made under its project's channel before it moved, or under a
+   * blob's channel the blob has since left. For a chat run as a blob the
+   * gate fails closed: the project's channel and the blob's must both be the
+   * owner's alone, as must its own, wherever the thread now sits.
+   */
+  threadOwnerOnly(conversationId: string): boolean {
+    const audiences = this.channelAudiences();
+    const own = this.audienceOf(conversationId);
+    const chat = this.conversations.get(conversationId);
+    if (chat?.role) {
+      const places = [agentConversationId(chat.role), ...(chat.projectSlug ? [projectConversationId(chat.projectSlug)] : [])];
+      return [own, ...places.map((key) => audiences[key])].every((audience) => (audience ?? "owner") === "owner");
+    }
+    const home = this.threadHome(conversationId);
+    return (own ?? (home ? audiences[home] : undefined) ?? "owner") === "owner";
+  }
+
   /** Chats made from a thread of the owner's and deleted since, so a message there does not make them again. */
   goneChats(): string[] {
     return this.settings.get<string[]>(GONE_CHATS_KEY) ?? [];
@@ -3848,7 +3870,15 @@ export class Kernel {
     return [
       { key: orchestratorId(this.profile.ownerId), name: "kos", topic: `kos:${orchestratorId(this.profile.ownerId)} · KOS`, category: "KOS", audience: "owner", fixed: true },
       { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals", category: "KOS", audience: "owner", fixed: true },
-      ...this.roles.list().roles.map((r) => ({ key: agentConversationId(r.name), name: slug(r.name), topic: `kos:${agentConversationId(r.name)} · ${roleTitle(r)}`, category: "Blobs", audience: of(agentConversationId(r.name)) })),
+      ...this.roles.list().roles.map((r) => ({
+        key: agentConversationId(r.name),
+        name: slug(r.name),
+        topic: `kos:${agentConversationId(r.name)} · ${roleTitle(r)}`,
+        category: "Blobs",
+        audience: of(agentConversationId(r.name)),
+        // The work it does for projects that asked: the blob's, so under its channel.
+        ...this.blobThreads(r.name, chats),
+      })),
       ...this.manifest
         .list()
         .filter((p) => p.status === "active")
@@ -3859,9 +3889,17 @@ export class Kernel {
           category: "Projects",
           audience: of(`project:${p.slug}`),
           // Every open chat of the project, the orchestrator's own and the rooms (shown in their places) aside.
-          threads: chats.filter((c) => c.projectSlug === p.slug && c.id !== `project:${p.slug}` && !roomPlaceOf(c.id)).map((c) => ({ conversationId: c.id, title: c.title })),
+          threads: chats.filter((c) => isProjectChat(c, p.slug, this.standing) && c.id !== `project:${p.slug}` && !roomPlaceOf(c.id)).map((c) => ({ conversationId: c.id, title: c.title })),
         })),
     ];
+  }
+
+  /** A blob's work for the projects that asked, laid out under its channel; nothing when there is none. */
+  private blobThreads(name: string, chats: Conversation[]): { threads?: { conversationId: string; title: string }[] } {
+    const threads = chats
+      .filter((c) => c.role === name && c.id !== agentConversationId(name) && !roomPlaceOf(c.id))
+      .map((c) => ({ conversationId: c.id, title: c.title }));
+    return threads.length > 0 ? { threads } : {};
   }
 
   /** Which server thread stands for which chat; absent threads are new chats when spoken in. */
@@ -3877,11 +3915,14 @@ export class Kernel {
   threadsBound(): BoundThread[] {
     return Object.entries(this.threadBindings()).map(([id, conversationId]) => {
       const conversation = this.conversations.get(conversationId);
-      const channel = conversation?.projectSlug
-        ? `project:${conversation.projectSlug}`
-        : conversation?.role
-          ? agentConversationId(conversation.role)
-          : orchestratorId(this.profile.ownerId);
+      // Where its thread is made today, as threadHome says; a chat with no home now keeps the place it had.
+      const channel =
+        (conversation && this.threadHome(conversationId)) ??
+        (conversation?.projectSlug
+          ? `project:${conversation.projectSlug}`
+          : conversation?.role
+            ? agentConversationId(conversation.role)
+            : orchestratorId(this.profile.ownerId));
       return { id, name: conversation?.title ?? "(chat deleted)", channel, conversationId, projectSlug: conversation?.projectSlug ?? null, gone: !conversation };
     });
   }
@@ -3900,6 +3941,9 @@ export class Kernel {
     const chat = this.conversations.get(conversationId);
     // A room is shown in its own place, never in a thread of its project's.
     if (!chat || roomPlaceOf(chat.id)) return undefined;
+    // A blob's work for a project sits under the blob's channel and is read by its audience.
+    const blob = blobOf(chat, this.standing);
+    if (blob && chat.id !== agentConversationId(blob)) return agentConversationId(blob);
     if (chat.projectSlug) return chat.id === projectConversationId(chat.projectSlug) ? undefined : `project:${chat.projectSlug}`;
     const kind = conversationKind(chat, owner);
     if (kind === "schedule") return orchestratorId(owner);

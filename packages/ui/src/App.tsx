@@ -47,7 +47,7 @@ import { SettingsPage } from "./SettingsPage.js";
 import { chooseTheme, heardDrawnTheme, reconcileTheme, reportDrawnTheme, themeStamp } from "./theme.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { ArtifactViewer, ArtifactsPage, chatOf, chatOpen, settleOpenViewers } from "./ArtifactsPage.js";
-import { placeOf } from "./chattree.js";
+import { blobThread, placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { SecretsPage } from "./SecretsPage.js";
 import { InboxPage } from "./InboxPage.js";
@@ -779,6 +779,14 @@ export function App(): React.ReactElement {
       .then((list) => go(placeOf(id, list.find((c) => c.id === id))))
       .catch(() => go(placeOf(id)));
   };
+  // A chip names a chat by its id alone, which lands in Chats, and a link
+  // from before a blob's work moved names it in its project; that work
+  // lives on the blob's page, so it opens there instead.
+  useEffect(() => {
+    const id = route.name === "chats" || route.name === "project" ? route.id : undefined;
+    const blob = id ? conversations.find((c) => c.id === id)?.blob : undefined;
+    if (id && blob) window.location.replace(hrefFor({ name: "blobs", blob, id }));
+  }, [route, conversations]);
   /** An empty project, from the Projects page or the Chats rail; it opens once made. */
   const createProject = async ({ name, type }: { name: string; type: string }): Promise<void> => {
     const made = await api.createProject(name, type);
@@ -1189,8 +1197,9 @@ export function App(): React.ReactElement {
 
   if (route.name === "blobs" && route.blob !== undefined && route.blob !== "new") {
     /*
-     * An agent's own page: its thread in the middle, the chats it has in
-     * projects in the rail, and its file and schedule beside the thread.
+     * An agent's own page: its thread in the middle, or the work it does for
+     * a project that asked when one is open, those threads in the rail, and
+     * its file and schedule beside the thread.
      * The same page a project gets, scoped to the agent instead.
      */
     const name = route.blob;
@@ -1201,7 +1210,7 @@ export function App(): React.ReactElement {
         conversations={conversations}
         projects={projects}
         loading={!read.has("conversations") || !read.has("projects")}
-        activeId={`agent:${name}`}
+        activeId={blobThread(name, route.id, read.has("conversations") ? conversations : undefined)}
         pendingApprovals={pendingIds}
         approvals={approvals}
         deciding={deciding}

@@ -36,7 +36,8 @@ export function groupChats(conversations: Conversation[]): ChatTree {
   const roots: Conversation[] = [];
   const byProject = new Map<string, Conversation[]>();
   for (const c of conversations) {
-    if (c.kind !== "chat") continue;
+    // A blob's work for a project is the blob's, listed on its page.
+    if (c.kind !== "chat" || c.blob) continue;
     if (c.projectSlug) {
       const list = byProject.get(c.projectSlug) ?? [];
       list.push(c);
@@ -53,11 +54,13 @@ export function groupChats(conversations: Conversation[]): ChatTree {
  * Where a conversation opens.
  *
  * A project's threads, its orchestrator and the agents under it, open inside
- * the project, beside its files and the rest of its agents; everything else
- * opens in Chats. An orchestrator just made is not in the list yet, but its
+ * the project, beside its files and the rest of its agents; a blob's, its
+ * own and its work for projects, on the blob's page; everything else opens
+ * in Chats. An orchestrator just made is not in the list yet, but its
  * id names its project, so that is enough to place it.
  */
 export function placeOf(id: string, c?: Conversation): Route {
+  if (c?.blob) return { name: "blobs", blob: c.blob, id };
   if (c?.kind === "project" && c.projectSlug) return { name: "project", slug: c.projectSlug };
   if (c?.kind === "chat" && c.projectSlug) return { name: "project", slug: c.projectSlug, id };
   if (!c && id.startsWith("project:")) return { name: "project", slug: id.slice("project:".length) };
@@ -66,6 +69,19 @@ export function placeOf(id: string, c?: Conversation): Route {
   if (c?.kind === "agent" && c.role) return { name: "blobs", blob: c.role };
   if (!c && id.startsWith("agent:")) return { name: "blobs", blob: id.slice("agent:".length) };
   return { name: "chats", id };
+}
+
+/**
+ * The thread a blob's page shows: the one its address names when that is
+ * this blob's work, else the blob's own. An address naming another blob's
+ * thread, or a chat that is no blob's, shows the blob's own rather than a
+ * stranger on its page. Until the list is read the address is taken at its word.
+ */
+export function blobThread(name: string, id: string | undefined, conversations: readonly Conversation[] | undefined): string {
+  const own = `agent:${name}`;
+  if (!id) return own;
+  if (!conversations) return id;
+  return conversations.find((c) => c.id === id)?.blob === name ? id : own;
 }
 
 /** One line under a project row: how many agents, and whether any is busy. */
