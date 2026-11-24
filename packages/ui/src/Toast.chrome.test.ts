@@ -18,9 +18,9 @@ const CHROME = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", 
 const BOUND_MS = 15_000;
 const pause = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** The sheets as the dashboard draws them, the toast host, and a way to raise the notes. */
+/** The sheets as the dashboard draws them, the toast host, and a way to raise the notes and to shut a sheet. */
 const ENTRY = `
-import { createElement as h, Fragment } from "react";
+import { createElement as h, Fragment, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { domMax, LazyMotion, MotionConfig } from "motion/react";
 import { SheetFoot } from "@kos/kit";
@@ -32,16 +32,36 @@ const foot = h(SheetFoot, { note: "Give it a name first.", onCancel: noop, prima
 const form = h(Fragment, null,
   h("label", { className: "field" }, "Name", h("input", { className: "input", autoFocus: true })),
   h("label", { className: "field" }, "Kind", h("select", { className: "input" }, h("option", null, "Project"))));
+const drawer = (props) => h(Drawer, { open: true, title: "New project", onClose: noop, footer: foot, ...props }, form);
+const modal = () => h(Modal, { open: true, title: "New artifact", onClose: noop, footer: foot }, form);
+let shut = noop;
+function Closing() {
+  const [open, setOpen] = useState(true);
+  shut = () => setOpen(false);
+  return drawer({ open });
+}
 const SHEETS = {
   none: () => null,
-  drawer: () => h(Drawer, { open: true, title: "New project", onClose: noop, footer: foot }, form),
-  wide: () => h(Drawer, { open: true, wide: true, title: "A run", onClose: noop, footer: foot }, form),
-  modal: () => h(Modal, { open: true, title: "New artifact", onClose: noop, footer: foot }, form),
+  drawer: () => drawer(),
+  wide: () => drawer({ wide: true }),
+  modal,
+  stacked: () => h(Fragment, null, drawer(), modal()),
+  closing: () => h(Closing),
   palette: () => h("div", { className: "pal-wrap" },
     h("div", { className: "pal", role: "dialog" },
       h("input", { className: "pal-input", placeholder: "Search everything" }),
       h("button", { type: "button", className: "btn btn--ghost pal-cancel" }, "Cancel"),
       h("ul", { className: "pal-list", role: "listbox" }, ["Open KOS", "New chat", "Settings"].map((t) => h("li", { key: t, role: "option", className: "pal-item" }, t))))),
+  quicklook: () => h(Fragment, null, h("div", { className: "preview-backdrop" }), h("div", { className: "preview-wrap" },
+    h("div", { className: "preview", role: "dialog" },
+      h("header", { className: "preview-head" },
+        h("span", { className: "preview-name" }, "notes/todo.md"),
+        h("span", { className: "preview-acts" }, ["Open", "Reveal"].map((t) => h("button", { key: t, type: "button", className: "btn btn--sm" }, t))),
+        h("button", { type: "button", className: "icon-btn preview-close", "aria-label": "Close" }, "x")),
+      h("div", { className: "preview-body" }, h("pre", { style: { height: "3000px", margin: 0 } }, "text"))))),
+  browser: () => h("div", { className: "browserwin is-max", style: { left: "8px", top: "8px", width: innerWidth - 16 + "px", height: innerHeight - 16 + "px" } },
+    h("div", { className: "browserwin-head" }, h("button", { type: "button" }, "Close")),
+    h("div", { className: "browserwin-nav" }, h("input", { className: "browserwin-address", defaultValue: "https://example.com" }), h("button", { type: "button" }, "Go"))),
 };
 let root = null;
 let ids = [];
@@ -57,22 +77,42 @@ window.show = (sheet) => {
     toast({ kind: "ok", text: "Archived the Lisbon trip", undo: noop }, null),
   ];
 };
+window.shut = () => shut();
 `;
+
+/**
+ * Resolves once the three notes are there, nothing matches `gone` (a sheet on
+ * its way out), and nothing has moved across two frames: no fixed wait, which
+ * an animation can outlast. Bounded inside the call's own bound.
+ */
+const settled = (gone = ""): string => `new Promise((done, fail) => {
+  const end = performance.now() + ${BOUND_MS - 1_000};
+  let last = "";
+  const tick = () => {
+    const rects = [...document.querySelectorAll(".ops-toast, .drawer, .modal")].map((n) => { const r = n.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round).join(","); }).join(";");
+    const ready = document.querySelectorAll(".ops-toast").length === 3 && !(${JSON.stringify(gone)} && document.querySelector(${JSON.stringify(gone)}));
+    if (ready && rects === last) return done();
+    last = rects;
+    if (performance.now() > end) return fail(new Error("the notes did not settle"));
+    requestAnimationFrame(() => requestAnimationFrame(tick));
+  };
+  tick();
+})`;
 
 /** Each note against each control of the sheet on top, and whether each note is the thing drawn at its own centre. */
 const MEASURE = `(() => {
   const stack = document.querySelector(".ops-toasts");
   const notes = [...stack.querySelectorAll(".ops-toast")].map((n) => n.getBoundingClientRect());
-  const sheet = [...document.querySelectorAll(".pal, .modal, .drawer")].at(-1);
+  const sheet = [...document.querySelectorAll(".pal, .modal, .drawer, .preview, .browserwin")].at(-1);
   const hits = [];
-  for (const el of sheet ? sheet.querySelectorAll("input, select, textarea, button, [role=option]") : []) {
+  for (const el of sheet ? sheet.querySelectorAll("input, select, textarea, button, [role=option], .preview-name") : []) {
     const r = el.getBoundingClientRect();
-    if (notes.some((q) => Math.min(r.right, q.right) > Math.max(r.left, q.left) && Math.min(r.bottom, q.bottom) > Math.max(r.top, q.top))) hits.push(el.textContent || el.tagName);
+    if (notes.some((q) => Math.min(r.right, q.right) > Math.max(r.left, q.left) && Math.min(r.bottom, q.bottom) > Math.max(r.top, q.top))) hits.push(el.getAttribute("aria-label") || el.textContent || el.tagName);
   }
   const seen = notes.every((q) => stack.contains(document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2)));
   const inside = notes.every((q) => q.left >= 0 && q.top >= 0 && q.right <= innerWidth && q.bottom <= innerHeight);
   const texts = [...stack.querySelectorAll(".ops-toast-text")].map((n) => n.textContent);
-  return { count: notes.length, hits, seen, inside, texts, right: Math.round(Math.max(...notes.map((q) => q.right))), top: Math.round(Math.min(...notes.map((q) => q.top))) };
+  return { count: notes.length, hits, seen, inside, texts, widths: [...new Set(notes.map((q) => Math.round(q.width)))], right: Math.round(Math.max(...notes.map((q) => q.right))), top: Math.round(Math.min(...notes.map((q) => q.top))) };
 })()`;
 
 interface Measured {
@@ -81,6 +121,8 @@ interface Measured {
   seen: boolean;
   inside: boolean;
   texts: string[];
+  /** The notes' widths, each once: one column has one. */
+  widths: number[];
   right: number;
   top: number;
 }
@@ -111,11 +153,10 @@ describe.skipIf(!CHROME)("the toasts over an open sheet, in a real Chrome", () =
     if (out.exceptionDetails) throw new Error(out.exceptionDetails.exception?.description ?? "the page threw");
     return out.result.value;
   };
+  const measured = (gone?: string): Promise<Measured> => value<Measured>(`${settled(gone)}.then(() => ${MEASURE})`);
   const shown = async (sheet: string): Promise<Measured> => {
     await value(`show(${JSON.stringify(sheet)})`);
-    // Past the layout animation's settling, reduced motion or not.
-    await pause(300);
-    return value<Measured>(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => ${MEASURE})`);
+    return measured();
   };
 
   beforeAll(async () => {
@@ -170,21 +211,40 @@ describe.skipIf(!CHROME)("the toasts over an open sheet, in a real Chrome", () =
         await raw("Emulation.setEmulatedMedia", { features: [{ name: "pointer", value: w.coarse ? "coarse" : "fine" }, { name: "hover", value: w.coarse ? "none" : "hover" }] });
       });
 
-      it("keeps to the top-right corner with no sheet open, newest first", async () => {
+      it("keeps to the top-right corner with no sheet open, newest first, in one column", async () => {
         const m = await shown("none");
         expect(m.count).toBe(3);
         expect(m.texts[0]).toBe("Archived the Lisbon trip");
         expect(m.right).toBe(w.width - 16);
+        expect(m.widths).toHaveLength(1);
         expect(m.inside).toBe(true);
       }, 30_000);
 
-      for (const [sheet, name] of [["drawer", "a drawer"], ["wide", "a wide drawer"], ["modal", "a dialog"], ["palette", "the palette"]] as const) {
-        it(`lies on none of ${name}'s fields or buttons, and is seen over it`, async () => {
+      it("goes back to its corner once a drawer has shut", async () => {
+        const corner = await shown("none");
+        await shown("closing");
+        await value("shut()");
+        const m = await measured(".drawer");
+        expect([m.right, m.top]).toEqual([corner.right, corner.top]);
+      }, 30_000);
+
+      const SHEETS = [
+        ["drawer", "a drawer"],
+        ["wide", "a wide drawer"],
+        ["modal", "a dialog"],
+        ["stacked", "a dialog opened over a drawer"],
+        ["palette", "the palette"],
+        ["quicklook", "Quick Look"],
+        ["browser", "KOS's browser filling the window"],
+      ] as const;
+      for (const [sheet, name] of SHEETS) {
+        it(`lies on none of the fields or buttons of ${name}, and is seen over it`, async () => {
           const m = await shown(sheet);
           expect(m.count).toBe(3);
           expect(m.hits).toEqual([]);
           expect(m.seen).toBe(true);
           expect(m.inside).toBe(true);
+          expect(m.widths).toHaveLength(1);
         }, 30_000);
       }
     });
