@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { momentWords, timeCard } from "@kos/shared";
+import { clockWords, momentWords, timeCard } from "@kos/shared";
 
 import { EmptyState, listState, noMatchWords } from "./EmptyState.js";
 import { StatusPill } from "./kit.js";
@@ -110,10 +110,18 @@ describe("When", () => {
     expect(time.textContent).toBe("6m ago");
   });
 
-  it("says a clock time when asked, with the same card", () => {
+  it("says the moment when asked, with the same card", () => {
     const now = Date.UTC(2026, 10, 22, 12);
     const { container } = render(<When at={now + 3 * 3_600_000} now={now} say="moment" />);
     expect(container.querySelector("time")?.textContent).toBe(momentWords(now + 3 * 3_600_000, now));
+  });
+
+  it("says the clock time alone when asked, its date for a screen reader", () => {
+    const at = Date.UTC(2026, 10, 22, 16, 9);
+    const { container } = render(<When at={at} now={at + 60_000} say="clock" />);
+    const time = container.querySelector("time")!;
+    expect(time.textContent).toBe(clockWords(at));
+    expect(document.getElementById(time.getAttribute("aria-describedby")!)?.textContent).toBe(timeCard(at / 1000).join(" "));
   });
 });
 

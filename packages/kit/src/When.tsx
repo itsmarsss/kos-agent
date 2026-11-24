@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 
-import { clockWords, momentWords, timeWords } from "@kos/shared";
+import { clockWords, momentWords, timeCard, timeWords } from "@kos/shared";
 
 import { TimeCard } from "./ChatTime.js";
 import { Tooltip } from "./Tooltip.js";
@@ -14,12 +14,13 @@ const SAY = { ago: timeWords, moment: momentWords, clock: (at: number) => clockW
  * ("Tomorrow 8:00 AM", `momentWords`) or, in a list grouped by day, the
  * clock time alone ("4:09 PM", `clockWords`). Hovered or focused, it opens
  * the one time card a chat's times open: the date in full over the clock
- * time. The words in the row never change, so nothing moves. Plain words,
+ * time, which is also its row's description for a screen reader. The words
+ * in the row never change, so nothing moves. Plain words,
  * never a link: what a row opens, its title opens.
  */
 export function When({ at, now, say = "ago" }: { at: number; now?: number; say?: keyof typeof SAY }): ReactElement {
   return (
-    <Tooltip tip={<TimeCard seconds={at / 1000} />}>
+    <Tooltip tip={<TimeCard seconds={at / 1000} />} describe={timeCard(at / 1000).join(" ")}>
       <time className="when" dateTime={new Date(at).toISOString()}>
         {SAY[say](at, now)}
       </time>
