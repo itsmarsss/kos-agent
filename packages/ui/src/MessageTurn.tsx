@@ -1,7 +1,7 @@
-import { memo, type ReactElement } from "react";
+import { memo, useState, useSyncExternalStore, type ReactElement } from "react";
 
 import { clockWords } from "@kos/shared";
-import { type BlockActions, MessageTime, QuoteLine, Timed } from "@kos/kit";
+import { type BlockActions, Fold, type FoldRule, MessageTime, QuoteLine, Timed } from "@kos/kit";
 
 import type { ChatEvent } from "./api.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
@@ -44,6 +44,53 @@ export function answeredLate(at: number | undefined, before: number | undefined)
 }
 
 /**
+ * When the owner's own message folds (kit `Fold`). At a desk a bubble line
+ * holds about 90 characters, so 800 characters is some nine lines and the
+ * fold shows eight; a phone's line holds about 35, so its line count comes
+ * first. KOS's replies never fold.
+ */
+export const OWNER_FOLD: Readonly<Record<"desk" | "phone", FoldRule>> = {
+  desk: { lines: 8, pastLines: 12, pastChars: 800 },
+  phone: { lines: 6, pastLines: 9, pastChars: 600 },
+};
+const PHONE = "(max-width: 640px)";
+
+function phoneWidth(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(PHONE).matches;
+}
+function onWidth(change: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => undefined;
+  const mq = window.matchMedia(PHONE);
+  mq.addEventListener("change", change);
+  return () => mq.removeEventListener("change", change);
+}
+
+/** The owner's long messages opened in this page, kept while it is open so a message drawn again stays open. */
+const opened = new Set<string>();
+
+/** The owner's words, folded when long; opened by a search that found them, or by the owner, and kept open. */
+function OwnerWords({ text, at, found, children }: { text: string; at?: number; found: boolean; children: ReactElement }): ReactElement {
+  const rule = OWNER_FOLD[useSyncExternalStore(onWidth, phoneWidth, () => false) ? "phone" : "desk"];
+  const key = `${at ?? ""}:${text}`;
+  const [open, setOpen] = useState(() => opened.has(key));
+  return (
+    <Fold
+      rule={rule}
+      chars={text.length}
+      what="your message"
+      open={open || found}
+      onOpen={(next) => {
+        if (next) opened.add(key);
+        else opened.delete(key);
+        setOpen(next);
+      }}
+    >
+      {children}
+    </Fold>
+  );
+}
+
+/**
  * One message in the thread: the owner's bubble, KOS's words or a note,
  * where it came from, what came with it, and what can be done with it. Its
  * time shows on hover, focus or a tap: the owner's left of their bubble, a
@@ -77,7 +124,13 @@ export const MessageTurn = memo(function MessageTurn({
   const bubble = e.text && (
     <div className={`bubble bubble--${e.role}${found ? " is-found" : ""}`}>
       {e.quote && <QuoteLine text={e.quote.text} from={e.quote.from} />}
-      <ChatWords role={e.role} text={e.text} actions={actions} />
+      {e.role === "you" ? (
+        <OwnerWords text={e.text} {...(e.at ? { at: e.at } : {})} found={found}>
+          <ChatWords role={e.role} text={e.text} actions={actions} />
+        </OwnerWords>
+      ) : (
+        <ChatWords role={e.role} text={e.text} actions={actions} />
+      )}
     </div>
   );
   return (
