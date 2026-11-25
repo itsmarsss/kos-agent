@@ -150,7 +150,7 @@ import { STATUS_TOOL } from "../tools/status.js";
 import { ARTIFACT_TOOLS } from "../tools/systems.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
-import { outcomeOf, type StepTally } from "../ops/outcome.js";
+import { outcomeOf } from "../ops/outcome.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type FaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload, type NotifySent, parseTarget, QUIET_ENDING_NOTE } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
