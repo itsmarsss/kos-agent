@@ -68,7 +68,7 @@ export interface AgentOptions {
 export interface AgentResult {
   /** Full conversation, including the final assistant turn. */
   messages: ModelMessage[];
-  /** Concatenated text of the final assistant turn. */
+  /** The reply: the text of the turn's last assistant message, when it called no tool. */
   finalText: string;
   /** True when the owner asked it to stop rather than it finishing. */
   stopped?: boolean;
@@ -111,11 +111,7 @@ export async function runAgent(
    * anything then answered with whatever it had said last time.
    */
   const before = messages.length;
-  const saidThisTurn = (): string =>
-    textOf(
-      [...messages.slice(before)].reverse().find((m) => m.role === "assistant")
-        ?.content ?? [],
-    );
+  const saidThisTurn = (): string => replyOf(messages.slice(before));
 
   let iterations = 0;
   let stopReason: StopReason = "end_turn";
@@ -228,15 +224,23 @@ export async function runAgent(
     messages.push({ role: "user", content: results, at: Date.now() });
   }
 
-  // Hit the iteration cap with tool calls still pending.
-  const lastAssistant = [...messages]
-    .reverse()
-    .find((m) => m.role === "assistant");
+  // Hit the iteration cap with tool calls still pending: the last words were about a step, not an answer.
   return {
     messages,
-    finalText: lastAssistant ? textOf(lastAssistant.content) : "",
+    finalText: saidThisTurn(),
     iterations,
     stopReason,
     exhausted: true,
   };
+}
+
+/**
+ * A turn's reply: the text of its last assistant message, when that message
+ * called no tool. Words beside a call are narration of that step ("I'll run
+ * the scanner."), kept in the transcript with the step and never the answer,
+ * as on the SDK engine. A turn that ends on a call has no reply.
+ */
+export function replyOf(turn: ModelMessage[]): string {
+  const last = [...turn].reverse().find((m) => m.role === "assistant");
+  return last && toolUsesOf(last.content).length === 0 ? textOf(last.content) : "";
 }

@@ -89,6 +89,41 @@ describe("runAgent", () => {
     });
   });
 
+  it("answers with the words after the last step, not the narration beside a call", async () => {
+    const step = (text: string, id: string): ModelResponse => ({
+      content: [{ type: "text", text }, { type: "tool_use", id, name: "add", input: { a: 1, b: 1 } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "mock",
+    });
+    const inference = new ScriptedInference([
+      step("I'll add them.", "t1"),
+      step("Now once more.", "t2"),
+      { content: [{ type: "text", text: "Sent." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+    ]);
+    const result = await runAgent(inference, addRegistry(), "add twice");
+    expect(result.finalText).toBe("Sent.");
+    // The narration stays in the model's own messages, beside its call.
+    expect(result.messages[1]!.content[0]).toEqual({ type: "text", text: "I'll add them." });
+  });
+
+  it("has no reply when the turn stops or runs out on a step, rather than its narration", async () => {
+    const step: ModelResponse = {
+      content: [{ type: "text", text: "Checking the board." }, { type: "tool_use", id: "t", name: "add", input: { a: 1, b: 1 } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "mock",
+    };
+    const exhausted = await runAgent(new ScriptedInference([step, step]), addRegistry(), "loop", { maxIterations: 2 });
+    expect(exhausted.exhausted).toBe(true);
+    expect(exhausted.finalText).toBe("");
+
+    let calls = 0;
+    const stopped = await runAgent(new ScriptedInference([step, step]), addRegistry(), "loop", { shouldStop: () => calls++ > 0 });
+    expect(stopped.stopped).toBe(true);
+    expect(stopped.finalText).toBe("");
+  });
+
   it("stamps each message as it is made, so a step keeps its own time", async () => {
     const reg = new ToolRegistry();
     reg.register({ name: "slow", description: "takes a while", inputSchema: { type: "object" } }, async () => {
