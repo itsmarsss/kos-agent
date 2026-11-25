@@ -347,6 +347,15 @@ function parsedArgs(args: string): unknown {
   }
 }
 
+/**
+ * Where a decision through the API was taken: the command line when it says
+ * so, else the dashboard. Only those two: both decide any ask, so naming one
+ * moves no ask past a check, and the record keeps the surface pressed.
+ */
+function apiSurface(body: Record<string, unknown>): "cli" | "dashboard" {
+  return body.via === "cli" ? "cli" : "dashboard";
+}
+
 function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   const names = (kind: string, id: string): string | undefined => kernel.labelFor(kind, id);
   const where = kernel.actionHome(a.conversationId);
@@ -354,7 +363,7 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
   const asksAlways = usesSecret(a.tool, parsedArgs(a.args));
   const { secret, ...action } = a;
-  const detached = detachedAs(a);
+  const detached = detachedAs(a, kernel.registry.detached(a.tool));
   const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, ...(a.beyondAuto ? { beyondAuto: true } : {}), ...(detached ? { detached } : {}), secret, names, where, platform: HOST_KEYS });
   return {
     ...action,
@@ -1886,13 +1895,13 @@ export async function handleApiRequest(
     // Asked of the dashboard's handler: the dashboard, the CLI through the API, or the phone's relay, which decides its own asks through chat.decide.
     // A one-time code typed on the card goes to the host's memory with the yes, and nowhere else.
     const code = typeof body.code === "string" ? { code: body.code } : {};
-    return ok(await kernel.approve(id, undefined, { remember: body.remember === true, surface: "dashboard", ...code }));
+    return ok(await kernel.approve(id, undefined, { remember: body.remember === true, surface: apiSurface(body), ...code }));
   }
 
   if (method === "POST" && path === "/api/deny") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
-    return ok(await kernel.deny(id, undefined, { surface: "dashboard" }));
+    return ok(await kernel.deny(id, undefined, { surface: apiSurface(body) }));
   }
 
   if (method === "POST" && path === "/api/kill") {

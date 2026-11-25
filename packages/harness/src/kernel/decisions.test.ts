@@ -285,10 +285,16 @@ describe("an ask whose turn has gone", () => {
   });
 
   it("is warned of on its card when it would run for no waiting turn, a build's aside", () => {
-    expect(detachedAs({ tool: "notify", waits: true, detachedAt: 5 })).toBe("stopped");
-    expect(detachedAs({ tool: "sql", waits: false, detachedAt: null })).toBe("unwaited");
-    expect(detachedAs({ tool: "sql", waits: true, detachedAt: null })).toBeUndefined();
-    expect(detachedAs({ tool: "build.Bash", waits: false, detachedAt: null })).toBeUndefined();
+    expect(detachedAs({ tool: "notify", waits: true, detachedAt: 5 }, "runs")).toBe("stopped");
+    expect(detachedAs({ tool: "sql", waits: false, detachedAt: null }, undefined)).toBe("unwaited");
+    expect(detachedAs({ tool: "sql", waits: true, detachedAt: null }, undefined)).toBeUndefined();
+    expect(detachedAs({ tool: "build.Bash", waits: false, detachedAt: null }, undefined)).toBeUndefined();
+  });
+
+  it("never warns of a secret's or a clipboard read's ask, which lapse rather than run detached", () => {
+    expect(detachedAs({ tool: "secrets.fill", waits: false, detachedAt: null }, undefined)).toBeUndefined();
+    expect(detachedAs({ tool: "secrets.type", waits: true, detachedAt: 5 }, "runs")).toBeUndefined();
+    expect(detachedAs({ tool: "clipboard.read", waits: false, detachedAt: null }, "never")).toBeUndefined();
   });
 
   it("keeps a decision's place as its surface, typed or pressed, and its device", () => {

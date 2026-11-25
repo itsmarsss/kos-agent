@@ -20,7 +20,11 @@ import type { DeviceStore, PushEnv, PushSettings } from "./store.js";
 /** The event a phone gives its token with, or takes it back with (no token). */
 export const PUSH_TOKEN_EVENT = "push.token";
 
-/** The notification categories KOS for iPhone registers: an ask to approve or deny, and one too long to approve unseen, deny only. */
+/**
+ * The notification categories KOS for iPhone registers: an ask to approve or
+ * deny, and one to deny or open only: too long to approve unseen, or one that
+ * runs for no waiting turn, whose warning is read on its card first.
+ */
 export const ASK_CATEGORY = "kos.ask";
 export const ASK_OPEN_CATEGORY = "kos.ask.open";
 
@@ -112,21 +116,25 @@ const clip = (text: string, max: number): string => {
  * An ask as its notification: who asks, and the card's own line (askView's
  * title, as the dashboard's card is titled), scrubbed of every secret value
  * and cut short. No arguments, no steps, no page content: the phone opens
- * the ask for those. It lapses from APNs with the ask, and one of the same
- * ask replaces it on the phone.
+ * the ask for those. An ask that runs for no waiting turn says so under its
+ * line and is not approved from the notification. It lapses from APNs with
+ * the ask, and one of the same ask replaces it on the phone.
  */
 export function askPush(req: ApprovalRequest, scrub: (text: string) => string): Omit<ApnsPush, "token" | "env"> {
   const card = approvalOf(req);
   const line = typeof card.title === "string" ? card.title : typeof card.summary === "string" ? card.summary : (req.tool ?? "An ask");
   const asker = typeof card.asker === "string" ? card.asker : "KOS";
   const expires = req.expiresAt !== undefined ? Math.ceil(req.expiresAt / 1000) : 0;
+  // The host's own words, kept whole under a line cut to leave them room.
+  const warning = typeof card.detached === "string" ? clip(card.detached, BODY_MAX / 2) : undefined;
+  const body = warning ? `${clip(scrub(line), BODY_MAX - warning.length - 1)}\n${warning}` : clip(scrub(line), BODY_MAX);
   return {
     headers: { "apns-push-type": "alert", "apns-priority": "10", "apns-collapse-id": collapseId(req.id), "apns-expiration": String(expires) },
     payload: {
       aps: {
-        alert: { title: clip(scrub(`${asker} asks`), TITLE_MAX), body: clip(scrub(line), BODY_MAX) },
+        alert: { title: clip(scrub(`${asker} asks`), TITLE_MAX), body },
         sound: "default",
-        category: card.tooLong === true ? ASK_OPEN_CATEGORY : ASK_CATEGORY,
+        category: card.tooLong === true || warning ? ASK_OPEN_CATEGORY : ASK_CATEGORY,
         "thread-id": "kos.asks",
       },
       kos: { ask: req.id },
