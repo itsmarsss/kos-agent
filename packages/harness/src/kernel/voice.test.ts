@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { inHouseVoice, VOICE } from "./voice.js";
+import { beforeReply, inHouseVoice, REPLY, VOICE } from "./voice.js";
 
 describe("the house voice", () => {
   it("is one section, short, and carries no em dash of its own", () => {
@@ -13,6 +13,23 @@ describe("the house voice", () => {
     expect(VOICE).toContain("Once the owner decides on something you asked for, react in one line");
     expect(VOICE).toContain("A decided ask is never still waiting on them.");
     expect(VOICE).toContain("No recap of the ask or the approval.");
+  });
+
+  it("says the reply is only what follows the last call, and how short it is", () => {
+    expect(REPLY.startsWith("## Your reply\n")).toBe(true);
+    expect(REPLY).toContain("Only what you write after your last tool call is your reply");
+    expect(REPLY).toContain("under about 600 characters");
+    expect(REPLY).toContain("No recap of steps the owner can already see");
+    expect(REPLY).toContain("no closing offer");
+    expect(REPLY).toContain("the post is the result");
+    expect(REPLY).not.toContain("—");
+    // Model agnostic: no provider or model is named.
+    expect(REPLY).not.toMatch(/claude|anthropic|openai|gpt|sonnet|haiku|opus/i);
+  });
+
+  it("adds a section in front of the closing reply rule, and at the end of a prompt without one", () => {
+    expect(beforeReply(`base\n\n${REPLY}`, "hand-on")).toBe(`base\n\nhand-on\n\n${REPLY}`);
+    expect(beforeReply("base", "hand-on")).toBe("base\n\nhand-on");
   });
 
   it("rewrites an em dash as the pause it stood for, outside code", () => {

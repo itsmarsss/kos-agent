@@ -7,6 +7,7 @@ import {
   channelGuidance,
 } from "./context.js";
 import { DEFAULT_PROFILE } from "./profile.js";
+import { REPLY } from "./voice.js";
 
 describe("assembleSystemPrompt", () => {
   it("says KOS acts for the owner, without moralizing, and declines once", () => {
@@ -88,6 +89,13 @@ describe("assembleSystemPrompt", () => {
     expect(prompt.system).toContain("hand it to Maintenance (chats.handoff to @project:maintenance)");
     expect(prompt.system).not.toContain("Prefer sql SELECT for inspection");
     expect(prompt.system).not.toContain("—");
+  });
+
+  it("ends the fixed half with the reply rule, after every section a chat or a job adds", () => {
+    const prompt = assembleSystemPrompt({ baseSystem: "You are KOS.", profile: DEFAULT_PROFILE, projects: [], recall: { facts: [], events: [] }, extra: "## Scheduled run\nRun it." });
+    expect(prompt.system.endsWith(`\n\n${REPLY}`)).toBe(true);
+    expect(prompt.system.indexOf("## Scheduled run")).toBeLessThan(prompt.system.indexOf(REPLY));
+    expect(prompt.system.indexOf("## Tool guidance")).toBeLessThan(prompt.system.indexOf(REPLY));
   });
 
   it("opens the turn with the clock in the owner's zone, and keeps it out of the fixed half", () => {

@@ -4210,6 +4210,7 @@ export class Kernel {
         `You are running unattended as cron job "${job.name}".`,
         "There is no one to ask, so do not ask questions.",
         "Risky actions still queue for approval; say what you queued and stop.",
+        "When notify carried the run's result, that post is the result: end with one short line, never a report on it.",
       ].join("\n"),
     });
     /*

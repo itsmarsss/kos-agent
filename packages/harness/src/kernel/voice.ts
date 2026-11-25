@@ -22,6 +22,29 @@ export const VOICE = [
 ].join("\n");
 
 /**
+ * What the reply is, said last so it is the rule nearest the answer.
+ *
+ * The voice sits near the front, and on the SDK engine behind a preset that
+ * asks for a line before each tool call: those lines were glued onto the
+ * answer, and replies ran past the length the voice sets. Only the words
+ * after the last tool call are the reply, on both engines; this tells the
+ * model so, and repeats the length rule where it is read last.
+ */
+export const REPLY = [
+  "## Your reply",
+  "Only what you write after your last tool call is your reply; words before a call are kept with that step, not shown as the answer. So do not announce a step (\"I'll check the list.\"): make the call.",
+  "Keep the reply under about 600 characters unless the owner asks for the long version. No recap of steps the owner can already see, no list of what you checked, no closing offer.",
+  "When a post (notify, a message, a card) carried the result, the post is the result: end with one short line, never a report on the sending (what was sent, its length, the calls it took).",
+].join("\n");
+
+/** A system prompt with `sections` added in front of its closing reply rule, which stays last. */
+export function beforeReply(system: string, ...sections: string[]): string {
+  const closing = system.endsWith(REPLY);
+  const body = closing ? system.slice(0, -REPLY.length) : system;
+  return [body, ...sections, ...(closing ? [REPLY] : [])].map((part) => part.trim()).filter(Boolean).join("\n\n");
+}
+
+/**
  * KOS works for the owner, as them, in their own life.
  *
  * Asked for ordinary delegated work, it moralized: warnings nobody asked
