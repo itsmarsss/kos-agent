@@ -354,7 +354,7 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
   const asksAlways = usesSecret(a.tool, parsedArgs(a.args));
   const { secret, ...action } = a;
-  const detached = detachedAs(a);
+  const detached = detachedAs(a, kernel.registry.detached(a.tool));
   const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, ...(a.beyondAuto ? { beyondAuto: true } : {}), ...(detached ? { detached } : {}), secret, names, where, platform: HOST_KEYS });
   return {
     ...action,
