@@ -551,7 +551,7 @@ export class GuardedTools implements ToolBox {
         );
         this.deps.onAutoRan?.();
         const ran = await underAuto.run(true, () => run(name, input));
-        audit.record({ tool: name, ...audited(ran), riskTier: "risky", approvedBy: AUTO_DECIDER, decidedVia: "auto", approvalId: settled.id, ...(userId ? { userId } : {}) });
+        audit.record({ tool: name, ...audited(ran), ...(turnId ? { turnId } : {}), riskTier: "risky", approvedBy: AUTO_DECIDER, decidedVia: "auto", approvalId: settled.id, ...(userId ? { userId } : {}) });
         this.deps.onExecuted?.(name, ran);
         return autoResult(ran);
       }
@@ -560,7 +560,7 @@ export class GuardedTools implements ToolBox {
       // Only by a yes its own tool keeps (a secret's grant on this site, or for this turn): run, and audited as such.
       if (always && (await within(async () => registry.granted(name, input)))) {
         const granted = await run(name, input);
-        audit.record({ tool: name, ...audited(granted), riskTier: "risky", approvedBy: GRANT_DECIDER, decidedVia: "grant", ...(userId ? { userId } : {}), ...(conversationId ? { conversationId } : {}) });
+        audit.record({ tool: name, ...audited(granted), ...(turnId ? { turnId } : {}), riskTier: "risky", approvedBy: GRANT_DECIDER, decidedVia: "grant", ...(userId ? { userId } : {}), ...(conversationId ? { conversationId } : {}) });
         this.deps.onExecuted?.(name, granted);
         return granted;
       }
@@ -576,6 +576,7 @@ export class GuardedTools implements ToolBox {
         audit.record({
           tool: name,
           ...audited(allowedResult),
+          ...(turnId ? { turnId } : {}),
           riskTier: "risky",
           decidedVia: session ? "session" : "rule",
           ...(userId ? { userId } : {}),
@@ -672,6 +673,7 @@ export class GuardedTools implements ToolBox {
       audit.record({
         tool: name,
         ...audited(approvedRun),
+        ...(turnId ? { turnId } : {}),
         riskTier: "risky",
         decidedVia: decided?.decidedVia ?? null,
         approvalId: action.id,
@@ -687,6 +689,7 @@ export class GuardedTools implements ToolBox {
     audit.record({
       tool: name,
       ...audited(result), // pre-injection; AuditLog also redacts defensively
+      ...(turnId ? { turnId } : {}),
       riskTier: "safe",
       ...(userId ? { userId } : {}),
       ...(conversationId ? { conversationId } : {}),

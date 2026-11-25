@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { caller } from "../kernel/caller.js";
+import { caller, turn } from "../kernel/caller.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { AuditLog } from "./audit.js";
@@ -51,17 +51,38 @@ describe("AuditLog", () => {
     expect(log.tally("c3", 0)).toEqual({ total: 0, failed: 0, firstError: null });
   });
 
-  it("counts a chat's notify calls after a mark that worked, quiet endings apart from messages", () => {
+  it("counts a chat's notify calls after a mark: messages, quiet endings, and refused quiet endings apart", () => {
     const log = new AuditLog(ws.db);
     log.record({ tool: "notify", args: { text: "before" }, result: "Sent.", isError: false, conversationId: "c1" });
     const mark = log.lastId();
     log.record({ tool: "notify", args: { text: "digest" }, result: "Sent.", isError: false, conversationId: "c1" });
+    log.record({ tool: "notify", args: { text: "down" }, result: "Discord is not connected", isError: true, conversationId: "c1" });
     log.record({ tool: "notify", args: { quiet: "nothing new" }, result: "Posted nothing.", isError: false, conversationId: "c1" });
     log.record({ tool: "notify", args: { quiet: "refused", text: "x" }, result: "refused", isError: true, conversationId: "c1" });
     log.record({ tool: "notify", args: { quiet: "other chat" }, result: "Posted nothing.", isError: false, conversationId: "c2" });
-    expect(log.notified("c1", mark)).toEqual({ delivered: 1, quiet: 1 });
-    expect(log.notified("c2", 0)).toEqual({ delivered: 0, quiet: 1 });
-    expect(log.notified("c3", 0)).toEqual({ delivered: 0, quiet: 0 });
+    expect(log.notified("c1", mark)).toEqual({ delivered: 1, quiet: 1, quietRefused: 1 });
+    expect(log.notified("c2", 0)).toEqual({ delivered: 0, quiet: 1, quietRefused: 0 });
+    expect(log.notified("c3", 0)).toEqual({ delivered: 0, quiet: 0, quietRefused: 0 });
+  });
+
+  it("counts one turn's calls apart from another turn's in the same chat", () => {
+    const log = new AuditLog(ws.db);
+    const mark = log.lastId();
+    log.record({ tool: "files.read", args: {}, result: "ENOENT", isError: true, conversationId: "c1", turnId: "7" });
+    log.record({ tool: "notify", args: { quiet: "nothing new" }, result: "Posted nothing.", isError: false, conversationId: "c1", turnId: "8" });
+    caller.run("c1", () => turn.run("8", () => log.record({ tool: "notify", args: { text: "hi" }, result: "Sent.", isError: false })));
+    expect(log.notified("c1", mark, "7")).toEqual({ delivered: 0, quiet: 0, quietRefused: 0 });
+    expect(log.notified("c1", mark, "8")).toEqual({ delivered: 1, quiet: 1, quietRefused: 0 });
+    expect(log.tally("c1", mark, "7")).toEqual({ total: 1, failed: 1, firstError: "files.read: ENOENT" });
+    expect(log.tally("c1", mark)).toMatchObject({ total: 3, failed: 1 });
+  });
+
+  it("names a refused quiet ending as the first failure only when nothing else failed", () => {
+    const log = new AuditLog(ws.db);
+    log.record({ tool: "notify", args: { quiet: "x", text: "y" }, result: "quiet posts nothing", isError: true, conversationId: "c1" });
+    expect(log.tally("c1", 0).firstError).toBe("notify: quiet posts nothing");
+    log.record({ tool: "skills.run", args: {}, result: "exit 1", isError: true, conversationId: "c1" });
+    expect(log.tally("c1", 0)).toEqual({ total: 2, failed: 2, firstError: "skills.run: exit 1" });
   });
 
   it("records tool calls and returns them newest-first", () => {
