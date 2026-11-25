@@ -2029,16 +2029,6 @@ export class Kernel {
       { role: "assistant", content: [{ type: "text", text: summary }] },
     ]);
     this.conversations.touch(id);
-    /*
-     * Told to the surfaces, so the run shows in the job's thread with a Run
-     * now button, when the owner fired it by hand or something failed. A
-     * quiet scheduled tick says nothing: an actions job may run every minute,
-     * and its work (a notify, a post) already speaks for itself. A blob's
-     * job runs in the blob's own thread and is left out.
-     */
-    if (id.startsWith("cron:") && (failed > 0 || this.firedByHand.has(job.id))) {
-      this.said(id, "The schedule fired.", summary, "system", undefined, [], { failed: failed > 0 });
-    }
   }
 
   private async runJobTurn(prompt: string, job: CronJob): Promise<JobTurn & { later?: Promise<JobTurn> }> {
@@ -4517,7 +4507,7 @@ export class Kernel {
     origin: "owner" | "system",
     channel: string | undefined,
     files: KeptFile[],
-    extra: { resumed?: boolean; from?: MessageFrom | undefined; dm?: boolean | undefined; failed?: boolean } = {},
+    extra: { resumed?: boolean; from?: MessageFrom | undefined; dm?: boolean | undefined } = {},
   ): void {
     this.bus.emit({
       kind: "turn:said",
@@ -4531,7 +4521,6 @@ export class Kernel {
       ...(extra.resumed ? { resumed: true } : {}),
       ...(extra.from ? { from: extra.from } : {}),
       ...(extra.dm ? { dm: true } : {}),
-      ...(extra.failed ? { failed: true } : {}),
     });
   }
 
@@ -5892,9 +5881,6 @@ export class Kernel {
   }
 
   /** Run one job now, through the same path the schedule uses. */
-  /** Jobs fired by hand right now (Run now on the dashboard or Discord, /run), so a quiet actions job's run is still shown. */
-  private readonly firedByHand = new Set<number>();
-
   fireCron(id: number): Promise<CronFireResult> {
     // Queued behind the very turn asking for it, a run from the job's own place would wait on itself for good.
     const job = this.crons.get(id);
@@ -5902,8 +5888,7 @@ export class Kernel {
       const error = "this job runs in this very chat, after the turn asking for it: it cannot be run by hand from here. Ask from another chat, or let its schedule run it.";
       return Promise.resolve({ outcome: { fired: false, reason: "error", error }, ok: false, error });
     }
-    this.firedByHand.add(id);
-    return this.cron.fire(id).finally(() => this.firedByHand.delete(id));
+    return this.cron.fire(id);
   }
 
   /** Jobs the running scheduler actually holds, as opposed to rows in the table. */

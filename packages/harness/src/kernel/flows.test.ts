@@ -9,7 +9,7 @@ import { bodyHexOf, isValidPageSpec, type PageSpec } from "@kos/shared";
 
 import type { Inference } from "../agent/loop.js";
 import type { Task } from "../models/router.js";
-import type { GenerateRequest, ModelResponse } from "../models/types.js";
+import { saidText, type GenerateRequest, type ModelResponse } from "../models/types.js";
 import type { KosModule } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { BEHAVIOUR_KEY } from "./behaviour.js";
@@ -1194,32 +1194,24 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("Ran 1 action");
   });
 
-  it("shows an actions job's run on the surfaces when fired by hand or failed, and keeps a quiet tick quiet", async () => {
+  it("keeps an actions job's run in its thread and tells the surfaces nothing of it, failed or not", async () => {
     /*
-     * An actions job told nobody it ran, so on Discord it never got a run
-     * record or a Run now button. Telling every run would flood a job that
-     * runs every minute, so it is told when the owner fired it by hand, or
-     * when something failed; a quiet scheduled tick says nothing.
+     * A run card on Discord said only that a job had run: its message is
+     * the result, and a failure reaches the owner through its health
+     * notice. The run stays in the job's thread and in Runs.
      */
     const model = scripted([text("unused")]);
     kernel = await boot(model.inference);
-    const said: { conversationId: string; reply: string; origin: string }[] = [];
-    kernel.bus.on("turn:said", (e) => {
-      said.push({ conversationId: e.conversationId, reply: e.reply, origin: e.origin });
-    });
+    const said: string[] = [];
+    kernel.bus.on("turn:said", (e) => void said.push(e.conversationId));
     const quiet = kernel.crons.create({ name: "quiet-ping", schedule: "0 3 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "stand up" } }], enabled: true });
     await kernel.fireCron(quiet.id);
-    expect(said).toEqual([{ conversationId: `cron:${quiet.id}`, reply: "Ran 1 action.", origin: "system" }]);
-    // The schedule's own tick, the same job: nothing to tell.
-    said.length = 0;
-    const cron = (kernel as unknown as { cron: { start(): void; scheduler?: { fire(job: unknown): Promise<unknown> } } }).cron;
-    if (!cron.scheduler) cron.start();
-    await cron.scheduler!.fire(kernel.crons.get(quiet.id));
-    expect(said).toEqual([]);
-    // A tick that failed is told, so the failure has a Run now beside it.
     const broken = kernel.crons.create({ name: "broken-read", schedule: "0 3 * * *", type: "actions", actions: [{ tool: "files.read", args: { path: "nowhere/at-all.txt" } }], enabled: true });
-    await cron.scheduler!.fire(kernel.crons.get(broken.id));
-    expect(said).toEqual([{ conversationId: `cron:${broken.id}`, reply: "Ran 1 action; 1 failed.", origin: "system" }]);
+    await kernel.fireCron(broken.id);
+    expect(said).toEqual([]);
+    const last = (id: number): string => saidText(kernel.sessions.get(`cron:${id}`).at(-1)!.content);
+    expect(last(quiet.id)).toBe("Ran 1 action.");
+    expect(last(broken.id)).toBe("Ran 1 action; 1 failed.");
   });
 
   it("queues a risky scheduled action instead of waiting on the owner", async () => {
