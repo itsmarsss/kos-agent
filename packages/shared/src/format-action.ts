@@ -559,6 +559,8 @@ export function summarizeAction(
     case "export.query":
       return `Export ${fmtVal(a.format)} to ${at(a.path, "change")}`;
     case "notify": {
+      // A scheduled run's quiet ending: it posts nothing, and says why.
+      if (typeof a.quiet === "string" && a.quiet.trim()) return `Chose not to post: ${fmtVal(a.quiet)}`;
       const to = typeof a.to === "string" && a.to.trim() && a.to !== "owner" ? a.to.trim() : "";
       return to ? `Post to ${named("target", to)}: ${fmtVal(a.text)}` : `Tell you: ${fmtVal(a.text)}`;
     }

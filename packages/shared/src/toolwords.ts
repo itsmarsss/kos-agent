@@ -208,15 +208,21 @@ const TARGET_MAX = 80;
  * themselves, the tool's name and any id are for Details.
  */
 export function stepLine(tool: string, args: unknown): { title: string; detail?: string } {
-  const title = toolWords(tool);
   const a = typeof args === "string" ? parseObject(args) : args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
+  // A scheduled run's quiet ending sent nothing: said as the choice it was, with why.
+  if (tool === "notify" && typeof a.quiet === "string" && a.quiet.trim()) return { title: "Chose not to post", detail: clipped(a.quiet) };
+  const title = toolWords(tool);
   for (const key of TARGET_KEYS) {
     const v = a[key];
     if (typeof v !== "string" || !v.trim()) continue;
-    const one = v.replace(/\s+/g, " ").trim();
-    return { title, detail: one.length > TARGET_MAX ? `${one.slice(0, TARGET_MAX - 1)}…` : one };
+    return { title, detail: clipped(v) };
   }
   return { title };
+}
+
+function clipped(text: string): string {
+  const one = text.replace(/\s+/g, " ").trim();
+  return one.length > TARGET_MAX ? `${one.slice(0, TARGET_MAX - 1)}…` : one;
 }
 
 function parseObject(text: string): Record<string, unknown> {

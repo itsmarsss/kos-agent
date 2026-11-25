@@ -235,6 +235,7 @@ describe("names beside ids", () => {
     expect(summarizeAction("discord.audience", { channel: "1561", audience: "guests" }, names)).toBe("Open #leetcode to everyone on the server, reading and writing");
     expect(summarizeAction("notify", { to: "discord:channel:1561", text: "hi" }, names)).toBe("Post to #leetcode on Discord: hi");
     expect(summarizeAction("notify", { text: "hi" }, names)).toBe("Tell you: hi");
+    expect(summarizeAction("notify", { quiet: "nothing new above the bar" }, names)).toBe("Chose not to post: nothing new above the bar");
     expect(summarizeAction("cron.run", { id: 18 }, names)).toBe("Run the schedule Daily board now");
     expect(summarizeAction("discord.make", { name: "picks", kind: "channel", category: "Club", access: [{ who: "Members", view: true, write: true }] })).toBe("Make the channel picks under Club, open to Members");
   });
