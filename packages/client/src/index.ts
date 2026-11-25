@@ -26,6 +26,9 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 /** A turn's wait when none is named. */
 export const DEFAULT_TURN_TIMEOUT_MS = 20 * 60_000;
 
+/** Where a decision through the API is recorded as taken, when not the dashboard. */
+export type DecisionVia = "cli";
+
 /** fetch, bounded: past `timeoutMs` it rejects with what was asked and how long it waited. */
 async function fetchWithin(url: string, init: RequestInit, timeoutMs: number, what: string): Promise<Response> {
   try {
@@ -185,13 +188,16 @@ export class KosClient {
     return this.get("/api/approvals");
   }
 
-  /** Waits as a turn does: an approval can answer only once the action it lets go has run. */
-  approve(id: number, opts: { remember?: boolean } = {}): Promise<{ ok: boolean; message: string }> {
+  /**
+   * Waits as a turn does: an approval can answer only once the action it lets go has run.
+   * `via` "cli" records the decision as the command line's; else it is the dashboard's.
+   */
+  approve(id: number, opts: { remember?: boolean; via?: DecisionVia } = {}): Promise<{ ok: boolean; message: string }> {
     return this.post("/api/approve", { id, ...opts }, this.turnTimeoutMs);
   }
 
-  deny(id: number): Promise<{ ok: boolean; message: string }> {
-    return this.post("/api/deny", { id });
+  deny(id: number, opts: { via?: DecisionVia } = {}): Promise<{ ok: boolean; message: string }> {
+    return this.post("/api/deny", { id, ...opts });
   }
 
   // What it has

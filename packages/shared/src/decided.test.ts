@@ -12,6 +12,7 @@ describe("decidedWords", () => {
   it("says where a yes or a no was pressed, and when", () => {
     expect(decidedWords({ status: "approved", decidedVia: "discord", decidedAt: AT, requestedAt: asked }, NOW)).toBe(`Approved on Discord, ${clockWords(AT)}`);
     expect(decidedWords({ status: "denied", decidedVia: "dashboard", decidedAt: AT, requestedAt: asked }, NOW)).toBe(`Denied on the dashboard, ${clockWords(AT)}`);
+    expect(decidedWords({ status: "approved", decidedVia: "cli", decidedAt: AT, requestedAt: asked }, NOW)).toBe(`Approved on the command line, ${clockWords(AT)}`);
     expect(decidedWords({ status: "approved", decidedVia: typedVia("sms"), decidedAt: AT, requestedAt: asked }, NOW)).toBe(`Approved by a typed command on SMS, ${clockWords(AT)}`);
     expect(decidedWords({ status: "approved", decidedVia: "auto", decidedAt: AT, requestedAt: AT }, NOW)).toBe(`Approved by Auto mode, ${clockWords(AT)}`);
     expect(decidedWords({ status: "approved", decidedVia: "rule", decidedAt: AT, requestedAt: AT }, NOW)).toBe(`Approved by a remembered rule, ${clockWords(AT)}`);

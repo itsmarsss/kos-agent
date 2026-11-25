@@ -99,6 +99,23 @@ describe("where each decision came from, and asks whose turn is gone", () => {
     expect(kernel.approvals.get(first.ask.id)).toMatchObject({ status: "denied", decidedVia: "dashboard", decidedDevice: null });
   });
 
+  it("keeps a yes and a no from the command line as its own, through the API too", async () => {
+    const yes = await asking();
+    await handleApiRequest(kernel, { method: "POST", path: "/api/approve", body: { id: yes.ask.id, via: "cli" } });
+    await ended(yes.chat);
+    expect(kernel.approvals.get(yes.ask.id)).toMatchObject({ status: "approved", decidedVia: "cli" });
+    expect(audited("danger.run")).toMatchObject({ decidedVia: "cli", approvalId: yes.ask.id });
+    const no = await asking();
+    await handleApiRequest(kernel, { method: "POST", path: "/api/deny", body: { id: no.ask.id, via: "cli" } });
+    await ended(no.chat);
+    expect(kernel.approvals.get(no.ask.id)).toMatchObject({ status: "denied", decidedVia: "cli" });
+    // Any other place named through the API is the dashboard's: it cannot claim a device or a channel.
+    const other = await asking();
+    await handleApiRequest(kernel, { method: "POST", path: "/api/deny", body: { id: other.ask.id, via: "discord" } });
+    await ended(other.chat);
+    expect(kernel.approvals.get(other.ask.id)?.decidedVia).toBe("dashboard");
+  });
+
   it("tells a typed /approve and /deny from a press", async () => {
     const run = (text: string, chat: string) => kernel.runKernelCommand(parseChatCommand(text)!, chat, owner(), "discord", true);
     const yes = await asking();
@@ -181,6 +198,13 @@ describe("where each decision came from, and asks whose turn is gone", () => {
     expect(cards.find((c) => c.id === held.ask.id)?.detached).toBeUndefined();
     await kernel.deny(held.ask.id, undefined, { surface: "dashboard" });
     await ended(held.chat);
+  });
+
+  it("never warns on a secret's ask, which lapses rather than run for nobody", async () => {
+    const secret = kernel.approvals.enqueue(orphanOf({ tool: "secrets.fill", args: { secret: "visa", fields: [] }, waits: false }));
+    const cards = (await handleApiRequest(kernel, { method: "GET", path: "/api/approvals" })).body as { id: number; detached?: string }[];
+    expect(cards.find((c) => c.id === secret.id)).toBeDefined();
+    expect(cards.find((c) => c.id === secret.id)?.detached).toBeUndefined();
   });
 
   it("lapses an ask approved after its turn has gone, without a sweep, and runs nothing", async () => {
