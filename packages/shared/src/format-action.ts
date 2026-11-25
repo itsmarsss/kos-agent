@@ -6,6 +6,7 @@
 import { placePath, reachWords, type FileHome } from "./filehome.js";
 import { showInvisible } from "./invisible.js";
 import { keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
+import { quietReason } from "./quiet.js";
 import { CODE_HANDLE, ONE_TIME_CODE } from "./secrets.js";
 
 const MAX_VALUE = 120;
@@ -560,7 +561,8 @@ export function summarizeAction(
       return `Export ${fmtVal(a.format)} to ${at(a.path, "change")}`;
     case "notify": {
       // A scheduled run's quiet ending: it posts nothing, and says why.
-      if (typeof a.quiet === "string" && a.quiet.trim()) return `Chose not to post: ${fmtVal(a.quiet)}`;
+      const quiet = quietReason(a);
+      if (quiet) return `Chose not to post: ${fmtVal(quiet)}`;
       const to = typeof a.to === "string" && a.to.trim() && a.to !== "owner" ? a.to.trim() : "";
       return to ? `Post to ${named("target", to)}: ${fmtVal(a.text)}` : `Tell you: ${fmtVal(a.text)}`;
     }

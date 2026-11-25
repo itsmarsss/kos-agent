@@ -1,3 +1,5 @@
+import { quietReason } from "./quiet.js";
+
 /**
  * What a tool does, as the owner would say it, for every list and chip that
  * names a step: "List files", never "files.ls". The tool's own name and its
@@ -210,7 +212,8 @@ const TARGET_MAX = 80;
 export function stepLine(tool: string, args: unknown): { title: string; detail?: string } {
   const a = typeof args === "string" ? parseObject(args) : args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
   // A scheduled run's quiet ending sent nothing: said as the choice it was, with why.
-  if (tool === "notify" && typeof a.quiet === "string" && a.quiet.trim()) return { title: "Chose not to post", detail: clipped(a.quiet) };
+  const quiet = tool === "notify" ? quietReason(a) : undefined;
+  if (quiet) return { title: "Chose not to post", detail: clipped(quiet) };
   const title = toolWords(tool);
   for (const key of TARGET_KEYS) {
     const v = a[key];
