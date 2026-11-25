@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { CronScheduler, type KillSwitch } from "./scheduler.js";
+import { CronScheduler, type KillSwitch, type SchedulerOptions } from "./scheduler.js";
 import { CronStore } from "./store.js";
 import type { CronJob } from "./types.js";
 
@@ -160,10 +160,32 @@ describe("running what fell due while nothing was listening", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  function scheduler(): CronScheduler {
-    return new CronScheduler(store, async (j) => {
-      fired.push(j.id);
+  const MINUTE_MS = 60_000;
+  const HOUR_MS = 3_600_000;
+  const DAY_MS = 24 * HOUR_MS;
+
+  function scheduler(options: SchedulerOptions = {}): CronScheduler {
+    return new CronScheduler(
+      store,
+      async (j) => {
+        fired.push(j.id);
+      },
+      { timezone: () => "UTC", catchUpGapMs: 0, ...options },
+    );
+  }
+
+  /** A daily job whose time came round `lateMs` ago, last run `ranBeforeMs` before that. */
+  function daily(lateMs: number, ranBeforeMs = DAY_MS - HOUR_MS): number {
+    const due = new Date(Math.floor((Date.now() - lateMs) / MINUTE_MS) * MINUTE_MS);
+    const created = store.create({
+      name: "daily",
+      schedule: `${due.getUTCMinutes()} ${due.getUTCHours()} * * *`,
+      type: "actions",
+      actions: [{ tool: "notify", args: {} }],
+      enabled: true,
     });
+    store.markRun(created.id, due.getTime() - ranBeforeMs);
+    return created.id;
   }
 
   /** An hourly job that last ran `agoMs` ago. */
@@ -179,6 +201,11 @@ describe("running what fell due while nothing was listening", () => {
     return created.id;
   }
 
+  /** How a skipped run's next time reads, in UTC as the scheduler here reads schedules. */
+  function nextWords(sched: CronScheduler, id: number): string {
+    return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(sched.nextRuns(id, 1)[0]);
+  }
+
   it("runs a job whose moment passed while the host was down", async () => {
     /*
      * The scheduler lives in the process, so a laptop closed at noon simply
@@ -186,7 +213,7 @@ describe("running what fell due while nothing was listening", () => {
      * nightly backup had run every night since July while the 9am and noon
      * jobs had not fired once in two days.
      */
-    hourly(5 * 60 * 60_000);
+    daily(HOUR_MS);
     const sched = scheduler();
     sched.start();
 
@@ -198,8 +225,8 @@ describe("running what fell due while nothing was listening", () => {
 
   it("runs missed jobs one after another, not all at once", async () => {
     // Fired together after a restart, they spent the provider's minute of tokens and failed.
-    hourly(5 * 60 * 60_000);
-    hourly(5 * 60 * 60_000);
+    daily(HOUR_MS);
+    daily(HOUR_MS);
     let finish: (() => void) | undefined;
     const running: number[] = [];
     const sched = new CronScheduler(
@@ -208,7 +235,7 @@ describe("running what fell due while nothing was listening", () => {
         running.push(j.id);
         return new Promise<void>((resolve) => (finish = resolve));
       },
-      { catchUpGapMs: 0 },
+      { timezone: () => "UTC", catchUpGapMs: 0 },
     );
     sched.start();
     expect(sched.catchUp()).toBe(2);
@@ -223,32 +250,105 @@ describe("running what fell due while nothing was listening", () => {
 
   it("runs it once however many were missed", async () => {
     // Ten days offline should produce today's nudge, not ten of them.
-    hourly(10 * 24 * 60 * 60_000);
+    daily(HOUR_MS, 10 * DAY_MS);
     const sched = scheduler();
     sched.start();
 
-    sched.catchUp();
+    expect(sched.catchUp()).toBe(1);
     await new Promise((r) => setTimeout(r, 20));
     expect(fired.length).toBe(1);
     sched.stop();
   });
 
-  it("leaves a job alone when it ran within the period", async () => {
-    /*
-     * Marked as having just run, rather than a fixed minute ago.
-     *
-     * Against an hourly schedule, "a minute ago" is only inside the period
-     * when the clock is more than a minute past the hour. Run at HH:00:30 the
-     * top of the hour is more recent than the run, so catchUp fired and was
-     * right to. The test failed in CI at exactly 07:00:00.
-     */
-    hourly(0);
+  it("leaves a job alone when it ran on time", async () => {
+    // Marked as run just after its time, rather than a fixed minute ago, which
+    // fell either side of the schedule depending on when the test ran.
+    daily(HOUR_MS, -1_000);
     const sched = scheduler();
     sched.start();
 
     expect(sched.catchUp()).toBe(0);
     await new Promise((r) => setTimeout(r, 20));
     expect(fired).toEqual([]);
+    sched.stop();
+  });
+
+  it("runs a missed run that is within the limit", async () => {
+    daily(2 * HOUR_MS);
+    const skipped: string[] = [];
+    const sched = scheduler({ onSkip: (_j, _at, why) => skipped.push(why) });
+    sched.start();
+
+    expect(sched.catchUp()).toBe(1);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired).toHaveLength(1);
+    expect(skipped).toEqual([]);
+    sched.stop();
+  });
+
+  it("skips a missed run more than the limit late, saying by how much and when the next is", async () => {
+    // The kickoff caught up at midnight, nine hours before the real one.
+    const id = daily(4 * HOUR_MS);
+    const skipped: { id: number; at: number; why: string }[] = [];
+    const sched = scheduler({ onSkip: (j, at, why) => skipped.push({ id: j.id, at, why }) });
+    sched.start();
+
+    expect(sched.catchUp()).toBe(0);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired).toEqual([]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]!.id).toBe(id);
+    expect(Date.now() - skipped[0]!.at).toBeGreaterThanOrEqual(4 * HOUR_MS);
+    expect(skipped[0]!.why).toBe(`missed by 4h; next run at ${nextWords(sched, id)}`);
+    sched.stop();
+  });
+
+  it("reads the limit from the owner's setting", async () => {
+    daily(4 * HOUR_MS);
+    const sched = scheduler({ catchUpLimitHours: () => 6 });
+    sched.start();
+
+    expect(sched.catchUp()).toBe(1);
+    sched.stop();
+  });
+
+  it("never catches up at a limit of 0, however little was missed", async () => {
+    const id = daily(10 * MINUTE_MS);
+    const skipped: string[] = [];
+    const sched = scheduler({ catchUpLimitHours: () => 0, onSkip: (_j, _at, why) => skipped.push(why) });
+    sched.start();
+
+    expect(sched.catchUp()).toBe(0);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired).toEqual([]);
+    expect(skipped).toEqual([`missed by 10m; next run at ${nextWords(sched, id)}`]);
+    sched.stop();
+  });
+
+  it("never catches up a job that runs hourly or more often, and notes nothing", async () => {
+    // Its next tick is as good as a late run.
+    hourly(5 * HOUR_MS);
+    store.create({ name: "often", schedule: "*/15 * * * *", type: "actions", enabled: true });
+    store.markRun(store.list().at(-1)!.id, Date.now() - 2 * HOUR_MS);
+    const skipped: string[] = [];
+    const sched = scheduler({ onSkip: (_j, _at, why) => skipped.push(why) });
+    sched.start();
+
+    expect(sched.catchUp()).toBe(0);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired).toEqual([]);
+    expect(skipped).toEqual([]);
+    sched.stop();
+  });
+
+  it("catches up a job that runs less often than hourly", async () => {
+    // Every two hours, last run a day ago: one catch-up, for the latest slot.
+    const created = store.create({ name: "two-hourly", schedule: "0 */2 * * *", type: "actions", enabled: true });
+    store.markRun(created.id, Date.now() - DAY_MS);
+    const sched = scheduler();
+    sched.start();
+
+    expect(sched.catchUp()).toBe(1);
     sched.stop();
   });
 
@@ -310,14 +410,20 @@ describe("what a schedule really missed, in the profile's timezone", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  /** How many runs catchUp starts for a job on `schedule` last run at `ranAt`, checked at `now`. */
+  /** How many missed runs catchUp finds for a job on `schedule` last run at `ranAt`, checked at `now`: run or skipped. */
   function missed(schedule: string, ranAt: string, now: string, timezone = "UTC"): number {
     const created = store.create({ name: "j", schedule, type: "actions", actions: [{ tool: "notify", args: {} }], enabled: true });
     store.markRun(created.id, Date.parse(ranAt));
-    const sched = new CronScheduler(store, async () => undefined, { clock: () => Date.parse(now), timezone: () => timezone, catchUpGapMs: 0 });
+    let skipped = 0;
+    const sched = new CronScheduler(store, async () => undefined, {
+      clock: () => Date.parse(now),
+      timezone: () => timezone,
+      catchUpGapMs: 0,
+      onSkip: () => (skipped += 1),
+    });
     sched.start();
     try {
-      return sched.catchUp();
+      return sched.catchUp() + skipped;
     } finally {
       sched.stop();
       store.delete(created.id);

@@ -23,6 +23,13 @@ export interface SchedulerOptions {
   clock?: () => number;
   /** The pause between one missed run and the next after a restart. */
   catchUpGapMs?: number;
+  /**
+   * Hours late a missed run may still run after a restart; later than this
+   * it is skipped. Zero never catches up. Read at each catch-up.
+   */
+  catchUpLimitHours?: () => number;
+  /** A missed run left for the next one: when it was due, and why it was left. */
+  onSkip?: (job: CronJob, missedAt: number, reason: string) => void;
   /** The profile's timezone, which every schedule is read in: 9am is the owner's 9am, not the host's. */
   timezone?: () => string | undefined;
 }
@@ -33,7 +40,31 @@ export type FireOutcome =
 
 const DEFAULT_MAX_SELF_PROMPTS_PER_HOUR = 10;
 const DEFAULT_CATCH_UP_GAP_MS = 5_000;
+const DEFAULT_CATCH_UP_LIMIT_HOURS = 3;
+const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
+
+/** How late a missed run is, as the skip reason says it: minutes under an hour, hours after. */
+function lateWords(ms: number): string {
+  if (ms < HOUR_MS) return `${Math.max(1, Math.floor(ms / MINUTE_MS))}m`;
+  const hours = ms / HOUR_MS;
+  return hours < 10 ? `${Number(hours.toFixed(1))}h` : `${Math.round(hours)}h`;
+}
+
+/** Why a missed run was skipped: "missed by 4h; next run at Wed, Nov 26, 9:00 AM". */
+export function skipReason(lateMs: number, nextAt: number | undefined, timezone: string | undefined): string {
+  const missed = `missed by ${lateWords(lateMs)}`;
+  if (nextAt === undefined) return missed;
+  const when = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...(timezone ? { timeZone: timezone } : {}),
+  }).format(nextAt);
+  return `${missed}; next run at ${when}`;
+}
 
 /**
  * In-process cron scheduler over the crons table. Registers node-cron tasks for
@@ -93,6 +124,12 @@ export class CronScheduler {
    * At most one run per job, however many were missed. Ten days offline
    * should produce today's nudge, not ten of them.
    *
+   * Not any run, however late: the morning kickoff caught up at midnight
+   * reads as noise, and the real one follows nine hours later. A run more
+   * than the catch-up limit late is skipped, said so in Runs only, and the
+   * next one runs on time. A job that runs hourly or more often never
+   * catches up: its next tick is as good as a late one.
+   *
    * One after another, a few seconds apart: fired together after a restart,
    * a day's missed runs spent the provider's minute of tokens at once and
    * failed on its rate limit, and failed again after the next restart, since
@@ -102,13 +139,23 @@ export class CronScheduler {
     let ran = 0;
     const timezone = this.timezone();
     const now = this.now();
+    const limitMs = (this.options.catchUpLimitHours?.() ?? DEFAULT_CATCH_UP_LIMIT_HOURS) * HOUR_MS;
     for (const [id, task] of this.tasks) {
       const job = this.store.get(id);
       if (!job?.enabled) continue;
       // Never run is not missed: a job created while the host was down should
       // start at its next proper time, not the moment it is noticed.
       if (!job.lastRunAt) continue;
-      if (lastOccurrence(task, job.schedule, timezone, now, job.lastRunAt) === null) continue;
+      const missedAt = lastOccurrence(task, job.schedule, timezone, now, job.lastRunAt);
+      if (missedAt === null) continue;
+      // Hourly or more often: it also came round in the hour before the run it missed.
+      const hourlyOrMore = lastOccurrence(task, job.schedule, timezone, missedAt - 1, missedAt - HOUR_MS - 1) !== null;
+      if (hourlyOrMore) continue;
+      const late = now - missedAt;
+      if (limitMs === 0 || late > limitMs) {
+        this.options.onSkip?.(job, missedAt, skipReason(late, task.getNextRuns(1)[0]?.getTime(), timezone));
+        continue;
+      }
       ran += 1;
       const gap = this.options.catchUpGapMs ?? DEFAULT_CATCH_UP_GAP_MS;
       this.catching = this.catching
