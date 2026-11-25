@@ -69,6 +69,7 @@ export const SETTINGS: SettingEntry[] = [
   { section: "behaviour", label: "Read new chat for memory after this many characters", words: "memory extraction" },
   { section: "behaviour", label: "Settle a memory question alone when at least N% sure", words: "confidence" },
   { section: "behaviour", label: "Schedules that ask KOS, per hour", words: "budget self prompt" },
+  { section: "behaviour", label: "Hours a missed schedule may run late", words: "catch up missed late restart sleep skip" },
   { section: "behaviour", label: "Minutes to wait for your approval", words: "approval timeout" },
   { section: "behaviour", label: "Hours an unanswered ask keeps", words: "approval expiry expires" },
   { section: "behaviour", label: "Minutes a build may run", words: "coding agent build timeout" },
