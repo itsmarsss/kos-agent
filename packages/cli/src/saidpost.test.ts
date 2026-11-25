@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { OutboundMessage } from "@kos/harness";
-import { pingsOwner, placeOf, postSaid, type JobFacts, type Said, type SaidDeps } from "./saidpost.js";
+import { pingsOwner, placeOf, postSaid, type JobFacts, type PlaceDeps, type Said, type SaidDeps } from "./saidpost.js";
 
 function deps(
   targets: Record<string, string> = {},
-  over: Partial<SaidDeps> = {},
-): SaidDeps & { posts: { target: string; text: string }[]; dms: string[]; made: { key: string; conv: string; title: string }[]; joined: string[] } {
+  over: Partial<SaidDeps & PlaceDeps> = {},
+): SaidDeps & PlaceDeps & { posts: { target: string; text: string }[]; dms: string[]; made: { key: string; conv: string; title: string }[]; joined: string[] } {
   const posts: { target: string; text: string }[] = [];
   const dms: string[] = [];
   const made: { key: string; conv: string; title: string }[] = [];
@@ -21,7 +21,6 @@ function deps(
     titleOf: (conv) => `Title of ${conv}`,
     jobOf: () => undefined,
     ownerOnly: () => true,
-    saidItsPiece: () => false,
     ensureThread: async (key, conv, title) => {
       made.push({ key, conv, title });
       return `thread-${conv}`;
@@ -99,68 +98,51 @@ describe("a turn's answer in a place guests read", () => {
   });
 });
 
-describe("a scheduled run's answer on the server", () => {
-  const kickoff: JobFacts = { id: 2, name: "9 AM Daily Kickoff", type: "self_prompt", projectSlug: null };
+describe("a scheduled run on the server", () => {
+  const nudge: JobFacts = { id: 29, name: "School Evening Nudge", type: "self_prompt", projectSlug: "school" };
   const reminder: JobFacts = { id: 7, name: "Nudge", type: "actions", projectSlug: null };
-  const run = (conv: string, reply = "Kickoff sent."): Said => ({ conversationId: conv, text: "", reply, origin: "system", channel: null, files: [] });
-  const failedRun = (conv: string): Said => ({ ...run(conv, "Ran 2 actions; 1 failed."), failed: true });
+  const run = (conv: string, reply: string, over: Partial<Said> = {}): Said => ({ conversationId: conv, text: "", reply, origin: "system", channel: null, files: [], ...over });
+  const scheduled = { from: { kind: "schedule" as const, name: "School Evening Nudge", id: "29" } };
 
-  it("posts nothing for a run that sent nothing, and makes no thread for it", async () => {
-    const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => kickoff, homeOf: () => "orchestrator:owner" });
-    await postSaid(run("cron:62", "I'll run the scanner. Nothing new this hour. Nothing sent."), d);
-    await postSaid({ ...run("cron:21", "The update changed 0 rows."), from: { kind: "schedule", name: "Backfill", id: "21" } }, d);
+  it("posts no run card or receipt, whether it sent something or nothing", async () => {
+    const d = deps({ "orchestrator:owner": "kos", "cron:29": "t29" }, { jobOf: () => nudge, homeOf: () => "orchestrator:owner" });
+    await postSaid(run("cron:29", "Posted to #school.", scheduled), d);
+    await postSaid(run("cron:62", "I'll run the scanner. Nothing new this hour. Nothing sent.", scheduled), d);
+    // Resumed after an approval, the run is still the schedule's.
+    await postSaid(run("cron:29", "Posted to #school.", { ...scheduled, resumed: true }), d);
     expect(d.posts).toEqual([]);
     expect(d.dms).toEqual([]);
     expect(d.made).toEqual([]);
   });
 
-  it("posts nothing for a blob's scheduled run that sent nothing", async () => {
-    const d = deps({ "agent:watch": "c-watch" });
-    await postSaid({ ...run("agent:watch", "Nothing changed, no notification sent."), from: { kind: "schedule", name: "blob.watch", id: "17" } }, d);
+  it("posts nothing for a fixed job's run, failed or not: a failure is the health notice's", async () => {
+    const d = deps({ "cron:7": "t7" }, { jobOf: () => reminder });
+    await postSaid(run("cron:7", "Ran 2 actions; 1 failed."), d);
+    await postSaid(run("cron:7", "Ran 2 actions."), d);
+    expect(d.posts).toEqual([]);
+    expect(d.dms).toEqual([]);
+  });
+
+  it("posts nothing for a blob's scheduled run, in its channel or the DM", async () => {
+    const d = deps({ "agent:watch": "c-watch" }, { ownerOnly: () => false });
+    await postSaid(run("agent:watch", "Nothing changed, no notification sent.", { from: { kind: "schedule", name: "blob.watch", id: "17" } }), d);
     expect(d.posts).toEqual([]);
     expect(d.dms).toEqual([]);
   });
 
   it("still posts a blob's answer to work a chat passed it", async () => {
     const d = deps({ "agent:watch": "c-watch" });
-    await postSaid({ ...run("agent:watch", "Checked: back in stock."), from: { kind: "chat", name: "KOS", id: "orchestrator:owner" } }, d);
+    await postSaid(run("agent:watch", "Checked: back in stock.", { from: { kind: "chat", name: "KOS", id: "orchestrator:owner" } }), d);
     expect(d.posts).toEqual([{ target: "c-watch", text: "Checked: back in stock." }]);
   });
 
-  it("posts a root job's failed run in a thread of its own made under KOS's channel", async () => {
-    const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => reminder, homeOf: () => "orchestrator:owner" });
-    await postSaid(failedRun("cron:7"), d);
-    expect(d.made).toEqual([{ key: "orchestrator:owner", conv: "cron:7", title: "Title of cron:7" }]);
-    expect(d.posts).toEqual([{ target: "thread-cron:7", text: "-# Nudge\nRan 2 actions; 1 failed." }]);
-    expect(d.joined).toEqual(["thread-cron:7"]);
-    expect(d.dms).toEqual([]);
-  });
-
-  it("sends a failed run to the DM when guests can read its place", async () => {
-    const d = deps({ "cron:7": "t7" }, { jobOf: () => reminder, ownerOnly: () => false });
-    await postSaid(failedRun("cron:7"), d);
-    expect(d.posts).toEqual([]);
-    expect(d.dms).toEqual(["-# Nudge\nRan 2 actions; 1 failed."]);
-  });
-
-  it("keeps KOS's upkeep runs to themselves, failed or not", async () => {
-    const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => ({ id: 1, name: "kos.backup", type: "actions", projectSlug: null }), homeOf: () => "orchestrator:owner" });
-    await postSaid(failedRun("cron:1"), d);
-    expect(d.posts).toEqual([]);
-    expect(d.made).toEqual([]);
-  });
-
-  it("still tells a run's failure after it said its piece in its place", async () => {
-    const d = deps({ "cron:7": "t7" }, { jobOf: () => reminder, saidItsPiece: () => true });
-    await postSaid(failedRun("cron:7"), d);
-    expect(d.posts).toEqual([{ target: "t7", text: "-# Nudge\nRan 2 actions; 1 failed." }]);
-  });
-
-  it("does not repeat a run that already said its piece in its place", async () => {
-    const d = deps({ "cron:24": "t24", "agent:briefing": "c-brief" }, { jobOf: (c) => (c === "cron:24" ? { ...kickoff, id: 24, name: "School Morning Digest", projectSlug: "school" } : undefined), saidItsPiece: () => true });
-    await postSaid(run("cron:24", "Digest sent."), d);
-    await postSaid(run("agent:briefing", "Brief sent."), d);
-    expect(d.posts).toEqual([]);
+  it("still posts what the owner says in a job's thread, and its answer", async () => {
+    const d = deps({ "cron:29": "t29" }, { jobOf: () => nudge });
+    await postSaid({ conversationId: "cron:29", text: "post it earlier", reply: "Moved to 6 PM.", origin: "owner", channel: null, files: [] }, d);
+    expect(d.posts).toEqual([
+      { target: "t29", text: "post it earlier" },
+      { target: "t29", text: "Moved to 6 PM." },
+    ]);
   });
 });
 

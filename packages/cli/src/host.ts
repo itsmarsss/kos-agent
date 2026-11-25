@@ -273,24 +273,9 @@ export type PlaceSaid = { sent: NotifySent } | { dm: string };
 /**
  * A scheduled run's unaddressed message, said in its own place on the
  * server (the job's thread, the blob's channel) rather than the owner's DM.
- * It remembers which runs said their piece there, so the run's closing
- * words do not repeat it.
  */
 export class PlaceNotifier {
-  /** Conversations whose scheduled run has said its piece this turn: in its place, or in the DM when guests read its place. */
-  private readonly said = new Set<string>();
-
   constructor(private readonly deps: PlaceNotifierDeps) {}
-
-  /** A new turn has said nothing in its place yet. */
-  turnStarted(conversationId: string): void {
-    this.said.delete(conversationId);
-  }
-
-  /** Whether a scheduled run here already said its piece this turn; asking clears it. */
-  saidItsPiece(conversationId: string): boolean {
-    return this.said.delete(conversationId);
-  }
 
   /**
    * Said in the message's place, when it asks for one and has one the
@@ -300,12 +285,8 @@ export class PlaceNotifier {
    */
   async say(payload: NotifyPayload, msg: OutboundMessage): Promise<PlaceSaid | undefined> {
     if (!payload.place || payload.target.kind !== "owner" || payload.target.surface) return undefined;
-    // A place guests read is not the run's: the DM carries it, and the
-    // run's closing words would only be a second DM for the same turn.
-    if (!this.deps.ownerOnly(payload.place)) {
-      this.said.add(payload.place);
-      return { dm: "guests can read this run's place on Discord, so it was not posted there" };
-    }
+    // A place guests read is not the run's: the DM carries it.
+    if (!this.deps.ownerOnly(payload.place)) return { dm: "guests can read this run's place on Discord, so it was not posted there" };
     const job = this.deps.jobOf(payload);
     // A fixed reminder, and news the owner must not miss (a job failing), ping them.
     const ping = payload.ping || (job && pingsOwner(job)) ? `<@${this.deps.ownerId}> ` : "";
@@ -322,7 +303,6 @@ export class PlaceNotifier {
     };
     const placed = await postInPlace(payload.place, { ...msg, text: `${ping}${msg.text}` }, this.deps, alsoDm);
     if (!placed) return { dm: "this run has no place on Discord that took the post" };
-    this.said.add(payload.place);
     const pinging = ping ? ", pinging them" : "";
     if (placed === "held") {
       return { sent: { delivered: `Not posted yet: Discord is unreachable, so it is kept to post in this run's own place once Discord is back${pinging}. The owner is made a member of its thread then, or sent it in their DM when they cannot be or no place is found.` } };
@@ -1362,16 +1342,11 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
         openStory: (target, from) => adapter!.openStory(target, from),
         warn: (message) => console.warn(`[discord] thread mirror: ${message}`),
       });
-      kernel.progress.subscribe((event) => {
-        // A new turn has said nothing in its place yet.
-        if (event.kind === "turn-start") placed.turnStarted(event.conversationId);
-        mirror.onProgress(event);
-      });
+      kernel.progress.subscribe((event) => mirror.onProgress(event));
       const saidDeps: SaidDeps = {
         ...placeOn,
         jobOf: cronOf,
         ownerOnly,
-        saidItsPiece: (conv) => placed.saidItsPiece(conv),
         senderFor: (conv) => kernel.senderFor(conv),
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),
@@ -1381,8 +1356,8 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       /*
        * A turn's exchange, told once it has happened. The mirror handles the
        * turns it has been narrating in a thread (it posts the answer and
-       * closes the story); everything else, a scheduled job's result or a
-       * resumed Discord turn, runs the handler below.
+       * closes the story); everything else, a resumed Discord turn or a
+       * scheduled run (which shows nothing), runs the handler below.
        */
       kernel.bus.on("turn:said", (said) => {
         if (!adapter) return;

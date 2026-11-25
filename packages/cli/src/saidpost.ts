@@ -12,8 +12,6 @@ export interface Said {
   from?: MessageFrom;
   /** The words came in the owner's DM. */
   dm?: boolean;
-  /** A scheduled run where something failed. */
-  failed?: boolean;
 }
 
 /** A scheduled job, as much of it as where its runs speak depends on. */
@@ -141,13 +139,11 @@ async function findPlace(conversationId: string, deps: PlaceDeps): Promise<strin
   return made ?? deps.targetFor(home);
 }
 
-export interface SaidDeps extends PlaceDeps {
+export interface SaidDeps extends Pick<PlaceDeps, "targetFor" | "postIn"> {
   /** The scheduled job a conversation is the thread of, when it is one. */
   jobOf(conversationId: string): JobFacts | undefined;
-  /** Whether the owner alone reads a conversation's place: a run's words, and a turn not taken there, are the owner's, not a guest's. */
+  /** Whether the owner alone reads a conversation's place: a turn not taken there is the owner's, not a guest's. */
   ownerOnly(conversationId: string): boolean;
-  /** Whether a scheduled run here already said its piece this turn, in its place or the DM; asking clears it. */
-  saidItsPiece(conversationId: string): boolean;
   senderFor(conversationId: string): Sender | undefined;
   speakerFor(from: MessageFrom): Sender;
   ownerSender(): Promise<Sender | undefined>;
@@ -158,38 +154,21 @@ export interface SaidDeps extends PlaceDeps {
 
 /**
  * A turn's exchange shown on Discord, for a turn the thread mirror was not
- * narrating: a fixed job's failed run, a resumed Discord turn's answer, a
- * dashboard turn in a chat with a channel or thread.
+ * narrating: a resumed Discord turn's answer, a dashboard turn in a chat
+ * with a channel or thread.
  */
 export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   // A turn from Discord is answered by the presence that took it; one
   // that waited on an approval was answered "waiting on you" there, and
   // the answer after the decision has only this way back.
   if (said.channel === "discord" && !said.resumed) return;
-  // A run whose message already reached the owner (in its place, or in the
-  // DM when guests read its place) has said its piece; its closing words
-  // ("Digest sent") would only repeat it. A failure after it is news all
-  // the same.
-  const spoke = deps.saidItsPiece(said.conversationId) && said.origin === "system" && !said.failed;
-  // A scheduled run speaks through notify, and a run that went wrong
-  // through its health notice; its closing words ("Nothing new this hour,
-  // nothing sent") are no news and stay in Runs and its thread on the
-  // dashboard. Only a fixed job's failed step is told, in the job's own
-  // thread with a Run now button. Anything the owner says in a job's
+  // A scheduled run, a job's or a blob's, is told nothing of here: what it
+  // is for reaches the owner through notify, and a run that went wrong
+  // through its health notice. Its closing words ("Posted to #school",
+  // "Nothing new this hour") are no news on Discord; the run stays in Runs
+  // and its thread on the dashboard. Anything the owner says in a job's
   // thread is a conversation, told below.
-  const job = deps.jobOf(said.conversationId);
-  if (job && said.origin === "system") {
-    if (!said.failed || isUpkeep(job) || !said.reply.trim()) return;
-    // With a Run now button, the same path the dashboard's Run now takes.
-    const run: OutboundMessage = { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] };
-    // A place guests can read is not the run's: the owner hears it in the DM.
-    if (deps.ownerOnly(said.conversationId)) await postInPlace(said.conversationId, run, deps);
-    else await deps.sendOwner(run);
-    return;
-  }
-  if (spoke) return;
-  // A blob's scheduled run, likewise: what it sent was its piece, and a quiet run says nothing.
-  if (said.origin === "system" && said.from?.kind === "schedule") return;
+  if (said.origin === "system" && (said.from?.kind === "schedule" || deps.jobOf(said.conversationId))) return;
   // A place guests read is shown only what was said in it, and the answers
   // to that: a turn taken on the dashboard or passed on stays the owner's.
   if (said.channel !== "discord" && !deps.ownerOnly(said.conversationId)) return;
