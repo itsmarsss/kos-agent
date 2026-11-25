@@ -1207,6 +1207,34 @@ describe("Kernel", () => {
     kernel.noteIn("nowhere", "lost");
   });
 
+  it.each([
+    ["chats.dispatch", { id: "shelf", message: "count the shelves" }],
+    ["blobs.dispatch", { agent: "follow-ups", task: "count the shelves" }],
+  ])("tells a %s answer in the chat that asked, and not in the owner's DM as well", async (tool, input) => {
+    const told: string[] = [];
+    kernel = await boot(
+      {
+        async generate(_t, req: GenerateRequest): Promise<ModelResponse> {
+          const usage = { inputTokens: 0, outputTokens: 0 };
+          const last = req.messages.at(-1)?.content ?? [];
+          if (last.some((b) => b.type === "tool_result")) return { content: [{ type: "text", text: "Asked." }], stopReason: "end_turn", usage, model: "stub" };
+          if (JSON.stringify(last).includes("count the shelves")) return { content: [{ type: "text", text: "Twelve shelves." }], stopReason: "end_turn", usage, model: "stub" };
+          return { content: [{ type: "tool_use", id: "d1", name: tool, input }], stopReason: "tool_use", usage, model: "stub" };
+        },
+      },
+      async (payload) => void told.push(payload.text),
+    );
+    kernel.roles.write({ name: "follow-ups", description: "Writes follow-ups", brief: "You write follow-ups.", memory: "shared" });
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    kernel.conversations.create({ id: "shelf", userId: kernel.profile.ownerId, title: "Shelf", projectSlug: "books" });
+    // The project's orchestrator asks; its chat is one the owner reads.
+    const asking = books.conversationId;
+    await kernel.handleProjectTurn("books", "ask it to count");
+    await vi.waitFor(() => expect(JSON.stringify(kernel.sessions.get(asking))).toContain("Twelve shelves."));
+    await kernel.queue.drain();
+    expect(told).toEqual([]);
+  });
+
   it("hands a brief to a project's orchestrator as an attributed message, and tells the source chat when it answers", async () => {
     const seen: string[] = [];
     kernel = await boot({
