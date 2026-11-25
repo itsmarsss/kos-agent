@@ -442,6 +442,50 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.health.report().ok).toBe(false);
   });
 
+  it("fails a schedule's run that ends quietly after a step failed, and passes one that put a refused quiet ending right", async () => {
+    const model = scripted([
+      toolCall("c1", "files.read", { path: "missing/openings.md" }),
+      toolCall("c2", "notify", { quiet: "could not read the openings" }),
+      text("Nothing to post."),
+      toolCall("c3", "notify", { quiet: "nothing new", text: "Nothing new this hour." }),
+      toolCall("c4", "notify", { quiet: "nothing new" }),
+      text("Nothing to post."),
+    ]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({ name: "Opening scan", schedule: "0 * * * *", type: "self_prompt", prompt: "Post any new opening with notify.", enabled: true });
+
+    const hidden = await kernel.fireCron(job.id);
+    expect(hidden.ok).toBe(false);
+    expect(hidden.error).toMatch(/^It ended without posting after a step failed: files\.read: /);
+    expect(kernel.health.report().ok).toBe(false);
+
+    const corrected = await kernel.fireCron(job.id);
+    expect(corrected).toMatchObject({ ok: true });
+    expect(kernel.runs.recent(10).find((r) => r.kind === "cron")).toMatchObject({ status: "ok", error: null });
+  });
+
+  it("judges a waiting schedule's run by its own calls, not those of the next run in its thread", async () => {
+    const model = scripted([
+      toolCall("a1", "shell", { command: "rm -rf build" }),
+      toolCall("b1", "notify", { quiet: "nothing new" }),
+      text("Nothing to post."),
+      text("Not posted: the owner said no."),
+    ]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({ name: "Digest", schedule: "0 7 * * *", type: "self_prompt", prompt: "Clear the build, then post it with notify.", enabled: true });
+    const cronRuns = (): RunLike[] => kernel.runs.recent(10).filter((r) => r.kind === "cron");
+
+    expect((await kernel.fireCron(job.id)).ok).toBe(true);
+    const ask = kernel.approvals.pending()[0]!;
+    // The next run goes ahead in the same thread while the first waits, and ends quietly.
+    expect((await kernel.fireCron(job.id)).ok).toBe(true);
+    expect(cronRuns()[0]).toMatchObject({ status: "ok" });
+
+    await kernel.deny(ask.id, undefined, { surface: "dashboard" });
+    await vi.waitFor(() => expect(cronRuns()[1]?.status).toBe("error"));
+    expect(cronRuns()[1]?.error).toBe("It was written to post with notify, and posted nothing: shell: the owner said no");
+  });
+
   it("says in the chat that a turn resumed after a decision stopped before it finished", async () => {
     let calls = 0;
     const inference: Inference = {

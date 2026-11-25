@@ -58,6 +58,25 @@ describe("a schedule's outcome", () => {
     });
   });
 
+  it("lets a quiet ending stand only over a run where nothing else failed", () => {
+    const scan = { prompt: "Post any new opening with notify; most hours, send nothing." };
+    const failedPost = { total: 3, failed: 1, firstError: "notify: Discord is not connected" };
+    expect(cronOutcome(selfPromptResult(scan, { reply: "Could not post.", steps: failedPost, delivered: 0, quiet: 1 }))).toEqual({
+      status: "error",
+      error: "It ended without posting after a step failed: notify: Discord is not connected",
+    });
+    const failedWork = { total: 4, failed: 1, firstError: "skills.run: exit 1" };
+    expect(cronOutcome(selfPromptResult(scan, { reply: "Nothing to post.", steps: failedWork, delivered: 0, quiet: 1 }))).toMatchObject({ status: "error" });
+    // A refused quiet ending is left out of the steps and kept only as words: a run that put it right is ok.
+    const corrected = { total: 2, failed: 0, firstError: "notify: quiet posts nothing, so it takes no text" };
+    expect(cronOutcome(selfPromptResult(scan, { reply: "Nothing new.", steps: corrected, delivered: 0, quiet: 1 }))).toEqual({ status: "ok", error: null });
+    // Never put right, its words say why nothing went.
+    expect(cronOutcome(selfPromptResult(scan, { reply: "Nothing new.", steps: corrected, delivered: 0, quiet: 0 }))).toEqual({
+      status: "error",
+      error: "It was written to post with notify, and posted nothing: notify: quiet posts nothing, so it takes no text",
+    });
+  });
+
   it("fails a turn that ended without its reply, with why", () => {
     expect(cronOutcome(selfPromptResult({ prompt: "notify me" }, { reply: "", steps: steps(1, 0), delivered: 0, quiet: 0, stopped: "the SDK process exited" }))).toEqual({
       status: "error",

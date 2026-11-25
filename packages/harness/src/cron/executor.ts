@@ -134,17 +134,29 @@ export function asksToNotify(job: Pick<CronJob, "prompt">): boolean {
  * quiet) says so, and is what tells that from a message never sent.
  */
 export function selfPromptResult(job: Pick<CronJob, "prompt">, turn: JobTurn): SelfPromptResult {
-  const undelivered = !turn.stopped && asksToNotify(job) && turn.delivered === 0 && turn.quiet === 0
-    ? `It was written to post with notify, and posted nothing${turn.steps.firstError ? `: ${turn.steps.firstError}` : "."}`
-    : undefined;
   return {
     ran: true,
     type: "self_prompt",
     finalText: turn.reply,
     steps: turn.steps,
     ...(turn.stopped ? { stopped: turn.stopped } : {}),
-    ...(undelivered ? { undelivered } : {}),
+    ...(turn.stopped ? {} : undeliveredBy(job, turn)),
   };
+}
+
+/**
+ * Why a job written to post with notify did not, when it did not.
+ *
+ * A quiet ending stands only over a run where nothing else failed: one
+ * whose post was refused, or whose work failed, that then ends quietly has
+ * not chosen silence, it has hidden the failure, and a run where only some
+ * steps failed would otherwise read as healthy.
+ */
+function undeliveredBy(job: Pick<CronJob, "prompt">, turn: JobTurn): { undelivered?: string } {
+  if (!asksToNotify(job) || turn.delivered > 0) return {};
+  const why = turn.steps.firstError ? `: ${turn.steps.firstError}` : ".";
+  if (turn.quiet === 0) return { undelivered: `It was written to post with notify, and posted nothing${why}` };
+  return turn.steps.failed > 0 ? { undelivered: `It ended without posting after a step failed${why}` } : {};
 }
 
 /**
