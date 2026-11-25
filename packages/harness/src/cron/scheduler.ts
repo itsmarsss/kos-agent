@@ -52,7 +52,7 @@ function lateWords(ms: number): string {
 }
 
 /** Why a missed run was skipped: "missed by 4h; next run at Wed, Nov 26, 9:00 AM". */
-export function skipReason(lateMs: number, nextAt: number | undefined, timezone: string | undefined): string {
+function skipReason(lateMs: number, nextAt: number | undefined, timezone: string | undefined): string {
   const missed = `missed by ${lateWords(lateMs)}`;
   if (nextAt === undefined) return missed;
   const when = new Intl.DateTimeFormat("en-US", {
