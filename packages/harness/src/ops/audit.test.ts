@@ -51,6 +51,19 @@ describe("AuditLog", () => {
     expect(log.tally("c3", 0)).toEqual({ total: 0, failed: 0, firstError: null });
   });
 
+  it("counts a chat's notify calls after a mark that worked, quiet endings apart from messages", () => {
+    const log = new AuditLog(ws.db);
+    log.record({ tool: "notify", args: { text: "before" }, result: "Sent.", isError: false, conversationId: "c1" });
+    const mark = log.lastId();
+    log.record({ tool: "notify", args: { text: "digest" }, result: "Sent.", isError: false, conversationId: "c1" });
+    log.record({ tool: "notify", args: { quiet: "nothing new" }, result: "Posted nothing.", isError: false, conversationId: "c1" });
+    log.record({ tool: "notify", args: { quiet: "refused", text: "x" }, result: "refused", isError: true, conversationId: "c1" });
+    log.record({ tool: "notify", args: { quiet: "other chat" }, result: "Posted nothing.", isError: false, conversationId: "c2" });
+    expect(log.notified("c1", mark)).toEqual({ delivered: 1, quiet: 1 });
+    expect(log.notified("c2", 0)).toEqual({ delivered: 0, quiet: 1 });
+    expect(log.notified("c3", 0)).toEqual({ delivered: 0, quiet: 0 });
+  });
+
   it("records tool calls and returns them newest-first", () => {
     const log = new AuditLog(ws.db);
     log.record({ tool: "notify", args: { text: "a" }, result: "ok", isError: false });

@@ -19,6 +19,8 @@ export interface JobTurn {
   steps: StepTally;
   /** The notify calls it made that ran and worked: what it delivered. */
   delivered: number;
+  /** The quiet endings it declared with notify: a run that chose, and said, to post nothing this time. */
+  quiet: number;
   /** Why it ended without its reply, when it did. */
   stopped?: string;
 }
@@ -30,7 +32,7 @@ export interface SelfPromptResult {
   steps: StepTally;
   /** Why the turn ended without its reply, when it did. */
   stopped?: string;
-  /** Why the job, written to post with notify, posted nothing. */
+  /** Why the job, written to post with notify, posted nothing and did not say it chose to. */
   undelivered?: string;
   /** The turn is waiting on the owner: how it ends, once it does. The run is judged on that, not on this. */
   later?: Promise<SelfPromptResult>;
@@ -120,14 +122,19 @@ export async function runCronJob(
   return { ran: true, type: "self_prompt", finalText: result.finalText, steps: NO_STEPS };
 }
 
-/** A job written to post with notify: one that ends having posted nothing did not do what it is for. */
+/** A job written to post with notify: one that ends having posted nothing, and not saying it chose to, did not do what it is for. */
 export function asksToNotify(job: Pick<CronJob, "prompt">): boolean {
   return /\bnotify\b/i.test(job.prompt ?? "");
 }
 
-/** A finished turn as the job's result: whether it was cut short, and whether it delivered what it was written to. */
+/**
+ * A finished turn as the job's result: whether it was cut short, and whether
+ * it delivered what it was written to. A job that posts only when there is
+ * news ends most runs with nothing to say; its quiet ending (notify with
+ * quiet) says so, and is what tells that from a message never sent.
+ */
 export function selfPromptResult(job: Pick<CronJob, "prompt">, turn: JobTurn): SelfPromptResult {
-  const undelivered = !turn.stopped && asksToNotify(job) && turn.delivered === 0
+  const undelivered = !turn.stopped && asksToNotify(job) && turn.delivered === 0 && turn.quiet === 0
     ? `It was written to post with notify, and posted nothing${turn.steps.firstError ? `: ${turn.steps.firstError}` : "."}`
     : undefined;
   return {

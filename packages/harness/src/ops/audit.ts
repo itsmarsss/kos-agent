@@ -227,12 +227,21 @@ export class AuditLog {
     return { total: row.total, failed: row.failed, firstError: first ? `${first.tool}: ${first.result}` : null };
   }
 
-  /** How many calls of one tool a chat made after a mark that ran and worked: what a turn actually delivered. */
-  worked(conversationId: string, afterId: number, tool: string): number {
+  /**
+   * A chat's notify calls after a mark that ran and worked: the messages a
+   * turn actually delivered, and apart from them the quiet endings it
+   * declared, which posted nothing on purpose. A row whose args are not
+   * JSON (none should be) counts as a message, as it did before quiet.
+   */
+  notified(conversationId: string, afterId: number): { delivered: number; quiet: number } {
     const row = this.db
-      .prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE conversation_id = ? AND id > ? AND tool = ? AND is_error = 0`)
-      .get(conversationId, afterId, tool) as { n: number };
-    return row.n;
+      .prepare(
+        `SELECT COUNT(*) AS n,
+                COALESCE(SUM(CASE WHEN json_valid(args) THEN (CASE WHEN json_type(args, '$.quiet') = 'text' THEN 1 ELSE 0 END) ELSE 0 END), 0) AS quiet
+         FROM audit_log WHERE conversation_id = ? AND id > ? AND tool = 'notify' AND is_error = 0`,
+      )
+      .get(conversationId, afterId) as { n: number; quiet: number };
+    return { delivered: row.n - row.quiet, quiet: row.quiet };
   }
 
   /** One call in full, for a reader who opened it. */

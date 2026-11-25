@@ -2066,11 +2066,11 @@ export class Kernel {
       // what to tell.
       const role = job.agent ? this.roles.get(job.agent) : undefined;
       if (role?.report === "always" && reply.trim()) this.caretaker.tell(reply, { from: this.senderFor(id) });
-      return { reply, steps: this.jobSteps(id, mark, since), delivered: this.audit.worked(id, mark, "notify"), ...("stopped" in end ? { stopped: end.stopped } : {}) };
+      return { reply, steps: this.jobSteps(id, mark, since), ...this.audit.notified(id, mark), ...("stopped" in end ? { stopped: end.stopped } : {}) };
     };
     if (!res.ended) return turn({ reply: res.reply });
     // Waiting on the owner: what it did so far now, and the rest when the turn ends.
-    return { reply: res.reply, steps: this.jobSteps(id, mark, since), delivered: 0, later: res.ended.then(turn) };
+    return { reply: res.reply, steps: this.jobSteps(id, mark, since), delivered: 0, quiet: 0, later: res.ended.then(turn) };
   }
 
   /**
