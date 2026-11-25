@@ -34,6 +34,25 @@ describe("saving settings", () => {
     handleApiRequest(kernel, { method: "POST", path, body: body as never });
   const get = (path: string) => handleApiRequest(kernel, { method: "GET", path, body: {} as never });
 
+  describe("the catch-up limit", () => {
+    it("is 3 hours unless set, offered as 0 to 24", async () => {
+      const res = await get("/api/settings/behaviour");
+      const body = res.body as { behaviour: { catchUpHours: number }; defaults: { catchUpHours: number }; limits: Record<string, [number, number]> };
+      expect(body.behaviour.catchUpHours).toBe(3);
+      expect(body.defaults.catchUpHours).toBe(3);
+      expect(body.limits["catchUpHours"]).toEqual([0, 24]);
+    });
+
+    it("keeps what is saved, clamped to its range, and 0 as never", async () => {
+      await post("/api/settings/behaviour", { behaviour: { catchUpHours: 99 } });
+      expect(kernel.behaviour().catchUpHours).toBe(24);
+      await post("/api/settings/behaviour", { behaviour: { catchUpHours: 0 } });
+      expect(kernel.behaviour().catchUpHours).toBe(0);
+      await post("/api/settings/behaviour", { behaviour: { catchUpHours: 6 } });
+      expect(kernel.behaviour().catchUpHours).toBe(6);
+    });
+  });
+
   describe("retention", () => {
     it("saves what it is given", async () => {
       const res = await post("/api/settings/retention", {
