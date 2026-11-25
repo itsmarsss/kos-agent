@@ -288,8 +288,8 @@ export class PlaceNotifier {
     // A place guests read is not the run's: the DM carries it.
     if (!this.deps.ownerOnly(payload.place)) return { dm: "guests can read this run's place on Discord, so it was not posted there" };
     const job = this.deps.jobOf(payload);
-    // A fixed reminder, and news the owner must not miss (a job failing), ping them.
-    const ping = payload.ping || (job && pingsOwner(job)) ? `<@${this.deps.ownerId}> ` : "";
+    // A fixed reminder, and news the owner must not miss (a job failing), ping them; a silent message pings nobody.
+    const ping = !payload.silent && (payload.ping || (job && pingsOwner(job))) ? `<@${this.deps.ownerId}> ` : "";
     // A thread the owner could not join would not notify them: the DM carries it as well.
     let alsoDmed: boolean | undefined;
     const alsoDm = async (): Promise<void> => {
@@ -526,6 +526,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
             ...(payload.card ? { card: payload.card } : {}),
             ...(payload.buttons ? { buttons: payload.buttons } : {}),
             ...(payload.from ? { from: payload.from } : {}),
+            ...(payload.silent ? { silent: true } : {}),
           };
           // A scheduled run that named nowhere speaks in its own place on the
           // server (the job's thread, the blob's channel) rather than the DM;

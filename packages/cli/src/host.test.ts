@@ -126,11 +126,18 @@ describe("a scheduled run's message in its place", () => {
     expect(joined).toEqual(["t7", "t2"]);
   });
 
-  it("pings the owner for a failing job's news in its place, and not for its recovery", async () => {
-    const { notifier, posts } = placer();
+  it("pings the owner for a failing job's news in its place, and says its recovery silently with no ping", async () => {
+    const said: { text: string; silent?: boolean }[] = [];
+    const { notifier } = placer({ postIn: async (_target, msg) => void said.push({ text: msg.text, ...(msg.silent ? { silent: true } : {}) }) });
     await notifier.say({ ...run("cron:2", "Kickoff is failing."), ping: true }, { text: "Kickoff is failing." });
-    await notifier.say(run("cron:2", "Kickoff is working again."), { text: "Kickoff is working again." });
-    expect(posts.map((p) => p.text)).toEqual(["<@222> Kickoff is failing.", "Kickoff is working again."]);
+    await notifier.say({ ...run("cron:2", "Kickoff is working again."), silent: true }, { text: "Kickoff is working again.", silent: true });
+    // A fixed reminder's place pings for what it sends, but not for a silent recovery.
+    await notifier.say({ ...run("cron:7", "Call The Centre is working again."), silent: true }, { text: "Call The Centre is working again.", silent: true });
+    expect(said).toEqual([
+      { text: "<@222> Kickoff is failing." },
+      { text: "Kickoff is working again.", silent: true },
+      { text: "Call The Centre is working again.", silent: true },
+    ]);
   });
 
   it("finds a new place once when Discord says the thread is gone, and leaves it to the DM when that fails too", async () => {

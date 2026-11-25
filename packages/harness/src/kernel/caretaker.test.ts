@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
+import type { NotifyPayload } from "../tools/notify.js";
 import { guested } from "./caller.js";
 import { Caretaker, adoptFixes, isTransient, reachesAll, type CaretakerDeps } from "./caretaker.js";
 
@@ -58,6 +59,30 @@ describe("finding the chat for a failure", () => {
 });
 
 describe("looking after failures", () => {
+  it("pings the owner in the job's place for a failure, and tells its recovery silently, with no ping", async () => {
+    const sent: NotifyPayload[] = [];
+    const c = new Caretaker(deps({
+      behaviour: () => ({ autoFix: false, fixSteps: 24 }),
+      health: { observe: (_k, label, ok) => (ok ? { kind: "recovered", key: "cron:7", streak: 3, text: `${label} is working again.` } : { kind: "failing", key: "cron:7", streak: 1, text: `${label} failed.` }) },
+      notify: async (p) => void sent.push(p),
+    }));
+    c.report("cron:7", "Nightly", false, "boom", "cron:7");
+    c.report("cron:7", "Nightly", true, null, "cron:7");
+    await Promise.resolve();
+    expect(sent).toEqual([
+      { text: "Nightly failed.", target: { kind: "owner" }, place: "cron:7", ping: true },
+      { text: "Nightly is working again.", target: { kind: "owner" }, place: "cron:7", silent: true },
+    ]);
+  });
+
+  it("says nothing of a recovery the monitor does not report", async () => {
+    const sent: string[] = [];
+    const c = new Caretaker(deps({ health: { observe: () => null }, notify: async (p) => void sent.push(p.text) }));
+    c.report("cron:7", "Nightly", true, null, "cron:7");
+    await Promise.resolve();
+    expect(sent).toEqual([]);
+  });
+
   it("tells the owner once and starts a fix on the first failure", async () => {
     const d = deps();
     new Caretaker(d).report("cron:7", "Nightly", false, "boom");

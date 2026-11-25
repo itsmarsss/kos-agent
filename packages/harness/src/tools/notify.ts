@@ -57,6 +57,8 @@ export interface NotifyPayload {
   place?: string;
   /** Mention the owner where it lands in a place, as news they must not miss; a DM notifies them already. */
   ping?: boolean;
+  /** Posted without a notification and never with a ping: news the owner reads when they next look. */
+  silent?: boolean;
   /** The scheduled job whose run sent it, with its place: a blob's job speaks in the blob's channel, not a thread of its own. */
   job?: number;
 }

@@ -142,15 +142,17 @@ export class Caretaker {
    * try a fix only when there is something to fix: a first failure that
    * is not the connection dropping, which the next run settles by itself.
    * The news goes to the job's own place when it has one, where its runs
-   * are, rather than the owner's inbox: a failure pings the owner there, a
-   * recovery is said without one.
+   * are, rather than the owner's inbox: a failure pings the owner there. A
+   * recovery, said only after a failure was told, is said silently: the
+   * failure was the news, and this only closes it.
    */
   report(key: string, label: string, ok: boolean, error: string | null, place?: string): void {
     const notice = this.deps.health.observe(key, label, ok, error);
     if (!notice) return;
-    const transient = notice.kind === "failing" && isTransient(error);
+    const failing = notice.kind === "failing";
+    const transient = failing && isTransient(error);
     const text = transient && notice.streak === 1 ? `${notice.text} That reads as a connection blip; the next run will tell.` : notice.text;
-    this.tell(text, place ? { place, ping: notice.kind === "failing" } : {});
+    this.tell(text, { ...(place ? { place } : {}), ...(failing ? { ping: true } : { silent: true }) });
     if (notice.kind === "failing" && notice.streak === 1 && !transient && this.deps.behaviour().autoFix && !this.deps.isHalted()) {
       void this.startFix({ label, error: error ?? "no error given", what: "scheduled job", ref: key }).catch(() => undefined);
     }
@@ -183,12 +185,15 @@ export class Caretaker {
   /**
    * Tell the owner on the surface they use, or leave a note where they will
    * look. With a place, it is said there instead (a job's thread), where
-   * the surface has one, pinging the owner when asked to.
+   * the surface has one, pinging the owner when asked to. Silent, it makes
+   * no sound and pings nobody.
    */
-  tell(text: string, opts: { from?: Sender | undefined; place?: string; ping?: boolean } = {}): void {
-    const { from, place, ping } = opts;
+  tell(text: string, opts: { from?: Sender | undefined; place?: string; ping?: boolean; silent?: boolean } = {}): void {
+    const { from, place, ping, silent } = opts;
     if (this.deps.notify) {
-      void this.deps.notify({ text, target: { kind: "owner" }, ...(from ? { from } : {}), ...(place ? { place } : {}), ...(place && ping ? { ping: true } : {}) }).catch(() => this.record(text));
+      void this.deps
+        .notify({ text, target: { kind: "owner" }, ...(from ? { from } : {}), ...(place ? { place } : {}), ...(silent ? { silent: true } : place && ping ? { ping: true } : {}) })
+        .catch(() => this.record(text));
       return;
     }
     this.record(text);
