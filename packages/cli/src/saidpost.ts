@@ -158,7 +158,7 @@ export interface SaidDeps extends PlaceDeps {
 
 /**
  * A turn's exchange shown on Discord, for a turn the thread mirror was not
- * narrating: a scheduled run's result, a resumed Discord turn's answer, a
+ * narrating: a fixed job's failed run, a resumed Discord turn's answer, a
  * dashboard turn in a chat with a channel or thread.
  */
 export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
@@ -171,14 +171,15 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   // ("Digest sent") would only repeat it. A failure after it is news all
   // the same.
   const spoke = deps.saidItsPiece(said.conversationId) && said.origin === "system" && !said.failed;
-  // A scheduled run shows in the job's own thread, under the job's name: a
-  // project's job under the project's channel, one at the root under KOS's
-  // own. A daily post is what a schedule is for. Only a run the harness
-  // started gets the run format; anything the owner says in a job's thread
-  // is a conversation, told below. KOS's upkeep keeps its runs to itself.
+  // A scheduled run speaks through notify, and a run that went wrong
+  // through its health notice; its closing words ("Nothing new this hour,
+  // nothing sent") are no news and stay in Runs and its thread on the
+  // dashboard. Only a fixed job's failed step is told, in the job's own
+  // thread with a Run now button. Anything the owner says in a job's
+  // thread is a conversation, told below.
   const job = deps.jobOf(said.conversationId);
   if (job && said.origin === "system") {
-    if (spoke || isUpkeep(job) || !said.reply.trim()) return;
+    if (!said.failed || isUpkeep(job) || !said.reply.trim()) return;
     // With a Run now button, the same path the dashboard's Run now takes.
     const run: OutboundMessage = { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] };
     // A place guests can read is not the run's: the owner hears it in the DM.
@@ -187,6 +188,8 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
     return;
   }
   if (spoke) return;
+  // A blob's scheduled run, likewise: what it sent was its piece, and a quiet run says nothing.
+  if (said.origin === "system" && said.from?.kind === "schedule") return;
   // A place guests read is shown only what was said in it, and the answers
   // to that: a turn taken on the dashboard or passed on stays the owner's.
   if (said.channel !== "discord" && !deps.ownerOnly(said.conversationId)) return;

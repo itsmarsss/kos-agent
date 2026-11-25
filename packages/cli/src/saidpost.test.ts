@@ -101,35 +101,58 @@ describe("a turn's answer in a place guests read", () => {
 
 describe("a scheduled run's answer on the server", () => {
   const kickoff: JobFacts = { id: 2, name: "9 AM Daily Kickoff", type: "self_prompt", projectSlug: null };
+  const reminder: JobFacts = { id: 7, name: "Nudge", type: "actions", projectSlug: null };
   const run = (conv: string, reply = "Kickoff sent."): Said => ({ conversationId: conv, text: "", reply, origin: "system", channel: null, files: [] });
+  const failedRun = (conv: string): Said => ({ ...run(conv, "Ran 2 actions; 1 failed."), failed: true });
 
-  it("posts a root job's run in a thread of its own made under KOS's channel", async () => {
+  it("posts nothing for a run that sent nothing, and makes no thread for it", async () => {
     const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => kickoff, homeOf: () => "orchestrator:owner" });
-    await postSaid(run("cron:2"), d);
-    expect(d.made).toEqual([{ key: "orchestrator:owner", conv: "cron:2", title: "Title of cron:2" }]);
-    expect(d.posts).toEqual([{ target: "thread-cron:2", text: "-# 9 AM Daily Kickoff\nKickoff sent." }]);
-    expect(d.joined).toEqual(["thread-cron:2"]);
+    await postSaid(run("cron:62", "I'll run the scanner. Nothing new this hour. Nothing sent."), d);
+    await postSaid({ ...run("cron:21", "The update changed 0 rows."), from: { kind: "schedule", name: "Backfill", id: "21" } }, d);
+    expect(d.posts).toEqual([]);
+    expect(d.dms).toEqual([]);
+    expect(d.made).toEqual([]);
+  });
+
+  it("posts nothing for a blob's scheduled run that sent nothing", async () => {
+    const d = deps({ "agent:watch": "c-watch" });
+    await postSaid({ ...run("agent:watch", "Nothing changed, no notification sent."), from: { kind: "schedule", name: "blob.watch", id: "17" } }, d);
+    expect(d.posts).toEqual([]);
     expect(d.dms).toEqual([]);
   });
 
-  it("sends a run's closing words to the DM when guests can read its place", async () => {
-    const d = deps({ "cron:2": "t2" }, { jobOf: () => kickoff, ownerOnly: () => false });
-    await postSaid(run("cron:2"), d);
-    expect(d.posts).toEqual([]);
-    expect(d.dms).toEqual(["-# 9 AM Daily Kickoff\nKickoff sent."]);
+  it("still posts a blob's answer to work a chat passed it", async () => {
+    const d = deps({ "agent:watch": "c-watch" });
+    await postSaid({ ...run("agent:watch", "Checked: back in stock."), from: { kind: "chat", name: "KOS", id: "orchestrator:owner" } }, d);
+    expect(d.posts).toEqual([{ target: "c-watch", text: "Checked: back in stock." }]);
   });
 
-  it("keeps KOS's upkeep runs to themselves", async () => {
-    const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => ({ id: 11, name: "kos.observe", type: "self_prompt", projectSlug: null }), homeOf: () => "orchestrator:owner" });
-    await postSaid(run("cron:11", "No threads needed observing."), d);
+  it("posts a root job's failed run in a thread of its own made under KOS's channel", async () => {
+    const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => reminder, homeOf: () => "orchestrator:owner" });
+    await postSaid(failedRun("cron:7"), d);
+    expect(d.made).toEqual([{ key: "orchestrator:owner", conv: "cron:7", title: "Title of cron:7" }]);
+    expect(d.posts).toEqual([{ target: "thread-cron:7", text: "-# Nudge\nRan 2 actions; 1 failed." }]);
+    expect(d.joined).toEqual(["thread-cron:7"]);
+    expect(d.dms).toEqual([]);
+  });
+
+  it("sends a failed run to the DM when guests can read its place", async () => {
+    const d = deps({ "cron:7": "t7" }, { jobOf: () => reminder, ownerOnly: () => false });
+    await postSaid(failedRun("cron:7"), d);
+    expect(d.posts).toEqual([]);
+    expect(d.dms).toEqual(["-# Nudge\nRan 2 actions; 1 failed."]);
+  });
+
+  it("keeps KOS's upkeep runs to themselves, failed or not", async () => {
+    const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => ({ id: 1, name: "kos.backup", type: "actions", projectSlug: null }), homeOf: () => "orchestrator:owner" });
+    await postSaid(failedRun("cron:1"), d);
     expect(d.posts).toEqual([]);
     expect(d.made).toEqual([]);
   });
 
   it("still tells a run's failure after it said its piece in its place", async () => {
-    const reminder: JobFacts = { id: 7, name: "Nudge", type: "actions", projectSlug: null };
     const d = deps({ "cron:7": "t7" }, { jobOf: () => reminder, saidItsPiece: () => true });
-    await postSaid({ ...run("cron:7", "Ran 2 actions; 1 failed."), failed: true }, d);
+    await postSaid(failedRun("cron:7"), d);
     expect(d.posts).toEqual([{ target: "t7", text: "-# Nudge\nRan 2 actions; 1 failed." }]);
   });
 
