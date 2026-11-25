@@ -71,6 +71,32 @@ describe("notifyModule", () => {
     ]);
   });
 
+  it("ends a scheduled run quietly, posting nothing, and refuses quiet anywhere else or beside a message", async () => {
+    const sent: NotifyPayload[] = [];
+    const registry = await load(async (p) => {
+      sent.push(p);
+      return undefined;
+    });
+    const inRun = (input: Record<string, unknown>) => caller.run("cron:7", () => scheduled.run(7, () => registry.execute("notify", input)));
+
+    const quiet = await inRun({ quiet: "nothing new above the bar." });
+    expect(quiet).toEqual({ content: "Posted nothing: nothing new above the bar. The run is recorded as choosing not to post.", isError: false });
+
+    const outside = await caller.run("chat-1", () => registry.execute("notify", { quiet: "nothing new" }));
+    expect(outside.isError).toBe(true);
+    expect(outside.content).toMatch(/quiet is for a scheduled run/);
+
+    const withText = await inRun({ quiet: "nothing new", text: "but here it is" });
+    expect(withText.isError).toBe(true);
+    expect(withText.content).toMatch(/quiet posts nothing, so it takes no text/);
+    expect((await inRun({ quiet: "nothing new", to: "channel:99" })).content).toMatch(/takes no to/);
+    expect((await inRun({ quiet: "  " })).content).toMatch(/quiet takes why nothing is posted/);
+    expect(sent).toEqual([]);
+
+    // Sending nothing, it asks nothing, wherever it names.
+    expect(registry.classify("notify", { quiet: "nothing new", to: "channel:99" }).tier).toBe("safe");
+  });
+
   it("sends via the wired channel and is safe-tier", async () => {
     const sent: NotifyPayload[] = [];
     const registry = await load(async (p) => {
