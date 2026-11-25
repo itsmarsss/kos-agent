@@ -67,4 +67,15 @@ describe("behaviour settings", () => {
     expect(parseBehaviour({ selfPromptsPerHour: 0 }).selfPromptsPerHour).toBe(0);
   });
 
+  it("lets a missed schedule catch up to 3 hours late unless set, within 0 to 24", () => {
+    expect(parseBehaviour({}).catchUpHours).toBe(3);
+    expect(parseBehaviour({ catchUpHours: 6 }).catchUpHours).toBe(6);
+    // Zero never catches up.
+    expect(parseBehaviour({ catchUpHours: 0 }).catchUpHours).toBe(0);
+    expect(parseBehaviour({ catchUpHours: -2 }).catchUpHours).toBe(0);
+    expect(parseBehaviour({ catchUpHours: 48 }).catchUpHours).toBe(24);
+    expect(parseBehaviour({ catchUpHours: 2.6 }).catchUpHours).toBe(3);
+    expect(parseBehaviour({ catchUpHours: "5" }).catchUpHours).toBe(3);
+  });
+
 });
