@@ -109,6 +109,10 @@ function quietEnding(input: Record<string, unknown>): string {
   return `Posted nothing: ${reason}. The run is recorded as choosing not to post.`;
 }
 
+/** What a scheduled turn is told about the quiet ending, on either engine. */
+export const QUIET_ENDING_NOTE =
+  "A scheduled run written to post with notify that has nothing to post this time calls notify with quiet and the reason, and nothing else, instead of a message.";
+
 export interface NotifyToolDeps {
   /** Mint the token a press comes back on, and record where it belongs. */
   routePress?: (

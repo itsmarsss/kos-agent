@@ -152,7 +152,7 @@ import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
 import { outcomeOf, type StepTally } from "../ops/outcome.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type FaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
-import { type NotifyPayload, type NotifySent, parseTarget } from "../tools/notify.js";
+import { type NotifyPayload, type NotifySent, parseTarget, QUIET_ENDING_NOTE } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
@@ -1311,6 +1311,8 @@ export class Kernel {
 
         // The mark the owner's mid-turn words come under, this turn's alone.
         const mark = randomBytes(4).toString("hex");
+        // The job behind a schedule's run, whose unaddressed messages go to its place.
+        const scheduledId = opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? Number(opts.from.id) : undefined;
         const tools = this.guardedTools({
           userId,
           conversationId: sessionId,
@@ -1321,8 +1323,7 @@ export class Kernel {
           owner,
           ownWords,
           ...(guest ? { guest } : {}),
-          // The job behind a schedule's run, whose unaddressed messages go to its place.
-          ...(opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? { scheduled: Number(opts.from.id) } : {}),
+          ...(scheduledId !== undefined ? { scheduled: scheduledId } : {}),
           // Where the words were said, for a start on that device that needs no ask from a tool.
           ...(opts.channel && text.trim() ? { origin: { surface: opts.channel, said: text } } : {}),
           heard: () => this.hear(sessionId, mark),
@@ -1402,7 +1403,9 @@ export class Kernel {
           : null;
         // The devices the owner has paired, as they are now, so a Mac or a Chrome they name is known before a tool is called; never to a guest.
         const devicesNote = guest ? undefined : pairedNote(this.paired?.());
-        const pulled = [opts.context, mentioned, keptNote, guestNote, membersNote, hearingNote, maskedNote, devicesNote].filter((part): part is string => Boolean(part)).join("\n\n");
+        // A schedule's run, on either engine, learns how to end with nothing to post without reading as a failure.
+        const quietNote = scheduledId !== undefined ? QUIET_ENDING_NOTE : null;
+        const pulled = [opts.context, mentioned, keptNote, guestNote, membersNote, hearingNote, maskedNote, devicesNote, quietNote].filter((part): part is string => Boolean(part)).join("\n\n");
         const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
@@ -4210,6 +4213,7 @@ export class Kernel {
         `You are running unattended as cron job "${job.name}".`,
         "There is no one to ask, so do not ask questions.",
         "Risky actions still queue for approval; say what you queued and stop.",
+        QUIET_ENDING_NOTE,
       ].join("\n"),
     });
     /*

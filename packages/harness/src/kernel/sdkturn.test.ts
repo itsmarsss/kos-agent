@@ -17,6 +17,7 @@ vi.mock("../chat/sdkchat.js", async (actual) => ({
 const { Kernel, SDK_FAILED } = await import("./kernel.js");
 const { SecretsRegistry } = await import("../secrets/secrets.js");
 const { BEHAVIOUR_KEY } = await import("./behaviour.js");
+const { QUIET_ENDING_NOTE } = await import("../tools/notify.js");
 
 const call = (n: number, extra: Partial<SdkToolCall> = {}): SdkToolCall => ({ id: `sdk-t-${n}`, name: "files.read", input: { path: `${n}.md` }, result: `read ${n}`, isError: false, ...extra });
 const answer = (calls: SdkToolCall[], text: string): SdkChatResult => ({ text, calls, usage: { inputTokens: 0, outputTokens: 0 }, models: [], costUSD: 0, stopped: false });
@@ -98,6 +99,24 @@ describe("a turn on the SDK engine", () => {
     expect(asked?.model).toBe("claude-haiku-4-5");
     await turn("hello");
     expect(asked?.model).toBeUndefined();
+  });
+
+  it("tells a schedule's run how to end with nothing to post, and records its quiet ending as ok", async () => {
+    let prompt = "";
+    sdk.run = async (o) => {
+      prompt = o.prompt;
+      const ran = await o.tools.execute("notify", { quiet: "nothing new above the bar" });
+      return answer([{ id: "sdk-t-1", name: "notify", input: { quiet: "nothing new above the bar" }, result: ran.content, isError: ran.isError }], "Nothing worth sending this hour.");
+    };
+    const job = kernel.crons.create({ name: "scan", schedule: "0 * * * *", type: "self_prompt", prompt: "Post any new opening with notify; most hours, send nothing.", enabled: true });
+    const fired = await kernel.fireCron(job.id);
+    expect(prompt).toContain(QUIET_ENDING_NOTE);
+    expect(fired.ok).toBe(true);
+    expect(kernel.runs.recent(10).find((r) => r.kind === "cron")).toMatchObject({ status: "ok", error: null });
+    expect(kernel.health.report().ok).toBe(true);
+    // An owner's own turn is not told.
+    await turn("hello");
+    expect(prompt).not.toContain(QUIET_ENDING_NOTE);
   });
 
   it("logs both sides of an owner's turn for memory, as the other engine does", async () => {
