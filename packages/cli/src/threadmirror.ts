@@ -176,8 +176,8 @@ export class ThreadMirror {
     }
     const files = event.files?.length ? this.deps.filesFor(event.files) : [];
     const passed = event.origin?.from;
-    if (passed && (passed.kind === "chat" || passed.kind === "schedule")) {
-      // Passed on by a chat or a schedule: under that sender's name, the line saying only that it was passed on.
+    if (passed && passed.kind !== "guest") {
+      // Passed on by a chat, a schedule or KOS itself: under that sender's name, the line saying only that it was passed on.
       await this.deps.postIn(target, { text: `${event.said.trim()}\n-# passed on`, from: this.deps.speakerFor(passed), silent: true, ...(files.length ? { files } : {}) });
     } else {
       // The owner's own words, under their name and picture; quoted by the bot when they cannot be looked up.

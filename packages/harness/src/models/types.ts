@@ -153,9 +153,9 @@ export interface MessageRoom {
   name?: string;
 }
 
-/** Who a message came from, when not the owner at the keyboard. */
+/** Who a message came from, when not the owner at the keyboard; "kos" is KOS's own, a repair it asked of itself. */
 export interface MessageFrom {
-  kind: "guest" | "chat" | "schedule";
+  kind: "guest" | "chat" | "schedule" | "kos";
   name: string;
   id?: string;
   /** A chat's words passed on by the owner's own turn or hand: theirs again when sent again. */

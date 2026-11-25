@@ -1360,7 +1360,7 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
 export interface MessageOrigin {
   via: string;
   room?: { kind: "channel" | "thread" | "dm"; id?: string; name?: string };
-  from?: { kind: "guest" | "chat" | "schedule"; name: string; id?: string };
+  from?: { kind: "guest" | "chat" | "schedule" | "kos"; name: string; id?: string };
 }
 
 /** An approval that was decided, or lapsed, kept so a reference to it still shows what it was. */

@@ -187,8 +187,8 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
     const files = deps.filesFor(said.files);
     const attached = files.length ? { files } : {};
     if (said.from) {
-      // Passed on by a chat or a schedule: under that sender's name and
-      // face; the line says only that it was passed on.
+      // Passed on by a chat, a schedule or KOS itself: under that
+      // sender's name and face; the line says only that it was passed on.
       await deps.postIn(target, { text: `${said.text.trim()}\n-# passed on`, from: deps.speakerFor(said.from), silent: true, ...attached });
     } else {
       // As the owner, under their own name and picture; quoted by the bot
