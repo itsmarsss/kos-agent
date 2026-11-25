@@ -128,7 +128,10 @@ export type ProgressMap = Record<string, Live | undefined>;
 function reduce(live: Live, event: ProgressEvent): Live {
   const steps = [...live.steps];
   switch (event.kind) {
-    case "tool-start":
+    case "tool-start": {
+      // What was said before the step narrates it: kept with the steps, and the reply starts over after it.
+      const said = live.text.trim();
+      if (said) steps.push({ kind: "reasoning", text: said });
       steps.push({
         kind: "tool",
         tool: event.tool,
@@ -139,7 +142,8 @@ function reduce(live: Live, event: ProgressEvent): Live {
         ...(event.yours ? { yours: true as const } : {}),
         startedAt: event.at ?? Date.now(),
       });
-      return { ...live, steps };
+      return { ...live, steps, text: "" };
+    }
 
     case "tool-end": {
       // The most recent unfinished call of that name is the one that ended.
