@@ -1,3 +1,5 @@
+import { messageKeysIn, quietWords } from "@kos/shared";
+
 import { MESSAGE_LIMITS } from "../channels/types.js";
 import type {
   MessageButton,
@@ -72,9 +74,6 @@ function addressed(raw: unknown): boolean {
   return raw !== undefined && raw !== null && raw !== "";
 }
 
-/** What a message is made of: a quiet ending carries none of it. */
-const MESSAGE_KEYS = ["text", "card", "buttons", "to", "replyTo"] as const;
-
 /** Whether a call ends its run quietly instead of sending: it names `quiet` at all, even wrongly. */
 function endsQuietly(input: Record<string, unknown>): boolean {
   return input.quiet !== undefined && input.quiet !== null;
@@ -97,12 +96,9 @@ function quietEnding(input: Record<string, unknown>): string {
   if (scheduledJob() === undefined) {
     throw new Error("quiet is for a scheduled run with nothing to post this time; here, just do not call notify");
   }
-  const reason = typeof input.quiet === "string" ? input.quiet.replace(/\s+/g, " ").trim().replace(/\.+$/, "") : "";
+  const reason = quietWords(input);
   if (!reason) throw new Error("quiet takes why nothing is posted, in a few words");
-  const sent = MESSAGE_KEYS.filter((key) => {
-    const value = input[key];
-    return addressed(value) && !(Array.isArray(value) && value.length === 0);
-  });
+  const sent = messageKeysIn(input);
   if (sent.length) {
     throw new Error(`quiet posts nothing, so it takes no ${sent.join(", ")}: send the message without quiet, or call quiet alone`);
   }
@@ -111,7 +107,7 @@ function quietEnding(input: Record<string, unknown>): string {
 
 /** What a scheduled turn is told about the quiet ending, on either engine. */
 export const QUIET_ENDING_NOTE =
-  "A scheduled run written to post with notify that has nothing to post this time calls notify with quiet and the reason, and nothing else, instead of a message.";
+  "A scheduled run written to post with notify that has nothing to post this time calls notify with quiet and the reason, and nothing else, instead of a message; this holds even when its instructions say to send nothing or end with no output.";
 
 export interface NotifyToolDeps {
   /** Mint the token a press comes back on, and record where it belongs. */
