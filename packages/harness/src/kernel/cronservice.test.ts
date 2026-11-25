@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CronExecResult, SelfPromptResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import type { CronJob } from "../cron/types.js";
+import { RunsLog } from "../ops/runs.js";
 import { Workspace } from "../store/workspace.js";
 import { CronService, type CronServiceDeps } from "./cronservice.js";
 
@@ -22,11 +23,13 @@ describe("CronService", () => {
       crons,
       killSwitch: { halted: false },
       selfPromptsPerHour: () => 10,
+      catchUpHours: () => 3,
       timezone: () => "UTC",
       enqueue: (work) => work(),
       runs: {
         start: (kind, ref) => { log.push(`start:${kind}:${ref}`); return 7; },
         finish: (id, status, error) => { log.push(`finish:${id}:${status}:${error ?? ""}`); },
+        finishedFor: () => [],
       },
       health: { failing: () => failing, forget: (key) => { log.push(`forget:${key}`); } },
       report: (key, label, ok, error) => { log.push(`report:${key}:${label}:${ok ? "ok" : "fail"}:${error ?? ""}`); },
@@ -202,5 +205,28 @@ describe("CronService", () => {
     const b = job("b");
     await Promise.all([svc.fire(a.id), svc.fire(b.id)]);
     expect(lanes.sort()).toEqual([`cron:${a.id}`, `cron:${b.id}`].sort());
+  });
+
+  it("notes a run missed past the limit in Runs once, and tells nobody", async () => {
+    // Its time came round four hours ago; it last ran the day before.
+    const due = new Date(Math.floor((Date.now() - 4 * 3_600_000) / 60_000) * 60_000);
+    const j = job("kickoff", { schedule: `${due.getUTCMinutes()} ${due.getUTCHours()} * * *` });
+    crons.markRun(j.id, due.getTime() - 23 * 3_600_000);
+    const runs = new RunsLog(ws.db);
+    const boot = (): void => {
+      const s = service({ runs });
+      s.start();
+      expect(s.catchUp()).toBe(0);
+      s.stop();
+    };
+    boot();
+    // Restarted again before the next run: the same miss is not noted twice.
+    boot();
+    const noted = runs.finishedFor("cron", String(j.id), 10);
+    expect(noted).toHaveLength(1);
+    expect(noted[0]!.status).toBe("skipped");
+    expect(noted[0]!.error).toMatch(/^missed by 4h; next run at \w{3}, \w{3} \d{1,2}, \d{1,2}:\d{2} [AP]M$/);
+    // Not a failure: no run, no caretaker, no Discord.
+    expect(log.filter((l) => l.startsWith("run:") || l.startsWith("report:"))).toEqual([]);
   });
 });
