@@ -46,6 +46,13 @@ export interface Behaviour {
   fixSteps: number;
   /** Self-prompting cron fires allowed per rolling hour. */
   selfPromptsPerHour: number;
+  /**
+   * Hours late a schedule's missed run may still run after a restart or a
+   * sleep. Later than this it is skipped, noted in Runs, and the next one
+   * runs on time. A job whose next run is under an hour away waits for it,
+   * and one less often than daily always catches up. Zero never catches up.
+   */
+  catchUpHours: number;
   /** Minutes a coding agent may run before it is stopped. */
   agentMinutes: number;
   /** Turns a coding agent may take. */
@@ -100,6 +107,9 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   screenSteps: 200,
   fixSteps: 24,
   selfPromptsPerHour: 10,
+  // Late enough to catch the run a short sleep missed, early enough that the
+  // morning kickoff does not arrive at midnight.
+  catchUpHours: 3,
   agentMinutes: 15,
   agentTurns: 60,
   stallMinutes: 3,
@@ -126,6 +136,7 @@ export const BEHAVIOUR_LIMITS: Record<
   screenSteps: [1, 400],
   fixSteps: [1, 100],
   selfPromptsPerHour: [0, 120],
+  catchUpHours: [0, 24],
   agentMinutes: [1, 240],
   agentTurns: [1, 500],
   stallMinutes: [1, 120],
@@ -171,6 +182,7 @@ export function parseBehaviour(raw: unknown): Behaviour {
     ),
     fixSteps: clamp(input["fixSteps"], "fixSteps"),
     selfPromptsPerHour: clamp(input["selfPromptsPerHour"], "selfPromptsPerHour"),
+    catchUpHours: clamp(input["catchUpHours"], "catchUpHours"),
     agentMinutes: clamp(input["agentMinutes"], "agentMinutes"),
     agentTurns: clamp(input["agentTurns"], "agentTurns"),
     stallMinutes: clamp(input["stallMinutes"], "stallMinutes"),

@@ -83,6 +83,28 @@ describe("progress handover", () => {
     expect(steps.map((s) => (s.kind === "tool" ? s.frameId : null))).toEqual([undefined, 7, undefined]);
   });
 
+  it("moves the words said before a step to the steps, so the reply shows only what follows the last", () => {
+    const { result } = renderHook(() => useProgress());
+    deliver({ kind: "turn-start", conversationId: "c1" });
+    deliver({ kind: "delta", conversationId: "c1", of: "text", text: "I'll run the scanner." });
+    deliver({ kind: "tool-start", conversationId: "c1", tool: "skills.run", summary: "Run research_job_scan" });
+    deliver({ kind: "tool-end", conversationId: "c1", tool: "skills.run", isError: false });
+    deliver({ kind: "delta", conversationId: "c1", of: "text", text: "Nothing new this hour." });
+    const turn = result.current.c1!;
+    expect(turn.steps.map((s) => (s.kind === "reasoning" ? `thought: ${s.text}` : s.kind))).toEqual(["thought: I'll run the scanner.", "tool"]);
+    expect(turn.text).toBe("Nothing new this hour.");
+  });
+
+  it("drops the fragment a turn joined midway had streamed, rather than show it as a step's words", () => {
+    const { result } = renderHook(() => useProgress());
+    act(() => seedProgress(["c9"]));
+    deliver({ kind: "delta", conversationId: "c9", of: "text", text: "the scanner." });
+    expect(result.current.c9?.resumed).toBe(true);
+    deliver({ kind: "tool-start", conversationId: "c9", tool: "skills.run", summary: "Run research_job_scan" });
+    expect(result.current.c9!.steps.map((s) => s.kind)).toEqual(["tool"]);
+    expect(result.current.c9!.text).toBe("");
+  });
+
   it("puts words said mid-turn after the step that took them in, as the transcript keeps them", () => {
     const { result } = renderHook(() => useProgress());
     deliver({ kind: "turn-start", conversationId: "c1", said: "build a cart" });

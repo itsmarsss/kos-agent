@@ -42,6 +42,9 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 const { runSdkChat, sdkCallMessages } = await import("./sdkchat.js");
 const { STOPPED_RESULT } = await import("../kernel/guarded.js");
+const { REPLY } = await import("../kernel/voice.js");
+const { assembleSystemPrompt } = await import("../kernel/context.js");
+const { SCREEN_HANDOFF } = await import("../agent/screen.js");
 
 /** Never settles: the SDK's stream as it is for the two seconds after an abort, or a tool still running. */
 const hang = (): Promise<never> => new Promise<never>(() => undefined);
@@ -245,7 +248,7 @@ describe("a turn on the SDK", () => {
     ]);
   });
 
-  it("streams the words on either side of a step as the stored reply joins them", async () => {
+  it("streams the words after a step as the stored reply joins them, and keeps the words before with the step", async () => {
     run.queries = [];
     const text = (t: string) => ({ type: "stream_event", parent_tool_use_id: null, event: { delta: { text: t } } });
     const block = (t: string) => ({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: t }] } });
@@ -263,8 +266,10 @@ describe("a turn on the SDK", () => {
     };
     let live = "";
     const r = await runSdkChat({ prompt: "cart?", system: "s", tools: box(["files.read"], () => ({ content: "ok" })), cwd: process.cwd(), onDelta: (d) => void (d.kind === "text" && (live += d.text)) });
-    expect(r.text).toBe("The cart came to $80.85. Building a fresh cart now.\nSearch mixes in ebooks.");
-    expect(live).toBe(r.text);
+    expect(r.text).toBe("Building a fresh cart now.\nSearch mixes in ebooks.");
+    expect(r.calls[0]!.said).toBe("The cart came to $80.85.");
+    // Live, the words before the step stream as they come; the surfaces move them to the step when it starts.
+    expect(live).toBe(`The cart came to $80.85.${r.text}`);
   });
 
   it("joins two text blocks of one message live as the stored reply does", async () => {
@@ -283,6 +288,182 @@ describe("a turn on the SDK", () => {
     const r = await runSdkChat({ prompt: "go", system: "s", tools: box([], () => ({ content: "" })), cwd: process.cwd(), onDelta: (d) => void (d.kind === "text" && (live += d.text)) });
     expect(r.text).toBe("Found it. Adding to the cart.");
     expect(live).toBe(r.text);
+  });
+});
+
+const SPEND = "You spent $3,410 in October, $600 over budget. Groceries ran $180 over and dining $420 over; rent, transit and the phone bill were on plan. The two subscriptions you meant to cancel billed again, $34 together, so those are still live.";
+
+describe("the reply on the SDK: only what follows the last step", () => {
+  const say = (t: string) => ({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: t }] } });
+  const use = (name: string, text?: string) => ({
+    type: "assistant",
+    parent_tool_use_id: null,
+    message: { content: [...(text ? [{ type: "text", text }] : []), { type: "tool_use", id: `u-${name}`, name: `mcp__kos__${name}`, input: {} }] },
+  });
+
+  it("leaves the line before a call out of the reply, and keeps it with that call", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield say("I'll run the scanner.");
+      yield use("skills_run");
+      await tools.get("skills_run")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("Nothing new this hour: 0 of 19,751 postings are new.");
+      yield result(2);
+    };
+    const r = await runSdkChat({ prompt: "scan", system: "s", tools: box(["skills.run"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(r.text).toBe("Nothing new this hour: 0 of 19,751 postings are new.");
+    expect(r.calls[0]!.said).toBe("I'll run the scanner.");
+    // Stored with the step, as a thought: shown folded, never sent back as the model's words.
+    expect(sdkCallMessages(r.calls[0]!)[0]!.content[0]).toEqual({ type: "reasoning", text: "I'll run the scanner." });
+  });
+
+  it("drops the narration of every step, in the message with the call or before it, and joins the final words", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("files_read", "I'll read the watch list, then fetch the tables.");
+      await tools.get("files_read")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("Now the tables.");
+      yield use("http_fetch");
+      await tools.get("http_fetch")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("Nothing changed.");
+      yield say("Pi 5 2GB is still out of stock.");
+      yield result(3);
+    };
+    const r = await runSdkChat({ prompt: "watch", system: "s", tools: box(["files.read", "http.fetch"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(r.text).toBe("Nothing changed. Pi 5 2GB is still out of stock.");
+    expect(r.calls.map((c) => c.said)).toEqual(["I'll read the watch list, then fetch the tables.", "Now the tables."]);
+  });
+
+  it("keeps a final answer however short, and a turn with no step whole", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("notify", "Posting the kickoff.");
+      await tools.get("notify")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("Sent.");
+      yield result(2);
+    };
+    const posted = await runSdkChat({ prompt: "kickoff", system: "s", tools: box(["notify"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(posted.text).toBe("Sent.");
+
+    run.queries = [];
+    run.script = async function* () {
+      yield say("It is 18:40 in Toronto.");
+      yield say("Sunset was at 16:46.");
+      yield result(1);
+    };
+    const plain = await runSdkChat({ prompt: "time?", system: "s", tools: box([], () => ({ content: "" })), cwd: process.cwd() });
+    expect(plain.text).toBe("It is 18:40 in Toronto. Sunset was at 16:46.");
+    expect(plain.calls).toEqual([]);
+  });
+
+  it("has no reply when the turn ends on a step, rather than the step's narration", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("sql", "Checking the board.");
+      await tools.get("sql")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield result(1, "error_max_turns");
+    };
+    const r = await runSdkChat({ prompt: "board", system: "s", tools: box(["sql"], () => ({ content: "[]" })), cwd: process.cwd() });
+    expect(r.text).toBe("");
+    expect(r.stopped).toBe(true);
+    expect(r.calls[0]!.said).toBe("Checking the board.");
+  });
+
+  it("keeps an answer written before a silent save as the reply, not also as the save's narration", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("sql", "I'll add it up.");
+      await tools.get("sql")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield use("memory_remember", SPEND);
+      await tools.get("memory_remember")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield result(3);
+    };
+    const r = await runSdkChat({ prompt: "spend?", system: "s", tools: box(["sql", "memory.remember"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(r.text).toBe(SPEND);
+    expect(r.calls.map((c) => c.said)).toEqual(["I'll add it up.", undefined]);
+  });
+
+  it("says nothing of its own for a turn cut short after a save, and keeps the words with the save", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("memory_remember", SPEND);
+      await tools.get("memory_remember")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield result(1, "error_max_turns");
+    };
+    const r = await runSdkChat({ prompt: "spend?", system: "s", tools: box(["memory.remember"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(r).toMatchObject({ text: "", stopped: true });
+    expect(r.calls[0]!.said).toBe(SPEND);
+  });
+
+  it("loses no words that arrive after their call has started: they read as said after it", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("sql");
+      await tools.get("sql")!({});
+      yield say("I'll check the board.");
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("Nothing new.");
+      yield result(2);
+    };
+    const r = await runSdkChat({ prompt: "board", system: "s", tools: box(["sql"], () => ({ content: "[]" })), cwd: process.cwd() });
+    expect(r.text).toBe("I'll check the board. Nothing new.");
+    expect(r.calls[0]!.said).toBeUndefined();
+  });
+
+  it("keeps an answer posted with buttons, and the short line after the post", async () => {
+    const answer = "There's no web URL to hand you: those pages are workspace pages, not a served site, and `sites.list` is empty. The `@page:book_crm_home` form is the clickable link here. For real https links I would publish the dashboard as a site.";
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("sites_list");
+      await tools.get("sites_list")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield use("pages_list");
+      await tools.get("pages_list")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield use("notify", answer);
+      await tools.get("notify")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("Buttons sent above, pick one.");
+      yield result(4);
+    };
+    const r = await runSdkChat({ prompt: "hyperlink me", system: "s", tools: box(["sites.list", "pages.list", "notify"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(r.text).toBe(`${answer}\n\nButtons sent above, pick one.`);
+    expect(r.calls.every((c) => c.said === undefined)).toBe(true);
+  });
+
+  it("keeps the words before a hand-on to a subagent with the subagent's first call", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: "Handing this to the screen agent." }, { type: "tool_use", id: "h1", name: "Task", input: {} }] } };
+      await tools.get("computer_act")!({});
+      yield { type: "user", parent_tool_use_id: "h1" };
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("The form is sent.");
+      yield result(2);
+    };
+    const r = await runSdkChat({ prompt: "send the form", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked." })), cwd: process.cwd(), screen: { model: "screen-model" } });
+    expect(r.text).toBe("The form is sent.");
+    expect(r.calls.map((c) => c.said)).toEqual(["Handing this to the screen agent."]);
+  });
+
+  it("puts the closing reply rule last in what it adds to the engine's prompt, with or without a screen agent", async () => {
+    const system = assembleSystemPrompt({ baseSystem: "You are KOS.", profile: { name: "O", timezone: "UTC", ownerId: "o", channels: {}, preferences: {} }, projects: [], recall: { facts: [], events: [] } }).system;
+    for (const screen of [undefined, { model: "screen-model" }]) {
+      run.queries = [];
+      run.script = steps(1, "files_read");
+      await runSdkChat({ prompt: "go", system, tools: box(["computer.act", "files.read"], () => ({ content: "ok" })), cwd: process.cwd(), ...(screen ? { screen } : {}) });
+      const prompt = run.queries[0]!.options["systemPrompt"] as { append: string };
+      expect(prompt.append.endsWith(REPLY)).toBe(true);
+      expect(prompt.append.includes(SCREEN_HANDOFF)).toBe(screen !== undefined);
+    }
   });
 });
 

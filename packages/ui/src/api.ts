@@ -842,6 +842,8 @@ export interface Behaviour {
   screenSteps: number;
   fixSteps: number;
   selfPromptsPerHour: number;
+  /** Hours late a missed schedule may still run after a restart or sleep. Zero never catches up. */
+  catchUpHours: number;
   agentMinutes: number;
   agentTurns: number;
   stallMinutes: number;

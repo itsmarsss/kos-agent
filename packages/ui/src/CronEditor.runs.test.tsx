@@ -28,6 +28,15 @@ describe("a schedule's last runs", () => {
     expect(runWhy(run({ status: "ok" }))).toBeNull();
   });
 
+  it("says why a missed run was skipped, and lists it as not run", () => {
+    const reason = "missed by 4h; next run at Wed, Nov 26, 9:00 AM";
+    expect(runWhy(run({ status: "skipped", error: reason }))).toBe("Missed by 4h; next run at Wed, Nov 26, 9:00 AM");
+    sheet({ id: 4, name: "Kickoff", schedule: "0 9 * * *", type: "self_prompt", enabled: true, lastRuns: [run({ id: 3, status: "skipped", error: reason, durationMs: 0 })] });
+    const list = screen.getByRole("region", { name: "Last runs" });
+    expect(list.textContent).toContain("Not run");
+    expect(list.textContent).toContain("Missed by 4h; next run at Wed, Nov 26, 9:00 AM");
+  });
+
   it("lists each run's outcome on the sheet, failures in words", () => {
     sheet({ id: 3, name: "Recap", schedule: "0 17 * * 5", type: "self_prompt", enabled: true, lastRuns: [run({ id: 2, status: "error", error: "Its one step failed. sql: no such table: notes" }), run({ id: 1, status: "partial", error: "1 of 3 steps failed." })] });
     const list = screen.getByRole("region", { name: "Last runs" });
