@@ -19,6 +19,9 @@ export interface ReadContext {
   guestTables?: readonly string[];
 }
 
+/** Browser tools whose answer is KOS's own or the owner's, not a page's. */
+const BROWSER_OWN = new Set(["browser.tabs", "browser.use_tab", "browser.new_tab", "browser.handoff"]);
+
 /** Workspace folders whose files came from outside: what the owner was sent, and what a browser downloaded. */
 const INBOUND = /(^|\/)(uploads|downloads)\//;
 
@@ -55,6 +58,8 @@ export function readFrom(tool: string, input: Record<string, unknown>, result: s
     const host = url ? hostOf(url) : undefined;
     return { kind: "page", ...(host ? { where: host } : {}) };
   }
+  // A tab's list, a switch and a fresh tab carry no page's text; a handoff answers with the owner's own words.
+  if (BROWSER_OWN.has(tool)) return undefined;
   if (tool.startsWith("browser.")) {
     const url = str(input, "url");
     const host = context.site ?? (url ? hostOf(url) : undefined);

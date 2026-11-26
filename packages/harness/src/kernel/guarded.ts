@@ -75,6 +75,8 @@ export interface GuardedToolsDeps {
   taint?: Taint;
   /** Table-name prefixes of projects a guest may write in: rows read from them taint the turn. */
   guestTables?: () => readonly string[];
+  /** The owner's own words this turn, when it began from them: a site they name is theirs to go to, tainted or not. */
+  said?: string;
   /**
    * The turn's stop. Once it aborts, a call that is running answers at once
    * (what it started is told through `turnStop`, and its own end is still
@@ -539,7 +541,7 @@ export class GuardedTools implements ToolBox {
      * saved yes covers one that reaches outside (risk/taint.ts).
      */
     const tabSite = this.deps.permissionContext?.(name)?.browser?.site;
-    const said = owner && this.deps.ownWords === true ? from?.said : undefined;
+    const said = owner && this.deps.ownWords === true ? this.deps.said : undefined;
     const judged = { tool: name, input, secret, ...(tabSite ? { site: tabSite } : {}), ...(said ? { said } : {}) };
     const raised = classified.tier === "safe" ? taintRaises(judged, taint) : false;
     const lifted: RiskAssessment = raised ? { tier: "risky", escalated: true, reason: raised, neverLearned: true } : classified;
@@ -657,12 +659,13 @@ export class GuardedTools implements ToolBox {
       // Named now, while the caller's situation is known: the rule a yes-
       // and-remember would keep, and a picture of the page a browser action
       // is aimed at, which the arguments alone cannot show.
-      const named = always || beyond ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
+      // Nor for what only a tainted turn asks about: untainted it runs unasked, so there is nothing to remember.
+      const named = always || beyond || raised ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
       // A scheduled run's Always is kept for its job alone, for what a job may keep: a named shape. One that names the whole
       // tool (a skill run, an MCP tool) is the standing Always it always was, the owner's to press; nothing learned covers it.
       const rule = job === undefined ? named : named && mayLearn && !pays ? (named.scope !== null ? { ...named, job } : named) : undefined;
       // Said on the card where only the taint kept a saved yes from it: what asks every time, or is beyond Auto, says its own reason.
-      const heldByTaint = bar !== false && !always && !beyond;
+      const heldByTaint = bar !== false && !raised && !always && !beyond;
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();

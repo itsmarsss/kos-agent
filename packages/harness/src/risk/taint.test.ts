@@ -103,5 +103,6 @@ describe("what a call read that the owner did not write", () => {
     expect(readFrom("daemons.logs", { id: 4 }, "")).toEqual({ kind: "program", where: "daemon 4" });
     expect(readFrom("skills.run", { name: "board" }, "")).toEqual({ kind: "program", where: "skill board" });
     expect(readFrom("memory.recall", {}, "")).toBeUndefined();
+    expect(readFrom("browser.tabs", {}, "", { site: "a.example" })).toBeUndefined();
   });
 });

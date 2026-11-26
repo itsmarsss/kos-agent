@@ -1343,6 +1343,7 @@ export class Kernel {
           attended,
           owner,
           ownWords,
+          ...(ownWords && text.trim() ? { said: text } : {}),
           ...(guest ? { guest } : {}),
           taint,
           ...(scheduledId !== undefined ? { scheduled: scheduledId } : {}),
@@ -4376,6 +4377,8 @@ export class Kernel {
     signal?: AbortSignal;
     /** What the turn has read that the owner did not write. */
     taint?: Taint;
+    /** The owner's own words this turn, when it began from them. */
+    said?: string;
   } = {}): GuardedTools {
     const shelf = this.shelf && this.behaviour().smartContext ? this.shelf : undefined;
     return new GuardedTools({
@@ -4429,6 +4432,7 @@ export class Kernel {
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
       ...(opts.taint ? { taint: opts.taint } : {}),
+      ...(opts.said ? { said: opts.said } : {}),
       guestTables: () => this.guestTablePrefixes(),
       onQueued: (action) => {
         this.callTimer.asked(toolUse.getStore(), action.id);
