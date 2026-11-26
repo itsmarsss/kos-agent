@@ -285,8 +285,9 @@ write in; a chat with a channel of its own gets no thread, and a channel
 KOS let go is taken back when its chat returns rather than made again. The layout
 leaves a channel you placed in a category of your own where it is, and
 lets go of the one it had laid out. What the chat says shows there, what
-you say there reaches it, a project's scheduled runs post there under the
-job's name, and the channel's own permissions say who may read and write.
+you say there reaches it, a project's scheduled runs post there (what they
+send, or, for a run that sent nothing, its answer under the job's name),
+and the channel's own permissions say who may read and write.
 Binding asks you when others can see the channel, since the chat will
 show there; a channel of yours alone binds without asking.
 
