@@ -11,8 +11,9 @@ import { resolvePath } from "../jail/resolvePath.js";
 import { childEnv } from "../sandbox/env.js";
 import { hasSecretRef, hostAllowed, placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
+import { fenced } from "../context/shelf.js";
 import { beyondAutoByName } from "../risk/beyondauto.js";
-import type { RiskTier } from "../risk/tiers.js";
+import type { RiskTier, ToolRisk } from "../risk/tiers.js";
 
 /**
  * Tools from MCP servers, offered like any other.
@@ -71,6 +72,20 @@ export interface McpServerConfig {
    * The owner writes these; the harness never guesses a tool is safe.
    */
   tools?: Record<string, Extract<RiskTier, "safe" | "risky">>;
+  /**
+   * What the server's tools return is outside text (mail, documents, pages):
+   * each result is fenced as untrusted, so nothing in it reads as the
+   * owner's words or as instructions.
+   */
+  untrusted?: boolean;
+  /**
+   * The whole risk of each of the server's tools, for a server KOS itself
+   * configures and knows tool by tool (Google): it replaces the floors above.
+   * Code only, never read from mcp.json.
+   */
+  risks?: (tool: string) => ToolRisk;
+  /** What a result says, rewritten before the model reads it. Code only. */
+  results?: (text: string) => string;
   /** Undoes what jailing the server put in place: called once it is dropped, or at once when this config is not the one brought up. */
   release?: () => unknown;
 }
@@ -106,6 +121,7 @@ export function parseMcpConfig(raw: unknown): McpConfig {
     if (isStringMap(v["headers"])) entry.headers = v["headers"];
     if (typeof v["enabled"] === "boolean") entry.enabled = v["enabled"];
     if (v["risk"] === "safe" || v["risk"] === "risky") entry.risk = v["risk"];
+    if (v["untrusted"] === true) entry.untrusted = true;
     if (typeof v["tools"] === "object" && v["tools"] !== null) {
       const floors: Record<string, "safe" | "risky"> = {};
       for (const [tool, floor] of Object.entries(v["tools"] as Record<string, unknown>)) {
@@ -200,6 +216,12 @@ export function floorFor(
     if (pattern.includes("*") && globMatch(pattern, toolName)) return floor;
   }
   return fallback;
+}
+
+/** A result as the model reads it: rewritten as the server's config says, then fenced when its text is from outside. */
+function readable(name: string, server: McpServerConfig, text: string): string {
+  const said = server.results ? server.results(text) : text;
+  return server.untrusted && said ? fenced(name, said) : said;
 }
 
 /** `mcp.<server>.<tool>`, each part reduced to what a tool name may hold. */
@@ -402,12 +424,12 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
           async (input) => {
             const live = connected.get(name) ?? (await reconnect(name, server));
             const result = await live.client.callTool({ name: tool.name, arguments: input });
-            const text = renderContent(result.content);
-            if (result.isError) throw new Error(text || `${tool.name} reported an error`);
+            const text = readable(name, server, renderContent(result.content) || (result.isError ? `${tool.name} reported an error` : ""));
+            if (result.isError) throw new Error(text);
             const images = imagesIn(result.content);
             return images.length ? { text, images } : text;
           },
-          { floor: floorFor(server, tool.name), beyondAuto: () => beyondAutoByName(tool.name) },
+          server.risks?.(tool.name) ?? { floor: floorFor(server, tool.name), beyondAuto: () => beyondAutoByName(tool.name) },
           server.projects?.length ? { tags: server.projects.map((p) => `project:${p}`) } : undefined,
         );
         registered.push(def.name);
