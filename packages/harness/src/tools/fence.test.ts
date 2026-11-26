@@ -3,7 +3,7 @@ import * as sqliteVec from "sqlite-vec";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Db } from "../store/db.js";
-import { codeOf, fence, isKernelTable, ownedBy, ownerOf, planOf, readsSchema, reachable, writesKernelTable, type Reach } from "./fence.js";
+import { codeOf, explainable, fence, isKernelTable, ownedBy, ownerOf, planOf, readsSchema, reachable, removesRows, writesKernelTable, type Reach } from "./fence.js";
 
 /**
  * The sql tool is for the calling project's tables. KOS's own, another
@@ -85,6 +85,21 @@ describe("the fence around the tables", () => {
     expect(readsSchema("SELECT name FROM pragma_table_list()")).toBe(true);
     expect(readsSchema("SELECT * FROM PRAGMA_TABLE_INFO('cr'||'ons')")).toBe(true);
     expect(readsSchema("SELECT name FROM dbstat")).toBe(true);
+  });
+
+  it("compiles only the statements a plan is read for, and refuses the rest", () => {
+    const keys = ["foreign_keys", "query_only", "ignore_check_constraints", "trusted_schema", "recursive_triggers"];
+    const now = (): unknown[] => keys.map((k) => db.prepare(`PRAGMA ${k}`).get());
+    const before = now();
+    for (const sql of ["PRAGMA foreign_keys=OFF -- insert", "PRAGMA ignore_check_constraints=1", "PRAGMA query_only=1 /* update */", "PRAGMA trusted_schema=0", "PRAGMA recursive_triggers=1"]) {
+      expect(explainable(sql), sql).toBe(false);
+      expect(planOf(db, sql), sql).toBeUndefined();
+      expect(removesRows(db, sql), sql).toBe(true);
+      expect(fence(db, sql, reach("maintenance")).ok, sql).toBe(false);
+    }
+    expect(now()).toEqual(before);
+    expect(fence(db, "ANALYZE", reach("books")).reason).toMatch(/one SELECT, INSERT, UPDATE or DELETE/);
+    for (const sql of ["SELECT 1", " with t as (select 1) select * from t", "/* x */ INSERT INTO books_notes (text) VALUES ('a')", "VALUES (1)"]) expect(explainable(sql), sql).toBe(true);
   });
 
   it("refuses a project's chat the catalogue by pragma functions and dbstat", () => {

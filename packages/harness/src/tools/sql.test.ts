@@ -94,6 +94,25 @@ describe("sqlModule", () => {
     expect(registry.classify("sql", { sql: "UPDATE books_notes SET body = 'x' WHERE id = 1" }).neverLearned).toBeUndefined();
   });
 
+  it("never compiles a PRAGMA to judge it, so judging one changes no setting", async () => {
+    const settings = ["foreign_keys", "query_only", "ignore_check_constraints", "trusted_schema", "recursive_triggers"];
+    const now = (): unknown[] => settings.map((name) => ws.db.prepare(`PRAGMA ${name}`).get());
+    const before = now();
+    const statements = [
+      "PRAGMA foreign_keys=OFF -- insert",
+      "PRAGMA ignore_check_constraints=1 -- update",
+      "PRAGMA query_only=1 /* update */",
+      "PRAGMA trusted_schema=0 -- delete",
+      "PRAGMA recursive_triggers=1 -- insert",
+      "/* insert */ PRAGMA foreign_keys = 0",
+    ];
+    for (const sql of statements) {
+      registry.classify("sql", { sql });
+      expect((await registry.execute("sql", { sql })).isError, sql).toBe(true);
+    }
+    expect(now()).toEqual(before);
+  });
+
   it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
     expect(registry.classify("sql", { sql: "SELECT 1" }).tier).toBe("safe");
     expect(registry.classify("sql", { sql: "INSERT INTO books_tx (a) VALUES (1)" }).tier).toBe("safe");

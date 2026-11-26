@@ -4,6 +4,7 @@ import { join, relative, sep } from "node:path";
 import { isReadOnlyQuery, type HtmlPage, type MutationTarget } from "@kos/shared";
 
 import type { Db } from "../store/db.js";
+import { explainable } from "../tools/fence.js";
 import { assertIdentifier } from "./identifiers.js";
 import type { Workspace } from "../store/workspace.js";
 import { executeMutation, type MutationResult, type WidgetEdit } from "../widgets/mutation.js";
@@ -76,6 +77,8 @@ function paramsOf(raw: unknown): Param[] {
  */
 export function tablesRead(db: Db, sql: string, params: Param[]): string[] {
   let plan: { opcode: string; p2: number; p3: number }[];
+  // A page's query is compiled only when it is one a plan is read for: a PRAGMA takes effect as it compiles.
+  if (!explainable(sql)) throw new BridgeRefusal(CANNOT_QUERY);
   try {
     plan = db.prepare(`EXPLAIN ${sql}`).all(...params) as typeof plan;
   } catch {

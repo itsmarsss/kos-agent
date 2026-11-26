@@ -162,6 +162,12 @@ describe("the page bridge", () => {
     expect(tablesRead(ws.reader, "SELECT b.note FROM budget_tx b WHERE b.id IN (SELECT id FROM budget_tx)", []).sort()).toEqual(["budget_tx"]);
   });
 
+  it("never compiles a page's PRAGMA, so asking one changes no setting", () => {
+    const before = ws.db.prepare("PRAGMA foreign_keys").get();
+    expect(() => tablesRead(ws.db, "PRAGMA foreign_keys = OFF", [])).toThrow(BridgeRefusal);
+    expect(ws.db.prepare("PRAGMA foreign_keys").get()).toEqual(before);
+  });
+
   it("writes only a declared table, its declared columns and operations", () => {
     const page = bridge({ capabilities: { writes: [{ table: "budget_tx", columns: ["amount", "note"], allow: ["insert", "update"] }] } });
     expect(pageWrite(ws.db, page, { table: "budget_tx", op: "insert", values: { amount: 3, note: "tea" } }).changes).toBe(1);
