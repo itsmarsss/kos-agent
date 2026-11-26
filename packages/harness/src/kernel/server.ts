@@ -9,7 +9,7 @@ import { basename, extname, join, normalize, relative, resolve, sep } from "node
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { askView, checkName, isExportFormat, NameError, nameRefusal, isSearchKind, outlineOf, parseChatMode, stepMechanics, summarizeAction, usesSecret, type AskView, type ChatMode, type FieldRefusal, type WidgetOutline } from "@kos/shared";
+import { askView, checkName, isExportFormat, NameError, nameRefusal, isSearchKind, outlineOf, parseChatMode, stepMechanics, summarizeAction, taintLine, usesSecret, type AskView, type ChatMode, type FieldRefusal, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import { detachedAs } from "./decisions.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
@@ -309,6 +309,8 @@ function conversationLabeller(
       ...(c.role && faces.has(c.role) ? { face: faces.get(c.role) } : {}),
       ...(queued[c.id] ? { queued: queued[c.id] } : {}),
       ...(auto.has(c.id) ? { mode: kernel.chatMode(c.id) } : {}),
+      // Its history holds text the owner did not write: the header says so and offers to trust it again.
+      ...(taintLine(kernel.chatTaint(c.id)) ? { tainted: taintLine(kernel.chatTaint(c.id)) } : {}),
     };
   };
 }
@@ -2594,7 +2596,7 @@ export async function handleApiRequest(
       // With what each claim says: a key alone is not something to decide on.
       decisions: kernel.review.pending().map((i) => describeReview(kernel.facts, kernel.profile.ownerId, i)),
       failures: withFixes(kernel, kernel.health.report().failing),
-      suggestions: kernel.suggestions.pending(),
+      suggestions: kernel.suggestions.pending().map(({ taint, ...s }) => ({ ...s, ...(taintLine(taint) ? { after: taintLine(taint) } : {}) })),
       // So the Inbox reads its decided history again only when this changes, not on every poll.
       decided: kernel.approvals.decidedMark(),
     });
@@ -3128,6 +3130,13 @@ export async function handleApiRequest(
     if (!kernel.conversations.get(id)) return { status: 404, body: { error: "conversation not found" } };
     kernel.setChatMode(id, mode);
     return ok({ id, mode: kernel.chatMode(id) });
+  }
+
+  if (method === "POST" && path === "/api/conversations/trust") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return { status: 400, body: { error: "id required" } };
+    if (!kernel.conversations.get(id)) return { status: 404, body: { error: "conversation not found" } };
+    return ok({ id, trusted: kernel.trustChat(id) });
   }
 
   if (method === "POST" && path === "/api/conversations/rename") {

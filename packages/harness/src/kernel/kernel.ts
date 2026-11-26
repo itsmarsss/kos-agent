@@ -56,6 +56,7 @@ import {
   type Then,
 } from "@kos/browser";
 import { hostOf } from "../risk/rules.js";
+import { ChatTaints } from "./chattaint.js";
 import { Taint } from "../risk/taint.js";
 import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, mcpBrowserStep, PAY_BUTTON, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
 
@@ -80,7 +81,7 @@ import { bootKernel, callerBlobOf } from "./boot.js";
 import { fileHomeOf, homeNote } from "./home.js";
 import { artifactFileRefusal, whyNot } from "../tools/systems.js";
 import { isKosState } from "../tools/files.js";
-import { fence, type Reach } from "../tools/fence.js";
+import { fence, isKernelTable, type Reach } from "../tools/fence.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 export { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
@@ -174,7 +175,7 @@ import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { replyLine } from "./voice.js";
 import { pairedNote } from "./where.js";
 import { keepFile, readFile as readWorkspaceFile } from "./files.js";
-import { ASK, MODE_WORDS, UNCHANGED, liveMode, modeLabel, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type TaintSource, type ThemeMode } from "@kos/shared";
+import { ASK, MODE_WORDS, UNCHANGED, liveMode, modeLabel, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type TaintSource, type ThemeMode, taintLine } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -256,6 +257,8 @@ export const BUILD_SETTINGS_KEY = "builds";
 
 /** Who may see each Discord server channel, by binding; absent means the owner alone. */
 export const CHANNEL_AUDIENCE_KEY = "discord.audience";
+/** Where the tables tainted turns wrote are kept (risk/taint.ts). */
+export const TAINTED_TABLES_KEY = "taint.tables";
 /** When each server channel's members reach its chat, by what it is bound to; absent means always. */
 export const CHANNEL_LISTEN_KEY = "discord.listen";
 /** Which Discord thread stands for which chat. */
@@ -425,7 +428,7 @@ export function notRunNote(said: string[]): string {
 
 /** Who a waiting message's turn is to the fences, kept with it so a restart runs it as that. */
 function flagsOf(opts: PendingFlags): PendingFlags {
-  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "guested", "room", "members", "context", "contextRides", "quote", "roomTalk", "via", "from", "trail", "maxIterations", "guestFiles", "sentAt"] as const;
+  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "guested", "room", "members", "context", "contextRides", "contextTaint", "quote", "roomTalk", "via", "from", "trail", "maxIterations", "guestFiles", "sentAt"] as const;
   return Object.fromEntries(keys.filter((k) => opts[k] !== undefined).map((k) => [k, opts[k]])) as PendingFlags;
 }
 
@@ -570,6 +573,8 @@ export class Kernel {
   readonly settings: SettingsStore;
   /** Each chat's mode: Ask, or Auto within its bounds. */
   readonly modes: ChatModes;
+  /** What each chat's history holds that the owner did not write (chattaint.ts). */
+  private readonly chatTaints: ChatTaints;
   /** Whether each chat's latest turn began under Auto, for a surface to say so with its answer. */
   private readonly underAuto = new Map<string, boolean>();
   readonly memoryWriter: MemoryWriter;
@@ -878,6 +883,7 @@ export class Kernel {
       },
       onToolRan: (tool) => this.afterToolRan(tool),
       handleMessage: (text, opts) => this.resumeDecided(text, opts),
+      guestTables: () => this.guestTablePrefixes(),
       handsOn: (device, conversationId) => this.handsOn?.(device, conversationId),
       halted: () => this.killSwitch.halted,
       codes: args.secrets.codes,
@@ -945,6 +951,7 @@ export class Kernel {
     this.settings = args.settings;
     // Halted is read from the store, so a kill switch thrown by another process (the CLI) ends Auto here too.
     this.modes = new ChatModes(args.settings, Date.now, () => this.killSwitch.halted);
+    this.chatTaints = new ChatTaints(args.workspace.db);
     // Told once, in the Inbox: the chats whose Chrome steps ran unasked are back in Ask, and Auto is turned on per chat.
     if (this.modes.migrated.length) {
       const named = this.modes.migrated.map((id) => this.conversations.get(id)?.title ?? id).join(", ");
@@ -1054,6 +1061,8 @@ export class Kernel {
       context?: string;
       /** That context only says where: the words may still be taken into a turn already running, with it. */
       contextRides?: boolean;
+      /** What the context quoted that the owner did not write: the turn starts tainted with it. */
+      contextTaint?: TaintSource;
       /** What the owner quoted with the words: kept with the message and shown with it, told to the model as the page's words. */
       quote?: Quote;
       /** What guests said in the room in between: kept beside the words as untrusted room talk, never read as them. */
@@ -1167,7 +1176,7 @@ export class Kernel {
     /** The waiting row this turn runs, so a page showing it waiting knows which went. */
     let ran: number | undefined;
     // Heard mid-turn only when they are the owner's own words: another chat's or a door's passed on run as a turn of their own, judged as theirs.
-    if (useSession && this.working.has(sessionId) && opts.origin !== "system" && opts.owner === true && !opts.from && !opts.attachments?.length && !opts.guest && !opts.guested && !opts.contextFrom && (!opts.context || opts.contextRides) && !opts.roomTalk && !opts.quote) {
+    if (useSession && this.working.has(sessionId) && opts.origin !== "system" && opts.owner === true && !opts.from && !opts.attachments?.length && !opts.guest && !opts.guested && !opts.contextFrom && (!opts.context || opts.contextRides) && !opts.contextTaint && !opts.roomTalk && !opts.quote) {
       const waiting = this.pending.add(sessionId, text, [], originOf(opts), flagsOf(opts));
       const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, ...(opts.channel ? { channel: opts.channel } : {}), taken }]));
       if (how === "heard") return { reply: "", halted: false, sessionId, steered: true };
@@ -1245,6 +1254,8 @@ export class Kernel {
       taint?: Taint;
       /** What the turn this carries on had read that the owner did not write. */
       tainted?: readonly TaintSource[];
+      /** What the words' context quoted that the owner did not write. */
+      contextTaint?: TaintSource;
       /** The secrets whose values were masked out of these words on the way in. */
       masked?: string[];
       /** The vault was locked then, so only shapes and the scrub index were looked for. */
@@ -1270,7 +1281,9 @@ export class Kernel {
       this.underAuto.set(sessionId, false);
       // A guest's words reach no further than their room's project, here and wherever the work is passed.
       const guest = opts.guested ?? (opts.guest ? this.guestRoomOf(sessionId) : undefined);
-      const taint = this.turnTaint(opts);
+      const taint = this.turnTaint(sessionId, opts);
+      // What it reads stays in this chat's history, and so with the chat (chattaint.ts); an aside records nothing.
+      if (!opts.noSession) taint.onMark((source) => this.chatTaints.add(sessionId, [source]));
       const stop = this.stopFor(sessionId, turnId);
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
@@ -3380,6 +3393,8 @@ export class Kernel {
       sessionId: conversation.id,
       userId: this.profile.ownerId,
       origin: "system",
+      // A suggestion raised after outside text carries it: the yes is to the suggestion, not to that text.
+      ...(suggestion.taint?.length ? { tainted: suggestion.taint } : {}),
     }).catch(() => undefined);
     this.suggestions.resolve(id, `accepted; working in ${conversation.id}`);
     return { conversationId: conversation.id, title };
@@ -3387,6 +3402,7 @@ export class Kernel {
 
   clearSession(sessionId: string): void {
     this.sessions.clear(sessionId);
+    this.chatTaints.clear(sessionId);
   }
 
   /**
@@ -3473,6 +3489,8 @@ export class Kernel {
       case "clear": {
         if (history.length === 0) return { reply: "Nothing to forget; this chat is empty." };
         this.sessions.clear(conversationId);
+        // Out of the model's context, what it held is no longer in the chat's turns.
+        this.chatTaints.clear(conversationId);
         // Careful about what this actually promises. Clearing takes the
         // transcript out of the model's context, not anything saved to
         // memory, and saved facts are recalled into later turns: the first
@@ -3501,6 +3519,15 @@ export class Kernel {
             result.summary,
           ].join("\n"),
         };
+      }
+
+      case "trust": {
+        // Loosens what runs unasked here, so the owner's alone, and never from a text message.
+        if (!owner) return { reply: "Only the owner trusts a chat again." };
+        if (!CONTROL_SURFACES.has(channel)) return { reply: controlElsewhere("Trusting a chat again") };
+        const read = taintLine(this.chatTaints.of(conversationId));
+        if (!this.chatTaints.clear(conversationId)) return { reply: "This chat has read nothing you did not write; there is nothing to trust again." };
+        return { reply: `Trusted again: ${read ? read.replace(/^After reading: /, "what it read (") + ") " : ""}no longer holds back what your saved yeses and Auto cover here. Anything it reads from now on does again.` };
       }
 
       case "fork": {
@@ -3687,7 +3714,7 @@ export class Kernel {
 
   /** A copy of a conversation's settings under a new title, in the same project. */
   private forkOf(source: Conversation, title: string, channel?: string): Conversation {
-    return this.conversations.create({
+    const fork = this.conversations.create({
       userId: source.userId,
       title,
       ...(channel ? { channel } : {}),
@@ -3695,6 +3722,19 @@ export class Kernel {
       ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
       ...(source.projectSlug ? { projectSlug: source.projectSlug } : {}),
     });
+    // A copy of the history holds what it held.
+    this.chatTaints.copy(source.id, fork.id);
+    return fork;
+  }
+
+  /** What this chat's history holds that the owner did not write: its turns start tainted with it. */
+  chatTaint(conversationId: string): TaintSource[] {
+    return this.chatTaints.of(conversationId);
+  }
+
+  /** The owner trusts the chat again: its history is theirs, and its turns start clean. True when it was tainted. */
+  trustChat(conversationId: string): boolean {
+    return this.chatTaints.clear(conversationId);
   }
 
   /**
@@ -4057,8 +4097,11 @@ export class Kernel {
    * arrives with its words that the owner did not write: a guest's
    * message, room talk, a quoted page, a file.
    */
-  private turnTaint(opts: { taint?: Taint; tainted?: readonly TaintSource[]; guest?: Guest; guested?: GuestOrigin; roomTalk?: string; quote?: Quote; attachments?: Attachment[] }): Taint {
+  private turnTaint(sessionId: string, opts: { taint?: Taint; tainted?: readonly TaintSource[]; guest?: Guest; guested?: GuestOrigin; roomTalk?: string; quote?: Quote; attachments?: Attachment[]; contextTaint?: TaintSource; contextFrom?: string }): Taint {
     const taint = opts.taint ?? new Taint(opts.tainted ?? []);
+    // What the chat's history holds, or the history an aside borrows.
+    for (const source of this.chatTaints.of(opts.contextFrom ?? sessionId)) taint.mark(source);
+    if (opts.contextTaint) taint.mark(opts.contextTaint);
     if (opts.guest) taint.mark({ kind: "guest", where: opts.guest.name });
     else if (opts.guested) taint.mark({ kind: "guest" });
     if (opts.roomTalk?.trim()) taint.mark({ kind: "guest", where: "people in the room" });
@@ -4068,6 +4111,18 @@ export class Kernel {
     }
     for (const file of opts.attachments ?? []) taint.mark({ kind: "file", where: file.name });
     return taint;
+  }
+
+  /** Tables a tainted turn wrote, kept so a turn reading them back is tainted too: out of sql's reach, in KOS's settings. */
+  private taintedTables(): string[] {
+    const kept = this.settings.get(TAINTED_TABLES_KEY);
+    return Array.isArray(kept) ? kept.filter((t): t is string => typeof t === "string") : [];
+  }
+
+  private keepTaintedTables(tables: readonly string[]): void {
+    const kept = this.taintedTables();
+    const fresh = tables.filter((t) => !isKernelTable(t) && !kept.includes(t));
+    if (fresh.length) this.settings.set(TAINTED_TABLES_KEY, [...kept, ...fresh]);
   }
 
   /** Table prefixes of the projects a guest may write in: every project with a place opened to guests. */
@@ -4156,6 +4211,8 @@ export class Kernel {
     roomTalk?: string;
     /** That context only says where: it rides with the words into a turn already running. */
     contextRides?: boolean;
+    /** What the context quoted that the owner did not write. */
+    contextTaint?: TaintSource;
     /** What the owner quoted with the words, and where from. */
     quote?: Quote;
     /** The surface keeps to its own chats: its commands list and move among those alone. */
@@ -4247,6 +4304,7 @@ export class Kernel {
       ...(input.members?.length ? { members: input.members } : {}),
       ...(input.context ? { context: input.context } : {}),
       ...(input.contextRides ? { contextRides: true } : {}),
+      ...(input.contextTaint ? { contextTaint: input.contextTaint } : {}),
       ...(input.quote ? { quote: input.quote } : {}),
       ...(input.roomTalk ? { roomTalk: input.roomTalk } : {}),
       /*
@@ -4434,6 +4492,7 @@ export class Kernel {
       ...(opts.taint ? { taint: opts.taint } : {}),
       ...(opts.said ? { said: opts.said } : {}),
       guestTables: () => this.guestTablePrefixes(),
+      taintedTables: { list: () => this.taintedTables(), add: (tables) => this.keepTaintedTables(tables) },
       onQueued: (action) => {
         this.callTimer.asked(toolUse.getStore(), action.id);
         opts.onQueued?.(action);

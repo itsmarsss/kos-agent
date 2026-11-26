@@ -2372,6 +2372,15 @@ export function ChatsPage({
                     {active.kind === "project" && <span className="chats-role"><span className="sr-only">, </span>Orchestrator</span>}
                     {(active.kind === "agent" || active.blob) && <span className="chats-role"><span className="sr-only">, </span>Blob</span>}
                   </h1>
+                  {/* Its history holds text you did not write: saved yeses and Auto hold back here until you trust it again. */}
+                  {active.tainted && (
+                    <p className="chats-tainted" role="note" title={active.tainted}>
+                      Read outside text
+                      <button type="button" className="link" onClick={() => void api.trustChat(active.id).then(() => onChanged())}>
+                        Trust this chat again
+                      </button>
+                    </p>
+                  )}
                   {active.blob && active.projectSlug && (
                     <p className="chats-lineage">
                       Asked by{" "}

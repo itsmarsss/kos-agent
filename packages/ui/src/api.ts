@@ -675,6 +675,8 @@ export interface Conversation {
   queued?: number;
   /** The chat's mode when it is in Auto; none is Ask. */
   mode?: ChatMode;
+  /** Its history holds text the owner did not write, as the host's line says it: its turns start tainted. */
+  tainted?: string;
 }
 
 export interface ChatTurn {
@@ -973,6 +975,8 @@ export interface Suggestion {
   title: string;
   detail: string;
   action: string | null;
+  /** The host's line naming what the turn that raised it read that the owner did not write. */
+  after?: string;
   createdAt: number;
 }
 
@@ -1868,6 +1872,7 @@ export const api = {
     }),
   /** Set a chat's mode: Ask, or Auto with its bounds. */
   setChatMode: (id: string, mode: ChatMode) => post<{ id: string; mode: ChatMode }>("/api/conversations/mode", { id, mode }),
+  trustChat: (id: string) => post<{ id: string; trusted: boolean }>("/api/conversations/trust", { id }),
   renameConversation: (id: string, title: string) =>
     post<Conversation>("/api/conversations/rename", { id, title }),
   archiveConversation: (id: string, archived = true) =>

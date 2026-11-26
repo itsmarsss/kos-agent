@@ -36,6 +36,7 @@ export type ChatCommand =
   | { kind: "status" }
   | { kind: "compact" }
   | { kind: "clear" }
+  | { kind: "trust" }
   | { kind: "tools" }
   | { kind: "btw"; question: string }
   | { kind: "export" }
@@ -93,6 +94,7 @@ const ALIASES: Record<string, ChatCommand["kind"]> = {
   summarize: "compact",
   clear: "clear",
   reset: "clear",
+  trust: "trust",
   tools: "tools",
   scope: "tools",
   btw: "btw",
@@ -374,6 +376,7 @@ export function runChatCommand(
     case "status":
     case "compact":
     case "clear":
+    case "trust":
       // Handled by the kernel, which owns the sessions, the queue and the
       // model. Reaching here means a caller ran the command table without
       // checking needsKernel first.
@@ -408,6 +411,7 @@ const KERNEL_KINDS: ReadonlySet<ChatCommand["kind"]> = new Set([
   "status",
   "compact",
   "clear",
+  "trust",
 ]);
 
 export function needsKernel(command: ChatCommand): boolean {

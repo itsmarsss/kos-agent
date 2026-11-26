@@ -6146,6 +6146,7 @@ a.health {
 .chats-lineage { margin: 0.25rem 0 0; color: var(--muted); font-size: var(--text-sm); }
 .chats-lineage a { color: var(--accent); text-decoration: none; }
 .chats-lineage a:hover { text-decoration: underline; }
+.chats-tainted { display: flex; gap: 8px; align-items: baseline; margin: 0.25rem 0 0; color: var(--warn); font-size: var(--text-sm); }
 
 /* A card's foot wraps whole words, not inside them. */
 .card-foot > * { white-space: nowrap; }
