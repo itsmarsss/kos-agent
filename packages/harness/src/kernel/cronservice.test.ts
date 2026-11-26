@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CronExecResult, SelfPromptResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
@@ -56,6 +56,7 @@ describe("CronService", () => {
     runResult = async () => ({ ran: true, type: "actions", results: [] });
   });
   afterEach(() => {
+    vi.useRealTimers();
     ws.close();
     rmSync(root, { recursive: true, force: true });
   });
@@ -208,10 +209,11 @@ describe("CronService", () => {
   });
 
   it("notes a run missed past the limit in Runs once, and tells nobody", async () => {
-    // Its time came round four hours ago; it last ran the day before.
-    const due = new Date(Math.floor((Date.now() - 4 * 3_600_000) / 60_000) * 60_000);
-    const j = job("kickoff", { schedule: `${due.getUTCMinutes()} ${due.getUTCHours()} * * *` });
-    crons.markRun(j.id, due.getTime() - 23 * 3_600_000);
+    // Its time came round four hours and thirty seconds ago; it last ran the day before.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-11-25T13:00:30Z"));
+    const j = job("kickoff", { schedule: "0 9 * * *" });
+    crons.markRun(j.id, Date.parse("2026-11-24T10:00:00Z"));
     const runs = new RunsLog(ws.db);
     const boot = (): void => {
       const s = service({ runs });
@@ -227,7 +229,7 @@ describe("CronService", () => {
     // The same miss is noted once, the failed Run now between them notwithstanding.
     const noted = runs.finishedFor("cron", String(j.id), 10).filter((r) => r.status === "skipped");
     expect(noted).toHaveLength(1);
-    expect(noted[0]!.error).toMatch(/^missed by over 4h; next run at \w{3}, \w{3} \d{1,2}, \d{1,2}:\d{2} [AP]M$/);
+    expect(noted[0]!.error).toBe("missed by over 4h; next run at Thu, Nov 26, 9:00 AM");
     // The skips start no run and report nothing, so Discord hears nothing: only the Run now did either.
     expect(log.filter((l) => l.startsWith("run:") || l.startsWith("report:"))).toEqual(["run:kickoff", "report:cron:1:kickoff:fail:offline"]);
   });
