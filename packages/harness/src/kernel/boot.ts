@@ -246,7 +246,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const retired = retireBrowserEngine(workspace.root, settings, workspace.db);
   if (retired) console.log(`browser: KOS drives Chrome itself now; the ${retired} server is out of mcp.json, its settings and trusted sites kept`);
   // The owner's Google account, once its client is in the vault and it is signed in (google/connection.ts).
-  const google = new GoogleConnection({ settings, secrets });
+  const google = new GoogleConnection({ secrets });
   /*
    * Servers from mcp.json, the owner's Google account, and the workspace's
    * own modules the owner has switched on, each run from its folder in the

@@ -1,13 +1,28 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 import { renderContent, type McpServerConfig } from "../tools/mcp.js";
-import { childEnv } from "../sandbox/env.js";
+import { childEnv, findProgram } from "../sandbox/env.js";
+import { jailedProgram, kosPorts, kosSecretFiles } from "../sandbox/jail.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import type { SettingsStore } from "../store/settings.js";
-import { disconnect, googlePlaces, preparePlaces, readAccount, type GoogleAccount, type GooglePlaces, type RevokeFetch } from "./account.js";
+import {
+  disconnect,
+  forget,
+  googlePlaces,
+  googlePort,
+  otherAccounts,
+  preparePlaces,
+  readAccount,
+  readSettingsFile,
+  writeSettingsFile,
+  type GoogleAccount,
+  type GooglePlaces,
+  type RevokeFetch,
+} from "./account.js";
 import { parseClientJson, readClient, storeClient, vaultProblem, type GoogleClient } from "./client.js";
 import { googleToolRisk } from "./risk.js";
 
@@ -16,29 +31,40 @@ import { googleToolRisk } from "./risk.js";
  * community workspace-mcp server, run with uvx as KOS's other Python servers
  * are, pinned to one release.
  *
- * Read-only until the owner allows changes, and sending mail is a switch of
- * its own past that: each mode is the server started with only that mode's
- * Google scopes and tools, so what KOS was not allowed is not there to call.
- * Whatever runs is judged per tool (risk.ts) and its results fenced as
- * outside text.
+ * Read-only until the owner allows changes, which open Calendar, Drive and
+ * Docs and leave Gmail read-only. Writing mail at all (drafts, labels,
+ * sending) is a switch of its own past that, since Google has no scope that
+ * drafts or labels without also letting messages be sent (gmail.compose and
+ * gmail.modify both allow messages.send). Each mode is the server started
+ * with only that mode's scopes and tools, so what KOS was not allowed is not
+ * there to call. Whatever runs is judged per tool (risk.ts), and its
+ * results are fenced as outside text.
+ *
+ * The server runs in KOS's jail where KOS has one: the network open, KOS's
+ * own ports shut, writes only to its Google folder, the rest of the owner's
+ * home unreadable. Its dependencies are frozen to what was published on the
+ * day this release was pinned.
  */
 
 export const GOOGLE_SERVER = "google";
 /** The release KOS runs: a newer one changes tools, and its tools ask until risk.ts knows them. */
 export const WORKSPACE_MCP = "workspace-mcp==2.7.0";
+/** Its dependencies as they were when it was pinned: nothing published later is resolved. */
+export const RESOLVED_BEFORE = "2026-11-25T00:00:00Z";
 export const GOOGLE_SERVICES = ["calendar", "gmail", "drive", "docs"] as const;
 /** Where Google sends the browser back after sign-in, on this computer only. */
-export const GOOGLE_CALLBACK_PORT = 4327;
-export const SETTINGS_KEY = "google";
+export const GOOGLE_CALLBACK_PORT = googlePort({});
+/** A file the server reads or writes, at most: an attachment, an upload, a download. */
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 /** How long a sign-in waits for the owner in the browser. */
 export const SIGN_IN_WAIT_MS = 10 * 60_000;
 
 export interface GoogleSettings {
   /** Use the account at all; off keeps the sign-in and stops the server. */
   on: boolean;
-  /** Creating, editing and deleting, not only reading. */
+  /** Creating, editing and deleting in Calendar, Drive and Docs. */
   changes: boolean;
-  /** Sending mail. Only with changes. */
+  /** Writing mail: drafts, labels and sending. Only with changes. */
   send: boolean;
 }
 
@@ -54,9 +80,9 @@ export function redirectUri(port: number): string {
   return `http://localhost:${port}/oauth2callback`;
 }
 
-/** Each service's level on the server: read-only, or full with Gmail stopping short of send unless it is allowed. */
+/** Each service's level on the server: read-only, or full, with Gmail read-only until mail may be written and sent. */
 export function permissionArgs(settings: GoogleSettings): string[] {
-  const gmail = !settings.changes ? "readonly" : settings.send ? "send" : "drafts";
+  const gmail = settings.send ? "send" : "readonly";
   const rest = settings.changes ? "full" : "readonly";
   return ["--permissions", `gmail:${gmail}`, `calendar:${rest}`, `drive:${rest}`, `docs:${rest}`];
 }
@@ -66,8 +92,9 @@ const G = "https://www.googleapis.com/auth/";
 /** The scopes a mode signs in for, as the server asks for them (auth/permissions.py of the pinned release). */
 export function scopesFor(settings: GoogleSettings): string[] {
   const read = ["gmail.readonly", "calendar.readonly", "drive.readonly", "documents.readonly"];
-  const changes = ["gmail.labels", "gmail.modify", "gmail.compose", "calendar", "calendar.events", "drive", "drive.file", "documents"];
-  return [...read, ...(settings.changes ? changes : []), ...(settings.send ? ["gmail.send"] : [])].map((s) => `${G}${s}`);
+  const changes = ["calendar", "calendar.events", "drive", "drive.file", "documents"];
+  const mail = ["gmail.labels", "gmail.modify", "gmail.compose", "gmail.send"];
+  return [...read, ...(settings.changes ? changes : []), ...(settings.send ? mail : [])].map((s) => `${G}${s}`);
 }
 
 /** Broader scopes and the narrower ones each covers, as Google grants them. */
@@ -90,6 +117,8 @@ export interface GoogleStatus {
   /** Why the client cannot be read now (a locked vault). */
   vault?: string;
   account: GoogleAccount | null;
+  /** The address the owner signs in as, once they have said it. */
+  email: string | null;
   settings: GoogleSettings;
   /** Scopes the mode needs that the sign-in lacks. */
   missing: string[];
@@ -107,12 +136,11 @@ export interface AuthSession {
 }
 
 export interface GoogleConnectionOptions {
-  settings: SettingsStore;
   secrets: SecretsRegistry;
   places?: GooglePlaces;
   port?: number;
   /** Bring up a server for a sign-in. Defaults to spawning it; a test supplies one. */
-  authSession?: (config: McpServerConfig) => Promise<AuthSession>;
+  authSession?: (config: McpServerConfig, email: string) => Promise<AuthSession>;
   /** For revoking at Google. Defaults to fetch. */
   fetch?: RevokeFetch;
   /** How often a sign-in looks for the token file, and how long it waits. */
@@ -129,8 +157,17 @@ export function authUrlIn(text: string): string | undefined {
 export const SIGN_IN_AGAIN =
   "Google is not signed in, or its sign-in lapsed (a Google app in Testing signs out after 7 days). Nothing was done. The owner signs in again under Settings > Connections, or with kos google signin.";
 
+/** The server's own sign-in prompts, at the start of a result or of a tool error naming the tool. */
+const SIGN_IN_PROMPT = /^\s*(?:Error calling tool '[a-z_]+': )?\*\*(?:ACTION REQUIRED: Google Authentication Needed|Authentication Required: Token Expired\/Revoked)\b/;
+
 export function presentResult(text: string): string {
-  return /ACTION REQUIRED: Google Authentication|Authorization URL:/.test(text) ? SIGN_IN_AGAIN : text;
+  return SIGN_IN_PROMPT.test(text) ? SIGN_IN_AGAIN : text;
+}
+
+/** An address as the owner would type it, or undefined. */
+export function addressOf(value: unknown): string | undefined {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : undefined;
 }
 
 export class GoogleConnection {
@@ -144,7 +181,7 @@ export class GoogleConnection {
 
   constructor(private readonly options: GoogleConnectionOptions) {
     this.places = options.places ?? googlePlaces();
-    this.port = options.port ?? GOOGLE_CALLBACK_PORT;
+    this.port = options.port ?? googlePort();
   }
 
   /** Told when what the server should be changes, and awaited: the MCP set is reloaded from here. */
@@ -158,19 +195,26 @@ export class GoogleConnection {
   }
 
   settings(): GoogleSettings {
-    return parseSettings(this.options.settings.get(SETTINGS_KEY));
+    return parseSettings(readSettingsFile(this.places));
   }
 
-  /** Change the mode, and bring the server up again in it. */
+  /** Change the mode, and bring the server up again in it. Kept beside the tokens, where no sql statement reaches. */
   async setSettings(patch: Partial<GoogleSettings>): Promise<GoogleSettings> {
     const next = parseSettings({ ...this.settings(), ...patch });
-    this.options.settings.set(SETTINGS_KEY, next);
+    writeSettingsFile(this.places, { ...readSettingsFile(this.places), ...next });
     await this.changed();
     return next;
   }
 
+  /** The address the owner signs in as. */
+  email(): string | undefined {
+    return addressOf(readSettingsFile(this.places).email);
+  }
+
+  /** The sign-in of the owner's own address; none until they have said which it is. */
   account(): GoogleAccount | undefined {
-    return readAccount(this.places);
+    const email = this.email();
+    return email ? readAccount(this.places, email) : undefined;
   }
 
   status(): GoogleStatus {
@@ -182,6 +226,7 @@ export class GoogleConnection {
       client: client ? { id: client.id } : null,
       ...(problem ? { vault: problem } : {}),
       account,
+      email: this.email() ?? null,
       settings,
       missing: account ? missingScopes(scopesFor(settings), account.scopes) : [],
       signingIn: this.signingIn,
@@ -198,14 +243,16 @@ export class GoogleConnection {
   }
 
   /**
-   * The server for the mcp module, or none: only with a client, a signed-in
-   * account and the switch on, and never while a sign-in holds the callback
-   * port.
+   * The server for the mcp module, or none: only with a client, the owner's
+   * own account signed in and the switch on, and never while a sign-in holds
+   * the callback port. A token file for any other account is deleted first:
+   * the server would use it, and the owner never asked for it.
    */
   server(): McpServerConfig | undefined {
     const client = readClient(this.options.secrets);
     const account = this.account();
     if (!client || !account || this.signingIn || !this.settings().on) return undefined;
+    void forget(this.places, async () => ({ ok: true, status: 200 }), otherAccounts(this.places, account.email));
     return {
       ...this.spawnConfig(client, this.settings(), account.email),
       untrusted: true,
@@ -215,30 +262,36 @@ export class GoogleConnection {
   }
 
   /**
-   * What the server is started with. Its home and working folder are KOS's
-   * Google folder, so the uv cache it runs from is out of the workspace too;
-   * it may not read local files to upload them; it never opens a browser
-   * itself (BROWSER runs `true`, which Python takes as opened); and its
-   * own sign-in tool is withheld from the model.
+   * What the server is started with. Its home, working folder, temp, logs
+   * and downloads are KOS's Google folder, so the uv cache it runs from is
+   * out of the workspace too; it may not read local files to upload them;
+   * it never opens a browser itself (BROWSER runs `true`, which Python takes
+   * as opened); it uses only the owner's own account (USER_GOOGLE_EMAIL); and
+   * its own sign-in tool is withheld from the model.
    */
-  private spawnConfig(client: GoogleClient, settings: GoogleSettings, email: string | undefined, withAuthTool = false): McpServerConfig {
+  private spawnConfig(client: GoogleClient, settings: GoogleSettings, email: string, withAuthTool = false): McpServerConfig {
     preparePlaces(this.places);
+    const args = ["--exclude-newer", RESOLVED_BEFORE, WORKSPACE_MCP, "--single-user", ...permissionArgs(settings), ...(withAuthTool ? [] : ["--disabled-tools", "start_google_auth"])];
     return {
-      command: "uvx",
-      args: [WORKSPACE_MCP, "--single-user", ...permissionArgs(settings), ...(withAuthTool ? [] : ["--disabled-tools", "start_google_auth"])],
+      ...jailed(this.places, this.port, args),
       cwd: this.places.home,
       env: {
         HOME: this.places.home,
         USERPROFILE: this.places.home,
+        TMPDIR: this.places.tmp,
         GOOGLE_OAUTH_CLIENT_ID: client.id,
         GOOGLE_OAUTH_CLIENT_SECRET: client.secret,
         GOOGLE_OAUTH_REDIRECT_URI: redirectUri(this.port),
         WORKSPACE_MCP_PORT: String(this.port),
         WORKSPACE_MCP_CREDENTIALS_DIR: this.places.credentials,
+        WORKSPACE_MCP_LOG_DIR: this.places.logs,
+        WORKSPACE_MCP_LOG_LEVEL: "WARNING",
+        WORKSPACE_ATTACHMENT_DIR: this.places.attachments,
+        WORKSPACE_MCP_MAX_FILE_BYTES: String(MAX_FILE_BYTES),
         WORKSPACE_MCP_DISABLE_LOCAL_FILES: "true",
         OAUTHLIB_INSECURE_TRANSPORT: "1",
         BROWSER: "true",
-        ...(email ? { USER_GOOGLE_EMAIL: email } : {}),
+        USER_GOOGLE_EMAIL: email,
       },
     };
   }
@@ -250,21 +303,26 @@ export class GoogleConnection {
    * waits there for Google to send the browser back; once the token file
    * is written it closes, and the tool server comes up signed in.
    */
-  async signIn(): Promise<{ url: string }> {
+  async signIn(address?: string): Promise<{ url: string }> {
     if (this.signingIn) throw new Error("a Google sign-in is already waiting in the browser");
     const client = readClient(this.options.secrets);
     if (!client) throw new Error(`import the Google OAuth client first${vaultProblem(this.options.secrets) ? `: ${vaultProblem(this.options.secrets)}` : ""}`);
+    const kept = this.email();
+    const email = address === undefined || address === "" ? kept : addressOf(address);
+    if (!email) throw new Error(address ? `${address} is not an email address` : "say which Google address to sign in as");
+    if (kept && kept !== email) throw new Error(`KOS is signed in as ${kept}; disconnect first to use ${email}`);
     this.failure = undefined;
+    writeSettingsFile(this.places, { ...readSettingsFile(this.places), email });
     const before = this.account()?.savedAt;
     this.signingIn = true;
     await this.changed();
     try {
-      const session = await (this.options.authSession ?? spawnAuthSession)(this.spawnConfig(client, this.settings(), this.account()?.email, true));
+      const session = await (this.options.authSession ?? spawnAuthSession)(this.spawnConfig(client, this.settings(), email, true), email);
       this.session = session;
       const said = await session.start();
       const url = authUrlIn(said);
       if (!url) throw new Error(`the Google server gave no sign-in address${said.trim() ? `: ${said.trim().slice(0, 300)}` : ""}`);
-      this.wait(before);
+      this.wait(email, before);
       return { url };
     } catch (err) {
       await this.endSignIn(err instanceof Error ? err.message : String(err));
@@ -272,16 +330,31 @@ export class GoogleConnection {
     }
   }
 
-  /** Look for a token file newer than the one before, until one is written or the wait runs out. */
-  private wait(before: number | undefined): void {
+  /**
+   * Look for the owner's token file, newer than the one before, until it is
+   * written or the wait runs out. A sign-in as any other account is revoked
+   * and deleted the moment it lands, and the sign-in fails saying so.
+   */
+  private wait(email: string, before: number | undefined): void {
     const started = Date.now();
     const tick = (): void => {
+      const others = otherAccounts(this.places, email);
+      if (others.length) {
+        void forget(this.places, this.revokeFetch(), others).then(() =>
+          this.endSignIn(`Google signed in as ${others.join(", ")}, not ${email}; that sign-in was revoked and deleted. Sign in again as ${email}.`),
+        );
+        return;
+      }
       const saved = this.account()?.savedAt;
       if (saved !== undefined && saved !== before) return void this.endSignIn();
       if (Date.now() - started >= (this.options.waitMs ?? SIGN_IN_WAIT_MS)) return void this.endSignIn("the sign-in was not finished in the browser in time; start it again");
       this.timer = setTimeout(tick, this.options.pollMs ?? 1000);
     };
     this.timer = setTimeout(tick, this.options.pollMs ?? 1000);
+  }
+
+  private revokeFetch(): RevokeFetch {
+    return this.options.fetch ?? (fetch as unknown as RevokeFetch);
   }
 
   /** Close the sign-in server, keep why it failed if it did, and bring the tool server back. */
@@ -306,7 +379,7 @@ export class GoogleConnection {
   async disconnect(): Promise<{ accounts: string[]; revoked: boolean }> {
     await this.stopSignIn();
     this.failure = undefined;
-    const done = await disconnect(this.places, this.options.fetch ?? (fetch as unknown as RevokeFetch));
+    const done = await disconnect(this.places, this.revokeFetch());
     await this.changed();
     return done;
   }
@@ -317,8 +390,37 @@ export class GoogleConnection {
   }
 }
 
+/**
+ * The server's command, in KOS's jail where there is one: the network open
+ * (it talks to Google), KOS's own ports shut but the callback's, writes only
+ * to its folder, the owner's home unreadable but for uv itself, and every
+ * other secret of KOS's (the vault, the rest of ~/.kos) denied. In the
+ * container, the container is the jail; on a Linux without bubblewrap there
+ * is none, and it runs as KOS's other MCP servers do.
+ */
+export function jailed(places: GooglePlaces, port: number, args: string[]): { command: string; args: string[] } {
+  const uvx = findProgram("uvx", childEnv({ home: places.home }).PATH ?? "");
+  if (!uvx) return { command: "uvx", args };
+  const own = resolve(homedir(), ".kos");
+  const root = resolve(places.root);
+  const secretFiles = kosSecretFiles().flatMap((p) => (p === own && root.startsWith(`${own}/`) ? readdirSync(own).map((n) => join(own, n)).filter((n) => n !== root) : p === root ? [] : [p]));
+  try {
+    const cmd = jailedProgram(uvx, args, {
+      workspaceRoot: places.root,
+      writes: [places.root],
+      reads: [dirname(realpathSync(uvx))],
+      network: true,
+      kosPorts: kosPorts().filter((p) => p !== port),
+      secretFiles,
+    });
+    return { command: cmd.file, args: cmd.args };
+  } catch {
+    return { command: uvx, args };
+  }
+}
+
 /** The sign-in server, spawned as the tool server is, with the same environment hygiene. */
-async function spawnAuthSession(config: McpServerConfig): Promise<AuthSession> {
+async function spawnAuthSession(config: McpServerConfig, email: string): Promise<AuthSession> {
   const env = config.env ?? {};
   const client = new Client({ name: "kos", version: "1.0.0" });
   await client.connect(
@@ -332,7 +434,7 @@ async function spawnAuthSession(config: McpServerConfig): Promise<AuthSession> {
   );
   return {
     start: async () => {
-      const result = await client.callTool({ name: "start_google_auth", arguments: { service_name: "Google Workspace", user_google_email: "default" } });
+      const result = await client.callTool({ name: "start_google_auth", arguments: { service_name: "Google Workspace", user_google_email: email } });
       return renderContent(result.content);
     },
     close: () => client.close(),

@@ -58,7 +58,7 @@ export async function googleRoute(kernel: Kernel, method: string, path: string, 
 
   if (method === "POST" && path === `${GOOGLE_PREFIX}/signin`) {
     try {
-      const { url } = await kernel.google.signIn();
+      const { url } = await kernel.google.signIn(typeof body.email === "string" ? body.email : undefined);
       audit("signin", {}, "waiting for the browser");
       return ok({ url, ...googleView(kernel) });
     } catch (err) {

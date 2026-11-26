@@ -5,11 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Vault } from "../secrets/vault.js";
-import { openDatabase } from "../store/db.js";
-import { SettingsStore } from "../store/settings.js";
-import { googlePlaces } from "./account.js";
+import { googlePlaces, readSettingsFile, writeSettingsFile } from "./account.js";
 import { GOOGLE_HARNESS } from "./client.js";
-import { GoogleConnection, SIGN_IN_AGAIN, WORKSPACE_MCP, missingScopes, permissionArgs, presentResult, scopesFor, type AuthSession } from "./connection.js";
+import { GoogleConnection, RESOLVED_BEFORE, SIGN_IN_AGAIN, WORKSPACE_MCP, jailed, missingScopes, permissionArgs, presentResult, scopesFor, type AuthSession } from "./connection.js";
 
 const CLIENT = { installed: { client_id: "123-abc.apps.googleusercontent.com", client_secret: "GOCSPX-not-a-real-secret-0000" } };
 const URL_SAID = "**ACTION REQUIRED**\n   Authorization URL: https://accounts.google.com/o/oauth2/auth?client_id=123&state=s\n2. ...";
@@ -17,7 +15,6 @@ const URL_SAID = "**ACTION REQUIRED**\n   Authorization URL: https://accounts.go
 let root: string;
 let vault: Vault;
 let secrets: SecretsRegistry;
-let settings: SettingsStore;
 
 beforeEach(async () => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "kos-google-")));
@@ -25,18 +22,18 @@ beforeEach(async () => {
   await vault.init();
   secrets = new SecretsRegistry();
   secrets.attachVault(vault);
-  settings = new SettingsStore(openDatabase(join(root, "kos.db")));
 });
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 function connection(extra: Partial<ConstructorParameters<typeof GoogleConnection>[0]> = {}): GoogleConnection {
-  return new GoogleConnection({ settings, secrets, places: googlePlaces({ KOS_GOOGLE_DIR: join(root, "google") }), pollMs: 5, waitMs: 2000, ...extra });
+  return new GoogleConnection({ secrets, places: googlePlaces({ KOS_GOOGLE_DIR: join(root, "google") }), pollMs: 5, waitMs: 2000, ...extra });
 }
 
-/** The token file the server writes once Google sends the browser back. */
-function signInAs(c: GoogleConnection, email: string, scopes: string[]): void {
+/** The token file the server writes once Google sends the browser back; `owner` also records it as the address the owner chose. */
+function signInAs(c: GoogleConnection, email: string, scopes: string[], owner = true): void {
   mkdirSync(c.places.credentials, { recursive: true });
+  if (owner) writeSettingsFile(c.places, { ...readSettingsFile(c.places), email });
   writeFileSync(join(c.places.credentials, `${email}.json`), JSON.stringify({ token: "ya29.x", refresh_token: "1//r", scopes }), { mode: 0o600 });
 }
 
@@ -68,7 +65,7 @@ describe("the Google client", () => {
   });
 
   it("says the vault is locked rather than keeping it anywhere else", () => {
-    const c = new GoogleConnection({ settings, secrets: new SecretsRegistry(), places: googlePlaces({ KOS_GOOGLE_DIR: join(root, "google") }) });
+    const c = new GoogleConnection({ secrets: new SecretsRegistry(), places: googlePlaces({ KOS_GOOGLE_DIR: join(root, "google") }) });
     expect(() => c.importClient(CLIENT)).toThrow(/vault/);
     expect(c.status().vault).toMatch(/no vault/);
   });
@@ -89,8 +86,8 @@ describe("the Google server", () => {
     c.importClient(CLIENT);
     signInAs(c, "me@example.com", []);
     const server = c.server()!;
-    expect(server.command).toBe("uvx");
-    expect(server.args).toEqual([WORKSPACE_MCP, "--single-user", "--permissions", "gmail:readonly", "calendar:readonly", "drive:readonly", "docs:readonly", "--disabled-tools", "start_google_auth"]);
+    const pinned = ["--exclude-newer", RESOLVED_BEFORE, WORKSPACE_MCP, "--single-user", "--permissions", "gmail:readonly", "calendar:readonly", "drive:readonly", "docs:readonly", "--disabled-tools", "start_google_auth"];
+    expect(server.args!.slice(-pinned.length)).toEqual(pinned);
     expect(server.env).toMatchObject({
       GOOGLE_OAUTH_CLIENT_ID: CLIENT.installed.client_id,
       GOOGLE_OAUTH_CLIENT_SECRET: CLIENT.installed.client_secret,
@@ -98,6 +95,10 @@ describe("the Google server", () => {
       HOME: join(root, "google", "home"),
       USER_GOOGLE_EMAIL: "me@example.com",
       WORKSPACE_MCP_DISABLE_LOCAL_FILES: "true",
+      WORKSPACE_MCP_LOG_DIR: join(root, "google", "logs"),
+      WORKSPACE_ATTACHMENT_DIR: join(root, "google", "attachments"),
+      WORKSPACE_MCP_MAX_FILE_BYTES: String(25 * 1024 * 1024),
+      TMPDIR: join(root, "google", "tmp"),
       BROWSER: "true",
     });
     expect(server.cwd).toBe(join(root, "google", "home"));
@@ -108,7 +109,9 @@ describe("the Google server", () => {
   });
 
   it("allows changes, and sending only past that, by the scopes the server is started with", async () => {
-    expect(permissionArgs({ on: true, changes: true, send: false })).toEqual(["--permissions", "gmail:drafts", "calendar:full", "drive:full", "docs:full"]);
+    // Changes leave Gmail read-only: gmail.compose and gmail.modify both let mail be sent.
+    expect(permissionArgs({ on: true, changes: true, send: false })).toEqual(["--permissions", "gmail:readonly", "calendar:full", "drive:full", "docs:full"]);
+    expect(scopesFor({ on: true, changes: true, send: false }).filter((s) => s.includes("gmail"))).toEqual(["https://www.googleapis.com/auth/gmail.readonly"]);
     expect(permissionArgs({ on: true, changes: true, send: true })[1]).toBe("gmail:send");
     const c = connection();
     // Sending without changes is not a mode.
@@ -118,6 +121,9 @@ describe("the Google server", () => {
     expect(await c.setSettings({ changes: true, send: true })).toEqual({ on: true, changes: true, send: true });
     expect(reloads).toBe(1);
     expect(await c.setSettings({ on: false })).toMatchObject({ on: false });
+    // Kept in KOS's Google folder, 0600, where no sql statement reaches.
+    expect(readSettingsFile(c.places)).toMatchObject({ on: false, changes: true, send: true });
+    expect(statSync(c.places.settings).mode & 0o777).toBe(0o600);
     c.importClient(CLIENT);
     signInAs(c, "me@example.com", []);
     expect(c.server()).toBeUndefined();
@@ -132,8 +138,36 @@ describe("the Google server", () => {
     expect(missingScopes(read, ["gmail.modify", "calendar", "drive", "documents"].map((s) => `https://www.googleapis.com/auth/${s}`))).toEqual([]);
   });
 
-  it("turns a request to sign in into words for the owner, with no link to follow", () => {
-    expect(presentResult(URL_SAID)).toBe(SIGN_IN_AGAIN);
+  it("uses only the owner's own account, deleting any other sign-in before it starts", async () => {
+    const c = connection();
+    c.importClient(CLIENT);
+    signInAs(c, "me@example.com", []);
+    signInAs(c, "stranger@example.com", [], false);
+    expect(c.server()!.env!["USER_GOOGLE_EMAIL"]).toBe("me@example.com");
+    await until(() => !existsSync(join(c.places.credentials, "stranger@example.com.json")));
+    expect(existsSync(join(c.places.credentials, "stranger@example.com.json"))).toBe(false);
+    expect(c.account()?.email).toBe("me@example.com");
+  });
+
+  it.runIf(process.platform === "darwin")("runs in the jail: network open, KOS's ports shut but the callback's, KOS's other secrets unreadable", () => {
+    const places = googlePlaces({ KOS_GOOGLE_DIR: join(root, "google") });
+    const { command, args } = jailed(places, 4327, ["x"]);
+    if (command === "uvx") return; // no uvx on this machine: nothing to jail
+    expect(command).toBe("/usr/bin/sandbox-exec");
+    const profile = args[1]!;
+    expect(profile).not.toContain("(deny network*)");
+    expect(profile).toContain('(deny network-outbound (remote ip "*:4317"))');
+    expect(profile).not.toContain('"*:4327"');
+    expect(profile).toContain(`(allow file-write* (subpath ${JSON.stringify(join(root, "google"))})`);
+    const denied = profile.split("\n").filter((l) => l.startsWith("(deny file-read*"));
+    expect(denied.some((l) => l.includes(`${join(root, "google")}"`))).toBe(false);
+  });
+
+  it("turns the server's own request to sign in into words for the owner, with no link to follow", () => {
+    expect(presentResult(URL_SAID.replace("**ACTION REQUIRED**", "**ACTION REQUIRED: Google Authentication Needed for Google Calendar**"))).toBe(SIGN_IN_AGAIN);
+    expect(presentResult("Error calling tool 'get_events': **ACTION REQUIRED: Google Authentication Needed for x")).toBe(SIGN_IN_AGAIN);
+    // A mail that quotes the prompt is the mail, not a request.
+    expect(presentResult(`Subject: hi\n${URL_SAID}`)).toBe(`Subject: hi\n${URL_SAID}`);
     expect(presentResult("3 events today")).toBe("3 events today");
   });
 });
@@ -141,17 +175,23 @@ describe("the Google server", () => {
 describe("signing in", () => {
   it("takes the tool server down, hands back Google's address, and brings it up once the token is written", async () => {
     const opened: string[][] = [];
+    const hinted: string[] = [];
     let closed = 0;
     const c = connection({
-      authSession: async (config) => {
+      authSession: async (config, email) => {
         opened.push(config.args ?? []);
+        hinted.push(email);
         return { start: async () => URL_SAID, close: async () => void closed++ } satisfies AuthSession;
       },
     });
     c.importClient(CLIENT);
     const seen: boolean[] = [];
     c.onChange(() => void seen.push(c.status().signingIn));
-    const { url } = await c.signIn();
+    await expect(c.signIn()).rejects.toThrow(/say which Google address/);
+    await expect(c.signIn("not an address")).rejects.toThrow(/not an email address/);
+    const { url } = await c.signIn("Me@Example.com");
+    expect(hinted).toEqual(["me@example.com"]);
+    expect(c.status().email).toBe("me@example.com");
     expect(url).toBe("https://accounts.google.com/o/oauth2/auth?client_id=123&state=s");
     // The sign-in server offers start_google_auth; the tool server never does.
     expect(opened[0]).not.toContain("--disabled-tools");
@@ -164,21 +204,40 @@ describe("signing in", () => {
     expect(seen).toEqual([true, false]);
     expect(c.status().account?.email).toBe("me@example.com");
     expect(c.server()).toBeDefined();
+    // Signed in as one address, another needs a disconnect first; the same one signs in again without saying it.
+    await expect(c.signIn("other@example.com")).rejects.toThrow(/disconnect first/);
+  });
+
+  it("refuses a sign-in as any other account: revoked and deleted, and the sign-in fails saying so", async () => {
+    const revoked: string[] = [];
+    const c = connection({
+      fetch: async (_url, init) => (revoked.push(init.body), { ok: true, status: 200 }),
+      authSession: async () => ({ start: async () => URL_SAID, close: async () => undefined }),
+    });
+    c.importClient(CLIENT);
+    await c.signIn("me@example.com");
+    signInAs(c, "stranger@example.com", scopesFor(c.settings()), false);
+    await until(() => !c.status().signingIn);
+    expect(c.status().error).toMatch(/signed in as stranger@example.com, not me@example.com/);
+    expect(revoked).toHaveLength(1);
+    expect(existsSync(join(c.places.credentials, "stranger@example.com.json"))).toBe(false);
+    expect(c.account()).toBeUndefined();
+    expect(c.server()).toBeUndefined();
   });
 
   it("gives up after the wait, saying so", async () => {
     const c = connection({ waitMs: 20, authSession: async () => ({ start: async () => URL_SAID, close: async () => undefined }) });
     c.importClient(CLIENT);
-    await c.signIn();
+    await c.signIn("me@example.com");
     await until(() => !c.status().signingIn);
     expect(c.status().error).toMatch(/not finished/);
   });
 
   it("refuses without a client, and reports a server that gives no address", async () => {
     const c = connection({ authSession: async () => ({ start: async () => "**Authentication Error:** nope", close: async () => undefined }) });
-    await expect(c.signIn()).rejects.toThrow(/import the Google OAuth client first/);
+    await expect(c.signIn("me@example.com")).rejects.toThrow(/import the Google OAuth client first/);
     c.importClient(CLIENT);
-    await expect(c.signIn()).rejects.toThrow(/no sign-in address: \*\*Authentication Error/);
+    await expect(c.signIn("me@example.com")).rejects.toThrow(/no sign-in address: \*\*Authentication Error/);
     expect(c.status().signingIn).toBe(false);
   });
 });
@@ -190,10 +249,17 @@ describe("disconnecting", () => {
     c.importClient(CLIENT);
     signInAs(c, "me@example.com", []);
     writeFileSync(join(c.places.credentials, "oauth_states.json"), "{}");
+    mkdirSync(c.places.logs, { recursive: true });
+    writeFileSync(join(c.places.logs, "mcp_server_debug.log"), "subject lines");
+    mkdirSync(c.places.attachments, { recursive: true });
+    writeFileSync(join(c.places.attachments, "a.pdf"), "x");
     expect(await c.disconnect()).toEqual({ accounts: ["me@example.com"], revoked: true });
     expect(posted).toEqual(["https://oauth2.googleapis.com/revoke token=1%2F%2Fr"]);
     expect(c.account()).toBeUndefined();
     expect(existsSync(join(c.places.credentials, "oauth_states.json"))).toBe(false);
+    expect(existsSync(join(c.places.logs, "mcp_server_debug.log"))).toBe(false);
+    expect(existsSync(join(c.places.attachments, "a.pdf"))).toBe(false);
+    expect(c.status().email).toBeNull();
     expect(statSync(c.places.credentials).mode & 0o777).toBe(0o700);
     // The client stays for the next sign-in.
     expect(c.status().client?.id).toBe(CLIENT.installed.client_id);
