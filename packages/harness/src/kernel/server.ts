@@ -1537,6 +1537,13 @@ export async function handleApiRequest(
     }
   }
 
+  // A schedule's saved yeses stay when what it does is edited; the owner clears them here, and its runs ask again.
+  if (method === "POST" && path === "/api/crons/forget-permissions") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    return ok({ id, cleared: kernel.permissions.forgetJob(id) });
+  }
+
   if (method === "POST" && path === "/api/crons/delete") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) {

@@ -29,10 +29,9 @@ export interface Behaviour {
   /** Start a fix attempt on the first failure of an unattended job. */
   autoFix: boolean;
   /**
-   * A scheduled job posts, without asking, where the owner consented to
-   * it posting: places only the owner reads, and channels the owner
-   * approved that job posting in. Off, every post a job makes to a channel
-   * asks, as before.
+   * A scheduled job posts, without asking, where only the owner reads. A
+   * channel anyone else reads asks every time, whatever was approved
+   * before. Off, every post a job makes to a channel asks.
    */
   jobsPostUnasked: boolean;
   /** Model round-trips a turn may take before it stops and says so. */

@@ -1110,10 +1110,10 @@ export function SettingsPage({
                 <Switch label="Try to fix failures on its own" on={how.autoFix} onChange={(on) => setHow({ ...how, autoFix: on })} />
               </FieldRow>
               <FieldRow
-                label="Scheduled jobs post without asking"
-                hint="A schedule posts to you, to channels only you can see, and to any channel you approved that job posting in, without asking each run. Posting anywhere new still asks once. Off, every post a schedule makes to a channel asks."
+                label="Scheduled jobs post without asking where only you read"
+                hint="A schedule posts to you, and to channels only you can see, without asking each run. A channel anyone else can read asks every time, since a schedule may read what others wrote. Off, every post a schedule makes to a channel asks."
               >
-                <Switch label="Scheduled jobs post without asking" on={how.jobsPostUnasked} onChange={(on) => setHow({ ...how, jobsPostUnasked: on })} />
+                <Switch label="Scheduled jobs post without asking where only you read" on={how.jobsPostUnasked} onChange={(on) => setHow({ ...how, jobsPostUnasked: on })} />
               </FieldRow>
               <FieldRow
                 label="Set big results aside once read"
@@ -1697,7 +1697,7 @@ export function SettingsPage({
           </Section>
         )}
         {active === "permissions" && (
-          <Section title="Permissions" blurb="Each rule is an Always you pressed when KOS asked, or a yes you gave a schedule, which that schedule keeps for its later runs. KOS now does that same thing without asking; anything else still asks. Revoke a rule and it asks again.">
+          <Section title="Permissions" blurb="Each rule is an Always you pressed when KOS asked; one pressed on a schedule's ask holds for that schedule's runs alone. KOS now does that same thing without asking; anything else still asks. Revoke a rule and it asks again.">
             <Field group className="set-field" label="Secrets" hint="Logins, cards and keys KOS may fill in without seeing them, where each may be used, and when it asks.">
               <a className="btn btn--sm" href={hrefFor({ name: "secrets" })}>
                 Open Secrets
@@ -1710,7 +1710,7 @@ export function SettingsPage({
               <Field group className="set-field"
                 key={r.id}
                 label={`${toolWords(r.tool)}${r.scope ? ` · ${r.scope}` : ""}`}
-                hint={`${r.job !== null ? `For the schedule ${r.jobName ?? "(gone)"} (#${r.job}) alone, from your yes to it` : r.project ? `In project ${r.project}` : "Everywhere"}${r.matches ? "" : ". Matches nothing now, so it never stops an ask; revoke it"}`}
+                hint={`${r.job !== null ? `For the schedule ${r.jobName ?? "(gone)"} (#${r.job}) alone` : r.project ? `In project ${r.project}` : "Everywhere"}${r.matches ? "" : ". Matches nothing now, so it never stops an ask; revoke it"}`}
               >
                 <button
                   type="button"

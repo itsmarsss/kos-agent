@@ -215,6 +215,8 @@ export function CronEditor({
   // A blob's schedule is named for its blob, which owns the name: shown by the blob's name, read-only.
   const blobs = (job?.name ?? "").startsWith("blob.");
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
+  /** What clearing this schedule's saved yeses came to, said under its button. */
+  const [cleared, setCleared] = useState<string | undefined>(undefined);
   const [actions, setActions] = useState(
     JSON.stringify(
       job?.actions ?? [{ tool: "notify", args: { text: "" } }],
@@ -549,6 +551,25 @@ export function CronEditor({
           from here a schedule could be paused forever and never removed. At
           the form's end, apart from Save: in the foot beside it, it sat where
           a phone's thumb rests. It asks once. */}
+      {job && (
+        <Field
+          label="Saved permissions"
+          hint={cleared ?? "When you press Always on one of this schedule's asks, its later runs stop asking for that step. Those stay when you edit what it does; clear them and its runs ask again. Settings, Permissions lists each one."}
+        >
+          <ConfirmButton
+            label="Clear saved permissions"
+            className="btn btn--sm"
+            text={`Clear every yes saved for “${jobTitle(job.name)}”? Its runs ask again.`}
+            onConfirm={() => {
+              void api.forgetCronPermissions(job.id).then(
+                (r) => setCleared(r.cleared ? `Cleared ${r.cleared}. Its runs ask again.` : "There was nothing saved."),
+                (err: unknown) => setCleared(errorWords(err instanceof Error ? err.message : String(err))),
+              );
+            }}
+          />
+        </Field>
+      )}
+
       {job && onDelete && (
         <div className="cron-delete">
           <ConfirmButton label="Delete schedule" className="btn btn--danger" text={`Delete “${jobTitle(job.name)}” and its runs?`} onConfirm={() => onDelete(job.id)} />
