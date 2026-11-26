@@ -69,6 +69,21 @@ describe("a delete, as it reads one", () => {
     expect(deletesData("files.edit", { path: "a" })).toBe(false);
   });
 
+  it("is not fooled by a WHERE in a string or a comment, or one that names no rows", () => {
+    expect(deletesData("sql", { sql: "UPDATE t SET note = 'where it was'" })).toBe(true);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 -- WHERE id = 2" })).toBe(true);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 /* where id = 2 */" })).toBe(true);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE 1 = 1" })).toBe(true);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE 'x' = 'x'" })).toBe(true);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE TRUE" })).toBe(true);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE id = 2 RETURNING a" })).toBe(false);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE \"id\" = 2" })).toBe(false);
+    // A word in a string, or a function of the same name, is not the statement.
+    expect(deletesData("sql", { sql: "UPDATE t SET note = 'delete from here' WHERE id = 2" })).toBe(false);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = replace(a, 'x', 'y') WHERE id = 2" })).toBe(false);
+    expect(deletesData("sql", { sql: "UPDATE OR REPLACE t SET a = 1 WHERE id = 2" })).toBe(true);
+  });
+
   it("counts an update of every row, and a replace, as one", () => {
     expect(deletesData("sql", { sql: "UPDATE t SET a = 1" })).toBe(true);
     expect(deletesData("sql", { sql: "REPLACE INTO t (id, a) VALUES (1, 2)" })).toBe(true);
