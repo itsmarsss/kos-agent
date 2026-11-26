@@ -123,7 +123,8 @@ export interface DecisionsDeps {
   inConversation: <T>(conversationId: string | null, work: () => Promise<T>) => Promise<T>;
   /** Something a tool did that the kernel must notice, e.g. a schedule changed. */
   onToolRan: (tool: string) => void;
-  handleMessage: (text: string, opts: { sessionId: string; userId: string; origin: "system" }) => Promise<{ reply: string }>;
+  /** Carry a held turn on; `unattended` when nobody started the turn that asked (a schedule's run), so it is resumed as that run. */
+  handleMessage: (text: string, opts: { sessionId: string; userId: string; origin: "system"; unattended?: boolean }) => Promise<{ reply: string }>;
   /**
    * Why a yes on an ask that places a secret may be KOS's own hand, if it
    * may: decided on the device KOS is working on in that chat, or a moment
@@ -330,7 +331,7 @@ export class Decisions {
     let reply: string | undefined;
     let stuck: string | undefined;
     try {
-      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: by, origin: "system" })).reply;
+      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: by, origin: "system", ...(action.attended ? {} : { unattended: true }) })).reply;
     } catch (err) {
       stuck = err instanceof Error ? err.message : String(err);
       reply = `Approved @approval:${id} but resume failed: ${stuck}`;
@@ -357,7 +358,7 @@ export class Decisions {
     let reply: string | undefined;
     let stuck: string | undefined;
     try {
-      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: decidedBy ?? d.ownerId, origin: "system" })).reply;
+      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: decidedBy ?? d.ownerId, origin: "system", ...(denied.attended ? {} : { unattended: true }) })).reply;
     } catch (err) {
       stuck = err instanceof Error ? err.message : String(err);
       reply = `Denied @approval:${id}.`;

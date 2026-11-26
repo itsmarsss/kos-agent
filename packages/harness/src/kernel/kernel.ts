@@ -868,7 +868,7 @@ export class Kernel {
         }
       },
       onToolRan: (tool) => this.afterToolRan(tool),
-      handleMessage: (text, opts) => this.handleMessage(text, opts),
+      handleMessage: (text, opts) => this.resumeDecided(text, opts),
       handsOn: (device, conversationId) => this.handsOn?.(device, conversationId),
       halted: () => this.killSwitch.halted,
       codes: args.secrets.codes,
@@ -1929,9 +1929,40 @@ export class Kernel {
     this.bus.emit({ kind: "run:said", conversationId, jobId: job.id, reply: ran.reply, sent: reported || ran.delivered + ran.quiet > 0, failed });
   }
 
+  /**
+   * A held turn carried on after a decision no turn waited for. A job's own
+   * run, carried on (after a restart, say), is still the job's: its
+   * unaddressed messages go to the job's place, and its answer is told as a
+   * run's, once it ends, rather than as a conversation's.
+   */
+  private async resumeDecided(text: string, opts: { sessionId: string; userId: string; origin: "system"; unattended?: boolean }): Promise<HandleResult> {
+    const { unattended, ...resume } = opts;
+    const job = unattended ? this.jobOfThread(opts.sessionId) : undefined;
+    if (!job) return this.handleMessage(text, resume);
+    const mark = this.audit.lastId();
+    const since = Date.now();
+    const res = await this.handleMessage(text, { ...resume, via: "schedule", from: { kind: "schedule", name: job.name, id: String(job.id) } });
+    const tell = (end: TurnEnd): void => this.tellRun(job, opts.sessionId, { reply: "reply" in end ? end.reply : "", ...this.jobTurnCalls(opts.sessionId, mark, since, res.turnId), ...("stopped" in end ? { stopped: end.stopped } : {}) });
+    if (res.ended) void res.ended.then(tell, () => undefined);
+    else tell({ reply: res.reply });
+    return res;
+  }
+
   /** The brief of the blob a job runs as, when it is one's. */
   private jobBrief(job: CronJob): string | undefined {
     return job.agent ? this.roles.get(job.agent)?.brief : undefined;
+  }
+
+  /**
+   * The scheduled job whose own run a thread holds: a job's thread, or a
+   * blob's when that blob has one schedule. Undefined for any other chat.
+   */
+  private jobOfThread(conversationId: string): CronJob | undefined {
+    const id = /^cron:(\d+)$/.exec(conversationId)?.[1];
+    if (id) return this.crons.get(Number(id));
+    const blob = this.conversations.get(conversationId)?.role;
+    const jobs = blob && conversationId === agentConversationId(blob) ? this.crons.list().filter((j) => j.agent === blob) : [];
+    return jobs.length === 1 ? jobs[0] : undefined;
   }
 
   /** The job's thread, made on its first run so an unfired schedule leaves none. */

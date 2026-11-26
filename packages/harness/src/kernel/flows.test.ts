@@ -1340,6 +1340,31 @@ describe("KOS end-to-end flows", () => {
     expect(existsSync(join(kernel.workspace.root, "doomed.txt"))).toBe(false);
   });
 
+  it("carries a job's own run on after a decision nothing waited for as the job's run, and a question of the owner's as a conversation", async () => {
+    const model = scripted([text("Posted to #school."), text("Moved it to 6 PM.")]);
+    kernel = await boot(model.inference);
+    writeFileSync(join(kernel.workspace.root, "a.txt"), "a");
+    writeFileSync(join(kernel.workspace.root, "b.txt"), "b");
+    const job = kernel.crons.create({ name: "School Evening Nudge", schedule: "0 18 * * *", type: "self_prompt", prompt: "post the nudge" });
+    const thread = `cron:${job.id}`;
+    kernel.conversations.create({ id: thread, userId: "owner", title: job.name });
+    const said: { from?: string; origin: string }[] = [];
+    const runs: { jobId: number; reply: string }[] = [];
+    kernel.bus.on("turn:said", (e) => void said.push({ origin: e.origin, ...(e.from ? { from: e.from.kind } : {}) }));
+    kernel.bus.on("run:said", (e) => void runs.push({ jobId: e.jobId, reply: e.reply }));
+    // Left by the job's run (nobody started it), then by the owner's question in the thread.
+    const ofRun = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "a.txt" }, riskTier: "risky", conversationId: thread, attended: false });
+    await kernel.approve(ofRun.id, undefined, { surface: "dashboard" });
+    const ofOwner = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "b.txt" }, riskTier: "risky", conversationId: thread, attended: true, owner: true });
+    await kernel.approve(ofOwner.id, undefined, { surface: "dashboard" });
+    await kernel.queue.drain();
+    expect(said).toEqual([
+      { origin: "system", from: "schedule" },
+      { origin: "system" },
+    ]);
+    expect(runs).toEqual([{ jobId: job.id, reply: "Posted to #school." }]);
+  });
+
   it("records a failed actions run, which is the one worth reading", async () => {
     const model = scripted([text("unused")]);
     kernel = await boot(model.inference);
