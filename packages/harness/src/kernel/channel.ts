@@ -103,6 +103,7 @@ export function connectChannel(
         ...(ctx.members?.length ? { members: ctx.members } : {}),
         ...(ctx.context ? { context: ctx.context } : {}),
         ...(ctx.contextRides ? { contextRides: true } : {}),
+        ...(ctx.contextTaint ? { contextTaint: ctx.contextTaint } : {}),
         ...(ctx.quote ? { quote: ctx.quote } : {}),
         ...(ctx.roomTalk ? { roomTalk: ctx.roomTalk } : {}),
         ...(ctx.late ? { late: true } : {}),
@@ -124,7 +125,8 @@ export function connectChannel(
       // A chat in Auto went ahead without asking: its answer says so where no chip shows it.
       const reply = res.reply && kernel.ranUnderAuto(res.conversationId) ? `${AUTO_MARK} ${res.reply}` : res.reply;
       // The chat it was said in rides along, so a button on it acts there.
-      const said = { conversationId: res.conversationId, ...waiting };
+      // A chat whose history holds outside text answers without link previews, which the surface would fetch.
+      const said = { conversationId: res.conversationId, ...waiting, ...(kernel.chatTaint(res.conversationId).length ? { noPreviews: true } : {}) };
       if (res.from && reply) return { text: reply, from: res.from, ...said };
       return { text: reply || "(no reply)", ...said };
     },

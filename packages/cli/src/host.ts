@@ -527,6 +527,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
             ...(payload.buttons ? { buttons: payload.buttons } : {}),
             ...(payload.from ? { from: payload.from } : {}),
             ...(payload.silent ? { silent: true } : {}),
+            ...(payload.noPreviews ? { noPreviews: true } : {}),
           };
           // A scheduled run that named nowhere speaks in its own place on the
           // server (the job's thread, the blob's channel) rather than the DM;
@@ -1342,6 +1343,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
         senderFor: (conv) => kernel.senderFor(conv),
         filesFor: keptFiles,
         postIn: (target, msg) => adapter!.postIn(target, msg),
+        tainted: (conv) => kernel.chatTaint(conv).length > 0,
         openStory: (target, from) => adapter!.openStory(target, from),
         warn: (message) => console.warn(`[discord] thread mirror: ${message}`),
       });

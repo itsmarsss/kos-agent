@@ -57,6 +57,8 @@ export interface ThreadMirrorDeps {
   filesFor(files: { name: string; path: string }[]): NonNullable<OutboundMessage["files"]>;
   /** Post a message in a target by id. */
   postIn(target: string, msg: OutboundMessage): Promise<void>;
+  /** Whether a chat's history holds text the owner did not write: its answers go without link previews. */
+  tainted?(conversationId: string): boolean;
   /** Open a live, editable story line in a target, told by whoever answers there. */
   openStory(target: string, from?: Sender): Promise<Story | undefined>;
   now?: () => number;
@@ -149,7 +151,8 @@ export class ThreadMirror {
       }
       if (said.reply.trim()) {
         const from = this.deps.senderFor(said.conversationId);
-        await this.deps.postIn(t.target, { text: said.reply, ...(from ? { from } : {}) });
+        const quiet = this.deps.tainted?.(said.conversationId) === true;
+        await this.deps.postIn(t.target, { text: said.reply, ...(from ? { from } : {}), ...(quiet ? { noPreviews: true } : {}) });
       }
     });
   }
