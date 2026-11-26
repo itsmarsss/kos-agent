@@ -42,15 +42,18 @@ public enum Routes {
     public let alwaysNote: String?
     /// The secret a secrets tool's ask places, and where.
     public let secret: ChatSecret?
+    /// Why approving runs it for no waiting turn, warned of before any yes.
+    public let detached: String?
 
     public init(
       id: Int, tool: String, args: String? = nil, reason: String? = nil, summary: String? = nil, mechanics: String? = nil, title: String? = nil,
       steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, risk: String? = nil, why: String? = nil,
       conversationId: String? = nil, asker: String? = nil, requestedAt: Double, expiresAt: Double? = nil, always: String? = nil,
-      alwaysTip: String? = nil, alwaysNote: String? = nil, secret: ChatSecret? = nil
+      alwaysTip: String? = nil, alwaysNote: String? = nil, secret: ChatSecret? = nil, detached: String? = nil
     ) {
       self.id = id
       self.secret = secret
+      self.detached = detached
       self.tool = tool
       self.args = args
       self.reason = reason
