@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { CronScheduler, type KillSwitch, type SchedulerOptions } from "./scheduler.js";
+import { shortestGap } from "./occurrence.js";
 import { CronStore } from "./store.js";
 import type { CronJob } from "./types.js";
 
@@ -164,19 +165,23 @@ describe("running what fell due while nothing was listening", () => {
   const HOUR_MS = 3_600_000;
   const DAY_MS = 24 * HOUR_MS;
 
+  /** The start of this minute: late is then exactly what a test says, to the second. */
+  const minuteNow = (): number => Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
+
   function scheduler(options: SchedulerOptions = {}): CronScheduler {
+    const now = minuteNow();
     return new CronScheduler(
       store,
       async (j) => {
         fired.push(j.id);
       },
-      { timezone: () => "UTC", catchUpGapMs: 0, ...options },
+      { timezone: () => "UTC", catchUpGapMs: 0, clock: () => now, ...options },
     );
   }
 
-  /** A daily job whose time came round `lateMs` ago, last run `ranBeforeMs` before that. */
+  /** A daily job whose time came round `lateMs` before this minute, last run `ranBeforeMs` before that. */
   function daily(lateMs: number, ranBeforeMs = DAY_MS - HOUR_MS): number {
-    const due = new Date(Math.floor((Date.now() - lateMs) / MINUTE_MS) * MINUTE_MS);
+    const due = new Date(minuteNow() - lateMs);
     const created = store.create({
       name: "daily",
       schedule: `${due.getUTCMinutes()} ${due.getUTCHours()} * * *`,
@@ -298,8 +303,28 @@ describe("running what fell due while nothing was listening", () => {
     expect(fired).toEqual([]);
     expect(skipped).toHaveLength(1);
     expect(skipped[0]!.id).toBe(id);
-    expect(Date.now() - skipped[0]!.at).toBeGreaterThanOrEqual(4 * HOUR_MS);
+    expect(minuteNow() - skipped[0]!.at).toBe(4 * HOUR_MS);
     expect(skipped[0]!.why).toBe(`missed by 4h; next run at ${nextWords(sched, id)}`);
+    sched.stop();
+  });
+
+  it("says a run just past the limit is over it, never a whole number that reads as within it", () => {
+    const id = daily(3 * HOUR_MS);
+    const skipped: string[] = [];
+    const sched = scheduler({ clock: () => minuteNow() + 30_000, onSkip: (_j, _at, why) => skipped.push(why) });
+    sched.start();
+
+    expect(sched.catchUp()).toBe(0);
+    expect(skipped).toEqual([`missed by over 3h; next run at ${nextWords(sched, id)}`]);
+    sched.stop();
+  });
+
+  it("runs a run exactly at the limit", () => {
+    daily(3 * HOUR_MS);
+    const sched = scheduler();
+    sched.start();
+
+    expect(sched.catchUp()).toBe(1);
     sched.stop();
   });
 
@@ -328,8 +353,8 @@ describe("running what fell due while nothing was listening", () => {
   it("never catches up a job that runs hourly or more often, and notes nothing", async () => {
     // Its next tick is as good as a late run.
     hourly(5 * HOUR_MS);
-    store.create({ name: "often", schedule: "*/15 * * * *", type: "actions", enabled: true });
-    store.markRun(store.list().at(-1)!.id, Date.now() - 2 * HOUR_MS);
+    const often = store.create({ name: "often", schedule: "*/15 * * * *", type: "actions", enabled: true });
+    store.markRun(often.id, Date.now() - 2 * HOUR_MS);
     const skipped: string[] = [];
     const sched = scheduler({ onSkip: (_j, _at, why) => skipped.push(why) });
     sched.start();
@@ -350,6 +375,56 @@ describe("running what fell due while nothing was listening", () => {
 
     expect(sched.catchUp()).toBe(1);
     sched.stop();
+  });
+
+  describe("after a sleep", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /**
+     * Asleep through a job's time, node-cron wakes more than a second late,
+     * does not run the tick, and says it missed it. The scheduler takes that
+     * as a restart for the job: run within the limit, skipped past it.
+     */
+    async function wake(lateMs: number, lastRunAt: number | null): Promise<{ id: number; skipped: string[]; sched: CronScheduler }> {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      vi.setSystemTime(Date.parse("2026-11-25T08:59:30Z"));
+      const created = store.create({ name: "kickoff", schedule: "0 9 * * *", type: "actions", enabled: true });
+      if (lastRunAt !== null) store.markRun(created.id, lastRunAt);
+      const skipped: string[] = [];
+      const sched = new CronScheduler(store, async (j) => void fired.push(j.id), {
+        timezone: () => "UTC",
+        catchUpGapMs: 0,
+        onSkip: (_j, _at, why) => skipped.push(why),
+      });
+      sched.start();
+      // The lid closes before 9:00 and opens lateMs after it.
+      vi.setSystemTime(Date.parse("2026-11-25T09:00:00Z") + lateMs - 30_000);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(10);
+      return { id: created.id, skipped, sched };
+    }
+
+    it("runs the missed run once when it wakes within the limit", async () => {
+      const { sched, skipped } = await wake(2 * HOUR_MS, Date.parse("2026-11-24T09:00:05Z"));
+      expect(fired).toHaveLength(1);
+      expect(skipped).toEqual([]);
+      sched.stop();
+    });
+
+    it("skips it, saying so, when it wakes past the limit", async () => {
+      const { sched, skipped } = await wake(4 * HOUR_MS, Date.parse("2026-11-24T09:00:05Z"));
+      expect(fired).toEqual([]);
+      expect(skipped).toEqual(["missed by 4h; next run at Thu, Nov 26, 9:00 AM"]);
+      sched.stop();
+    });
+
+    it("counts a job that never ran from the tick it missed, since it was held then", async () => {
+      const { sched } = await wake(HOUR_MS, null);
+      expect(fired).toHaveLength(1);
+      sched.stop();
+    });
   });
 
   it("does not fire a job that has never run", async () => {
@@ -429,6 +504,63 @@ describe("what a schedule really missed, in the profile's timezone", () => {
       store.delete(created.id);
     }
   }
+
+  /** What catchUp does for a job on `schedule` last run at `ranAt`, checked at `now`, under a 3-hour limit unless given. */
+  function caught(schedule: string, ranAt: string, now: string, timezone = "UTC", limit = 3): "ran" | "skipped" | "nothing" {
+    const created = store.create({ name: "j", schedule, type: "actions", enabled: true });
+    store.markRun(created.id, Date.parse(ranAt));
+    let skipped = false;
+    const sched = new CronScheduler(store, async () => undefined, {
+      clock: () => Date.parse(now),
+      timezone: () => timezone,
+      catchUpGapMs: 0,
+      catchUpLimitHours: () => limit,
+      onSkip: () => (skipped = true),
+    });
+    sched.start();
+    try {
+      return sched.catchUp() > 0 ? "ran" : skipped ? "skipped" : "nothing";
+    } finally {
+      sched.stop();
+      store.delete(created.id);
+    }
+  }
+
+  it("reads hourly from the schedule's own period, not from the hour before the run it missed", () => {
+    // Twice an hour apart is hourly, whichever of the two was missed: neither is caught up.
+    expect(caught("0 9,10 * * *", "2026-11-18T10:00:30Z", "2026-11-19T09:30:00Z")).toBe("nothing");
+    expect(caught("0 9,10 * * *", "2026-11-19T09:00:30Z", "2026-11-19T10:30:00Z")).toBe("nothing");
+    // Hourly through the working day, the 8:00 after a night included.
+    expect(caught("0 8-17 * * *", "2026-11-18T17:00:30Z", "2026-11-19T08:30:00Z")).toBe("nothing");
+    expect(caught("*/15 * * * *", "2026-11-19T07:00:30Z", "2026-11-19T08:20:00Z")).toBe("nothing");
+  });
+
+  it("does not take a spring change for an hourly schedule", () => {
+    // Toronto skips 2:00 to 3:00 on 8 March 2026, so 1:00 and 3:00 are an hour apart that night; the job is still two-hourly.
+    expect(caught("0 1,3 * * *", "2026-03-08T06:00:30Z", "2026-03-08T08:00:00Z", "America/Toronto")).toBe("ran");
+    expect(shortestGap([Date.parse("2026-03-08T06:00:00Z"), Date.parse("2026-03-08T07:00:00Z")], "America/Toronto")).toBe(2 * 3_600_000);
+    // The autumn change repeats 1:30: one run, not a gap of nothing.
+    expect(shortestGap([Date.parse("2026-11-01T05:30:00Z"), Date.parse("2026-11-01T06:30:00Z"), Date.parse("2026-11-02T06:30:00Z")], "America/Toronto")).toBe(24 * 3_600_000);
+  });
+
+  it("misses nothing at the 2:30 Toronto's spring change skips, and catches up the next real one", () => {
+    expect(caught("30 2 * * *", "2026-03-07T07:30:05Z", "2026-03-08T12:00:00Z", "America/Toronto")).toBe("nothing");
+    expect(caught("30 2 * * *", "2026-03-07T07:30:05Z", "2026-03-09T07:00:00Z", "America/Toronto")).toBe("ran");
+  });
+
+  it("always catches up a job that runs less often than daily, however late", () => {
+    // Monthly, missed by twenty days.
+    expect(caught("0 0 1 * *", "2026-10-01T00:00:05Z", "2026-11-21T00:00:00Z")).toBe("ran");
+    // Yearly, missed by months.
+    expect(caught("0 0 1 1 *", "2025-01-01T00:00:05Z", "2026-05-01T00:00:00Z")).toBe("ran");
+    // Weekly, missed by two days.
+    expect(caught("0 9 * * 1", "2026-11-09T09:00:05Z", "2026-11-18T09:00:00Z")).toBe("ran");
+    // Daily is held to the limit; weekdays too.
+    expect(caught("0 9 * * *", "2026-11-17T09:00:05Z", "2026-11-18T13:00:00Z")).toBe("skipped");
+    expect(caught("0 9 * * 1-5", "2026-11-16T09:00:05Z", "2026-11-17T13:00:00Z")).toBe("skipped");
+    // Never is never, monthly or not.
+    expect(caught("0 0 1 * *", "2026-10-01T00:00:05Z", "2026-11-01T00:10:00Z", "UTC", 0)).toBe("skipped");
+  });
 
   it("fires nothing for an uneven schedule that missed nothing", () => {
     // Twice a day, checked at 05:04: the last run was 17:00 yesterday, and nothing came round since.

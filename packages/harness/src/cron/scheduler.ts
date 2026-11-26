@@ -1,6 +1,6 @@
 import cron, { type ScheduledTask } from "node-cron";
 
-import { lastOccurrence } from "./occurrence.js";
+import { lastOccurrence, shortestGap } from "./occurrence.js";
 import type { CronStore } from "./store.js";
 import type { CronJob } from "./types.js";
 
@@ -24,8 +24,8 @@ export interface SchedulerOptions {
   /** The pause between one missed run and the next after a restart. */
   catchUpGapMs?: number;
   /**
-   * Hours late a missed run may still run after a restart; later than this
-   * it is skipped. Zero never catches up. Read at each catch-up.
+   * Hours late a missed run may still run after a restart or a sleep; later
+   * than this it is skipped. Zero never catches up. Read at each catch-up.
    */
   catchUpLimitHours?: () => number;
   /** A missed run left for the next one: when it was due, and why it was left. */
@@ -43,15 +43,25 @@ const DEFAULT_CATCH_UP_GAP_MS = 5_000;
 const DEFAULT_CATCH_UP_LIMIT_HOURS = 3;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
+/** Runs looked ahead at to read a schedule's period. */
+const PERIOD_RUNS = 5;
 
-/** How late a missed run is, as the skip reason says it: minutes under an hour, hours after. */
+/**
+ * How late a missed run is, as the skip reason says it, rounded down and
+ * "over" when there is more: 3h and 30s late reads "over 3h", never "3h",
+ * which would look like it should have run under a 3-hour limit.
+ */
 function lateWords(ms: number): string {
-  if (ms < HOUR_MS) return `${Math.max(1, Math.floor(ms / MINUTE_MS))}m`;
-  const hours = ms / HOUR_MS;
-  return hours < 10 ? `${Number(hours.toFixed(1))}h` : `${Math.round(hours)}h`;
+  // To the second: a wake a few milliseconds after a whole hour is not "over" it.
+  const late = Math.floor(ms / 1000) * 1000;
+  const [unit, size] = late < HOUR_MS ? ["m", MINUTE_MS] : ["h", HOUR_MS];
+  const whole = Math.floor(late / size);
+  if (whole === 0) return "under 1m";
+  return `${late % size > 0 ? "over " : ""}${whole}${unit}`;
 }
 
-/** Why a missed run was skipped: "missed by 4h; next run at Wed, Nov 26, 9:00 AM". */
+/** Why a missed run was skipped: "missed by over 4h; next run at Wed, Nov 26, 9:00 AM". */
 function skipReason(lateMs: number, nextAt: number | undefined, timezone: string | undefined): string {
   const missed = `missed by ${lateWords(lateMs)}`;
   if (nextAt === undefined) return missed;
@@ -96,6 +106,8 @@ export class CronScheduler {
         },
         timezone ? { timezone } : {},
       );
+      // A tick that came too late to run: the machine slept through it.
+      task.on("execution:missed", (context) => this.missedTick(job.id, context.date.getTime()));
       this.tasks.set(job.id, task);
     }
   }
@@ -119,16 +131,11 @@ export class CronScheduler {
    * the host is down does not happen and nothing says so. On a laptop that is
    * most of them: on the machine this was written against, the nightly backup
    * had run every night since July while the 9am and noon jobs had not fired
-   * once in two days, because nothing was running at 9am or noon.
+   * once in two days, because nothing was running at 9am or noon. Called at
+   * boot; a sleep comes in through missedTick.
    *
    * At most one run per job, however many were missed. Ten days offline
    * should produce today's nudge, not ten of them.
-   *
-   * Not any run, however late: the morning kickoff caught up at midnight
-   * reads as noise, and the real one follows nine hours later. A run more
-   * than the catch-up limit late is skipped, said so in Runs only, and the
-   * next one runs on time. A job that runs hourly or more often never
-   * catches up: its next tick is as good as a late one.
    *
    * One after another, a few seconds apart: fired together after a restart,
    * a day's missed runs spent the provider's minute of tokens at once and
@@ -137,32 +144,71 @@ export class CronScheduler {
    */
   catchUp(): number {
     let ran = 0;
+    for (const id of this.tasks.keys()) if (this.catchUpJob(id)) ran += 1;
+    return ran;
+  }
+
+  /** Jobs with a missed tick waiting to be looked at, so one wake's many missed slots are one look. */
+  private readonly missedTicks = new Set<number>();
+
+  /**
+   * A tick node-cron would not run because it came more than a second late,
+   * which is what a sleep through a job's time looks like: it says so and
+   * moves on to the next. Treated as a restart is, for that job. A job that
+   * has never run counts from the tick it missed, since it was held then.
+   */
+  private missedTick(id: number, slot: number): void {
+    if (this.missedTicks.has(id)) return;
+    this.missedTicks.add(id);
+    setTimeout(() => {
+      this.missedTicks.delete(id);
+      if (this.tasks.has(id)) this.catchUpJob(id, slot - 1);
+    }, 0);
+  }
+
+  /** Jobs whose catch-up run is queued and not yet done. */
+  private readonly queued = new Set<number>();
+
+  /**
+   * Catch one job up, or skip it: true when a run was queued.
+   *
+   * Not any run, however late: the morning kickoff caught up at midnight
+   * reads as noise, and the real one follows nine hours later. A run more
+   * than the catch-up limit late is skipped, said so in Runs only, and the
+   * next one runs on time. A job that runs hourly or more often never
+   * catches up: its next tick is as good as a late one. One that runs less
+   * often than daily always does, however late: next month's run is no
+   * substitute for this month's. Zero, the owner's "never", holds for all.
+   */
+  private catchUpJob(id: number, since?: number): boolean {
+    const task = this.tasks.get(id);
+    const job = this.store.get(id);
+    if (!task || !job?.enabled || this.queued.has(id)) return false;
+    // Never run is not missed: a job created while the host was down should
+    // start at its next proper time, not the moment it is noticed.
+    const after = job.lastRunAt ?? since;
+    if (!after) return false;
     const timezone = this.timezone();
     const now = this.now();
+    const missedAt = lastOccurrence(task, job.schedule, timezone, now, after);
+    if (missedAt === null) return false;
+    const period = shortestGap(task.getNextRuns(PERIOD_RUNS).map((d) => d.getTime()), timezone);
+    if (period <= HOUR_MS) return false;
     const limitMs = (this.options.catchUpLimitHours?.() ?? DEFAULT_CATCH_UP_LIMIT_HOURS) * HOUR_MS;
-    for (const [id, task] of this.tasks) {
-      const job = this.store.get(id);
-      if (!job?.enabled) continue;
-      // Never run is not missed: a job created while the host was down should
-      // start at its next proper time, not the moment it is noticed.
-      if (!job.lastRunAt) continue;
-      const missedAt = lastOccurrence(task, job.schedule, timezone, now, job.lastRunAt);
-      if (missedAt === null) continue;
-      // Hourly or more often: it also came round in the hour before the run it missed.
-      const hourlyOrMore = lastOccurrence(task, job.schedule, timezone, missedAt - 1, missedAt - HOUR_MS - 1) !== null;
-      if (hourlyOrMore) continue;
-      const late = now - missedAt;
-      if (limitMs === 0 || late > limitMs) {
-        this.options.onSkip?.(job, missedAt, skipReason(late, task.getNextRuns(1)[0]?.getTime(), timezone));
-        continue;
-      }
-      ran += 1;
-      const gap = this.options.catchUpGapMs ?? DEFAULT_CATCH_UP_GAP_MS;
-      this.catching = this.catching
-        .then(() => this.fire(job))
-        .then(() => new Promise((resolve) => setTimeout(resolve, gap)));
+    const late = now - missedAt;
+    if (limitMs === 0 || (period <= DAY_MS && late > limitMs)) {
+      this.options.onSkip?.(job, missedAt, skipReason(late, task.getNextRuns(1)[0]?.getTime(), timezone));
+      return false;
     }
-    return ran;
+    this.queued.add(id);
+    const gap = this.options.catchUpGapMs ?? DEFAULT_CATCH_UP_GAP_MS;
+    this.catching = this.catching
+      .then(() => this.fire(job))
+      .then(() => {
+        this.queued.delete(id);
+        return new Promise((resolve) => setTimeout(resolve, gap));
+      });
+    return true;
   }
 
   stop(): void {
