@@ -1328,7 +1328,6 @@ export class Kernel {
           owner,
           ownWords,
           ...(guest ? { guest } : {}),
-          // The job behind a schedule's run, whose unaddressed messages go to its place.
           ...(scheduledId !== undefined ? { scheduled: scheduledId } : {}),
           // A repair KOS began on its own has nobody watching: what it asks waits in the Inbox for the owner rather than lapsing in half an hour.
           ...(opts.via === "fix" && !owner ? { waitForApproval: false } : {}),
