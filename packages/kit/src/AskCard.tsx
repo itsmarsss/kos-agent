@@ -228,6 +228,12 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
           <Tag tone="warn">{view.risk}</Tag>
         </span>
       )}
+      {/* Before any yes: the turn read what the owner did not write first, which may be what suggested this. */}
+      {view.after && (
+        <p className="kos-ask-detached kos-ask-after" role="note">
+          {view.after}
+        </p>
+      )}
       {/* Before any yes: no turn waits on this one, so its result goes to its chat unread. */}
       {view.detached && (
         <p className="kos-ask-detached" role="note">

@@ -101,6 +101,8 @@ export interface PendingAction {
   secret?: AskSecret;
   /** The host's warning that a yes runs it for no waiting turn, its result going to its chat. */
   detached?: string;
+  /** The host's line naming what the asking turn read that the owner did not write. */
+  after?: string;
 }
 
 export interface Project {

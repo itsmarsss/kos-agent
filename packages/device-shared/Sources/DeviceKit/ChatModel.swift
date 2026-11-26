@@ -97,16 +97,19 @@ public final class ChatModel: ObservableObject {
     public let secret: ChatSecret?
     /// Why approving runs it for no waiting turn, as the host words it: the card warns of it before any yes.
     public let detached: String?
+    /// What the asking turn read that the owner did not write, as the host words it: warned of before any yes.
+    public let after: String?
 
     public init(
       id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
       steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, tooLong: Bool = false, risk: String? = nil, why: String? = nil, reason: String? = nil,
       always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expires: Date? = nil,
-      chat: String? = nil, secret: ChatSecret? = nil, detached: String? = nil
+      chat: String? = nil, secret: ChatSecret? = nil, detached: String? = nil, after: String? = nil
     ) {
       self.id = id
       self.secret = secret
       self.detached = detached
+      self.after = after
       self.summary = summary
       self.title = title
       self.chat = chat

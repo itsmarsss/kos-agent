@@ -27,6 +27,7 @@ export function pendingView(a: PendingAction): AskView {
     ...(view.always && a.always ? { always: a.always, ...(a.alwaysTip ? { alwaysTip: a.alwaysTip } : {}) } : {}),
     // Only the host knows whether a turn still waits on it.
     ...(a.detached ? { detached: a.detached } : {}),
+    ...(a.after ? { after: a.after } : {}),
   };
 }
 

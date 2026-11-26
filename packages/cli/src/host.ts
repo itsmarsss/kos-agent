@@ -592,6 +592,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       ...(action.secret ? { secret: action.secret } : {}),
       ...(action.beyondAuto ? { beyondAuto: true } : {}),
       ...(detached ? { detached } : {}),
+      ...(action.taint ? { taint: action.taint } : {}),
     };
   };
   /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */

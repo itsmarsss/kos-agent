@@ -1,4 +1,4 @@
-import type { ActionHome, AskDetached, AskSecret } from "@kos/shared";
+import type { ActionHome, AskDetached, AskSecret, TaintSource } from "@kos/shared";
 
 import type { Attachment } from "../kernel/attachments.js";
 import type { MessageRoom, Quote } from "../models/types.js";
@@ -411,6 +411,8 @@ export interface ApprovalRequest {
   secret?: AskSecret;
   /** No turn waits on the answer: a yes runs it and its result goes to its chat, which the card warns of. */
   detached?: AskDetached;
+  /** What the asking turn read that the owner did not write: the card says so in one line. */
+  taint?: readonly TaintSource[];
 }
 
 /** Who settled an ask and when, as a settled prompt says it. */

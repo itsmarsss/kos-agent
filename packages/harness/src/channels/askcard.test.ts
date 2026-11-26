@@ -60,6 +60,15 @@ describe("an approval card drawn from the ask view", () => {
     expect(approvalCard({ ...later, detached: undefined }).content).not.toContain("⚠ Nothing is waiting");
   });
 
+  it("names what a tainted turn read before any yes, on the card and in a text", () => {
+    const tainted: ApprovalRequest = { id: "44", text: "x", tool: "notify", args: { to: "discord:channel:9", text: "hi" }, taint: [{ kind: "mail", where: "x@evil.example" }, { kind: "page", where: "evil.example" }] };
+    const line = "After reading: an email from x@evil.example, a page on evil.example";
+    // Literal on Discord: the address mentions nobody.
+    expect(approvalCard(tainted).content).toContain(`⚠ ${line.replace("@", "\\@")}`);
+    expect(approvalLines(tainted)).toContain(line);
+    expect(approvalCard({ ...tainted, taint: undefined }).content).not.toContain("After reading");
+  });
+
   it("attaches the whole call as call.json when a step is cut", () => {
     const typed = "y".repeat(500);
     const card = approvalCard({ id: "41", text: "x", tool: "computer.act", args: { actions: [{ action: "type", text: typed }] } });

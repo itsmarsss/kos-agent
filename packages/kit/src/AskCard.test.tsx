@@ -56,6 +56,14 @@ describe("the approval card", () => {
     expect(container.querySelector(".kos-ask-risk")?.textContent).toBe("Clicks, types or fills on the page");
   });
 
+  it("names what the turn read before any yes, and nothing for an untainted ask", () => {
+    const after = askView({ tool: "browser.act", args, reason: "clicks", taint: [{ kind: "page", where: "evil.example" }] });
+    const { container } = card(vi.fn(), { view: after });
+    expect(container.querySelector(".kos-ask-after")?.textContent).toBe("After reading: a page on evil.example");
+    cleanup();
+    expect(card().container.querySelector(".kos-ask-after")).toBeNull();
+  });
+
   it("keeps the arguments folded under Details until asked, then shows them as fields", () => {
     const { container } = card();
     const toggle = screen.getByRole("button", { name: "Details" });
