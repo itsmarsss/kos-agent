@@ -4,7 +4,7 @@ import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
 import type { RiskTier } from "../risk/tiers.js";
 import type { StepTally } from "./outcome.js";
-import { caller } from "../kernel/caller.js";
+import { caller, turn } from "../kernel/caller.js";
 
 export interface AuditEntry {
   tool: string;
@@ -21,6 +21,8 @@ export interface AuditEntry {
   approvalId?: number;
   /** The conversation whose turn made the call; the calling turn's when not said. */
   conversationId?: string;
+  /** The turn that made the call; the calling turn's when not said. */
+  turnId?: string;
 }
 
 export interface AuditRecord {
@@ -107,6 +109,21 @@ export function ensureAuditSchema(db: Db): void {
   // Where the yes that let a risky call run came from, and the ask it answered.
   if (!columns.some((c) => c.name === "decided_via")) db.exec(`ALTER TABLE audit_log ADD COLUMN decided_via TEXT`);
   if (!columns.some((c) => c.name === "approval_id")) db.exec(`ALTER TABLE audit_log ADD COLUMN approval_id INTEGER`);
+  // Which turn made a call: two turns of one chat (a scheduled run waiting on the owner, the next run) are then told apart.
+  if (!columns.some((c) => c.name === "turn_id")) db.exec(`ALTER TABLE audit_log ADD COLUMN turn_id TEXT`);
+}
+
+/**
+ * A notify call that names `quiet` at all: a quiet ending, or one refused.
+ * Args that are not JSON (none should be) are no quiet ending.
+ */
+const QUIET_CALL = `(tool = 'notify' AND CASE WHEN json_valid(args) THEN coalesce(json_type(args, '$.quiet'), 'null') != 'null' ELSE 0 END)`;
+
+/** One chat's calls after a mark, and only one turn's when it is named. */
+function after(conversationId: string, afterId: number, turnId?: string): { where: string; params: (string | number)[] } {
+  return turnId === undefined
+    ? { where: `conversation_id = ? AND id > ?`, params: [conversationId, afterId] }
+    : { where: `conversation_id = ? AND id > ? AND turn_id = ?`, params: [conversationId, afterId, turnId] };
 }
 
 /**
@@ -131,8 +148,8 @@ export class AuditLog {
     const result = this.redact(entry.result);
     const info = this.db
       .prepare(
-        `INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, approved_by, decided_via, approval_id, conversation_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, approved_by, decided_via, approval_id, conversation_id, turn_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         entry.tool,
@@ -145,6 +162,7 @@ export class AuditLog {
         entry.decidedVia ?? null,
         entry.approvalId ?? null,
         entry.conversationId ?? caller.getStore() ?? null,
+        entry.turnId ?? turn.getStore() ?? null,
         this.now(),
       );
     return Number(info.lastInsertRowid);
@@ -214,25 +232,42 @@ export class AuditLog {
     return row.id ?? 0;
   }
 
-  /** The calls one chat made after a mark, and the first that failed: one run's steps, for its outcome. */
-  tally(conversationId: string, afterId: number): StepTally {
+  /**
+   * The calls one chat made after a mark, and the first that failed: one
+   * run's steps, for its outcome; one turn's alone when it is named. A
+   * refused quiet ending is named first only when nothing else failed: it
+   * is the model's slip, which it may have put right, not the job's fault.
+   */
+  tally(conversationId: string, afterId: number, turnId?: string): StepTally {
+    const { where, params } = after(conversationId, afterId, turnId);
     const row = this.db
-      .prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(is_error), 0) AS failed FROM audit_log WHERE conversation_id = ? AND id > ?`)
-      .get(conversationId, afterId) as { total: number; failed: number };
+      .prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(is_error), 0) AS failed FROM audit_log WHERE ${where}`)
+      .get(...params) as { total: number; failed: number };
     const first = row.failed > 0
       ? (this.db
-          .prepare(`SELECT tool, result FROM audit_log WHERE conversation_id = ? AND id > ? AND is_error = 1 ORDER BY id LIMIT 1`)
-          .get(conversationId, afterId) as { tool: string; result: string })
+          .prepare(`SELECT tool, result FROM audit_log WHERE ${where} AND is_error = 1 ORDER BY ${QUIET_CALL}, id LIMIT 1`)
+          .get(...params) as { tool: string; result: string })
       : undefined;
     return { total: row.total, failed: row.failed, firstError: first ? `${first.tool}: ${first.result}` : null };
   }
 
-  /** How many calls of one tool a chat made after a mark that ran and worked: what a turn actually delivered. */
-  worked(conversationId: string, afterId: number, tool: string): number {
+  /**
+   * A chat's notify calls after a mark, one turn's alone when it is named:
+   * the messages it delivered (ran and worked), the quiet endings it
+   * declared, which posted nothing on purpose, and the quiet endings that
+   * were refused (said with a message, or with no reason).
+   */
+  notified(conversationId: string, afterId: number, turnId?: string): { delivered: number; quiet: number; quietRefused: number } {
+    const { where, params } = after(conversationId, afterId, turnId);
     const row = this.db
-      .prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE conversation_id = ? AND id > ? AND tool = ? AND is_error = 0`)
-      .get(conversationId, afterId, tool) as { n: number };
-    return row.n;
+      .prepare(
+        `SELECT COALESCE(SUM(is_error = 0 AND NOT ${QUIET_CALL}), 0) AS delivered,
+                COALESCE(SUM(is_error = 0 AND ${QUIET_CALL}), 0) AS quiet,
+                COALESCE(SUM(is_error = 1 AND ${QUIET_CALL}), 0) AS quietRefused
+         FROM audit_log WHERE ${where} AND tool = 'notify'`,
+      )
+      .get(...params) as { delivered: number; quiet: number; quietRefused: number };
+    return row;
   }
 
   /** One call in full, for a reader who opened it. */
