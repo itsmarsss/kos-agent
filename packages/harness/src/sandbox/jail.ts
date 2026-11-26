@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { realOf, vaultDir } from "../secrets/vault.js";
 import { bubblewrap, bwrapCommand } from "./bwrap.js";
 import type { JailNat } from "./jailrun.js";
+import { googleDir, googlePort } from "../google/account.js";
 
 /**
  * How a shell command is kept inside the workspace.
@@ -82,22 +83,24 @@ function portIn(value: string | undefined, fallback: number): number {
  * sites server after it, the Wi-Fi listener for phones (the API's plus two
  * unless KOS_DEVICE_LAN_PORT says), and KOS's own Chrome's debugging port
  * (9225 unless KOS_BROWSER_PORT says), which drives a browser signed in to
- * whatever KOS browses.
+ * whatever KOS browses, and the Google sign-in's callback (4327 unless
+ * KOS_GOOGLE_PORT says), where a code handed in would sign KOS in.
  */
 export function kosPorts(env: NodeJS.ProcessEnv = process.env): number[] {
   const api = portIn(env.KOS_PORT, 4317);
-  return [...new Set([api, api + 1, portIn(env.KOS_DEVICE_LAN_PORT, api + 2), portIn(env.KOS_BROWSER_PORT, 9225)])];
+  return [...new Set([api, api + 1, portIn(env.KOS_DEVICE_LAN_PORT, api + 2), portIn(env.KOS_BROWSER_PORT, 9225), googlePort(env)])];
 }
 
 /**
  * Files no jailed program may read wherever they are: this boot's write key,
  * KOS's keys under ~/.kos, and the secrets vault's folder (with its key and
- * scrub index) and sequence record wherever KOS_VAULT_DIR puts them.
+ * scrub index) and sequence record wherever KOS_VAULT_DIR puts them, and
+ * the Google sign-in wherever KOS_GOOGLE_DIR puts it.
  */
 export function kosSecretFiles(env: NodeJS.ProcessEnv = process.env): string[] {
   // Real, so a vault folder reached through a link is denied where it really is.
   const vault = realOf(vaultDir(env));
-  return [...new Set([env.KOS_WRITE_KEY_FILE?.trim(), resolve(homedir(), ".kos"), vault, `${vault}.seq`].filter((p): p is string => !!p))];
+  return [...new Set([env.KOS_WRITE_KEY_FILE?.trim(), resolve(homedir(), ".kos"), vault, `${vault}.seq`, resolve(googleDir(env)), `${resolve(googleDir(env))}.settings.json`].filter((p): p is string => !!p))];
 }
 
 export interface JailedCommand {

@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pipeline, Readable, type Writable } from "node:stream";
-import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { basename, dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
+import { basename, extname, join, normalize, relative, resolve, sep } from "node:path";
 
 import { parseHomeLayout,
   CHAT_COMMANDS,
@@ -81,7 +81,6 @@ import { parseUpload, writeFileInto, writeProjectFile } from "./uploads.js";
 import { installSkill, removeSkill, skillOrigin, updateSkill } from "../skills/install.js";
 import {
   MCP_PICKS,
-  fillPlaces,
   type PickPlaces,
   SKILL_SOURCES,
   listGithubSkills,
@@ -96,6 +95,7 @@ import {
   type SkillListing,
 } from "../catalog/catalog.js";
 import { DEFAULT_SEARCH } from "@kos/browser";
+import { googleRoute } from "../google/routes.js";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize, picturesIn } from "./session.js";
 
@@ -189,12 +189,6 @@ export interface DashboardServerOptions {
    * be outside the workspace; writing is refused otherwise.
    */
   envPath?: string;
-  /**
-   * Where a pick's credential files go (Google's OAuth client and tokens):
-   * beside the env file when unset. Never ~/.kos, which every jailed
-   * program, an MCP server among them, is denied.
-   */
-  credentialsDir?: string;
   /**
    * Explicit cross-origin allowlist. The dashboard is same-origin (the server
    * serves the built UI itself), so this is empty by default and no CORS
@@ -1189,15 +1183,12 @@ export async function handleApiRequest(
     const fetchFn = options.fetch ?? (globalThis.fetch as unknown as Fetch);
     const q = queryParams(req.url).get("q")?.trim() ?? "";
     const have = new Set(Object.keys(readMcpConfig(kernel.workspace.root).servers));
-    const places = pickPlaces(kernel, options);
     const picks = MCP_PICKS.map((p) => ({
       name: p.name,
       blurb: p.blurb,
       needs: p.needs,
       command: [p.server.command, ...(p.server.args ?? [])].join(" "),
       installed: have.has(p.name),
-      // Said with the real folders, since the owner has to go and put a file there.
-      ...(p.setup ? { setup: fillPlaces(p.setup, places) } : {}),
     }));
     if (!q) return ok({ picks, results: [] as McpListing[] });
     try {
@@ -1214,8 +1205,7 @@ export async function handleApiRequest(
     const pick = MCP_PICKS.find((p) => p.name === name);
     if (!pick) return { status: 404, body: { error: `no pick named ${name}` } };
     // Off on request: a test, or an owner who wants it in the file first.
-    const places = pickPlaces(kernel, options);
-    if (JSON.stringify(pick.server).includes("{secrets}")) mkdirSync(places.secrets, { recursive: true, mode: 0o700 });
+    const places = pickPlaces(kernel);
     const server = { ...pickConfig(pick, places), ...(body.enabled === false ? { enabled: false } : {}) };
     const added = upsertMcpServers(kernel.workspace.root, { [pick.name]: server });
     const status = await kernel.mcp.reload();
@@ -1279,6 +1269,10 @@ export async function handleApiRequest(
       return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
     }
   }
+
+  // The owner's Google account: its client, sign-in, mode and disconnect (google/routes.ts).
+  const googled = await googleRoute(kernel, method, path, body);
+  if (googled) return googled;
 
   /*
    * Servers in mcp.json, with whether each is up. The file is the owner's;
@@ -3769,11 +3763,8 @@ export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId:
  * somewhere to put the file. Without either, under the workspace's own .kos,
  * which the agent's tools refuse to read.
  */
-function pickPlaces(kernel: Kernel, options: DashboardServerOptions): PickPlaces {
-  return {
-    workspace: kernel.workspace.root,
-    secrets: options.credentialsDir ?? (options.envPath ? join(dirname(options.envPath), "secrets") : join(kernel.workspace.root, ".kos", "secrets")),
-  };
+function pickPlaces(kernel: Kernel): PickPlaces {
+  return { workspace: kernel.workspace.root };
 }
 
 function browserStep(tool: string): boolean {

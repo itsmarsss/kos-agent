@@ -193,18 +193,67 @@ template writes it. A tab is one agent's at a time; an agent's tabs
 close together when it idles out, and the owner's own are closed only by
 the owner.
 
-### Calendar and mail
+### Google: Calendar, Gmail, Drive and Docs
 
-Two picks under Settings > MCP servers: **google-calendar**
-(`@cocal/google-calendar-mcp`) and **gmail** (`@artymclabin/gmail-mcp`).
-Both use one Google OAuth client of your own, saved as
-`google-oauth-client.json` in a `secrets` folder beside the settings file
-(made when the pick is added; outside the workspace, and ignored by git),
-where the tokens go too; the pick's note gives the exact one-time `auth`
-command to run. Reading (events, free time, searching
-and reading mail) is floored safe; creating, changing, answering,
-sending, labelling or deleting asks. A morning brief job template under
-Schedule reads both.
+Settings > Connections, or `kos google`. KOS runs the community
+`workspace-mcp` server (pinned: `uvx --exclude-newer 2026-11-25T00:00:00Z
+workspace-mcp==2.7.0`, so no dependency published later is resolved) as the
+`google` MCP server, once three things hold: the owner's OAuth client is in
+the vault, the owner has signed in as the address they gave, and Use Google
+is on. It is the one way to connect Google; there is no catalog pick.
+
+- **Client.** The JSON Google Cloud downloads for a Desktop app client,
+  imported on the page or with `kos google import <file>`. It is kept in the
+  vault as KOS's `google` key (secret as token, id as username) and given to
+  the server in its environment at spawn; it is never written to a file.
+- **Sign-in.** The owner gives their address, then Sign in with Google (or
+  `kos google signin you@gmail.com`) brings up a server for the sign-in alone
+  and opens Google in a new tab; Google sends the browser back to
+  `http://localhost:4327/oauth2callback`. A sign-in as any other account is
+  revoked and deleted, and the server is started with that address alone
+  (`USER_GOOGLE_EMAIL`). A call naming any other `user_google_email` is
+  refused, and a token for another account is revoked and deleted before the
+  server starts and the moment it lands while it runs. No jailed program may bind or reach 4327. The server never
+  opens a browser itself (`BROWSER=true`, and the jail denies `open`).
+- **Storage.** The server can keep tokens only as files, so they live in
+  `~/.kos/google/credentials` (folder 0700, files 0600), outside the
+  workspace and denied to every jailed program with the rest of `~/.kos` (or
+  wherever `KOS_GOOGLE_DIR` puts them). Its HOME, uv cache, temp, logs
+  (warnings only, emptied past 5 MB) and downloads are beside them. The
+  server writes in those folders, so KOS never follows a link in them and
+  acts only on regular files. The owner's switches and address are KOS's own,
+  in `~/.kos/google.settings.json`, outside the server's reach and any sql
+  statement's.
+  Disconnect revokes at Google and deletes the tokens, logs and downloads.
+- **Jail.** On macOS and on Linux with bubblewrap the server runs in KOS's
+  jail: network open, KOS's own ports shut, writes only to its own folders,
+  the owner's home unreadable but for `uv` and `uvx`, and KOS's other
+  secrets unreadable. On macOS a jail that cannot be set up stops it. In the
+  container the container is the jail; on Linux without bubblewrap it runs
+  unjailed, and Settings and `kos google` say so.
+- **Mode.** Read-only until Allow changes is on, which opens Calendar, Drive
+  and Docs and leaves Gmail read-only. Allow mail changes and sending is a
+  switch past that: Google has no scope that drafts or labels without also
+  allowing a send. Each mode starts the server with only its scopes and
+  tools (`--permissions`), and a wider one asks the owner to sign in again.
+  Files the server reads or writes are capped at 25 MB, and it may not read
+  local files.
+- **Risk** (`google/risk.ts`). Reads are safe. Every write asks, is beyond
+  Auto, and no burst or job consent covers it. One that reaches past the
+  owner's own things (a share or sharing setting, a guest, an invitation or
+  RSVP, any write to an event that exists, a comment, a folder other than
+  root or a calendar other than primary, a URL the server would fetch) says
+  so on the card; a delete is a delete, however its arguments are spelled; a
+  send asks every time, whatever rule was kept. A tool the table does not
+  know asks, beyond Auto. A guest's work is refused outright.
+- **Untrusted.** Every result is fenced as outside text. A result that is
+  the server's own sign-in prompt, or that carries a Google sign-in address
+  for the owner's client, is replaced by words sending the owner to
+  Settings. Arguments are judged with their keys spelled as the server reads
+  them (`addLabelIds` is `add_label_ids`).
+
+The Morning brief template under Schedule reads the calendar and mail once
+this is connected.
 
 ## Installing skills
 

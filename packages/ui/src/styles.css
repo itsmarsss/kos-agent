@@ -6986,7 +6986,6 @@ a.health {
 .set-browser-found { font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); word-break: break-all; }
 
 /* What a pick needs the owner to do once, under its blurb. */
-.ext-item-setup { font-size: var(--text-xs); color: var(--faint); line-height: 1.45; word-break: break-word; }
 
 /* What the agent said before it asked, over the ask it belongs to. */
 .inbox-said { display: block; margin-bottom: 0.2rem; color: var(--text); font-style: italic; }

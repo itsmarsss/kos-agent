@@ -45,6 +45,7 @@ import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createMcpModule, readMcpConfig } from "../tools/mcp.js";
+import { GOOGLE_SERVER, GoogleConnection } from "../google/connection.js";
 import { retireBrowserEngine } from "../ops/browsersettings.js";
 import { adoptFixes } from "./caretaker.js";
 import { createModulesModule } from "../tools/modules.js";
@@ -244,16 +245,21 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const settings = new SettingsStore(workspace.db);
   const retired = retireBrowserEngine(workspace.root, settings, workspace.db);
   if (retired) console.log(`browser: KOS drives Chrome itself now; the ${retired} server is out of mcp.json, its settings and trusted sites kept`);
+  // The owner's Google account, once its client is in the vault and it is signed in (google/connection.ts).
+  const google = new GoogleConnection({ secrets });
   /*
-   * Servers from mcp.json, and the workspace's own modules the owner has
-   * switched on, each run from its folder in the jail. A module that
-   * shares a name with an mcp.json server loses: the owner's file wins.
+   * Servers from mcp.json, the owner's Google account, and the workspace's
+   * own modules the owner has switched on, each run from its folder in the
+   * jail. A module or Google sharing a name with an mcp.json server loses:
+   * the owner's file wins.
    */
   const mcp = createMcpModule({
     workspaceRoot: workspace.root,
     secrets,
     config: () => {
       const servers = { ...readMcpConfig(workspace.root).servers };
+      const own = google.server();
+      if (own && !(GOOGLE_SERVER in servers)) servers[GOOGLE_SERVER] = own;
       const instancesOf = (module: string): string[] => manifest.listByModule(module).map((p) => p.slug);
       // A module changed since the owner switched it on waits for them to switch it on again.
       const changed = (name: string): void => console.warn(`modules: ${name} changed since it was switched on; it stays off until the owner switches it on again`);
@@ -263,6 +269,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       return { servers };
     },
   });
+  // A sign-in, a mode switched or a disconnect brings the live set in line, as an edit of mcp.json does.
+  google.onChange(() => mcp.reload().catch((err: unknown) => console.error(`[google] ${err instanceof Error ? err.message : String(err)}`)));
   const supervisor = new DaemonSupervisor({
     workspaceRoot: workspace.root,
     // Read before every start, so a restart due after a stop or a removal leaves it down.
@@ -835,6 +843,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     loader,
     bus,
     mcp,
+    google,
     review,
     roles,
     suggestions,

@@ -10,6 +10,7 @@ import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
 import { type CronActionResult, cronOutcome, runCronJob, selfPromptResult, writtenAs, type CronExecResult, type JobTurn } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import type { McpModule } from "../tools/mcp.js";
+import type { GoogleConnection } from "../google/connection.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { FrameStore } from "../ops/frames.js";
 import { SeenPages } from "./seen.js";
@@ -535,6 +536,8 @@ export class Kernel {
   readonly bus: EventBus;
   /** The servers behind mcp.* tools, so a module switched on can be brought up without a restart. */
   readonly mcp: McpModule;
+  /** The owner's Google account behind the google server: its client, sign-in and mode. */
+  readonly google: GoogleConnection;
   private readonly recalls = new Map<string, TurnRecall>();
   /** What the dream job left for the owner to decide. */
   readonly review: ReviewQueue;
@@ -726,6 +729,7 @@ export class Kernel {
     loader: ModuleLoader;
     bus: EventBus;
     mcp: McpModule;
+    google: GoogleConnection;
     review: ReviewQueue;
     roles: RoleStore;
     suggestions: SuggestionStore;
@@ -836,6 +840,7 @@ export class Kernel {
     this.loader = args.loader;
     this.events = args.events;
     this.mcp = args.mcp;
+    this.google = args.google;
     this.review = args.review;
     this.roles = args.roles;
     // A schedule deleted by any path (the dashboard, cron.remove) lets its thread go.
@@ -6014,6 +6019,7 @@ export class Kernel {
     void this.supervisor.stopAll();
     // What modules opened, stdio MCP servers among them, must not outlive the host.
     void this.loader.unload();
+    void this.google.close();
     this.pageQueryRunner?.close();
     this.artifactChecker?.close();
     // The turns of this process waiting on the owner end with it: what they asked lapses, or stays to run detached.

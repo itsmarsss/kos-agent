@@ -46,7 +46,7 @@ export const TEMPLATES: {
 }[] = [
   {
     id: "brief",
-    about: "Reads your calendar and mail, once those are added under Settings, MCP servers, and sends you the day in a message.",
+    about: "Reads your calendar and mail, once Google is connected under Settings, Connections, and sends you the day in a message.",
     label: "Morning brief",
     name: "Morning brief",
     schedule: "30 7 * * 1-5",

@@ -60,8 +60,18 @@ could have triggered.
 | Nov 26 | #628 | M | The OAuth callback port was reachable by jailed programs; stateless callbacks allowed login CSRF. | Port jailed; expected account checked; others revoked. |
 | Nov 26 | #628 | M | The Google server ran unjailed with floating dependencies. | Frozen with `--exclude-newer`, run in the jail. |
 | Nov 26 | #628 | M | "Changes, no sending" still granted Gmail send scopes; sql could flip the switches. | Mail writing is one switch with sending; switches out of sql's reach. |
-| Nov 26 | #628 | M | KOS followed symlinks the jailed server could plant (could empty the database). | In progress: lstat, regular files only, settings outside the server's tree. |
-| Nov 26 | #628 | M, injection | The model could choose which Google account a call used. | In progress: any other account refused or stripped. |
+| Nov 26 | #628 | M | KOS followed symlinks the jailed server could plant (could empty the database). | lstat and O_NOFOLLOW, regular files only; settings outside the server's tree. |
+| Nov 26 | #628 | M, injection | The model could choose which Google account a call used; a foreign token stayed usable until reload. | Any other `user_google_email` refused; foreign tokens revoked before start and as they land. |
+| Nov 26 | #628 | M | The jailed server could remove one of its folders and put a link in its place between KOS's check and its open. | Each folder entry denied to the jail (bubblewrap binds it); KOS acts only in the folder it opened, on files with one name. |
+| Nov 26 | #628 | L | Server logs grew unbounded with no file-size cap; attachments and logs outlived a disconnect. | 25 MB cap, WARNING logs emptied past 5 MB, all cleared on disconnect. |
+| Nov 26 | #628 | L | The sign-in tab kept a handle back to the dashboard. | Opened with noopener. |
+| Nov 26 | #628 | L, injection | Mail quoting the sign-in prompt was replaced; a reworded prompt would show the link. | Replaced only at the start, or when it carries the owner's client's OAuth URL. |
+| Nov 26 | #628 | L | Unknown Google tools could run under Auto. | Unknown tools are beyond Auto and never learned. |
+| Nov 26 | #628 | L | A KOS_GOOGLE_DIR outside ~/.kos was readable by the jail. | It and its settings file are in the jail's secret files. |
+| Nov 26 | #628 | L | Two ways to connect Google (old catalog picks). | Picks and their setup code removed. |
+| Nov 26 | #628 | L | The server ran unjailed without saying so when uvx or the jail was missing. | Refused on macOS; elsewhere shown as "running without the jail". |
+| Nov 26 | #628 | L | The jail opened all of ~/.local/bin to the server. | Only uv and uvx. |
+| Nov 26 | #628 | L, injection | camelCase or capitalised keys (addLabelIds, TRASHED, userGOOGLEEmail) escaped the rules. | Keys normalised with the server's own camel_case regex. |
 
 ## Prompt injection
 

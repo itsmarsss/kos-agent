@@ -408,27 +408,6 @@ describe("handleApiRequest", () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/tabs/close", body: { tab: "T1" } })).status).toBe(400);
   });
 
-  it("tells a pick's setup with the secrets folder beside the settings file, and makes that folder on add", async () => {
-    const envPath = join(root, "elsewhere", ".env");
-    // No query, so the registry is not asked and no fetch is needed.
-    const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/mcp" }, { envPath })).body as { picks: { name: string; setup?: string }[] };
-    const gmail = listed.picks.find((p) => p.name === "gmail")!;
-    expect(gmail.setup).toContain(join(root, "elsewhere", "secrets", "google-oauth-client.json"));
-    expect(gmail.setup).not.toContain("{secrets}");
-    expect(listed.picks.find((p) => p.name === "filesystem")!.setup).toBeUndefined();
-    await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/pick", body: { name: "google-calendar", enabled: false } }, { envPath });
-    expect(existsSync(join(root, "elsewhere", "secrets"))).toBe(true);
-    const written = (JSON.parse(readFileSync(join(root, "mcp.json"), "utf8")) as { servers: Record<string, { env?: Record<string, string> }> }).servers["google-calendar"]!;
-    expect(written.env?.["GOOGLE_OAUTH_CREDENTIALS"]).toBe(join(root, "elsewhere", "secrets", "google-oauth-client.json"));
-    await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/remove", body: { name: "google-calendar" } });
-  });
-
-  it("tells a pick's setup with the host's credentials folder over the one beside the settings file", async () => {
-    const options = { envPath: join(root, "home", ".kos", "env"), credentialsDir: join(root, "repo", "secrets") };
-    const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/mcp" }, options)).body as { picks: { name: string; setup?: string }[] };
-    expect(listed.picks.find((p) => p.name === "gmail")!.setup).toContain(join(root, "repo", "secrets", "google-oauth-client.json"));
-  });
-
   it("keeps a standing agent's thread while its file exists, and lets it go once the agent is removed", async () => {
     kernel.roles.write({ name: "research", description: "Looks things up", brief: "You look.", memory: "own" });
     const thread = kernel.ensureAgentConversation("research");

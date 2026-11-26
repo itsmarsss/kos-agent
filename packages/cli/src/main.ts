@@ -53,6 +53,7 @@ import {
 } from "@kos/harness";
 
 import { KosClient, probeDaemon } from "@kos/client";
+import { runGoogle } from "./google.js";
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
 import { runDoctor } from "./doctor.js";
 import { loadEnv, REPO_ROOT } from "./env.js";
@@ -645,6 +646,24 @@ async function cmdMcp(rootDir: string, rest: string[], flags: Record<string, str
   }
 }
 
+/** `kos google ...`, through the running host: it holds the vault the client goes into. */
+async function cmdGoogle(rootDir: string, rest: string[]): Promise<void> {
+  try {
+    const live = await resolveLiveClient(rootDir);
+    if (!live) throw new Error("no host running; kos start, then try again");
+    await runGoogle(live.client, rest, {
+      say: (line) => console.log(line),
+      open: (url) => {
+        const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? undefined : "xdg-open";
+        if (opener) spawn(opener, [url], { stdio: "ignore", detached: true }).on("error", () => undefined).unref();
+      },
+    });
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  }
+}
+
 async function cmdStop(rootDir: string): Promise<void> {
   if (!(await stopHost(rootDir))) process.exitCode = 1;
 }
@@ -856,6 +875,11 @@ async function main(): Promise<void> {
 
   if (command === "mcp") {
     await cmdMcp(rootDir, rest, flags);
+    return;
+  }
+
+  if (command === "google") {
+    await cmdGoogle(rootDir, rest);
     return;
   }
 
