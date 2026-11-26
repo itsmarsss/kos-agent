@@ -43,8 +43,8 @@ export interface Behaviour {
   /**
    * Hours late a schedule's missed run may still run after a restart or a
    * sleep. Later than this it is skipped, noted in Runs, and the next one
-   * runs on time. Hourly jobs never catch up and ones less often than daily
-   * always do. Zero never catches up.
+   * runs on time. A job whose next run is under an hour away waits for it,
+   * and one less often than daily always catches up. Zero never catches up.
    */
   catchUpHours: number;
   /** Minutes a coding agent may run before it is stopped. */

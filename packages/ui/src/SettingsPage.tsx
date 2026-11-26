@@ -1197,7 +1197,7 @@ export function SettingsPage({
                 />
                 <Limit
                   label="Hours a missed schedule may run late"
-                  hint={`A schedule that fell due while KOS was off or asleep runs when KOS is back, if it is no later than this. Later, it is skipped, noted under Runs, and the next one runs on time. Schedules that run hourly or more often wait for their next time; ones that run less often than daily, such as weekly or monthly, always run when KOS is back. 0 never runs a missed one. Usually ${defaults.catchUpHours}.`}
+                  hint={`A schedule that fell due while KOS was off or asleep runs when KOS is back, if it is no later than this. Later, it is skipped, noted under Runs, and the next one runs on time. One whose next run is under an hour away, such as an hourly one, waits for it; ones that run less often than daily, such as weekly or monthly, always run when KOS is back. 0 never runs a missed one. Usually ${defaults.catchUpHours}.`}
                   value={how.catchUpHours}
                   range={limits.catchUpHours}
                   onChange={(catchUpHours) => setHow({ ...how, catchUpHours })}
