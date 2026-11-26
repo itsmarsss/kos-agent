@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { guestOrigin } from "../kernel/caller.js";
+import { MAINTENANCE } from "../kernel/caretaker.js";
 import type { ApprovalQueue } from "../ops/approvals.js";
 import type { RunsLog } from "../ops/runs.js";
 import { costOf, sumSpend, type Rates, type SpendStore } from "../ops/spend.js";
@@ -18,6 +22,33 @@ import { scrubShapes } from "../secrets/shapes.js";
  */
 
 export const STATUS_TOOL = "kos.status";
+
+/** KOS's own log, read by Maintenance: what a repair reads first, without a shell that would ask for each look. */
+export const LOG_TOOL = "kos.log";
+
+/** Lines a look at the log gives by default, and at most. */
+const LOG_LINES = 100;
+const LOG_LINES_MAX = 400;
+/** A line is cut past this, so one huge line cannot fill the result. */
+const LOG_LINE_CHARS = 400;
+
+/**
+ * The last lines of the log, or the last that hold `match` (case
+ * folded, plain text, any of several split by |), each with its line number.
+ */
+export function logLines(text: string, opts: { lines?: number; match?: string }): string[] {
+  const want = Math.min(LOG_LINES_MAX, Math.max(1, Math.round(opts.lines ?? LOG_LINES)));
+  const needles = (opts.match ?? "").toLowerCase().split("|").map((n) => n.trim()).filter(Boolean);
+  const all = text.split("\n");
+  if (all[all.length - 1] === "") all.pop();
+  const picked: string[] = [];
+  for (let i = all.length - 1; i >= 0 && picked.length < want; i -= 1) {
+    const line = all[i]!;
+    if (needles.length && !needles.some((n) => line.toLowerCase().includes(n))) continue;
+    picked.push(`${i + 1}: ${line.length > LOG_LINE_CHARS ? `${line.slice(0, LOG_LINE_CHARS)}...` : line}`);
+  }
+  return picked.reverse();
+}
 
 const DEFAULT_HOURS = 24;
 const MAX_HOURS = 168;
@@ -133,7 +164,10 @@ export function createStatusModule(deps: StatusToolDeps): KosModule {
     manifest: {
       name: "kos",
       version: "1.0.0",
-      provides: [{ kind: "tool", name: STATUS_TOOL, version: "1.0.0" }],
+      provides: [
+        { kind: "tool", name: STATUS_TOOL, version: "1.0.0" },
+        { kind: "tool", name: LOG_TOOL, version: "1.0.0" },
+      ],
       riskTier: "safe",
     },
     activate(ctx: ModuleContext) {
@@ -166,6 +200,43 @@ export function createStatusModule(deps: StatusToolDeps): KosModule {
         {
           floor: "safe",
           refuse: () => (guestOrigin() ? "KOS's health is the owner's to read, and a guest's words started this work." : false),
+        },
+      );
+      const root = ctx.services?.workspace?.root;
+      if (!root) return;
+      ctx.registerTool(
+        {
+          name: LOG_TOOL,
+          description:
+            "Maintenance only: KOS's own log (.kos/daemon.log), its last lines or the last that contain `match` (plain text, case-insensitive, alternatives split by |), each with its line number. " +
+            "Read it first when repairing a failure; it asks nothing, where a shell line naming .kos asks every time.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              lines: { type: "number", description: `how many lines, default ${LOG_LINES}, at most ${LOG_LINES_MAX}` },
+              match: { type: "string", description: "only lines containing this text; several alternatives split by |" },
+            },
+          },
+        },
+        (input) => {
+          let text: string;
+          try {
+            text = readFileSync(join(root, ".kos", "daemon.log"), "utf8");
+          } catch {
+            return "There is no log yet.";
+          }
+          const lines = logLines(text, { ...(typeof input["lines"] === "number" ? { lines: input["lines"] } : {}), ...(typeof input["match"] === "string" ? { match: input["match"] } : {}) });
+          return lines.length ? lines.join("\n") : "No line matches.";
+        },
+        {
+          floor: "safe",
+          // KOS's log is Maintenance's to read, on the owner's behalf: never a guest's, never another project's chat.
+          refuse: () =>
+            guestOrigin() !== undefined
+              ? "KOS's log is the owner's to read, and a guest's words started this work."
+              : ctx.services?.callerProject?.() !== MAINTENANCE.slug
+                ? "KOS's log is read in Maintenance, where repairs are made: hand the question there."
+                : false,
         },
       );
     },
