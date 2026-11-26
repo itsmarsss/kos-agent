@@ -65,7 +65,7 @@ import { deviceUpdates } from "./deviceupdates.js";
 import { credentialsDir, envFilePath } from "./env.js";
 import { tightenKosHome } from "./hygiene.js";
 import { ThreadMirror } from "./threadmirror.js";
-import { pingsOwner, postInPlace, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
+import { pingsOwner, postInPlace, postRun, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 import { PortTakenError, portTakenMessage } from "./porttaken.js";
@@ -1347,7 +1347,6 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       kernel.progress.subscribe((event) => mirror.onProgress(event));
       const saidDeps: SaidDeps = {
         ...placeOn,
-        jobOf: cronOf,
         ownerOnly,
         senderFor: (conv) => kernel.senderFor(conv),
         speakerFor: (from) => kernel.speakerFor(from),
@@ -1358,12 +1357,17 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       /*
        * A turn's exchange, told once it has happened. The mirror handles the
        * turns it has been narrating in a thread (it posts the answer and
-       * closes the story); everything else, a resumed Discord turn or a
-       * scheduled run (which shows nothing), runs the handler below.
+       * closes the story); everything else, a resumed Discord turn or an
+       * answer after a decision, runs the handler below.
        */
       kernel.bus.on("turn:said", (said) => {
         if (!adapter) return;
         mirror.onSaid(said, () => postSaid(said, saidDeps));
+      });
+      // A scheduled run's answer, once it has ended and it is known whether it sent anything.
+      kernel.bus.on("run:said", async (run) => {
+        if (!adapter) return;
+        await postRun(run, { ...placeOn, job: (id) => kernel.crons.get(id), ownerOnly, sendOwner: (msg) => adapter!.send(creds.ownerId, msg) });
       });
       // A slash command typed on the dashboard is a small line in the chat's
       // channel or thread, with the first line of what it answered.

@@ -1476,6 +1476,25 @@ describe("Kernel", () => {
     ]);
   });
 
+  it("tells the surfaces a prompted run's answer once it ends, with whether it sent anything", async () => {
+    const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const notify: ModelResponse = { content: [{ type: "tool_use", id: "n1", name: "notify", input: { text: "board" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+    kernel = await boot(stubInference([answer("This week: three things shipped."), notify, answer("Posted the board.")]), async () => undefined);
+    const ran: { jobId: number; reply: string; sent: boolean }[] = [];
+    kernel.bus.on("run:said", (e) => void ran.push({ jobId: e.jobId, reply: e.reply, sent: e.sent }));
+    const recap = kernel.crons.create({ name: "Recap", schedule: "0 9 * * 1", type: "self_prompt", prompt: "recap the week" });
+    const board = kernel.crons.create({ name: "Board", schedule: "0 9 * * *", type: "self_prompt", prompt: "post the board with notify" });
+    kernel.startCron();
+    await kernel.fireCron(recap.id);
+    await kernel.fireCron(board.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(ran).toEqual([
+      { jobId: recap.id, reply: "This week: three things shipped.", sent: false },
+      { jobId: board.id, reply: "Posted the board.", sent: true },
+    ]);
+  });
+
   it("does not lend a run's job to a chat it hands off to, whose message goes to the owner without a ping", async () => {
     const reply = (content: ModelResponse["content"]): ModelResponse => ({ content, stopReason: content.some((b) => b.type === "tool_use") ? "tool_use" : "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
     const seen: NotifyPayload[] = [];

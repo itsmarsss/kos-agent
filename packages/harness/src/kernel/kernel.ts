@@ -2052,11 +2052,16 @@ export class Kernel {
     const turn = (end: TurnEnd): JobTurn => {
       const reply = "reply" in end ? end.reply : "";
       // A blob that reports hands each run's answer to the owner, tagged as
-      // its own; otherwise the answer stays in its thread and the brief says
-      // what to tell.
+      // its own.
       const role = job.agent ? this.roles.get(job.agent) : undefined;
-      if (role?.report === "always" && reply.trim()) this.caretaker.tell(reply, { from: this.senderFor(id) });
-      return { reply, steps: this.jobSteps(id, mark, since), delivered: this.audit.worked(id, mark, "notify"), ...("stopped" in end ? { stopped: end.stopped } : {}) };
+      const reported = role?.report === "always" && reply.trim() !== "";
+      if (reported) this.caretaker.tell(reply, { from: this.senderFor(id) });
+      const ran: JobTurn = { reply, steps: this.jobSteps(id, mark, since), delivered: this.audit.worked(id, mark, "notify"), ...("stopped" in end ? { stopped: end.stopped } : {}) };
+      // Otherwise its answer is told to the surfaces, with whether the run
+      // sent anything: one that sent nothing (a weekly recap written as its
+      // reply) has only these words to reach the owner with.
+      this.bus.emit({ kind: "run:said", conversationId: id, jobId: job.id, reply, sent: reported || ran.delivered > 0 });
+      return ran;
     };
     if (!res.ended) return turn({ reply: res.reply });
     // Waiting on the owner: what it did so far now, and the rest when the turn ends.

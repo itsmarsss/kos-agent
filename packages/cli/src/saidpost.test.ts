@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { OutboundMessage } from "@kos/harness";
-import { pingsOwner, placeOf, postSaid, type JobFacts, type PlaceDeps, type Said, type SaidDeps } from "./saidpost.js";
+import { pingsOwner, placeOf, postRun, postSaid, type JobFacts, type PlaceDeps, type RunDeps, type Said, type SaidDeps } from "./saidpost.js";
 
 function deps(
   targets: Record<string, string> = {},
@@ -19,7 +19,6 @@ function deps(
     targetFor: (conv) => targets[conv],
     homeOf: () => undefined,
     titleOf: (conv) => `Title of ${conv}`,
-    jobOf: () => undefined,
     ownerOnly: () => true,
     ensureThread: async (key, conv, title) => {
       made.push({ key, conv, title });
@@ -109,49 +108,60 @@ describe("KOS's own words in a mirrored chat", () => {
 });
 
 describe("a scheduled run on the server", () => {
+  const recap: JobFacts = { id: 13, name: "blob.recap", type: "self_prompt", projectSlug: null };
   const nudge: JobFacts = { id: 29, name: "School Evening Nudge", type: "self_prompt", projectSlug: "school" };
-  const reminder: JobFacts = { id: 7, name: "Nudge", type: "actions", projectSlug: null };
-  const run = (conv: string, reply: string, over: Partial<Said> = {}): Said => ({ conversationId: conv, text: "", reply, origin: "system", channel: null, files: [], ...over });
-  const scheduled = { from: { kind: "schedule" as const, name: "School Evening Nudge", id: "29" } };
+  const jobs: Record<number, JobFacts> = { 13: recap, 29: nudge, 9: { id: 9, name: "kos.memory", type: "self_prompt", projectSlug: null } };
+  const runDeps = (targets: Record<string, string>, over: Partial<RunDeps> = {}): RunDeps & ReturnType<typeof deps> => ({ ...deps(targets), job: (id) => jobs[id], ...over });
+  const ran = (conv: string, reply: string, over: Partial<Said> = {}): Said => ({ conversationId: conv, text: "", reply, origin: "system", channel: null, files: [], from: { kind: "schedule", name: "x", id: "1" }, ...over });
 
-  it("posts no run card or receipt, whether it sent something or nothing", async () => {
-    const d = deps({ "orchestrator:owner": "kos", "cron:29": "t29" }, { jobOf: () => nudge, homeOf: () => "orchestrator:owner" });
-    await postSaid(run("cron:29", "Posted to #school.", scheduled), d);
-    await postSaid(run("cron:62", "I'll run the scanner. Nothing new this hour. Nothing sent.", scheduled), d);
-    // Resumed after an approval, the run is still the schedule's.
-    await postSaid(run("cron:29", "Posted to #school.", { ...scheduled, resumed: true }), d);
-    expect(d.posts).toEqual([]);
-    expect(d.dms).toEqual([]);
-    expect(d.made).toEqual([]);
+  it("posts the answer of a run that sent nothing, under the job's name, as a recap delivered by its reply", async () => {
+    const d = runDeps({ "agent:recap": "c-recap" });
+    await postSaid(ran("agent:recap", "This week: shipped three things."), d);
+    await postRun({ conversationId: "agent:recap", jobId: 13, reply: "This week: shipped three things.", sent: false }, d);
+    expect(d.posts).toEqual([{ target: "c-recap", text: "-# blob.recap\nThis week: shipped three things." }]);
   });
 
-  it("posts nothing for a fixed job's run, failed or not: a failure is the health notice's", async () => {
-    const d = deps({ "cron:7": "t7" }, { jobOf: () => reminder });
-    await postSaid(run("cron:7", "Ran 2 actions; 1 failed."), d);
-    await postSaid(run("cron:7", "Ran 2 actions."), d);
+  it("posts once for a run that posted, with no receipt after it, resumed after an approval or not", async () => {
+    const d = runDeps({ "cron:29": "t29" });
+    await postSaid(ran("cron:29", "Posted to #school."), d);
+    await postSaid(ran("cron:29", "Posted to #school.", { resumed: true }), d);
+    await postRun({ conversationId: "cron:29", jobId: 29, reply: "Posted to #school.", sent: true }, d);
+    // Its one post went to #school through notify; nothing more lands on the server.
     expect(d.posts).toEqual([]);
     expect(d.dms).toEqual([]);
   });
 
-  it("posts nothing for a blob's scheduled run, in its channel or the DM", async () => {
-    const d = deps({ "agent:watch": "c-watch" }, { ownerOnly: () => false });
-    await postSaid(run("agent:watch", "Nothing changed, no notification sent.", { from: { kind: "schedule", name: "blob.watch", id: "17" } }), d);
+  it("posts nothing for a quiet run, an empty answer, or KOS's upkeep", async () => {
+    const d = runDeps({ "cron:62": "t62", "cron:9": "t9" }, { job: (id) => jobs[id] ?? { ...nudge, id } });
+    // Said it had nothing to post (a quiet ending is a notify that worked).
+    await postRun({ conversationId: "cron:62", jobId: 62, reply: "Nothing new this hour.", sent: true }, d);
+    await postRun({ conversationId: "cron:62", jobId: 62, reply: "  ", sent: false }, d);
+    await postRun({ conversationId: "cron:9", jobId: 9, reply: "Nothing new to remember.", sent: false }, d);
     expect(d.posts).toEqual([]);
-    expect(d.dms).toEqual([]);
+  });
+
+  it("sends a run's answer to the DM when guests can read its place", async () => {
+    const d = runDeps({ "cron:29": "t29" }, { ownerOnly: () => false });
+    await postRun({ conversationId: "cron:29", jobId: 29, reply: "Nobody posted the board.", sent: false }, d);
+    expect(d.posts).toEqual([]);
+    expect(d.dms).toEqual(["-# School Evening Nudge\nNobody posted the board."]);
   });
 
   it("still posts a blob's answer to work a chat passed it", async () => {
     const d = deps({ "agent:watch": "c-watch" });
-    await postSaid(run("agent:watch", "Checked: back in stock.", { from: { kind: "chat", name: "KOS", id: "orchestrator:owner" } }), d);
+    await postSaid(ran("agent:watch", "Checked: back in stock.", { from: { kind: "chat", name: "KOS", id: "orchestrator:owner" } }), d);
     expect(d.posts).toEqual([{ target: "c-watch", text: "Checked: back in stock." }]);
   });
 
-  it("still posts what the owner says in a job's thread, and its answer", async () => {
-    const d = deps({ "cron:29": "t29" }, { jobOf: () => nudge });
-    await postSaid({ conversationId: "cron:29", text: "post it earlier", reply: "Moved to 6 PM.", origin: "owner", channel: null, files: [] }, d);
+  it("still posts an answer after a decision in a job's thread, and what the owner says there", async () => {
+    const d = deps({ "cron:29": "t29" });
+    // A decision taken after a restart resumes as the harness's own turn, with no schedule behind it.
+    await postSaid({ conversationId: "cron:29", text: "System: the owner decided on the pending action:", reply: "Moved to 6 PM.", origin: "system", channel: null, files: [] }, d);
+    await postSaid({ conversationId: "cron:29", text: "post it earlier", reply: "Done.", origin: "owner", channel: null, files: [] }, d);
     expect(d.posts).toEqual([
-      { target: "t29", text: "post it earlier" },
       { target: "t29", text: "Moved to 6 PM." },
+      { target: "t29", text: "post it earlier" },
+      { target: "t29", text: "Done." },
     ]);
   });
 });
