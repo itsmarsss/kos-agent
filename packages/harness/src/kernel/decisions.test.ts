@@ -6,7 +6,7 @@ import { approvedAs, caller, isAttended, isOwnerTurn } from "./caller.js";
 import { Decisions, decidedHow, decidedLine, detachedAs, jobConsent, orphanFate, type DecisionsDeps } from "./decisions.js";
 
 function pending(over: Partial<PendingAction> = {}): PendingAction {
-  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, beyondAuto: false, secret: null, decidedVia: null, decidedDevice: null, detachedAt: null, job: null, ...over };
+  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, beyondAuto: false, secret: null, decidedVia: null, decidedDevice: null, detachedAt: null, job: null, taint: null, ...over };
 }
 
 function deps(action: PendingAction | undefined, awaited: boolean, over: Partial<DecisionsDeps> = {}) {
@@ -67,6 +67,24 @@ describe("approving", () => {
     const r = await new Decisions(d).approve(5, undefined, { surface: "dashboard" });
     expect(log).toEqual(["approve:5:owner", "lane:c1", "in:c1", "run:files.rm", "audit:files.rm:ok", "ran:files.rm", "resume:c1:system:approved"]);
     expect(r).toMatchObject({ ok: true, message: "removed", isError: false, reply: "carried on" });
+  });
+
+  it("carries the asking turn's taint into the turn it resumes, with what the approved call itself read", async () => {
+    const seen: unknown[] = [];
+    const resume = { handleMessage: async (_text: string, opts: { tainted?: unknown }) => { seen.push(opts.tainted); return { reply: "ok" }; } };
+    const asked = pending({ tool: "http.fetch", args: JSON.stringify({ url: "https://news.example/a" }), taint: [{ kind: "mail", where: "x@evil.example" }] });
+    await new Decisions(deps(asked, false, resume).d).approve(5, undefined, { surface: "dashboard" });
+    expect(seen.at(-1)).toEqual([{ kind: "mail", where: "x@evil.example" }, { kind: "page", where: "news.example" }]);
+    await new Decisions(deps(pending(), false, resume).d).approve(5, undefined, { surface: "dashboard" });
+    expect(seen.at(-1)).toBeUndefined();
+  });
+
+  it("carries the asking turn's taint into the turn a denial resumes", async () => {
+    const seen: unknown[] = [];
+    const resume = { handleMessage: async (_text: string, opts: { tainted?: unknown }) => { seen.push(opts.tainted); return { reply: "ok" }; } };
+    const asked = pending({ taint: [{ kind: "guest", where: "Sam" }] });
+    await new Decisions(deps(asked, false, resume).d).deny(5, undefined, { surface: "dashboard" });
+    expect(seen).toEqual([[{ kind: "guest", where: "Sam" }]]);
   });
 
   it("runs an orphaned action as the turn that asked: the owner's reach only if it was theirs", async () => {

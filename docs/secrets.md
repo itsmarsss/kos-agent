@@ -65,7 +65,9 @@ Record, sealed whole (metadata included):
 - `policy.ask`: `always`, `turn` (one yes covers the turn) or `site` (a
   remembered grant skips the ask, still audited). Grants are added only by an
   approval and taken back only by the owner. A grant on an origin no longer in
-  `use.web.origins` is dropped.
+  `use.web.origins` is dropped. No grant covers a use in a turn that has
+  read text the owner did not write (a tainted turn, docs/security.md):
+  that use asks.
 - `policy.unattended` (default false) and `policy.chats` (null is any of the
   owner's chats) are enforced wherever a vault secret is placed: a guest's
   turn never gets one, an unattended turn (a schedule, a dispatch, a timer)

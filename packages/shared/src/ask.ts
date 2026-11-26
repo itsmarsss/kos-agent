@@ -11,6 +11,7 @@ import { showInvisible } from "./invisible.js";
 import { usesSecret } from "./secretref.js";
 import { PRIVATE_TOOLS, type AskSecret } from "./secrets.js";
 import type { KeyPlatform } from "./keys.js";
+import { taintLine, type TaintSource } from "./taint.js";
 
 /** What a yes-and-remember keeps: the tool or its family, the scope it covers, the project it holds in. */
 export interface AskRule {
@@ -48,6 +49,8 @@ export interface AskView {
   secret?: AskSecret;
   /** Approving runs it for no waiting turn, and why: said on the card in a warning before any yes. */
   detached?: string;
+  /** What the asking turn read that the owner did not write, so the owner sees when content suggested this: "After reading: an email from x@y". */
+  after?: string;
   /**
    * Set by the host on a device's copy of an ask too big to send whole: its
    * arguments and steps are left out, so the card offers no Approve and
@@ -71,6 +74,8 @@ export interface AskInput {
   beyondAuto?: boolean;
   /** No turn waits on the answer: the chat that asked has stopped, or nothing ever waited (a schedule's ask). */
   detached?: AskDetached;
+  /** What the asking turn read that the owner did not write: its card says so in one line. */
+  taint?: readonly TaintSource[] | null;
   names?: ActionNames;
   /** Where the asking turn's paths start, so a file tool's title names the path it really reaches. */
   where?: ActionHome;
@@ -303,6 +308,7 @@ export function askView(input: AskInput): AskView {
   const titled = { ...a, intent: undefined, ...(tool === "shell.run" ? { cwd: undefined } : {}) };
   const title = acting ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, where, platform);
   const always = !(input.asksAlways ?? usesSecret(tool, a));
+  const after = taintLine(input.taint);
   const secret = input.secret ?? undefined;
   // A secret whose policy is "site" offers its own remembered yes: a grant on this origin, or in this Mac app, kept in the vault.
   const host = secret?.origin ? hostOf(secret.origin) : undefined;
@@ -314,6 +320,7 @@ export function askView(input: AskInput): AskView {
     ...(steps ? { steps } : {}),
     ...(risk ? { risk } : {}),
     ...(input.detached ? { detached: DETACHED_WORDS[input.detached] } : {}),
+    ...(after ? { after } : {}),
     // A call that places a secret is asked about every time: nothing is remembered for it, so nothing is offered.
     // Nor for what a chat's Auto never covers, asked in one: the owner decides it each time.
     ...(secret ? { secret } : {}),

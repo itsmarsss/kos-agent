@@ -8,7 +8,7 @@ import type {
   ModalSpec,
   Sender,
 } from "../channels/types.js";
-import { caller, guestOrigin, isOwnerTurn, scheduledJob } from "../kernel/caller.js";
+import { caller, guestOrigin, isOwnerTurn, scheduledJob, turnTaint } from "../kernel/caller.js";
 import type { KosModule } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -49,6 +49,8 @@ export interface NotifyPayload {
   target: MessageTarget;
   card?: MessageCard;
   buttons?: MessageButton[];
+  /** Sent from a turn that read text the owner did not write: no link previews and no remote pictures, which a surface fetches and so could carry data out. */
+  noPreviews?: boolean;
   /** The blob speaking, when it is one; the kernel fills this in, not the tool. */
   from?: Sender;
   /**
@@ -203,6 +205,12 @@ function asCard(raw: unknown): MessageCard | undefined {
     ...(fields.length ? { fields } : {}),
   };
   return Object.keys(card).length ? card : undefined;
+}
+
+/** A card with nothing a surface fetches on its own: its link, its picture and its thumbnail. */
+export function withoutFetches(card: MessageCard): MessageCard | undefined {
+  const { url: _url, imageUrl: _image, thumbnailUrl: _thumb, ...kept } = card;
+  return Object.keys(kept).length ? kept : undefined;
 }
 
 function asModal(raw: unknown): ModalSpec | undefined {
@@ -613,7 +621,10 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
         async (input) => {
           if (endsQuietly(input)) return quietEnding(input);
           const text = typeof input.text === "string" ? input.text : "";
-          const card = asCard(input.card);
+          // After outside text, a picture or a link the surface would fetch is an address that could carry what the turn read.
+          const tainted = turnTaint()?.tainted === true;
+          const given = asCard(input.card);
+          const card = tainted && given ? withoutFetches(given) : given;
           if (!text && !card) throw new Error("notify requires text or a card");
           if (!services.notify) throw new Error("no notify channel is wired");
 
@@ -659,6 +670,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             ...(place ? { place, job } : {}),
             ...(card ? { card } : {}),
             ...(buttons.length ? { buttons } : {}),
+            ...(tainted ? { noPreviews: true } : {}),
           });
 
           return describeSend({

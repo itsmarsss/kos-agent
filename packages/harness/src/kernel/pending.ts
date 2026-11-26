@@ -1,3 +1,5 @@
+import type { TaintSource } from "@kos/shared";
+
 import type { Guest } from "../channels/types.js";
 import type { MessageFrom, MessageOrigin, MessageRoom, Quote } from "../models/types.js";
 import type { Db } from "../store/db.js";
@@ -48,6 +50,8 @@ export interface PendingFlags {
   context?: string;
   /** The context only says where it was said, so it rides with the words into a running turn. */
   contextRides?: boolean;
+  /** What the context quoted that the owner did not write, tainting the turn. */
+  contextTaint?: TaintSource;
   /** What the owner quoted with the words, kept with them when they run. */
   quote?: Quote;
   roomTalk?: string;

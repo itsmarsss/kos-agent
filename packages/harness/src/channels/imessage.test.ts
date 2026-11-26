@@ -22,6 +22,11 @@ const SOMEONE_ELSE = "+15559998888";
 const SOME_DATE = 725_846_400 * 1e9;
 
 describe("rendering for a surface with no furniture", () => {
+  it("writes a tainted chat's addresses so Messages makes no link, and fetches no preview", () => {
+    expect(renderForText({ text: "see https://attacker.example/x?d=1", noPreviews: true })).toBe("see hxxps://attacker[.]example/x?d=1");
+    expect(renderForText({ text: "see https://example.com/a" })).toBe("see https://example.com/a");
+  });
+
   it("lays a card out as lines", () => {
     const text = renderForText({
       text: "Noon nudge",

@@ -92,6 +92,15 @@ describe("skills tools", () => {
     expect(used.content).toBe("Read the diff. Then the tests.\n");
   });
 
+  it("counts a prompt skill's instructions as outside text until the owner keeps them as they are", async () => {
+    await call("skills.create", { name: "pr-review", description: "How to review", kind: "prompt", content: "Read the diff." });
+    const result = { content: "Read the diff.", isError: false };
+    expect(registry.untrusted("skills.use", { name: "pr-review" }, result, {})).toEqual({ kind: "file", where: "skill pr-review, not kept as it is" });
+    const stamped = await registry.stamp("skills.commit", { name: "pr-review" });
+    await call("skills.commit", stamped);
+    expect(registry.untrusted("skills.use", { name: "pr-review" }, result, {})).toBeUndefined();
+  });
+
   it("makes a script skill that the sandbox can test", async () => {
     await call("skills.create", { name: "say", description: "Says hi", kind: "script", content: "console.log('hi')" });
     const tested = await call("skills.test", { name: "say" });

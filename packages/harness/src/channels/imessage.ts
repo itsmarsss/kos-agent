@@ -117,8 +117,17 @@ end run`;
  * nothing is small.
  */
 export function renderForText(msg: OutboundMessage, timezone?: string): string {
-  const body = timesInWords(blocksToText(renderBody(msg)), timezone).replace(/^[ \t]*-#[ \t]+/gm, "");
+  const said = timesInWords(blocksToText(renderBody(msg)), timezone).replace(/^[ \t]*-#[ \t]+/gm, "");
+  const body = msg.noPreviews ? withoutLinks(said) : said;
   return msg.from && body ? `${msg.from.name}: ${body}` : body;
+}
+
+/**
+ * Addresses written so Messages makes no link of them, and so fetches no
+ * preview: a tainted chat's text could carry what it read in one.
+ */
+export function withoutLinks(text: string): string {
+  return text.replace(/\b(https?):\/\/([^\s/?#]+)/gi, (_m, scheme: string, host: string) => `${scheme.replace(/t/gi, "x")}://${host.replace(/\./g, "[.]")}`);
 }
 
 function renderBody(msg: OutboundMessage): string {
@@ -167,7 +176,7 @@ function whole(v: unknown): string {
 export function approvalLines(req: ApprovalRequest): string[] {
   const who = req.asker?.name ?? "KOS";
   const args = req.args ?? {};
-  const view = req.tool !== undefined ? askView({ tool: req.tool, args, reason: req.reason ?? null, ...(req.detached ? { detached: req.detached } : {}), ...(req.names ? { names: req.names } : {}), ...(req.where ? { where: req.where } : {}), platform: HOST_KEYS }) : undefined;
+  const view = req.tool !== undefined ? askView({ tool: req.tool, args, reason: req.reason ?? null, ...(req.detached ? { detached: req.detached } : {}), ...(req.taint ? { taint: req.taint } : {}), ...(req.names ? { names: req.names } : {}), ...(req.where ? { where: req.where } : {}), platform: HOST_KEYS }) : undefined;
   const fields = typeof args === "string" ? ((): Record<string, unknown> => {
     try {
       return JSON.parse(args) as Record<string, unknown>;
@@ -182,7 +191,7 @@ export function approvalLines(req: ApprovalRequest): string[] {
     ...(req.asker ? [`${who} needs your OK.`] : []),
     ...(req.why?.trim() ? [`${who}: ${req.why.trim()}`] : []),
     req.text,
-    ...(view ? [view.title, ...(view.said ? [`KOS says: "${view.said}"`] : []), ...(view.place ? [view.place] : []), ...(view.detached ? [view.detached] : [])] : []),
+    ...(view ? [view.title, ...(view.said ? [`KOS says: "${view.said}"`] : []), ...(view.place ? [view.place] : []), ...(view.after ? [view.after] : []), ...(view.detached ? [view.detached] : [])] : []),
     ...body,
     ...(req.reason ? [req.reason] : []),
   ];

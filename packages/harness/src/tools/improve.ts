@@ -1,3 +1,4 @@
+import { turnTaint } from "../kernel/caller.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import type { SuggestionKind, SuggestionStore } from "../improve/store.js";
 
@@ -62,7 +63,9 @@ export function createImproveModule(deps: ImproveModuleDeps): KosModule {
         },
         (input) => {
           const kind = input.kind as SuggestionKind;
-          const s = deps.suggestions.add(kind, str(input, "title"), str(input, "detail"), typeof input.action === "string" ? input.action : undefined);
+          // Raised after reading outside text, it carries that text's taint to the turn a yes starts.
+          const taint = turnTaint();
+          const s = deps.suggestions.add(kind, str(input, "title"), str(input, "detail"), typeof input.action === "string" ? input.action : undefined, taint?.tainted ? taint.sources : undefined);
           return JSON.stringify({ suggested: s.id, kind: s.kind, title: s.title });
         },
         { floor: "safe" },

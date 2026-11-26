@@ -251,7 +251,11 @@ trusted, and the trust is kept per site for every browser action
 (`browser.*` on `site:<host>`); a script in the page, and the ask for the
 owner's hands, ask every time. Whatever came from the page reaches the
 model between markers with a fresh id, saying it is the page's words and
-not instructions.
+not instructions. Reading a page taints the turn and its chat (docs/security.md): from
+then on going to an address that could carry what the turn read (a site
+nobody named, a query, a path no page linked) asks, and so does a step
+under a site's trust unless the owner named that site this turn and the
+turn read only it and nothing of theirs.
 
 ## Tests
 

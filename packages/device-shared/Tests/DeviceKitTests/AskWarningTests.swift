@@ -30,6 +30,16 @@ struct AskWarningTests {
     #expect(height(notify(detached: Self.unwaited)) >= height(notify()) + 24)
   }
 
+  @Test func anAskAfterOutsideTextSaysWhatWasRead() throws {
+    // The host's line for an ask a tainted turn raised (taintLine in @kos/shared), decoded and drawn above the yes.
+    let line = "After reading: an email from x@example.com"
+    let json = #"{"id":"7","tool":"notify","title":"Message #general","risk":"Posts where others read","after":"After reading: an email from x@example.com"}"#
+    let ask = ChatCalls.ask(try JSONDecoder().decode(ChatApproval.self, from: Data(json.utf8)), chat: nil)
+    #expect(ask.after == line)
+    let plain = ChatModel.Ask(id: ask.id, tool: ask.tool, title: ask.title, risk: ask.risk)
+    #expect(height(ask) >= height(plain) + 24)
+  }
+
   @Test func aSecretsAskAsTheHostSendsItIsNotWarned() throws {
     // The host never sends `detached` for a secret's ask: one whose turn has gone lapses, it never runs for nobody.
     let json = #"{"id":"9","tool":"secrets.fill","title":"Fill Visa on shop.example","risk":"Puts a card into a page","alwaysNote":"Secrets always ask","secret":{"handle":"visa","label":"Visa","fields":["number"],"origin":"https://shop.example"}}"#

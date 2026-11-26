@@ -371,6 +371,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
           text: payload.text,
           ...(payload.card ? { card: payload.card } : {}),
           ...(payload.buttons ? { buttons: payload.buttons } : {}),
+          ...(payload.noPreviews ? { noPreviews: true } : {}),
           ...(from ? { from } : {}),
         });
         return "Sent as a reply to the press.";

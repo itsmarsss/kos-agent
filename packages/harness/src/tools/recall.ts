@@ -1,5 +1,6 @@
 import type { Owner, ResultShelf } from "../context/shelf.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
+import { readFrom } from "../risk/untrusted.js";
 
 /**
  * context.recall: a big result back from the shelf, in part.
@@ -47,6 +48,14 @@ export function createRecallModule(shelf: () => ResultShelf | undefined, who: ()
             },
             who(),
           );
+        },
+        {
+          floor: "safe",
+          // A kept result brought back is as untrusted as the read that kept it.
+          untrusted: (input, _result, context) => {
+            const kept = typeof input["handle"] === "string" ? shelf()?.get(input["handle"].trim()) : undefined;
+            return kept ? readFrom(kept.tool, { url: kept.from, path: kept.from, sql: kept.from, command: kept.from }, kept.text, context) : undefined;
+          },
         },
       );
     },

@@ -13,6 +13,7 @@ import { COMPACTED_PREFIX } from "../kernel/compact.js";
 import { historySize, toExchanges } from "../kernel/session.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { turnTaint } from "../kernel/caller.js";
 import { maintains } from "./fence.js";
 import { reachOf } from "./sql.js";
 
@@ -240,7 +241,15 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         );
       }
       const tags = stringList(input, "tags");
-      const evidence = Array.isArray(input.evidence) ? input.evidence.filter((x): x is number => typeof x === "number") : [];
+      /*
+       * Written after reading outside text, a claim is that text's word, not
+       * the owner's: kept as external, never pinned, citing nothing, so it
+       * can neither pass for the owner by citing what they said nor stand
+       * in every chat on a pin.
+       */
+      const tainted = turnTaint()?.tainted === true;
+      if (tainted && input.pinned === true) throw new Error("this turn read text the owner did not write, so a claim from it cannot be pinned; remember it unpinned, or tell the owner");
+      const evidence = tainted ? [] : Array.isArray(input.evidence) ? input.evidence.filter((x): x is number => typeof x === "number") : [];
       const seen = shown.get(source());
       const unseen = evidence.filter((id) => !seen?.has(id));
       if (unseen.length) {
@@ -253,7 +262,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
        * Only the message the owner typed is matched: never a tool result,
        * a page or a file, which is where an injection would come from.
        */
-      const turn = deps.ownerTurn?.();
+      const turn = tainted ? undefined : deps.ownerTurn?.();
       if (turn && deps.events && groundedIn(value, turn.text)) {
         const said = await turn.cite();
         if (!evidence.includes(said)) evidence.push(said);
@@ -261,7 +270,9 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const cited = evidence.map((id) => deps.events?.get(id)).filter((e): e is NonNullable<typeof e> => e !== undefined);
       // The owner's own words, cited, make an owner-trust claim; a caller's
       // words make an external one; anything else is the agent's belief.
-      const trust = trustOf(cited);
+      // The owner's word only where what they said holds the claim's own words: citing an event is not saying this.
+      const cites = trustOf(cited);
+      const trust = tainted ? "external" : cites === "owner" && !cited.some((e) => groundedIn(value, e.text)) ? "agent" : cites;
       const written = facts.upsert(
         ownerId,
         {

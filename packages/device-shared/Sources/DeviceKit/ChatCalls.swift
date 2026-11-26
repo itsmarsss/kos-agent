@@ -61,7 +61,7 @@ public enum ChatCalls {
       id: a.id, tool: a.tool, summary: a.summary, title: a.title, args: a.args, mechanics: a.mechanics, steps: a.steps, said: a.said, place: a.place,
       tooLong: a.tooLong ?? false, risk: a.risk, why: a.why, reason: a.reason, always: a.always, alwaysTip: a.alwaysTip,
       alwaysNote: a.alwaysNote, asker: a.asker,
-      expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }, chat: chat, secret: a.secret, detached: a.detached)
+      expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }, chat: chat, secret: a.secret, detached: a.detached, after: a.after)
   }
 
   /// One entry of the chat as KOS sends it, as a window draws it; one of a role this app does not know is left out.

@@ -71,6 +71,7 @@ export const CHAT_COMMANDS: CommandSpec[] = [
     description: "replace this chat's history with a summary of it",
   },
   { name: "clear", description: "forget this chat's history, keep the chat" },
+  { name: "trust", description: "trust this chat again after it read text you did not write" },
   { name: "tools", description: "choose which tools this chat may use" },
   { name: "btw", args: "<question>", description: "a side question about this chat, without adding to it", where: "dashboard" },
   { name: "export", description: "download this chat as markdown", where: "dashboard" },

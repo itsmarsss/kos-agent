@@ -1,3 +1,5 @@
+import type { TaintSource } from "@kos/shared";
+
 import { runAgent, type Inference } from "../agent/loop.js";
 import type { MessageRoom, Quote } from "../models/types.js";
 import type { Attachment } from "../kernel/attachments.js";
@@ -44,6 +46,8 @@ export interface TurnContext {
   context?: string;
   /** That context only says where: it rides with the words into a turn already running. */
   contextRides?: true;
+  /** What the context quoted that the owner did not write. */
+  contextTaint?: TaintSource;
   /** What the owner quoted with the words, and where from. */
   quote?: Quote;
   /** What others said in the room in between, kept beside the words. */
@@ -436,6 +440,7 @@ export class ChannelRuntime {
         ...(msg.members?.length ? { members: msg.members } : {}),
         ...(msg.context ? { context: msg.context } : {}),
         ...(msg.contextRides ? { contextRides: true as const } : {}),
+        ...(msg.contextTaint ? { contextTaint: msg.contextTaint } : {}),
         ...(msg.quote ? { quote: msg.quote } : {}),
         ...(msg.roomTalk ? { roomTalk: msg.roomTalk } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),

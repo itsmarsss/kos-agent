@@ -114,6 +114,14 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           return undefined;
         }
       };
+      /** Any skill by name, a prompt skill's included, or none. */
+      const named = (input: Record<string, unknown>): SkillRecord | undefined => {
+        try {
+          return find(ws, str(input, "name"));
+        } catch {
+          return undefined;
+        }
+      };
       const hashNow = (skill: SkillRecord): string | undefined => skillHashNow(ws, skill);
       const isPromoted = (skill: SkillRecord): boolean => {
         const hash = hashNow(skill);
@@ -220,7 +228,14 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           assertOn(skill);
           return readFileSync(ws.resolve(skill.file), "utf8");
         },
-        { floor: "safe" },
+        {
+          floor: "safe",
+          // Instructions the owner has not kept as they are now are text anyone with a write to the folder could have put there.
+          untrusted: (input) => {
+            const skill = named(input);
+            return skill && !isPromoted(skill) ? { kind: "file", where: `skill ${skill.manifest.name}, not kept as it is` } : undefined;
+          },
+        },
       );
 
       ctx.registerTool(
@@ -255,14 +270,16 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
       const keepAsk = (verb: string) => ({
         floor: "risky" as const,
         asksAlways: true,
-        refuse: () => noJail(),
+        // Instructions are kept, never run: they need no jail.
+        refuse: (input: Record<string, unknown>) => (named(input)?.manifest.kind === "prompt" ? false : noJail()),
         why: (input: Record<string, unknown>) => {
-          const skill = scriptNamed(input);
+          const skill = named(input);
+          if (skill?.manifest.kind === "prompt") return `${verb} ${skill.manifest.name}'s instructions as they are, to be followed as yours from now on`;
           return skill ? `${verb} ${skill.manifest.name}, code of KOS's own writing, to run without asking from now on` : "code of KOS's own writing would be kept to run";
         },
         // The hash of the files the owner is shown, set by the harness before it asks.
         stamp: (input: Record<string, unknown>) => {
-          const skill = scriptNamed(input);
+          const skill = named(input);
           const hash = skill ? hashNow(skill) : undefined;
           return hash ? { ...input, hash } : input;
         },
@@ -294,11 +311,11 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
       ctx.registerTool(
         {
           name: "skills.commit",
-          description: "Commit a script skill as promoted, without the sandbox. Asks the owner every time.",
+          description: "Commit a script skill as promoted, without the sandbox, or keep a prompt skill's instructions as they are, so a turn using them is not tainted by them. Asks the owner every time.",
           inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
         },
         async (input) => {
-          const skill = script(find(ws, str(input, "name")));
+          const skill = find(ws, str(input, "name"));
           const hash = assertAsked(skill, input);
           const sha = await deps.promoter.commit(skill.file);
           deps.markPromoted(skill.manifest.name, hash);

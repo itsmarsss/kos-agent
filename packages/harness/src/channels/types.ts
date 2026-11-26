@@ -1,4 +1,4 @@
-import type { ActionHome, AskDetached, AskSecret } from "@kos/shared";
+import type { ActionHome, AskDetached, AskSecret, TaintSource } from "@kos/shared";
 
 import type { Attachment } from "../kernel/attachments.js";
 import type { MessageRoom, Quote } from "../models/types.js";
@@ -126,6 +126,8 @@ export interface InboundMessage {
    * already running, rather than holding them until that turn ends.
    */
   contextRides?: true;
+  /** The context quotes text the owner did not write (a tab's title, a reply to someone else): the turn it starts is tainted with it. */
+  contextTaint?: TaintSource;
   /** What the owner quoted with the words (text selected on a page) and where from: kept with the message, never as their words. */
   quote?: Quote;
   /**
@@ -280,6 +282,8 @@ export interface OutboundMessage {
   from?: Sender;
   /** Posted without a notification: the owner's own words shown back to them, which nobody needs to be buzzed for. */
   silent?: boolean;
+  /** From a turn that read text the owner did not write: the surface makes no link preview, which it would fetch. */
+  noPreviews?: boolean;
   /** The chat it was said in, for a surface whose buttons act back on it. */
   conversationId?: string;
 }
@@ -411,6 +415,8 @@ export interface ApprovalRequest {
   secret?: AskSecret;
   /** No turn waits on the answer: a yes runs it and its result goes to its chat, which the card warns of. */
   detached?: AskDetached;
+  /** What the asking turn read that the owner did not write: the card says so in one line. */
+  taint?: readonly TaintSource[];
 }
 
 /** Who settled an ask and when, as a settled prompt says it. */

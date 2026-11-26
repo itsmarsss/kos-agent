@@ -69,6 +69,7 @@ function viewOf(req: ApprovalRequest & { tool: string }): AskView {
     ...(req.secret ? { secret: req.secret } : {}),
     ...(req.beyondAuto ? { beyondAuto: true } : {}),
     ...(req.detached ? { detached: req.detached } : {}),
+    ...(req.taint ? { taint: req.taint } : {}),
     ...(req.names ? { names: req.names } : {}),
     ...(req.where ? { where: req.where } : {}),
     platform: HOST_KEYS,
@@ -122,6 +123,8 @@ export function approvalCard(req: ApprovalRequest, options: { dashboardUrl?: str
     // KOS's account of the step, smaller than what the step does.
     ...(view.said ? [`-# KOS says: “${words(view.said)}”`] : []),
     ...(view.place ? [`-# ${literal(view.place)}`] : []),
+    // Said before any yes: content the owner did not write came first, and may be what suggested this.
+    ...(view.after ? [`⚠ ${literal(view.after)}`] : []),
     // Said before any yes: nobody is waiting on this one's result.
     ...(view.detached ? [`⚠ ${literal(view.detached)}`] : []),
   ];
@@ -182,6 +185,7 @@ function secretCard(req: ApprovalRequest, view: AskView, said: string[], dashboa
     ...(view.said ? [`-# KOS says: “${words(view.said)}”`] : []),
     ...(where || fields ? [`-# ${literal([where, fields].filter(Boolean).join(" · "))}`] : []),
     ...(secret?.warnings ?? []).map((w) => `-# ⚠ ${literal(w)}`),
+    ...(view.after ? [`⚠ ${literal(view.after)}`] : []),
     // With no address a phone can open, the way there in words.
     link ? "-# A secret's use is decided on the dashboard or a paired device, never here." : `-# A secret's use is decided on the dashboard or a paired device, never here: the dashboard's Inbox, #${req.id}.`,
     smallPrint(req, view.risk, undefined),
