@@ -2,6 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { openDatabase, type ApprovalRequest } from "@kos/harness";
+import { DETACHED_WORDS } from "@kos/shared";
 
 import { readP8, type ApnsAnswer, type ApnsCredentials, type ApnsPush, type ApnsSender } from "./apns.js";
 import { FakeDevice } from "./device.fixture.js";
@@ -118,6 +119,27 @@ describe("an ask's notification", () => {
   it("offers Deny alone for an ask too long to approve unseen, as the phone's card does", () => {
     const push = askPush(ask({ args: { path: "big.md", content: "y".repeat(250_000) } }), (t) => t);
     expect((push.payload.aps as { category: string }).category).toBe(ASK_OPEN_CATEGORY);
+  });
+
+  it("offers Deny alone for an ask that runs detached, its warning under the line", () => {
+    const aps = (r: ApprovalRequest) => askPush(r, (t) => t).payload.aps as { alert: { body: string }; category: string };
+    const stopped = aps(ask({ tool: "notify", args: { text: "back soon" }, detached: "stopped" }));
+    expect(stopped.category).toBe(ASK_OPEN_CATEGORY);
+    expect(stopped.alert.body.endsWith(`\n${DETACHED_WORDS.stopped}`)).toBe(true);
+    // A long line is cut, the warning kept whole.
+    const long = aps(ask({ tool: "shell.run", args: { command: "x".repeat(400) }, detached: "unwaited" }));
+    expect(long.alert.body.length).toBeLessThanOrEqual(180);
+    expect(long.alert.body.endsWith(`\n${DETACHED_WORDS.unwaited}`)).toBe(true);
+  });
+
+  it("is unchanged for an ask a turn waits on, and for a secret's, which never runs detached", () => {
+    const aps = (r: ApprovalRequest) => askPush(r, (t) => t).payload.aps as { alert: { body: string }; category: string };
+    const held = aps(ask());
+    expect(held.category).toBe(ASK_CATEGORY);
+    expect(held.alert.body).not.toContain("\n");
+    const secret = aps(ask({ tool: "secrets.fill", args: { secret: "visa", fields: [] }, asksAlways: true }));
+    expect(secret.category).toBe(ASK_CATEGORY);
+    expect(secret.alert.body).not.toMatch(/approving runs it now/);
   });
 });
 

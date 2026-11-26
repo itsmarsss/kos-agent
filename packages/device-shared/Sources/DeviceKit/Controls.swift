@@ -425,6 +425,28 @@ extension Tag where Leading == EmptyView {
   }
 }
 
+/// A warning to read before a choice, in the warn's words on its tint: the web kit's `.kos-ask-detached`, an ask's
+/// note that approving it runs it for no waiting turn.
+public struct WarnNote: View {
+  private let text: String
+
+  public init(_ text: String) {
+    self.text = text
+  }
+
+  public var body: some View {
+    Text(text)
+      .font(.kos(.detail))
+      .foregroundStyle(Theme.warn)
+      .fixedSize(horizontal: false, vertical: true)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 6)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(Theme.warn.opacity(Theme.tint), in: RoundedRectangle(cornerRadius: Theme.radiusXs, style: .continuous))
+      .accessibilityLabel("Warning: \(text)")
+  }
+}
+
 /// What the owner quoted with their words, the web kit's QuoteLine: a small head (the quote mark, a label, where it
 /// is from, and × when it can be left out), then the words in quotes, cut to a few lines, on a soft tint with a
 /// hairline edge. In the composer it is the selection going with the next words; in a bubble, what went with them.

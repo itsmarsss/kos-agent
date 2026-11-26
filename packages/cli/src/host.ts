@@ -591,6 +591,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
   const approvalRequest = (action: PendingAction, pictured = true): ApprovalRequest => {
     const picture = pictured && action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
     const asker = kernel.askerOf(action.conversationId);
+    const detached = detachedAs(action, kernel.registry.detached(action.tool));
     return {
       id: String(action.id),
       text: `Approve ${action.tool}?`,
@@ -609,7 +610,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       ...(usesSecret(action.tool, JSON.parse(action.args)) ? { asksAlways: true } : {}),
       ...(action.secret ? { secret: action.secret } : {}),
       ...(action.beyondAuto ? { beyondAuto: true } : {}),
-      ...(detachedAs(action) ? { detached: detachedAs(action)! } : {}),
+      ...(detached ? { detached } : {}),
     };
   };
   /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */
