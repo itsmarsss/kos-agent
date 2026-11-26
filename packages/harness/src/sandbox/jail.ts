@@ -100,7 +100,7 @@ export function kosPorts(env: NodeJS.ProcessEnv = process.env): number[] {
 export function kosSecretFiles(env: NodeJS.ProcessEnv = process.env): string[] {
   // Real, so a vault folder reached through a link is denied where it really is.
   const vault = realOf(vaultDir(env));
-  return [...new Set([env.KOS_WRITE_KEY_FILE?.trim(), resolve(homedir(), ".kos"), vault, `${vault}.seq`, resolve(googleDir(env))].filter((p): p is string => !!p))];
+  return [...new Set([env.KOS_WRITE_KEY_FILE?.trim(), resolve(homedir(), ".kos"), vault, `${vault}.seq`, resolve(googleDir(env)), `${resolve(googleDir(env))}.settings.json`].filter((p): p is string => !!p))];
 }
 
 export interface JailedCommand {

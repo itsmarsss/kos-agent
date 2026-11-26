@@ -1,6 +1,6 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 /**
  * Where the Google server keeps the owner's sign-in, and what it says.
@@ -10,8 +10,13 @@ import { join } from "node:path";
  * they live in a folder of KOS's own under ~/.kos: outside the workspace,
  * 0700 with each file 0600, and denied to every jailed program (the shell,
  * skills, Python) with the rest of ~/.kos. Nothing a guest reaches reads it.
- * The server's own home (its uv cache), logs and downloads sit beside it, and
- * so do the owner's switches: a file no sql statement can write.
+ * The server's own home (its uv cache), logs and downloads sit beside it.
+ *
+ * The server writes in those folders, so whatever it leaves there is the
+ * server's: KOS never follows a link it finds in them, and acts on regular
+ * files alone, opened without following links. The owner's switches are
+ * KOS's own and live outside the server's reach, beside its folder (a file
+ * no sql statement can write either).
  */
 
 export interface GooglePlaces {
@@ -23,7 +28,7 @@ export interface GooglePlaces {
   logs: string;
   attachments: string;
   tmp: string;
-  /** The owner's switches and the account they signed in as. */
+  /** The owner's switches and the account they signed in as: beside the folder, never in it. */
   settings: string;
 }
 
@@ -47,26 +52,79 @@ export function googlePlaces(env: NodeJS.ProcessEnv = process.env): GooglePlaces
     logs: join(root, "logs"),
     attachments: join(root, "attachments"),
     tmp: join(root, "tmp"),
-    settings: join(root, "settings.json"),
+    settings: `${root}.settings.json`,
   };
 }
 
 /** A log past this is cut back to nothing when the server next starts: it has no rotation of its own. */
 export const LOG_MAX_BYTES = 5 * 1024 * 1024;
 
-/** The folders made, and kept, for the owner's account alone; a log grown too big emptied. */
+/** The folders the server may write in: only these, never the folder above them. */
+export function serverDirs(places: GooglePlaces): string[] {
+  return [places.credentials, places.home, places.logs, places.attachments, places.tmp];
+}
+
+const NOFOLLOW = constants.O_NOFOLLOW;
+
+/** A real folder at `dir`, 0700: anything else there (a link the server planted) is taken away first, never followed. */
+function realDir(dir: string): void {
+  let st;
+  try {
+    st = lstatSync(dir);
+  } catch {
+    st = undefined;
+  }
+  if (st && !st.isDirectory()) rmSync(dir, { force: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const fd = openSync(dir, constants.O_RDONLY | NOFOLLOW | constants.O_DIRECTORY);
+  try {
+    fchmodSync(fd, 0o700);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** The regular files in a folder, by lstat: a link in it is not one. */
+export function regularFiles(dir: string): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names.filter((n) => {
+    try {
+      return lstatSync(join(dir, n)).isFile();
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Do something to a regular file through a descriptor opened without following a link; nothing for a link or a file gone. */
+function onFile(path: string, flags: number, act: (fd: number) => void): void {
+  let fd: number;
+  try {
+    fd = openSync(path, flags | NOFOLLOW);
+  } catch {
+    return;
+  }
+  try {
+    if (fstatSync(fd).isFile()) act(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** The folders made, and kept, for the owner's account alone; a log grown too big emptied. Links are never followed. */
 export function preparePlaces(places: GooglePlaces): void {
-  for (const dir of [places.root, places.credentials, places.home, places.logs, places.attachments, places.tmp]) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    chmodSync(dir, 0o700);
-  }
-  for (const file of readdirSync(places.credentials)) {
-    const path = join(places.credentials, file);
-    if (statSync(path).isFile()) chmodSync(path, 0o600);
-  }
-  for (const file of readdirSync(places.logs)) {
-    const path = join(places.logs, file);
-    if (statSync(path).isFile() && statSync(path).size > LOG_MAX_BYTES) truncateSync(path, 0);
+  realDir(places.root);
+  for (const dir of serverDirs(places)) realDir(dir);
+  for (const file of regularFiles(places.credentials)) onFile(join(places.credentials, file), constants.O_RDONLY, (fd) => fchmodSync(fd, 0o600));
+  for (const file of regularFiles(places.logs)) {
+    onFile(join(places.logs, file), constants.O_WRONLY, (fd) => {
+      if (fstatSync(fd).size > LOG_MAX_BYTES) ftruncateSync(fd, 0);
+    });
   }
 }
 
@@ -80,17 +138,31 @@ export interface StoredSettings {
 
 export function readSettingsFile(places: GooglePlaces): StoredSettings {
   try {
-    const parsed = JSON.parse(readFileSync(places.settings, "utf8")) as unknown;
+    const parsed = JSON.parse(readNoFollow(places.settings)) as unknown;
     return parsed && typeof parsed === "object" ? (parsed as StoredSettings) : {};
   } catch {
     return {};
   }
 }
 
+/** Written whole beside the folder and renamed over the old one: a link left where it was is replaced, not followed. */
 export function writeSettingsFile(places: GooglePlaces, value: StoredSettings): void {
-  mkdirSync(places.root, { recursive: true, mode: 0o700 });
-  writeFileSync(places.settings, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  chmodSync(places.settings, 0o600);
+  mkdirSync(dirname(places.settings), { recursive: true, mode: 0o700 });
+  const next = `${places.settings}.${process.pid}.tmp`;
+  rmSync(next, { force: true });
+  writeFileSync(next, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  renameSync(next, places.settings);
+}
+
+/** A file's text, read only when it is a regular file reached without following a link. */
+function readNoFollow(path: string): string {
+  const fd = openSync(path, constants.O_RDONLY | NOFOLLOW);
+  try {
+    if (!fstatSync(fd).isFile()) throw new Error(`${path} is not a file`);
+    return readFileSync(fd, "utf8");
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** The signed-in account, as the owner is shown it: never a token. */
@@ -111,8 +183,7 @@ interface TokenFile {
 
 /** The token files, by account: `<url-encoded email>.json`, skipping the server's own state file. */
 function accountFiles(places: GooglePlaces): { email: string; path: string }[] {
-  if (!existsSync(places.credentials)) return [];
-  return readdirSync(places.credentials)
+  return regularFiles(places.credentials)
     .filter((f) => f.endsWith(".json"))
     .map((f) => ({ email: safeDecode(f.slice(0, -".json".length)), path: join(places.credentials, f) }))
     .filter((a) => a.email.includes("@"))
@@ -129,7 +200,7 @@ function safeDecode(name: string): string {
 
 function readToken(path: string): TokenFile | undefined {
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    const parsed = JSON.parse(readNoFollow(path)) as unknown;
     return parsed && typeof parsed === "object" ? (parsed as TokenFile) : undefined;
   } catch {
     return undefined;
@@ -145,7 +216,7 @@ export function readAccount(places: GooglePlaces, email?: string): GoogleAccount
     const token = readToken(file.path);
     if (!token) continue;
     const scopes = Array.isArray(token.scopes) ? token.scopes.filter((s): s is string => typeof s === "string").sort() : [];
-    return { email: file.email, scopes, refreshable: typeof token.refresh_token === "string" && token.refresh_token !== "", savedAt: statSync(file.path).mtimeMs };
+    return { email: file.email, scopes, refreshable: typeof token.refresh_token === "string" && token.refresh_token !== "", savedAt: lstatSync(file.path).mtimeMs };
   }
   return undefined;
 }
@@ -196,9 +267,10 @@ export async function forget(places: GooglePlaces, fetchFn: RevokeFetch, only?: 
  */
 export async function disconnect(places: GooglePlaces, fetchFn: RevokeFetch): Promise<{ accounts: string[]; revoked: boolean }> {
   const done = await forget(places, fetchFn);
+  // rm takes a link away rather than following it, at the top and inside.
   for (const dir of [places.credentials, places.logs, places.attachments, places.tmp]) {
     rmSync(dir, { recursive: true, force: true });
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    realDir(dir);
   }
   const { email: _gone, ...kept } = readSettingsFile(places);
   writeSettingsFile(places, kept);
