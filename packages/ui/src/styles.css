@@ -2168,6 +2168,8 @@ body:has(.modal-wrap, .pal-wrap, .preview-wrap) .ops-toasts {
   border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg);
 }
 .bubble--kos { align-self: flex-start; padding: 0.1rem 0.15rem; background: none; }
+/* A reply still streaming may yet turn out to be a step's narration. */
+.bubble--kos.bubble--unsettled { color: var(--muted); }
 :root[data-theme="light"] .bubble--you { background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
 /* Kept darker than the token: the danger word on its 14% tint would fall under 4.5:1 on white. */
 :root[data-theme="light"] .btn--danger { color: color-mix(in srgb, var(--danger) 80%, black); }

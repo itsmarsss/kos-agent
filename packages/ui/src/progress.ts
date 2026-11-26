@@ -130,7 +130,8 @@ function reduce(live: Live, event: ProgressEvent): Live {
   switch (event.kind) {
     case "tool-start": {
       // What was said before the step narrates it: kept with the steps, and the reply starts over after it.
-      const said = live.text.trim();
+      // A turn joined midway holds only a fragment of it, which is not shown.
+      const said = live.resumed ? "" : live.text.trim();
       if (said) steps.push({ kind: "reasoning", text: said });
       steps.push({
         kind: "tool",
