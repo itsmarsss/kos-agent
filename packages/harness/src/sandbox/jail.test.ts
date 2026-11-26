@@ -78,8 +78,8 @@ describe("the shell jail", { timeout: 30_000 }, () => {
     expect(p).toContain('(deny network-outbound (remote ip "*:4318"))');
     expect(p).toContain('(deny network-bind (local ip "*:4317"))');
     expect(p).toContain('(allow file-write* (subpath "/w")');
-    expect(kosPorts({ KOS_PORT: "4420" })).toEqual([4420, 4421, 4422, 9225]);
-    expect(kosPorts({ KOS_DEVICE_LAN_PORT: "4500", KOS_BROWSER_PORT: "9300" })).toEqual([4317, 4318, 4500, 9300]);
+    expect(kosPorts({ KOS_PORT: "4420" })).toEqual([4420, 4421, 4422, 9225, 4327]);
+    expect(kosPorts({ KOS_DEVICE_LAN_PORT: "4500", KOS_BROWSER_PORT: "9300", KOS_GOOGLE_PORT: "4400" })).toEqual([4317, 4318, 4500, 9300, 4400]);
   });
 
   it("denies reading this boot's write key and KOS's keys, after every allow", () => {
@@ -89,6 +89,8 @@ describe("the shell jail", { timeout: 30_000 }, () => {
     expect(kosSecretFiles({ KOS_WRITE_KEY_FILE: "/tmp/k" })[0]).toBe("/tmp/k");
     // The vault wherever KOS_VAULT_DIR puts it, and its sequence record beside it.
     expect(kosSecretFiles({ KOS_VAULT_DIR: "/srv/vault" })).toEqual(expect.arrayContaining(["/srv/vault", "/srv/vault.seq"]));
+    // The Google sign-in wherever KOS_GOOGLE_DIR puts it.
+    expect(kosSecretFiles({ KOS_GOOGLE_DIR: "/srv/google" })).toContain("/srv/google");
     expect(sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: kosSecretFiles({ KOS_VAULT_DIR: "/srv/vault" }) })).toMatch(/\(deny file-read\*[^\n]*\(subpath "\/srv\/vault"\)/);
   });
 
