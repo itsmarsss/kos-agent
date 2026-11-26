@@ -1,5 +1,6 @@
 import { PRIVATE_TOOLS } from "@kos/shared";
 
+import { codeOf } from "../tools/fence.js";
 import type { RiskAssessment } from "./tiers.js";
 
 /**
@@ -42,41 +43,47 @@ export interface LearnedCall {
 /** Tools whose calls remove what the owner has, whatever their arguments. */
 const DELETING_TOOLS = new Set(["files.rm"]);
 
-/** The statement with its string literals emptied and its comments gone, so neither can pass for a keyword. */
-function bare(sql: string): string {
-  return sql
-    .replace(/'(?:[^']|'')*'/g, "''")
-    .replace(/--[^\n]*/g, " ")
-    .replace(/\/\*[\s\S]*?(?:\*\/|$)/g, " ");
-}
-
 /** Words that are SQL, not a column a condition could name. */
 const NOT_NAMES = new Set(["and", "or", "not", "is", "null", "true", "false", "like", "glob", "in", "between", "case", "when", "then", "else", "end", "collate", "nocase"]);
 
-/**
- * Whether an UPDATE names the rows it changes: a WHERE whose condition
- * reads a column. `WHERE 1 = 1` or `WHERE 'a' = 'a'` names none.
- */
-function namesRows(statement: string): boolean {
-  const where = /\bwhere\b([\s\S]*?)(?:\breturning\b|\border\s+by\b|\blimit\b|;|$)/i.exec(statement);
-  if (!where) return false;
-  const condition = where[1]!.replace(/''/g, " ");
-  if (/["`[]/.test(condition)) return true;
-  return (condition.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []).some((word) => !NOT_NAMES.has(word.toLowerCase()));
+/** The names a condition reads: plain words that are not SQL's, and quoted identifiers. */
+function namesIn(term: string): string[] {
+  return (term.match(/"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|[A-Za-z_][A-Za-z0-9_]*/g) ?? []).filter((w) => !NOT_NAMES.has(w.toLowerCase()));
+}
+
+/** One branch of a WHERE that holds for every row: no column read, a column against itself, or one that is merely present. */
+function holdsForAll(term: string): boolean {
+  const t = term.replace(/[()]/g, " ").trim();
+  if (/\bis\s+not\s+null\b/i.test(t) || namesIn(t).length === 0) return true;
+  const same = /^(\S+)\s*(?:==?|>=|<=|\bis\b|\blike\b|\bglob\b)\s*(\S+)$/i.exec(t);
+  return same !== null && same[1]!.toLowerCase() === same[2]!.toLowerCase();
 }
 
 /**
- * True when the call deletes the owner's data: a delete, a drop, a
- * truncate, a REPLACE or an UPDATE OR REPLACE (which delete the rows they
- * replace), or an UPDATE whose WHERE names no rows, which overwrites every
- * one. Read with strings and comments taken out.
+ * Whether an UPDATE may change every row: no WHERE, or one whose branches
+ * (split at OR) include one that holds for all. Read from the statement with
+ * its values and comments taken out and its quoted names kept (codeOf), so
+ * neither a value nor a comment can stand in for a condition.
+ */
+function updatesEveryRow(code: string): boolean {
+  const where = /\bwhere\b([\s\S]*?)(?:\breturning\b|\border\s+by\b|\blimit\b|;|$)/i.exec(code);
+  return !where || where[1]!.split(/\bor\b/i).some(holdsForAll);
+}
+
+/**
+ * True when the call deletes the owner's data, judged by its words, where a
+ * tool with the database (sql) judges by SQLite's plan beside this: any
+ * delete, drop, truncate or replace anywhere in the raw statement (a word
+ * in a value counts, which only asks), or an UPDATE that may change every
+ * row.
  */
 export function deletesData(tool: string, input: Record<string, unknown>): boolean {
   if (DELETING_TOOLS.has(tool)) return true;
   if (tool !== "sql") return false;
-  const sql = bare(typeof input["sql"] === "string" ? input["sql"] : "");
-  if (/\b(delete\s+from|drop\s+(table|index|view|trigger)|truncate|replace\s+into|or\s+replace)\b/i.test(sql)) return true;
-  return /\bupdate\b/i.test(sql) && !namesRows(sql);
+  const sql = typeof input["sql"] === "string" ? input["sql"] : "";
+  if (/\b(delete|drop|truncate|replace)\b/i.test(sql)) return true;
+  const code = codeOf(sql);
+  return /\bupdate\b/i.test(code) && updatesEveryRow(code);
 }
 
 /** Whether a learned yes may cover the call: the same rules for a burst and a job's consent. */

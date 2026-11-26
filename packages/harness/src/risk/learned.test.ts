@@ -69,19 +69,33 @@ describe("a delete, as it reads one", () => {
     expect(deletesData("files.edit", { path: "a" })).toBe(false);
   });
 
-  it("is not fooled by a WHERE in a string or a comment, or one that names no rows", () => {
+  it("is not fooled by a WHERE in a string or a comment, or one that holds for every row", () => {
     expect(deletesData("sql", { sql: "UPDATE t SET note = 'where it was'" })).toBe(true);
     expect(deletesData("sql", { sql: "UPDATE t SET a = 1 -- WHERE id = 2" })).toBe(true);
     expect(deletesData("sql", { sql: "UPDATE t SET a = 1 /* where id = 2 */" })).toBe(true);
     expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE 1 = 1" })).toBe(true);
     expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE 'x' = 'x'" })).toBe(true);
     expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE TRUE" })).toBe(true);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE id = id" })).toBe(true);
+    expect(deletesData("sql", { sql: 'UPDATE t SET a = 1 WHERE "id" = "id"' })).toBe(true);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE id IS NOT NULL" })).toBe(true);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE id = 2 OR 1" })).toBe(true);
     expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE id = 2 RETURNING a" })).toBe(false);
-    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE \"id\" = 2" })).toBe(false);
-    // A word in a string, or a function of the same name, is not the statement.
-    expect(deletesData("sql", { sql: "UPDATE t SET note = 'delete from here' WHERE id = 2" })).toBe(false);
-    expect(deletesData("sql", { sql: "UPDATE t SET a = replace(a, 'x', 'y') WHERE id = 2" })).toBe(false);
-    expect(deletesData("sql", { sql: "UPDATE OR REPLACE t SET a = 1 WHERE id = 2" })).toBe(true);
+    expect(deletesData("sql", { sql: 'UPDATE t SET a = 1 WHERE "id" = 2' })).toBe(false);
+    expect(deletesData("sql", { sql: "UPDATE t SET a = 1 WHERE id = 2 AND done = 0" })).toBe(false);
+  });
+
+  it("reads a delete word anywhere in the raw statement, so a quoted name cannot hide one", () => {
+    // The probes that once read as no delete: a name in quotes that looks like the start of a comment or a string.
+    expect(deletesData("sql", { sql: 'WITH "a--" AS (SELECT 1) DELETE FROM notes WHERE id IN (SELECT 1 FROM "a--")' })).toBe(true);
+    expect(deletesData("sql", { sql: 'WITH "a/*" AS (SELECT 1) DELETE FROM notes WHERE id IN (SELECT 1 FROM "a/*")' })).toBe(true);
+    expect(deletesData("sql", { sql: "WITH \"a'\" AS (SELECT 1) DELETE FROM notes WHERE id IN (SELECT 1 FROM \"a'\")" })).toBe(true);
+    expect(deletesData("sql", { sql: "WITH `a--` AS (SELECT 1) DELETE FROM notes" })).toBe(true);
+    expect(deletesData("sql", { sql: "WITH [a--] AS (SELECT 1) DELETE FROM notes" })).toBe(true);
+    // A quoted name does not swallow the rest of an UPDATE either.
+    expect(deletesData("sql", { sql: 'UPDATE notes SET "a--" = 1' })).toBe(true);
+    // The word in a value only asks: the safe side.
+    expect(deletesData("sql", { sql: "UPDATE t SET note = 'delete me' WHERE id = 2" })).toBe(true);
   });
 
   it("counts an update of every row, and a replace, as one", () => {

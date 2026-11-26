@@ -3,7 +3,7 @@ import { requireServices } from "../modules/loader.js";
 import { isSqlDestructive, isSqlWrite } from "../risk/rules.js";
 import type { Db } from "../store/db.js";
 import { guestOrigin, isAttended, isOwnerTurn } from "../kernel/caller.js";
-import { fence, isKernelTable, maintains, ownedBy, ownerOf, reachable, tableNames, writesKernelTable, type Reach } from "./fence.js";
+import { fence, isKernelTable, maintains, ownedBy, ownerOf, reachable, removesRows, tableNames, writesKernelTable, type Reach } from "./fence.js";
 
 /**
  * The `sql` tool module: run DML against the workspace SQLite. SELECT and
@@ -135,8 +135,8 @@ export function defineSqlTool(db: Db, ctx: ModuleContext): void {
         if (isSqlWrite(input.sql) && writesKernelTable(db, input.sql, paramsOf(input))) return "writes KOS's own tables";
         return isSqlDestructive(input.sql) ? "changes or removes rows" : false;
       },
-      // What a turn read must never write KOS's own tables on the strength of an earlier yes: a daemon's row becomes code on its next start.
-      neverLearned: (input) => typeof input.sql === "string" && isSqlWrite(input.sql) && writesKernelTable(db, input.sql, paramsOf(input)),
+      // What a turn read must never write KOS's own tables on the strength of an earlier yes (a daemon's row becomes code on its next start), nor remove rows: both judged by SQLite's plan.
+      neverLearned: (input) => typeof input.sql === "string" && isSqlWrite(input.sql) && (writesKernelTable(db, input.sql, paramsOf(input)) || removesRows(db, input.sql, paramsOf(input))),
     },
   );
 }

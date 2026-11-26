@@ -81,6 +81,19 @@ describe("sqlModule", () => {
     expect(registry.classify("sql", { sql: "UPDATE books_tx SET a = 2 WHERE id = 1" }).neverLearned).toBeUndefined();
   });
 
+  it("lets no learned yes cover a statement whose plan removes rows, however its words read", () => {
+    ws.db.exec('CREATE TABLE IF NOT EXISTS books_notes (id INTEGER PRIMARY KEY, body TEXT)');
+    for (const sql of [
+      'WITH "a--" AS (SELECT 1) DELETE FROM books_notes WHERE id IN (SELECT 1 FROM "a--")',
+      'WITH "a/*" AS (SELECT 1) DELETE FROM books_notes WHERE id IN (SELECT 1 FROM "a/*")',
+      "WITH \"a'\" AS (SELECT 1) DELETE FROM books_notes WHERE id IN (SELECT 1 FROM \"a'\")",
+      "DELETE FROM books_notes",
+    ]) {
+      expect(registry.classify("sql", { sql }).neverLearned, sql).toBe(true);
+    }
+    expect(registry.classify("sql", { sql: "UPDATE books_notes SET body = 'x' WHERE id = 1" }).neverLearned).toBeUndefined();
+  });
+
   it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
     expect(registry.classify("sql", { sql: "SELECT 1" }).tier).toBe("safe");
     expect(registry.classify("sql", { sql: "INSERT INTO books_tx (a) VALUES (1)" }).tier).toBe("safe");

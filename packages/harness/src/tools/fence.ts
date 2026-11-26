@@ -185,6 +185,24 @@ export function writesKernelTable(db: Db, sql: string, params: readonly unknown[
   return plan !== undefined && (plan.virtual || plan.elsewhere || plan.writes.some(isKernelTable));
 }
 
+/** Opcodes by which SQLite's plan removes rows or a table: a row deleted, a table emptied, a table or index dropped. */
+const DELETING_OPS = new Set(["Delete", "Clear", "Destroy", "DropTable", "DropIndex", "DropTrigger"]);
+
+/**
+ * Whether a statement removes anything as SQLite would run it, read from
+ * its plan rather than its words, so a quoted name or a comment cannot
+ * hide a DELETE. An UPDATE that moves a row by its key shows a delete too,
+ * which is the safe side. A statement that does not compile removes nothing.
+ */
+export function removesRows(db: Db, sql: string, params: readonly unknown[] = []): boolean {
+  try {
+    const ops = db.prepare(`EXPLAIN ${sql}`).all(...params) as { opcode: string }[];
+    return ops.some((op) => DELETING_OPS.has(op.opcode));
+  } catch {
+    return false;
+  }
+}
+
 /** A project as the fence knows it: what its tables start with, and what to call it. */
 export interface Owner {
   slug: string;
