@@ -20,8 +20,8 @@ export interface EnqueueInput {
    * waiting, and that is not always the primary one.
    */
   conversationId?: string;
-  /** The rule a yes-and-remember would keep, named when the call was queued. */
-  rule?: { tool: string; scope: string | null; project: string | null };
+  /** The rule a yes-and-remember would keep, named when the call was queued: for a scheduled run's ask, kept for its job alone. */
+  rule?: { tool: string; scope: string | null; project: string | null; job?: number };
   /** A picture of what the call would act on: a browser tab, base64 JPEG. */
   picture?: string;
   /** What the agent said just before it asked: the reason, in its own words. */
@@ -58,7 +58,7 @@ export interface PendingAction {
   decidedAt: number | null;
   decidedBy: string | null;
   /** The rule a yes-and-remember keeps, if the call's shape can be named. */
-  rule: { tool: string; scope: string | null; project: string | null } | null;
+  rule: { tool: string; scope: string | null; project: string | null; job?: number } | null;
   /** There is a picture of what it would act on; fetched on its own, it is big. */
   picture: boolean;
   /** The agent's words before the ask, so the ask reads as a sentence and not a command. */

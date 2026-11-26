@@ -145,6 +145,14 @@ describe("an ask, as a card lays it out", () => {
     expect(view.risk).toBe("Asked though the chat is in Auto: writes into another project");
   });
 
+  it("says a scheduled run's Always is kept for that schedule alone, and Approve keeps nothing", () => {
+    const view = askView({ tool: "http.fetch", args: { url: "https://api.example/x" }, reason: "not one of the sites KOS may reach", rule: { tool: "http.fetch", scope: "host:api.example", project: "school", job: 7 } });
+    expect(view.always).toBe("Always allow on api.example for this schedule");
+    expect(view.alwaysTip).toContain("on this schedule's runs alone");
+    expect(view.alwaysTip).toContain("Approve on its own runs it just this once and keeps nothing");
+    expect(view.alwaysTip).not.toContain("in the project school");
+  });
+
   it("says no Always where nothing can be remembered", () => {
     const view = askView({ tool: "shell.run", args: { command: "rm -rf build" }, reason: "risky tool" });
     expect(view.always).toBeUndefined();

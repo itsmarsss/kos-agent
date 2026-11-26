@@ -60,23 +60,23 @@ export function detachedAs(action: Pick<PendingAction, "tool" | "waits" | "detac
 }
 
 /**
- * The consent a yes to a scheduled run's ask gives its job: the ask's own
- * rule, for that job alone. None for a guest's, one that reached past the
- * job's folder or placed a secret, one that deletes, one raised before the
- * job that now has its id was made, or one that named no rule. What may
- * never be learned is judged again on every run (risk/learned.ts).
+ * What a scheduled run's Always keeps: the ask's own rule, for that job
+ * alone. Nothing for a guest's, one that reached past the job's folder, a
+ * delete, a rule naming the whole tool, or one raised before the job that
+ * now has its id was made. A plain yes keeps nothing. What may never be
+ * learned is judged again on every run (risk/learned.ts).
  */
 export function jobConsent(
-  action: Pick<PendingAction, "tool" | "rule" | "job" | "guest" | "reached" | "requestedAt">,
+  action: Pick<PendingAction, "tool" | "rule" | "guest" | "reached" | "requestedAt">,
   args: Record<string, unknown>,
-  placing: boolean,
   madeAt: ((id: number) => number | undefined) | undefined,
-): { tool: string; scope: string | null; project: string | null; job: number } | undefined {
-  if (action.job === null || action.rule === null || action.guest !== null || action.reached || placing) return undefined;
+): { tool: string; scope: string; project: string | null; job: number } | undefined {
+  const rule = action.rule;
+  if (rule?.job === undefined || rule.scope === null || action.guest !== null || action.reached) return undefined;
   if (deletesData(action.tool, args)) return undefined;
-  const made = madeAt?.(action.job);
+  const made = madeAt?.(rule.job);
   if (made === undefined || action.requestedAt < made) return undefined;
-  return { ...action.rule, job: action.job };
+  return { tool: rule.tool, scope: rule.scope, project: rule.project, job: rule.job };
 }
 
 /** How a resume begins, so a reader can show it as a note rather than as the owner's words. */
@@ -299,11 +299,10 @@ export class Decisions {
     // turn's folder, and never for a call that sends a secret: each of
     // those is asked about. A secrets tool keeps its own yes (a grant on
     // the site), where the secret's policy offered one.
-    const kept = options.remember === true && (placing ? d.registry.keeps?.(action.tool, stored) === true : action.rule !== null && !action.reached);
-    if (kept && !placing) d.permissions.add(action.rule!);
-    // A yes to a scheduled run's ask is the job's consent from now on: the same step on its later runs does not ask.
-    const consent = jobConsent(action, stored, placing, d.jobMadeAt);
-    if (consent) d.permissions.add(consent);
+    // A scheduled run's Always is kept for its job alone, while that job is the one that asked.
+    const keep = action.rule?.job === undefined ? action.rule : jobConsent(action, stored, d.jobMadeAt);
+    const kept = options.remember === true && (placing ? d.registry.keeps?.(action.tool, stored) === true : keep !== null && keep !== undefined && !action.reached);
+    if (kept && !placing) d.permissions.add(keep!);
     // Asked to remember one that keeps nothing: said so, rather than taken as kept.
     const done = (r: DecisionResult): DecisionResult =>
       !options.remember ? r : kept ? { ...r, remembered: true } : { ...r, remembered: false, message: `Approved; nothing to remember for this one. ${r.message}` };

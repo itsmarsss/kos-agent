@@ -312,25 +312,35 @@ describe("an ask whose turn has gone", () => {
 });
 
 describe("the consent a yes gives a job", () => {
-  const rule = { tool: "notify", scope: "to:channel:42", project: "school" };
+  const rule = { tool: "http.fetch", scope: "host:api.example", project: "school", job: 7 };
   const made = (id: number): number | undefined => (id === 7 ? 100 : undefined);
-  const ask = (over: Partial<PendingAction> = {}): PendingAction => pending({ tool: "notify", rule, job: 7, requestedAt: 200, ...over });
+  const ask = (over: Partial<PendingAction> = {}): PendingAction => pending({ tool: "http.fetch", rule, job: 7, requestedAt: 200, ...over });
 
   it("is the ask's own rule, for that job alone", () => {
-    expect(jobConsent(ask(), { to: "channel:42" }, false, made)).toEqual({ ...rule, job: 7 });
+    expect(jobConsent(ask(), { url: "https://api.example/x" }, made)).toEqual(rule);
   });
 
-  it("is nothing for a chat's ask, a guest's, one past its folder, a secret's or a delete", () => {
-    expect(jobConsent(ask({ job: null }), {}, false, made)).toBeUndefined();
-    expect(jobConsent(ask({ guest: { project: "school", chat: "room" } }), {}, false, made)).toBeUndefined();
-    expect(jobConsent(ask({ reached: true }), {}, false, made)).toBeUndefined();
-    expect(jobConsent(ask(), {}, true, made)).toBeUndefined();
-    expect(jobConsent(ask({ tool: "sql", rule: { tool: "sql", scope: "table:t", project: null } }), { sql: "DELETE FROM t" }, false, made)).toBeUndefined();
-    expect(jobConsent(ask({ rule: null }), {}, false, made)).toBeUndefined();
+  it("is nothing for a chat's rule, a guest's, one past its folder, the whole tool or a delete", () => {
+    expect(jobConsent(ask({ rule: { ...rule, job: undefined } }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ guest: { project: "school", chat: "room" } }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ reached: true }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ rule: { ...rule, scope: null } }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ tool: "sql", rule: { tool: "sql", scope: "table:t", project: null, job: 7 } }), { sql: "DELETE FROM t" }, made)).toBeUndefined();
   });
 
   it("is nothing for a job that is gone, or one made after the ask under its id", () => {
-    expect(jobConsent(ask({ job: 8 }), {}, false, made)).toBeUndefined();
-    expect(jobConsent(ask({ requestedAt: 50 }), {}, false, made)).toBeUndefined();
+    expect(jobConsent(ask({ rule: { ...rule, job: 8 } }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ requestedAt: 50 }), {}, made)).toBeUndefined();
+  });
+
+  it("is kept only on Always: Approve on its own runs it just this once and keeps nothing", async () => {
+    const asked = ask({ args: JSON.stringify({ url: "https://api.example/x" }) });
+    const once = deps(asked, true, { jobMadeAt: made });
+    await new Decisions(once.d).approve(5, "owner", { surface: "dashboard" });
+    expect(once.log.some((l) => l.startsWith("rule:"))).toBe(false);
+    const kept: unknown[] = [];
+    const always = deps(asked, true, { jobMadeAt: made, permissions: { add: (r) => void kept.push(r) } });
+    await new Decisions(always.d).approve(5, "owner", { remember: true, surface: "dashboard" });
+    expect(kept).toEqual([rule]);
   });
 });
