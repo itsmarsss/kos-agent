@@ -220,13 +220,15 @@ describe("CronService", () => {
       s.stop();
     };
     boot();
-    // Restarted again before the next run: the same miss is not noted twice.
+    // Run now, which failed, so the job is still not marked run; then restarted before the next run.
+    runResult = async () => { throw new Error("offline"); };
+    await service({ runs }).fire(j.id);
     boot();
-    const noted = runs.finishedFor("cron", String(j.id), 10);
+    // The same miss is noted once, the failed Run now between them notwithstanding.
+    const noted = runs.finishedFor("cron", String(j.id), 10).filter((r) => r.status === "skipped");
     expect(noted).toHaveLength(1);
-    expect(noted[0]!.status).toBe("skipped");
-    expect(noted[0]!.error).toMatch(/^missed by 4h; next run at \w{3}, \w{3} \d{1,2}, \d{1,2}:\d{2} [AP]M$/);
-    // Not a failure: no run, no caretaker, no Discord.
-    expect(log.filter((l) => l.startsWith("run:") || l.startsWith("report:"))).toEqual([]);
+    expect(noted[0]!.error).toMatch(/^missed by over 4h; next run at \w{3}, \w{3} \d{1,2}, \d{1,2}:\d{2} [AP]M$/);
+    // The skips start no run and report nothing, so Discord hears nothing: only the Run now did either.
+    expect(log.filter((l) => l.startsWith("run:") || l.startsWith("report:"))).toEqual(["run:kickoff", "report:cron:1:kickoff:fail:offline"]);
   });
 });

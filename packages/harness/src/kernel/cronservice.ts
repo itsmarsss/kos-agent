@@ -59,6 +59,11 @@ export interface CronServiceDeps {
 
 export const BACKUP_JOB = "kos.backup";
 
+/** How a missed run's skip reason starts, as the scheduler writes it. */
+const SKIP_PREFIX = "missed by ";
+/** Runs looked back over for a skip already noted. */
+const SKIP_LOOKBACK = 10;
+
 export class CronService {
   private scheduler?: CronScheduler;
 
@@ -182,8 +187,11 @@ export class CronService {
    */
   private skipped(job: CronJob, missedAt: number, reason: string): void {
     const ref = String(job.id);
-    const [last] = this.deps.runs.finishedFor("cron", ref, 1);
-    if (last?.status === "skipped" && last.startedAt >= missedAt) return;
+    // Among the last few, not only the newest: a Run now that failed in between does not mark the job run.
+    const noted = this.deps.runs
+      .finishedFor("cron", ref, SKIP_LOOKBACK)
+      .some((r) => r.status === "skipped" && r.error?.startsWith(SKIP_PREFIX) && r.startedAt >= missedAt);
+    if (noted) return;
     this.deps.runs.finish(this.deps.runs.start("cron", ref), "skipped", reason);
   }
 
