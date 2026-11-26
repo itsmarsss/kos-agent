@@ -1,3 +1,5 @@
+import { BIDI, showInvisible } from "./invisible.js";
+
 /**
  * What a turn read that someone other than the owner wrote: a page, an
  * email, a guest's message, rows guests put in a table. Once a turn has
@@ -7,7 +9,7 @@
  */
 
 /** The kind of outside text a turn read. */
-export type TaintKind = "page" | "mail" | "doc" | "file" | "guest" | "rows" | "server" | "chat" | "log" | "program";
+export type TaintKind = "page" | "mail" | "doc" | "file" | "guest" | "rows" | "stored" | "server" | "chat" | "log" | "program";
 
 /** One thing a turn read that the owner did not write: what kind, and where it came from (a host, a sender, a file, a table). */
 export interface TaintSource {
@@ -30,6 +32,7 @@ const WORDS: Readonly<Record<TaintKind, (where: string | undefined) => string>> 
   file: (w) => (w ? `the file ${w}` : "a file someone else wrote"),
   guest: (w) => (w ? `a message from ${w}, a guest` : "a guest's message"),
   rows: (w) => (w ? `rows guests wrote in ${w}` : "rows guests wrote"),
+  stored: (w) => (w ? `rows written after outside text, in ${w}` : "rows written after outside text"),
   server: (w) => (w ? `a result from ${w}` : "a connected server's result"),
   chat: (w) => (w ? `what ${w} said` : "another chat's words"),
   log: () => "KOS's log",
@@ -38,7 +41,7 @@ const WORDS: Readonly<Record<TaintKind, (where: string | undefined) => string>> 
 
 /** A source's place as a card shows it: one line, no fence or quote characters, short. */
 export function cleanWhere(where: string | undefined): string | undefined {
-  const line = (where ?? "").replace(/[\u0000-\u001f\u007f<>`"]+/g, " ").replace(/\s+/g, " ").trim();
+  const line = showInvisible((where ?? "").replace(BIDI, "").replace(/[\u0000-\u001f\u007f\u2028\u2029<>`"]+/g, " ").replace(/\s+/g, " ").trim());
   if (!line) return undefined;
   return line.length > WHERE_MAX ? `${line.slice(0, WHERE_MAX - 1).trimEnd()}…` : line;
 }

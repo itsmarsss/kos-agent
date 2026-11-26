@@ -17,13 +17,15 @@ export interface ReadContext {
   site?: string;
   /** Table-name prefixes of projects a guest may write in (`leetcode_daily_`): rows read from them are guests' words. */
   guestTables?: readonly string[];
+  /** Tables a tainted turn wrote: rows read from them are as untrusted as what that turn read. */
+  taintedTables?: readonly string[];
 }
 
 /** Browser tools whose answer is KOS's own or the owner's, not a page's. */
-const BROWSER_OWN = new Set(["browser.tabs", "browser.use_tab", "browser.new_tab", "browser.handoff"]);
+const BROWSER_OWN = new Set(["browser.new_tab", "browser.handoff"]);
 
 /** Workspace folders whose files came from outside: what the owner was sent, and what a browser downloaded. */
-const INBOUND = /(^|\/)(uploads|downloads)\//;
+const INBOUND = /(^|[\/:\s"'])(uploads|downloads)\//im;
 
 /** Google's services, by the words of a tool's name: mail, or a document of some kind. */
 const MAIL = /gmail|mail|message|thread|draft/;
@@ -47,8 +49,30 @@ function baseName(path: string): string {
 /** The tables of guest projects a statement names: rows guests wrote, read back. */
 function guestTablesIn(sql: string, prefixes: readonly string[]): string | undefined {
   if (!prefixes.length) return undefined;
-  const names = codeOf(sql).match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
-  return names.map((n) => n.toLowerCase()).find((n) => prefixes.some((p) => n.startsWith(p)));
+  return namesIn(sql).find((n) => prefixes.some((p) => n.startsWith(p)));
+}
+
+/** The names a statement uses, lowercased, values and comments taken out. */
+function namesIn(sql: string): string[] {
+  return (codeOf(sql).match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []).map((n) => n.toLowerCase().replace(/^["`\[]|["`\]]$/g, ""));
+}
+
+/** Families whose answer is the owner's own data: memory, their chats, their artifacts, their tasks, what is kept. */
+const PRIVATE_READS = ["memory.", "chats.read", "chats.search", "secrets.list", "artifacts.get", "tasks.list", "context.recall", "search."];
+
+/**
+ * Whether a call read the owner's own data: memory, their files, their
+ * tables, other chats, a secret's list. A turn that has, and has read
+ * outside text, has something to send and someone telling it where.
+ */
+export function readsPrivate(tool: string, input: Record<string, unknown>): boolean {
+  if (PRIVATE_READS.some((p) => (p.endsWith(".") ? tool.startsWith(p) : tool === p))) return true;
+  if (tool === "files.read") {
+    const path = str(input, "path");
+    return !path || !INBOUND.test(path);
+  }
+  // Any table may be the owner's, a guest project's joined to one included.
+  return tool === "sql";
 }
 
 /** What this call read that the owner did not write, or undefined for a call whose answer is KOS's own. */
@@ -90,7 +114,18 @@ export function readFrom(tool: string, input: Record<string, unknown>, result: s
   if (tool === "sql") {
     const sql = str(input, "sql");
     const table = sql ? guestTablesIn(sql, context.guestTables ?? []) : undefined;
-    return table ? { kind: "rows", where: table } : undefined;
+    if (table) return { kind: "rows", where: table };
+    const stored = sql ? namesIn(sql).find((n) => (context.taintedTables ?? []).includes(n)) : undefined;
+    return stored ? { kind: "stored", where: stored } : undefined;
+  }
+  if (tool === "artifacts.get") {
+    const id = str(input, "id");
+    return { kind: "file", where: id ? `artifact ${id}` : "an artifact" };
+  }
+  // A program that reads what came from outside brings its text in with its output.
+  if (tool === "shell.run" || tool === "python.run") {
+    const said = [str(input, "command"), str(input, "code"), str(input, "cwd")].filter(Boolean).join("\n");
+    return INBOUND.test(said) ? { kind: "file", where: "a file in uploads or downloads" } : undefined;
   }
   if (tool === "chats.read" || tool === "chats.search") {
     const chat = str(input, "id") ?? str(input, "conversationId") ?? str(input, "query");

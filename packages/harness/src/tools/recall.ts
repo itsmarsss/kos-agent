@@ -52,9 +52,9 @@ export function createRecallModule(shelf: () => ResultShelf | undefined, who: ()
         {
           floor: "safe",
           // A kept result brought back is as untrusted as the read that kept it.
-          untrusted: (input) => {
+          untrusted: (input, _result, context) => {
             const kept = typeof input["handle"] === "string" ? shelf()?.get(input["handle"].trim()) : undefined;
-            return kept ? readFrom(kept.tool, { url: kept.from, path: kept.from, sql: kept.from }, kept.text) : undefined;
+            return kept ? readFrom(kept.tool, { url: kept.from, path: kept.from, sql: kept.from, command: kept.from }, kept.text, context) : undefined;
           },
         },
       );

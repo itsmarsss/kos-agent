@@ -12,7 +12,9 @@ import { withBeyondAuto } from "../risk/beyondauto.js";
 import { learnable } from "../risk/learned.js";
 import { Taint, TAINT_REASON, taintBars, taintRaises, type TaintBar } from "../risk/taint.js";
 import type { RiskAssessment } from "../risk/tiers.js";
-import { readFrom } from "../risk/untrusted.js";
+import { isSqlWrite, writtenTables } from "../risk/rules.js";
+import { readFrom, readsPrivate } from "../risk/untrusted.js";
+import { codeOf } from "../tools/fence.js";
 import { hasSecretRef, placeSecrets, secretsNamed } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { allowsTool, approvedAs, attendance, caller, guested, onSite, origin, ownership, scheduled, tainting, toolScope, turn, turnStop, underAuto, type GuestOrigin, type TurnOrigin } from "./caller.js";
@@ -75,6 +77,8 @@ export interface GuardedToolsDeps {
   taint?: Taint;
   /** Table-name prefixes of projects a guest may write in: rows read from them taint the turn. */
   guestTables?: () => readonly string[];
+  /** Tables tainted turns wrote, and the hook that keeps more: rows read back from them taint the turn that reads them. */
+  taintedTables?: { list(): readonly string[]; add(tables: readonly string[]): void };
   /** The owner's own words this turn, when it began from them: a site they name is theirs to go to, tainted or not. */
   said?: string;
   /**
@@ -313,8 +317,16 @@ export class GuardedTools implements ToolBox {
   /** Mark the turn with what a call that ran read, if it read outside text. */
   private noteRead(name: string, input: Record<string, unknown>, result: ToolExecution): void {
     const site = name.startsWith("browser.") ? this.deps.permissionContext?.(name)?.browser?.site : undefined;
-    const source = readFrom(name, input, result.content, { ...(site ? { site } : {}), guestTables: this.deps.guestTables?.() ?? [] }) ?? this.deps.registry.untrusted(name, input, result);
-    if (source) this.taint.mark(source);
+    const context = { ...(site ? { site } : {}), guestTables: this.deps.guestTables?.() ?? [], taintedTables: this.deps.taintedTables?.list() ?? [] };
+    const source = readFrom(name, input, result.content, context) ?? this.deps.registry.untrusted(name, input, result, context);
+    if (source) {
+      this.taint.mark(source);
+      this.taint.saw(result.content);
+    }
+    if (readsPrivate(name, input)) this.taint.markPrivate();
+    // What a tainted turn stores is as untrusted as what it read, for whoever reads it back.
+    const sql = name === "sql" && typeof input["sql"] === "string" ? input["sql"] : "";
+    if (this.taint.tainted && !result.isError && sql && isSqlWrite(sql)) this.deps.taintedTables?.add(writtenTables(codeOf(sql)));
   }
 
   /** Does this tool survive the conversation's allow-list? */
@@ -540,9 +552,11 @@ export class GuardedTools implements ToolBox {
      * open a site it has not been on or set up work for later asks, and no
      * saved yes covers one that reaches outside (risk/taint.ts).
      */
-    const tabSite = this.deps.permissionContext?.(name)?.browser?.site;
+    const callPlace = this.deps.permissionContext?.(name);
+    const tabSite = callPlace?.browser?.site;
+    const home = callPlace?.home?.folder;
     const said = owner && this.deps.ownWords === true ? this.deps.said : undefined;
-    const judged = { tool: name, input, secret, ...(tabSite ? { site: tabSite } : {}), ...(said ? { said } : {}) };
+    const judged = { tool: name, input, secret, ...(tabSite ? { site: tabSite } : {}), ...(said ? { said } : {}), ...(home !== undefined ? { home } : {}) };
     const raised = classified.tier === "safe" ? taintRaises(judged, taint) : false;
     const lifted: RiskAssessment = raised ? { tier: "risky", escalated: true, reason: raised, neverLearned: true } : classified;
     // What KOS's own rules put beyond a chat's Auto, beside what the tool's own says.
@@ -588,7 +602,7 @@ export class GuardedTools implements ToolBox {
       const context = assessment.reached ? { ...given, reached: true } : given;
       // A chat set to Auto, for the owner's own turn: decided by auto mode, kept in the Inbox as such, and said to the model.
       const mode = this.deps.chatMode?.();
-      const covered = (!bar || bar.auto === true) && autoCovers({ mode, assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
+      const covered = !bar && autoCovers({ mode, assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
       // Why Auto held back after all, from what the call would act on: said on the card, so the owner knows why it asked.
       const heldBack = covered ? await this.deps.beyondAutoNow?.(name, input).catch(() => "could not check the page for a checkout") : undefined;
       // Why a chat in Auto asks anyway, from its rules or what the call acts on: the card says so and offers no remembered yes.

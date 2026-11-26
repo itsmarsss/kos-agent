@@ -148,6 +148,8 @@ export interface DecisionsDeps {
   /** Something a tool did that the kernel must notice, e.g. a schedule changed. */
   onToolRan: (tool: string) => void;
   /** Carry a held turn on; `unattended` when nobody started the turn that asked (a schedule's run), so it is resumed as that run. */
+  /** Table prefixes of projects a guest may write in, for what an approved call read. */
+  guestTables?: () => readonly string[];
   handleMessage: (text: string, opts: { sessionId: string; userId: string; origin: "system"; unattended?: boolean; tainted?: readonly TaintSource[] }) => Promise<{ reply: string }>;
   /**
    * Why a yes on an ask that places a secret may be KOS's own hand, if it
@@ -358,7 +360,7 @@ export class Decisions {
     let stuck: string | undefined;
     try {
       // The turn carried on is as tainted as the one that asked, and by what the approved call itself read.
-      const read = readFrom(action.tool, stored, result.content);
+      const read = readFrom(action.tool, stored, result.content, { guestTables: d.guestTables?.() ?? [] });
       const tainted = [...(action.taint ?? []), ...(read ? [read] : [])];
       reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: by, origin: "system", ...(action.attended ? {} : { unattended: true }), ...(tainted.length ? { tainted } : {}) })).reply;
     } catch (err) {

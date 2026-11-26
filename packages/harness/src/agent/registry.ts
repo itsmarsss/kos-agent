@@ -4,6 +4,7 @@ import type { ToolDef } from "../models/types.js";
 import type { HeardWords } from "../models/heard.js";
 import type { ToolImage } from "../models/types.js";
 import { classifyRisk, SAFE, type RiskAssessment, type ToolRisk } from "../risk/tiers.js";
+import type { ReadContext } from "../risk/untrusted.js";
 import type { SecretSlots } from "../secrets/inject.js";
 
 /**
@@ -127,8 +128,8 @@ export class ToolRegistry {
   }
 
   /** What outside text a call's result carries, as its tool alone can say; see ToolRisk.untrusted. */
-  untrusted(name: string, input: Record<string, unknown>, result: { content: string; isError: boolean }): TaintSource | undefined {
-    return this.tools.get(name)?.risk.untrusted?.(input, result);
+  untrusted(name: string, input: Record<string, unknown>, result: { content: string; isError: boolean }, context: ReadContext): TaintSource | undefined {
+    return this.tools.get(name)?.risk.untrusted?.(input, result, context);
   }
 
   /** What the audit keeps of a call: all of it, unless its tool keeps less (ToolRisk.audited). */

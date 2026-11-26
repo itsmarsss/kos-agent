@@ -1,5 +1,7 @@
 import type { AskSecret, TaintSource } from "@kos/shared";
 
+import type { ReadContext } from "./untrusted.js";
+
 /**
  * Risk tiers. The model never assesses its own risk; the harness computes it in
  * code from a static per-tool floor plus deterministic argument-escalation
@@ -83,7 +85,7 @@ export interface ToolRisk {
    * turn is tainted with it (risk/taint.ts). Most tools are read from their
    * name (risk/untrusted.ts); this is for the rest.
    */
-  untrusted?: (input: Record<string, unknown>, result: { content: string; isError: boolean }) => TaintSource | undefined;
+  untrusted?: (input: Record<string, unknown>, result: { content: string; isError: boolean }, context: ReadContext) => TaintSource | undefined;
   /**
    * What an ask becomes once no turn waits on its answer (decisions.ts,
    * orphanFate). By default an ask a turn held for lapses when that turn
