@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PendingAction } from "../ops/approvals.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { approvedAs, caller, isAttended, isOwnerTurn } from "./caller.js";
-import { Decisions, decidedHow, decidedLine, detachedAs, orphanFate, type DecisionsDeps } from "./decisions.js";
+import { Decisions, decidedHow, decidedLine, detachedAs, jobConsent, orphanFate, type DecisionsDeps } from "./decisions.js";
 
 function pending(over: Partial<PendingAction> = {}): PendingAction {
   return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, beyondAuto: false, secret: null, decidedVia: null, decidedDevice: null, detachedAt: null, job: null, ...over };
@@ -302,5 +302,29 @@ describe("an ask whose turn has gone", () => {
     const r = await new Decisions(d).approve(5, "owner", { surface: "dashboard" });
     expect(r.ok).toBe(false);
     expect(log).toEqual(["lapse:5:turn-gone"]);
+  });
+});
+
+describe("the consent a yes gives a job", () => {
+  const rule = { tool: "notify", scope: "to:channel:42", project: "school" };
+  const made = (id: number): number | undefined => (id === 7 ? 100 : undefined);
+  const ask = (over: Partial<PendingAction> = {}): PendingAction => pending({ tool: "notify", rule, job: 7, requestedAt: 200, ...over });
+
+  it("is the ask's own rule, for that job alone", () => {
+    expect(jobConsent(ask(), { to: "channel:42" }, false, made)).toEqual({ ...rule, job: 7 });
+  });
+
+  it("is nothing for a chat's ask, a guest's, one past its folder, a secret's or a delete", () => {
+    expect(jobConsent(ask({ job: null }), {}, false, made)).toBeUndefined();
+    expect(jobConsent(ask({ guest: { project: "school", chat: "room" } }), {}, false, made)).toBeUndefined();
+    expect(jobConsent(ask({ reached: true }), {}, false, made)).toBeUndefined();
+    expect(jobConsent(ask(), {}, true, made)).toBeUndefined();
+    expect(jobConsent(ask({ tool: "sql", rule: { tool: "sql", scope: "table:t", project: null } }), { sql: "DELETE FROM t" }, false, made)).toBeUndefined();
+    expect(jobConsent(ask({ rule: null }), {}, false, made)).toBeUndefined();
+  });
+
+  it("is nothing for a job that is gone, or one made after the ask under its id", () => {
+    expect(jobConsent(ask({ job: 8 }), {}, false, made)).toBeUndefined();
+    expect(jobConsent(ask({ requestedAt: 50 }), {}, false, made)).toBeUndefined();
   });
 });
