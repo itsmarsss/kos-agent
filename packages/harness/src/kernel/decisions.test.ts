@@ -69,6 +69,16 @@ describe("approving", () => {
     expect(r).toMatchObject({ ok: true, message: "removed", isError: false, reply: "carried on" });
   });
 
+  it("carries the asking turn's taint into the turn it resumes, with what the approved call itself read", async () => {
+    const seen: unknown[] = [];
+    const resume = { handleMessage: async (_text: string, opts: { tainted?: unknown }) => { seen.push(opts.tainted); return { reply: "ok" }; } };
+    const asked = pending({ tool: "http.fetch", args: JSON.stringify({ url: "https://news.example/a" }), taint: [{ kind: "mail", where: "x@evil.example" }] });
+    await new Decisions(deps(asked, false, resume).d).approve(5, undefined, { surface: "dashboard" });
+    expect(seen.at(-1)).toEqual([{ kind: "mail", where: "x@evil.example" }, { kind: "page", where: "news.example" }]);
+    await new Decisions(deps(pending(), false, resume).d).approve(5, undefined, { surface: "dashboard" });
+    expect(seen.at(-1)).toBeUndefined();
+  });
+
   it("runs an orphaned action as the turn that asked: the owner's reach only if it was theirs", async () => {
     const as = async (asked: { owner: boolean; attended: boolean }): Promise<{ owner: boolean; attended: boolean }> => {
       let seen = { owner: true, attended: true };
