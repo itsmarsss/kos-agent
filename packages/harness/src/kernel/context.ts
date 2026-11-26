@@ -8,7 +8,7 @@ import { renderSkillsSection, type SkillRecord } from "../skills/manifest.js";
 import { MATCHED_LIMIT, STANDING_LIMIT, type Recall } from "../memory/retriever.js";
 import type { Profile } from "./profile.js";
 import { clockLine } from "./when.js";
-import { ACTING, VOICE } from "./voice.js";
+import { ACTING, REPLY, VOICE } from "./voice.js";
 import { WHERE_TO_ACT } from "./where.js";
 
 /**
@@ -168,6 +168,8 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
       "For something you will do again, make a skill with skills.create: instructions as a prompt skill, code as a script skill. A script is tested with skills.test and promoted with skills.promote before skills.run may run it.",
     ].join("\n"),
   );
+  // Last of the fixed half, so it is the rule read nearest the answer, on both engines.
+  sections.push(REPLY);
 
   return {
     system: sections.join("\n\n"),

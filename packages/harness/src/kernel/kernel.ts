@@ -168,7 +168,7 @@ import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
 import { originOf } from "./origin.js";
 import type { HeardWords, OwnerWords } from "../models/heard.js";
-import { inHouseVoice } from "./voice.js";
+import { replyLine } from "./voice.js";
 import { pairedNote } from "./where.js";
 import { keepFile, readFile as readWorkspaceFile } from "./files.js";
 import { ASK, MODE_WORDS, UNCHANGED, liveMode, modeLabel, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
@@ -1660,7 +1660,8 @@ export class Kernel {
           });
 
           const settleSdk = async (sdk: SdkChatResult, resumed = false): Promise<string> => {
-            const reply = sdk.text ? inHouseVoice(sdk.text) : stop.signal.aborted ? "Stopped." : "I do not have anything to add to that.";
+            // A turn the step limit or an error ended says so, as on the other engine.
+            const reply = replyLine(sdk.text, { stopped: stop.signal.aborted, stuck: sdk.stopped });
             if (useSession) {
               /*
                * The calls, then the reply.
@@ -4433,14 +4434,7 @@ export class Kernel {
     // the reader that is silence: the agent looks like it ignored them. It
     // happens when the loop hits its iteration cap, which is exactly when the
     // reader most needs to hear that it got stuck.
-    const reply =
-      result.stopped && result.finalText.trim() === ""
-        ? "Stopped."
-        : result.finalText.trim() !== ""
-          ? inHouseVoice(result.finalText)
-          : result.exhausted
-            ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
-            : "I do not have anything to add to that.";
+    const reply = replyLine(result.finalText, { stopped: result.stopped === true, stuck: result.exhausted });
 
     if (useSession) {
       // Persist the loop's own message list so tool calls and their results

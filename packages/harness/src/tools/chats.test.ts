@@ -101,12 +101,13 @@ describe("chats.archive and chats.delete", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("reads and finds the owner's words heard mid-turn, as theirs", async () => {
+  it("reads and finds the owner's words heard mid-turn, as theirs, and KOS's replies without step narration", async () => {
     const h = await harness(ws);
     const chat = h.conversations.create({ userId: OWNER, title: "Cart" });
     new SessionStore(ws.db).set(chat.id, [
       { role: "user", content: [{ type: "text", text: "build a cart" }] },
-      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.look", input: {} }] },
+      // The words beside the call narrate it, on the API loop: not KOS's reply.
+      { role: "assistant", content: [{ type: "text", text: "I'll open the shop." }, { type: "tool_use", id: "t1", name: "browser.look", input: {} }] },
       { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content: "Opened it.", heard: { mark: "ab12cd34", words: [{ text: "skip the ebooks" }] } }] },
       { role: "assistant", content: [{ type: "text", text: "Done." }] },
     ]);

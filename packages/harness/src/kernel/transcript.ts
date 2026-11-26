@@ -1,7 +1,7 @@
 import { outcomeOf, summarizeAction, type ActionHome, type CallOutcome } from "@kos/shared";
 
 import { heardWith } from "../models/heard.js";
-import { saidText, type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
+import { type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
 import { RESUME_HEAD } from "./decisions.js";
 import { parseQueuedApproval } from "./guarded.js";
 import type { EarlierHistory } from "./session.js";
@@ -139,8 +139,9 @@ function decisionsIn(text: string): Array<[string, CallOutcome, boolean]> {
   return found;
 }
 
-function textOf(content: ModelMessage["content"]): string {
-  return saidText(content).trim();
+/** A model message that calls a tool: its words narrate the step, and are not a reply. */
+function isStep(message: ModelMessage): boolean {
+  return message.role === "assistant" && message.content.some((b) => b.type === "tool_use");
 }
 
 /**
@@ -167,7 +168,13 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
 
   for (const message of messages) {
     const at = message.at ? { at: message.at } : {};
+    const step = isStep(message);
     for (const block of message.content) {
+      // Words beside a call narrate that step: shown with it, folded like a thought, never as a reply.
+      if (step && block.type === "text" && block.text.trim()) {
+        events.push({ kind: "reasoning", text: block.text.trim() });
+        continue;
+      }
       if (block.type === "reasoning") {
         const text = block.text.trim();
         if (text) events.push({ kind: "reasoning", text });
@@ -279,18 +286,6 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
   }
 
   return events;
-}
-
-/** Just the spoken turns, for surfaces that only want the conversation. */
-export function spokenTurns(
-  messages: ModelMessage[],
-): Array<{ role: "you" | "kos"; text: string }> {
-  return messages
-    .map((m) => ({
-      role: (m.role === "user" ? "you" : "kos") as "you" | "kos",
-      text: textOf(m.content),
-    }))
-    .filter((t) => t.text !== "");
 }
 
 /**

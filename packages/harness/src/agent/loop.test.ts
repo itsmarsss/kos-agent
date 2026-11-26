@@ -89,6 +89,89 @@ describe("runAgent", () => {
     });
   });
 
+  it("answers with the words after the last step, not the narration beside a call", async () => {
+    const step = (text: string, id: string): ModelResponse => ({
+      content: [{ type: "text", text }, { type: "tool_use", id, name: "add", input: { a: 1, b: 1 } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "mock",
+    });
+    const inference = new ScriptedInference([
+      step("I'll add them.", "t1"),
+      step("Now once more.", "t2"),
+      { content: [{ type: "text", text: "Sent." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+    ]);
+    const result = await runAgent(inference, addRegistry(), "add twice");
+    expect(result.finalText).toBe("Sent.");
+    // The narration stays in the model's own messages, beside its call.
+    expect(result.messages[1]!.content[0]).toEqual({ type: "text", text: "I'll add them." });
+  });
+
+  it("has no reply when the turn stops or runs out on a step, rather than its narration", async () => {
+    const step: ModelResponse = {
+      content: [{ type: "text", text: "Checking the board." }, { type: "tool_use", id: "t", name: "add", input: { a: 1, b: 1 } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "mock",
+    };
+    const exhausted = await runAgent(new ScriptedInference([step, step]), addRegistry(), "loop", { maxIterations: 2 });
+    expect(exhausted.exhausted).toBe(true);
+    expect(exhausted.finalText).toBe("");
+
+    let calls = 0;
+    const stopped = await runAgent(new ScriptedInference([step, step]), addRegistry(), "loop", { shouldStop: () => calls++ > 0 });
+    expect(stopped.stopped).toBe(true);
+    expect(stopped.finalText).toBe("");
+  });
+
+  it("answers with what it wrote before a silent save, said once, as the turn's last message", async () => {
+    const answer = "The sum is 2. ".repeat(20).trim();
+    const step = (text: string, id: string, name: string): ModelResponse => ({
+      content: [{ type: "text", text }, { type: "tool_use", id, name, input: { a: 1, b: 1 } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "mock",
+    });
+    const reg = addRegistry();
+    reg.register({ name: "memory.remember", description: "m", inputSchema: { type: "object", properties: {} } }, () => "kept");
+    const inference = new ScriptedInference([
+      step("I'll add them.", "t1", "add"),
+      step(answer, "t2", "memory.remember"),
+      { content: [], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+    ]);
+    const result = await runAgent(inference, reg, "add and remember");
+    expect(result.finalText).toBe(answer);
+    expect(result.messages.at(-1)).toMatchObject({ role: "assistant", content: [{ type: "text", text: answer }] });
+    // Taken off the step it was written beside, so the history carries it once.
+    expect(result.messages[3]!.content).toEqual([{ type: "tool_use", id: "t2", name: "memory.remember", input: { a: 1, b: 1 } }]);
+    expect(result.messages[1]!.content[0]).toEqual({ type: "text", text: "I'll add them." });
+  });
+
+  it("does not take the words before a save as the reply of a turn cut short", async () => {
+    const answer = "The sum is 2. ".repeat(20).trim();
+    const reg = addRegistry();
+    reg.register({ name: "memory.remember", description: "m", inputSchema: { type: "object", properties: {} } }, () => "kept");
+    const save: ModelResponse = { content: [{ type: "text", text: answer }, { type: "tool_use", id: "t1", name: "memory.remember", input: {} }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" };
+    const result = await runAgent(new ScriptedInference([save]), reg, "remember", { maxIterations: 1 });
+    expect(result.exhausted).toBe(true);
+    expect(result.finalText).toBe("");
+    expect(result.messages[1]!.content[0]).toEqual({ type: "text", text: answer });
+  });
+
+  it("answers with a long answer it posted and the short line after, in the last message", async () => {
+    const answer = "The sum is 2. ".repeat(20).trim();
+    const reg = addRegistry();
+    reg.register({ name: "notify", description: "n", inputSchema: { type: "object", properties: {} } }, () => "Sent.");
+    const inference = new ScriptedInference([
+      { content: [{ type: "text", text: answer }, { type: "tool_use", id: "t1", name: "notify", input: {} }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+      { content: [{ type: "text", text: "Posted above." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+    ]);
+    const result = await runAgent(inference, reg, "post it");
+    expect(result.finalText).toBe(`${answer}\n\nPosted above.`);
+    expect(result.messages.at(-1)!.content).toEqual([{ type: "text", text: `${answer}\n\nPosted above.` }]);
+    expect(result.messages[1]!.content.some((b) => b.type === "text")).toBe(false);
+  });
+
   it("stamps each message as it is made, so a step keeps its own time", async () => {
     const reg = new ToolRegistry();
     reg.register({ name: "slow", description: "takes a while", inputSchema: { type: "object" } }, async () => {
