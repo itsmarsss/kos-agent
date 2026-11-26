@@ -79,6 +79,7 @@ export { decidedWords, typedVia, type DecidedFacts, type DecidedVia, type LapseV
 
 export { hasSecretRef, usesSecret } from "./secretref.js";
 export { registrableDomain } from "./domain.js";
+export { cleanWhere, keptSources, readSources, sameSource, taintLine, TAINT_SOURCES_MAX, type TaintKind, type TaintSource } from "./taint.js";
 export {
   SECRET_FIELDS,
   SECRET_KINDS,
