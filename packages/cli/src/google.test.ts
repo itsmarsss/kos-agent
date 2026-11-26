@@ -13,6 +13,7 @@ const VIEW: GoogleView = {
   settings: { on: true, changes: false, send: false },
   missing: [],
   signingIn: false,
+  jail: "kos",
   redirectUri: "http://localhost:4327/oauth2callback",
   email: "me@example.com",
   server: { connected: true, tools: 24 },

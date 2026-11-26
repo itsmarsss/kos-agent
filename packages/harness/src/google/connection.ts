@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, watch, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -7,7 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 import { renderContent, type McpServerConfig } from "../tools/mcp.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
-import { jailedProgram, kosPorts, kosSecretFiles } from "../sandbox/jail.js";
+import { isContained, jailedProgram, kosPorts, kosSecretFiles } from "../sandbox/jail.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import {
   disconnect,
@@ -18,6 +18,7 @@ import {
   preparePlaces,
   readAccount,
   readSettingsFile,
+  serverDirs,
   writeSettingsFile,
   type GoogleAccount,
   type GooglePlaces,
@@ -123,6 +124,10 @@ export interface GoogleStatus {
   /** Scopes the mode needs that the sign-in lacks. */
   missing: string[];
   signingIn: boolean;
+  /** What holds the server: KOS's jail, the container, or nothing (said to the owner); null before it first starts. */
+  jail: JailKind | null;
+  /** Why the server is not jailed, or would not start because it could not be. */
+  jailProblem?: string;
   /** The last sign-in's failure, in words. */
   error?: string;
   redirectUri: string;
@@ -157,11 +162,20 @@ export function authUrlIn(text: string): string | undefined {
 export const SIGN_IN_AGAIN =
   "Google is not signed in, or its sign-in lapsed (a Google app in Testing signs out after 7 days). Nothing was done. The owner signs in again under Settings > Connections, or with kos google signin.";
 
+export type JailKind = "kos" | "container" | "none";
+
 /** The server's own sign-in prompts, at the start of a result or of a tool error naming the tool. */
 const SIGN_IN_PROMPT = /^\s*(?:Error calling tool '[a-z_]+': )?\*\*(?:ACTION REQUIRED: Google Authentication Needed|Authentication Required: Token Expired\/Revoked)\b/;
 
-export function presentResult(text: string): string {
-  return SIGN_IN_PROMPT.test(text) ? SIGN_IN_AGAIN : text;
+/**
+ * A result as the model reads it: the server's sign-in prompt, or any text
+ * carrying a Google sign-in address for the owner's own client (should the
+ * prompt's wording change), becomes words sending the owner to Settings.
+ */
+export function presentResult(text: string, clientId?: string): string {
+  if (SIGN_IN_PROMPT.test(text)) return SIGN_IN_AGAIN;
+  if (clientId && /https:\/\/accounts\.google\.com\/o\/oauth2\//.test(text) && (text.includes(`client_id=${clientId}`) || text.includes(`client_id=${encodeURIComponent(clientId)}`))) return SIGN_IN_AGAIN;
+  return text;
 }
 
 /** An address as the owner would type it, or undefined. */
@@ -177,6 +191,8 @@ export class GoogleConnection {
   private session: AuthSession | undefined;
   private timer: NodeJS.Timeout | undefined;
   private failure: string | undefined;
+  private jail: { kind: JailKind; problem?: string } | undefined;
+  private watcher: FSWatcher | undefined;
   private readonly listeners = new Set<() => unknown>();
 
   constructor(private readonly options: GoogleConnectionOptions) {
@@ -230,6 +246,8 @@ export class GoogleConnection {
       settings,
       missing: account ? missingScopes(scopesFor(settings), account.scopes) : [],
       signingIn: this.signingIn,
+      jail: this.jail?.kind ?? null,
+      ...(this.jail?.problem ? { jailProblem: this.jail.problem } : {}),
       ...(this.failure ? { error: this.failure } : {}),
       redirectUri: redirectUri(this.port),
     };
@@ -252,13 +270,45 @@ export class GoogleConnection {
     const client = readClient(this.options.secrets);
     const account = this.account();
     if (!client || !account || this.signingIn || !this.settings().on) return undefined;
-    void forget(this.places, async () => ({ ok: true, status: 200 }), otherAccounts(this.places, account.email));
+    this.dropOthers();
+    let spawn: McpServerConfig;
+    try {
+      spawn = this.spawnConfig(client, this.settings(), account.email);
+    } catch (err) {
+      // No jail where there must be one: the server does not start.
+      this.jail = { kind: "none", problem: err instanceof Error ? err.message : String(err) };
+      return undefined;
+    }
+    this.watchCredentials();
     return {
-      ...this.spawnConfig(client, this.settings(), account.email),
+      ...spawn,
       untrusted: true,
-      risks: googleToolRisk,
-      results: presentResult,
+      risks: (tool) => googleToolRisk(tool, () => this.email()),
+      results: (text) => presentResult(text, client.id),
     };
+  }
+
+  /** Revoke and delete every sign-in but the owner's, unless a sign-in is under way (it judges its own). */
+  private dropOthers(): void {
+    if (this.signingIn) return;
+    const others = otherAccounts(this.places, this.email());
+    if (others.length) void forget(this.places, this.revokeFetch(), others);
+  }
+
+  /** While the server runs, a token for any other account landing in its folder is dropped at once. */
+  private watchCredentials(): void {
+    if (this.watcher) return;
+    try {
+      this.watcher = watch(this.places.credentials, () => this.dropOthers());
+      this.watcher.on("error", () => this.unwatch());
+    } catch {
+      this.watcher = undefined;
+    }
+  }
+
+  private unwatch(): void {
+    this.watcher?.close();
+    this.watcher = undefined;
   }
 
   /**
@@ -272,8 +322,12 @@ export class GoogleConnection {
   private spawnConfig(client: GoogleClient, settings: GoogleSettings, email: string, withAuthTool = false): McpServerConfig {
     preparePlaces(this.places);
     const args = ["--exclude-newer", RESOLVED_BEFORE, WORKSPACE_MCP, "--single-user", ...permissionArgs(settings), ...(withAuthTool ? [] : ["--disabled-tools", "start_google_auth"])];
+    const run = jailed(this.places, this.port, args);
+    if (run.jail === "none" && this.jail?.kind !== "none") console.warn(`[google] running without the jail: ${run.problem ?? "none on this computer"}`);
+    this.jail = { kind: run.jail, ...(run.problem ? { problem: run.problem } : {}) };
     return {
-      ...jailed(this.places, this.port, args),
+      command: run.command,
+      args: run.args,
       cwd: this.places.home,
       env: {
         HOME: this.places.home,
@@ -378,6 +432,7 @@ export class GoogleConnection {
   /** Revoke the sign-in at Google and delete its tokens. The client stays in the vault for the next sign-in. */
   async disconnect(): Promise<{ accounts: string[]; revoked: boolean }> {
     await this.stopSignIn();
+    this.unwatch();
     this.failure = undefined;
     const done = await disconnect(this.places, this.revokeFetch());
     await this.changed();
@@ -386,6 +441,7 @@ export class GoogleConnection {
 
   /** Let go of a waiting sign-in, at shutdown. */
   async close(): Promise<void> {
+    this.unwatch();
     await this.stopSignIn();
   }
 }
@@ -393,29 +449,44 @@ export class GoogleConnection {
 /**
  * The server's command, in KOS's jail where there is one: the network open
  * (it talks to Google), KOS's own ports shut but the callback's, writes only
- * to its folder, the owner's home unreadable but for uv itself, and every
- * other secret of KOS's (the vault, the rest of ~/.kos) denied. In the
- * container, the container is the jail; on a Linux without bubblewrap there
- * is none, and it runs as KOS's other MCP servers do.
+ * to the server's own folders, the owner's home unreadable but for uv and
+ * uvx themselves, and every other secret of KOS's (the vault, the rest of
+ * ~/.kos, the owner's switches) denied. In the container the container is
+ * the jail. On macOS a jail that cannot be set up stops the server; on a
+ * Linux without bubblewrap it runs without one, and the owner is told.
  */
-export function jailed(places: GooglePlaces, port: number, args: string[]): { command: string; args: string[] } {
+export function jailed(
+  places: GooglePlaces,
+  port: number,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+  contained = isContained(),
+): { command: string; args: string[]; jail: JailKind; problem?: string } {
   const uvx = findProgram("uvx", childEnv({ home: places.home }).PATH ?? "");
-  if (!uvx) return { command: "uvx", args };
+  if (contained) return { command: uvx ?? "uvx", args, jail: "container" };
+  const refuse = (problem: string): { command: string; args: string[]; jail: JailKind; problem: string } => {
+    if (platform === "darwin") throw new Error(`the Google server needs KOS's jail, and ${problem}`);
+    return { command: uvx ?? "uvx", args, jail: "none", problem };
+  };
+  if (!uvx) return refuse("uvx is not installed (https://docs.astral.sh/uv/)");
   const own = resolve(homedir(), ".kos");
   const root = resolve(places.root);
   const secretFiles = kosSecretFiles().flatMap((p) => (p === own && root.startsWith(`${own}/`) ? readdirSync(own).map((n) => join(own, n)).filter((n) => n !== root) : p === root ? [] : [p]));
+  const uv = join(dirname(uvx), "uv");
   try {
     const cmd = jailedProgram(uvx, args, {
       workspaceRoot: places.root,
-      writes: [places.root],
-      reads: [dirname(realpathSync(uvx))],
+      writes: serverDirs(places),
+      reads: [realpathSync(uvx), ...(existsSync(uv) ? [realpathSync(uv)] : [])],
       network: true,
       kosPorts: kosPorts().filter((p) => p !== port),
       secretFiles,
+      platform,
+      contained,
     });
-    return { command: cmd.file, args: cmd.args };
-  } catch {
-    return { command: uvx, args };
+    return { command: cmd.file, args: cmd.args, jail: "kos" };
+  } catch (err) {
+    return refuse(err instanceof Error ? err.message : String(err));
   }
 }
 

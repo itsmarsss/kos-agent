@@ -1,11 +1,11 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Vault } from "../secrets/vault.js";
-import { googlePlaces, readSettingsFile, writeSettingsFile } from "./account.js";
+import { LOG_MAX_BYTES, googlePlaces, preparePlaces, readAccount, readSettingsFile, writeSettingsFile } from "./account.js";
 import { GOOGLE_HARNESS } from "./client.js";
 import { GoogleConnection, RESOLVED_BEFORE, SIGN_IN_AGAIN, WORKSPACE_MCP, jailed, missingScopes, permissionArgs, presentResult, scopesFor, type AuthSession } from "./connection.js";
 
@@ -158,9 +158,52 @@ describe("the Google server", () => {
     expect(profile).not.toContain("(deny network*)");
     expect(profile).toContain('(deny network-outbound (remote ip "*:4317"))');
     expect(profile).not.toContain('"*:4327"');
-    expect(profile).toContain(`(allow file-write* (subpath ${JSON.stringify(join(root, "google"))})`);
+    // The server writes in its own folders, never in the one above them (where KOS keeps nothing of its own either).
+    expect(profile).toContain(`(subpath ${JSON.stringify(join(root, "google", "credentials"))})`);
+    expect(profile).not.toContain(`(allow file-write* (subpath ${JSON.stringify(join(root, "google"))})`);
+    // uv and uvx alone of ~/.local/bin.
+    expect(profile).not.toMatch(/\(subpath "[^"]*\/\.local\/bin"\)/);
     const denied = profile.split("\n").filter((l) => l.startsWith("(deny file-read*"));
     expect(denied.some((l) => l.includes(`${join(root, "google")}"`))).toBe(false);
+  });
+
+  it("says when there is no jail, and never claims one", () => {
+    const places = googlePlaces({ KOS_GOOGLE_DIR: join(root, "google") });
+    expect(jailed(places, 4327, ["x"], "linux", true).jail).toBe("container");
+    const none = jailed(places, 4327, ["x"], "freebsd", false);
+    expect(none.jail).toBe("none");
+    expect(none.args).toEqual(["x"]);
+    expect(none.problem).toBeDefined();
+  });
+
+  it("revokes a sign-in for any other account, before the server starts and while it runs", async () => {
+    const revoked: string[] = [];
+    const c = connection({ fetch: async (_url, init) => (revoked.push(init.body), { ok: true, status: 200 }) });
+    c.importClient(CLIENT);
+    signInAs(c, "me@example.com", []);
+    signInAs(c, "early@example.com", [], false);
+    expect(c.server()).toBeDefined();
+    await until(() => !existsSync(join(c.places.credentials, "early@example.com.json")));
+    expect(revoked).toHaveLength(1);
+    // Dropped as it lands, not at the next reload.
+    signInAs(c, "late@example.com", [], false);
+    await until(() => !existsSync(join(c.places.credentials, "late@example.com.json")));
+    expect(existsSync(join(c.places.credentials, "late@example.com.json"))).toBe(false);
+    expect(revoked).toHaveLength(2);
+    expect(c.account()?.email).toBe("me@example.com");
+    await c.close();
+  });
+
+  it("refuses a call naming any account but the owner's", () => {
+    const c = connection();
+    c.importClient(CLIENT);
+    signInAs(c, "me@example.com", []);
+    const risk = c.server()!.risks!("get_events");
+    expect(risk.refuse!({})).toBe(false);
+    expect(risk.refuse!({ user_google_email: "ME@example.com" })).toBe(false);
+    expect(risk.refuse!({ user_google_email: "attacker@example.com" })).toMatch(/only as the owner's own account, me@example.com/);
+    expect(risk.refuse!({ userGoogleEmail: "attacker@example.com" })).toMatch(/only as the owner's own account/);
+    void c.close();
   });
 
   it("turns the server's own request to sign in into words for the owner, with no link to follow", () => {
@@ -169,6 +212,10 @@ describe("the Google server", () => {
     // A mail that quotes the prompt is the mail, not a request.
     expect(presentResult(`Subject: hi\n${URL_SAID}`)).toBe(`Subject: hi\n${URL_SAID}`);
     expect(presentResult("3 events today")).toBe("3 events today");
+    // Whatever the wording, a sign-in address for the owner's own client is never shown.
+    const id = CLIENT.installed.client_id;
+    expect(presentResult(`Please visit https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=${id}&x=1`, id)).toBe(SIGN_IN_AGAIN);
+    expect(presentResult("see https://accounts.google.com/o/oauth2/auth?client_id=someone-else", id)).toContain("someone-else");
   });
 });
 
@@ -239,6 +286,53 @@ describe("signing in", () => {
     c.importClient(CLIENT);
     await expect(c.signIn("me@example.com")).rejects.toThrow(/no sign-in address: \*\*Authentication Error/);
     expect(c.status().signingIn).toBe(false);
+  });
+});
+
+describe("links the server plants", () => {
+  it("are never followed: KOS neither empties, chmods nor writes through them", () => {
+    const c = connection();
+    preparePlaces(c.places);
+    const outside = join(root, "kos.sqlite");
+    writeFileSync(outside, "x".repeat(6 * 1024 * 1024), { mode: 0o644 });
+    symlinkSync(outside, join(c.places.logs, "mcp_server_debug.log"));
+    symlinkSync(outside, join(c.places.credentials, "me@example.com.json"));
+    // A whole folder swapped for a link to somewhere else.
+    const elsewhere = join(root, "elsewhere");
+    mkdirSync(elsewhere);
+    writeFileSync(join(elsewhere, "keep"), "k");
+    rmSync(c.places.tmp, { recursive: true });
+    symlinkSync(elsewhere, c.places.tmp);
+    preparePlaces(c.places);
+    expect(statSync(outside).size).toBe(6 * 1024 * 1024);
+    expect(statSync(outside).mode & 0o777).toBe(0o644);
+    expect(lstatSync(c.places.tmp).isDirectory()).toBe(true);
+    expect(existsSync(join(elsewhere, "keep"))).toBe(true);
+    // A token file that is a link is no sign-in.
+    expect(readAccount(c.places, "me@example.com")).toBeUndefined();
+  });
+
+  it("keep the owner's switches out of the server's folder, and a link there is replaced, not written through", async () => {
+    const c = connection();
+    expect(dirname(c.places.settings)).toBe(join(root));
+    expect(c.places.settings.startsWith(`${c.places.root}/`)).toBe(false);
+    const outside = join(root, "target");
+    writeFileSync(outside, "untouched");
+    symlinkSync(outside, c.places.settings);
+    await c.setSettings({ changes: true });
+    expect(readFileSync(outside, "utf8")).toBe("untouched");
+    expect(lstatSync(c.places.settings).isSymbolicLink()).toBe(false);
+    expect(c.settings().changes).toBe(true);
+  });
+
+  it("does not empty a real log under the limit, and empties one past it", () => {
+    const c = connection();
+    preparePlaces(c.places);
+    writeFileSync(join(c.places.logs, "small.log"), "a");
+    writeFileSync(join(c.places.logs, "big.log"), "b".repeat(LOG_MAX_BYTES + 1));
+    preparePlaces(c.places);
+    expect(statSync(join(c.places.logs, "small.log")).size).toBe(1);
+    expect(statSync(join(c.places.logs, "big.log")).size).toBe(0);
   });
 });
 

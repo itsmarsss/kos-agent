@@ -177,6 +177,11 @@ export function GooglePanel(): ReactElement {
           )}
         </p>
       )}
+      {info.jail === "none" && (
+        <p className="ops-alert ops-alert--err" role="alert">
+          {info.server?.connected ? "Running without the jail" : "Not started: no jail"}: {info.jailProblem ?? "this computer has none"}.
+        </p>
+      )}
       {info.error && (
         <p className="ops-alert ops-alert--err" role="alert">
           {info.error}

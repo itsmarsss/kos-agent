@@ -41,6 +41,7 @@ export function describe(view: GoogleView): string[] {
   if (view.missing.length) lines.push(`sign in again to grant: ${view.missing.map((s) => s.replace(SCOPE_PREFIX, "")).join(" ")}`);
   if (view.signingIn) lines.push("signing in: waiting for the browser");
   if (view.error) lines.push(`last sign-in: ${view.error}`);
+  if (view.jail === "none") lines.push(`jail: none (${view.jailProblem ?? "this computer has none"})`);
   if (view.server) lines.push(`server: ${view.server.connected ? `connected, ${view.server.tools} tools` : `not connected${view.server.error ? ` (${view.server.error})` : ""}`}`);
   return lines;
 }

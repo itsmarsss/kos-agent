@@ -213,6 +213,9 @@ export interface GoogleInfo {
   /** Scopes the mode needs that the sign-in did not grant. */
   missing: string[];
   signingIn: boolean;
+  /** What holds the Google server: KOS's jail, the container, or nothing. */
+  jail: "kos" | "container" | "none" | null;
+  jailProblem?: string;
   error?: string;
   redirectUri: string;
   server: { connected: boolean; tools: number; error?: string } | null;
