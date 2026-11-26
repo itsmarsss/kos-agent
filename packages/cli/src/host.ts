@@ -815,6 +815,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       ? {
           discord: {
             connected: () => adapter !== undefined,
+            ownerAlone: (id) => adapter?.ownerAlone(id) ?? false,
             channels: async () => {
               const plan = kernel.surfaceChannels();
               const bound = new Set(Object.values(kernel.threadBindings()));

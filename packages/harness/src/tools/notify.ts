@@ -6,7 +6,7 @@ import type {
   ModalSpec,
   Sender,
 } from "../channels/types.js";
-import { caller, isOwnerTurn, scheduledJob } from "../kernel/caller.js";
+import { caller, guestOrigin, isOwnerTurn, scheduledJob } from "../kernel/caller.js";
 import type { KosModule } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -85,6 +85,21 @@ export interface NotifyToolDeps {
   ) => string;
   /** The project a chat belongs to, if any: a press may go to another chat of the caller's own project. */
   projectOf?: (conversationId: string) => string | undefined;
+  /** Whether only the owner reads where this goes, as the server's permissions say now; unknown is no. */
+  ownerAlone?: (target: MessageTarget) => boolean;
+}
+
+/**
+ * A message to a place only the owner reads is a message to the owner: it
+ * asks nothing, unless a guest's words are behind it.
+ */
+function toOwnerAlone(input: Record<string, unknown>, deps: NotifyToolDeps): boolean {
+  if (guestOrigin() !== undefined || !deps.ownerAlone) return false;
+  try {
+    return deps.ownerAlone(parseTarget(input.to));
+  } catch {
+    return false;
+  }
 }
 
 /** Whether a press may go to `to` from the calling chat: the chat itself, or another of the same project. */
@@ -613,7 +628,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           // Messaging the owner is the whole point and asks nothing. Posting
           // anywhere else is KOS speaking in a place the owner did not choose,
           // which is a decision for the owner rather than for the agent.
-          escalate: (input) => (sendsElsewhere(input) ? "a message to somewhere other than you" : false),
+          escalate: (input) => (sendsElsewhere(input) && !toOwnerAlone(input, deps) ? "a message to somewhere other than you" : false),
           // The same line holds a chat's Auto: a message anywhere but to the owner asks.
           beyondAuto: (input) => (sendsElsewhere(input) ? "messages someone besides you" : false),
           // The message is the point: once its chat has stopped, a yes still sends it, its card warning so.

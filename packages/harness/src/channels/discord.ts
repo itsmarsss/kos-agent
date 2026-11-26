@@ -501,6 +501,27 @@ function audienceOf(channel: { permissionOverwrites?: { cache?: Map<string, { de
   return everyone?.allow?.has(PermissionFlagsBits.SendMessages) ? "guests" : "everyone";
 }
 
+/** A permission overwrite, as much of one as says who may see a channel. */
+interface SeenBy {
+  id: string;
+  allow: { has: (bit: bigint) => boolean };
+  deny: { has: (bit: bigint) => boolean };
+}
+
+/**
+ * Whether a channel is read by the owner alone, by its permissions now:
+ * everyone is kept out, nobody but the owner and KOS (by id, or by KOS's
+ * own managed role) is let back in, and no role that sees every channel is
+ * held by anyone else. Fails closed: what cannot be read is not the owner's alone.
+ */
+export function ownerAloneBy(overwrites: Iterable<SeenBy>, ids: { everyone: string; owner?: string; bot?: string; botRoles: ReadonlySet<string> }, othersSeeAll: boolean): boolean {
+  if (othersSeeAll || !ids.owner) return false;
+  const all = [...overwrites];
+  if (!all.find((o) => o.id === ids.everyone)?.deny.has(PermissionFlagsBits.ViewChannel)) return false;
+  const ours = new Set([ids.everyone, ids.owner, ...(ids.bot ? [ids.bot] : []), ...ids.botRoles]);
+  return all.every((o) => ours.has(o.id) || !o.allow.has(PermissionFlagsBits.ViewChannel));
+}
+
 /** A blob's webhooks are named for it, so its face can be told from the shared one. */
 export function webhookPrefixFor(from: Sender): string {
   return `KOS·${from.name.replace(/[·\n]/g, " ").trim().slice(0, 40)}`;
@@ -2143,6 +2164,26 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   /** The server, when there is one to work on. */
+  /**
+   * Whether a channel or thread is read by the owner alone, from what the
+   * client holds now, so a risk rule can ask it as it judges a call. A
+   * thread is read by those who read its channel. Unknown is no.
+   */
+  ownerAlone(id: string): boolean {
+    const guild = this.guildId ? this.client.guilds.cache.get(this.guildId) : undefined;
+    const found = guild?.channels.cache.get(id);
+    if (!guild || !found) return false;
+    const channel = found.isThread() ? found.parent : found;
+    if (!channel || !("permissionOverwrites" in channel)) return false;
+    const bot = this.client.user?.id;
+    const botRoles = new Set(guild.roles.cache.filter((r) => r.managed && r.tags?.botId === bot).map((r) => r.id));
+    const ids = { ...this.permissionIds(guild.id), botRoles };
+    // A role that sees every channel, held by anyone but the owner and KOS, reads this one too.
+    const othersSeeAll = guild.roles.cache.some((r) => r.permissions.has(PermissionFlagsBits.Administrator) && r.members.some((m) => m.id !== ids.owner && m.id !== bot));
+    const overwrites = [...channel.permissionOverwrites.cache.values()].map((o) => ({ id: o.id, allow: o.allow, deny: o.deny }));
+    return ownerAloneBy(overwrites, ids, othersSeeAll || guild.ownerId !== ids.owner);
+  }
+
   private async guild(): Promise<AdminGuild> {
     if (!this.guildId) throw new Error("no server is configured");
     return (await this.client.guilds.fetch(this.guildId)) as unknown as AdminGuild;

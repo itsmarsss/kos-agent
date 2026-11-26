@@ -123,6 +123,8 @@ export type ChannelRef = string | { id: string };
 export interface DiscordServices {
   /** True while the server surface is up; the tools say so plainly when it is not. */
   connected: () => boolean;
+  /** Whether a channel or thread, by Discord's id, is read by the owner alone now; unknown is no. */
+  ownerAlone?: (id: string) => boolean;
   channels: () => Promise<ServerChannel[]>;
   /** The threads KOS made for chats, from the bindings it keeps; at once, since nothing on Discord need be asked. */
   threads: () => BoundThread[];

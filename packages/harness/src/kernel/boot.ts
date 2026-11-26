@@ -97,6 +97,8 @@ import { createStatusModule } from "../tools/status.js";
 import { ensureProfile } from "./profile.js";
 import { RETENTION_KEY, SessionStore, primarySessionId, type Retention } from "./session.js";
 import { TurnMade } from "./turnmade.js";
+import { grandfatherJobConsent } from "../ops/jobconsent.js";
+import { scheduledJob } from "./caller.js";
 import { ConversationStore } from "./conversations.js";
 import { BUILD_SETTINGS_KEY, Kernel, orchestratorId, type KernelOptions } from "./kernel.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
@@ -239,6 +241,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   // Rules an older build kept that no call can match: cleared or respelled, on the record.
   permissions.migrateScopes(audit);
   const settings = new SettingsStore(workspace.db);
+  // Jobs that ran before a job's consent was kept keep what the owner approved for their runs, once.
+  grandfatherJobConsent(workspace.db, permissions, settings, audit);
   const retired = retireBrowserEngine(workspace.root, settings, workspace.db);
   if (retired) console.log(`browser: KOS drives Chrome itself now; the ${retired} server is out of mcp.json, its settings and trusted sites kept`);
   /*
@@ -426,6 +430,13 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
           ...(button.ephemeral ? { ephemeral: true } : {}),
         }),
       projectOf: (conversationId) => conversations.get(conversationId)?.projectSlug ?? undefined,
+      // A channel only the owner reads, as the server says; a schedule's post there asks unless the owner let schedules post unasked.
+      ownerAlone: (target) =>
+        target.kind === "channel" &&
+        (target.surface === undefined || target.surface === "discord") &&
+        target.id !== undefined &&
+        options.discord?.ownerAlone?.(target.id) === true &&
+        (scheduledJob() === undefined || kernelRef?.behaviour().jobsPostUnasked !== false),
     }),
     createCronModule({
       // The same path the schedule uses, so a job tried by hand is a job
