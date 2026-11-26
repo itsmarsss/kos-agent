@@ -9,6 +9,7 @@ import { renderContent, type McpServerConfig } from "../tools/mcp.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
 import { isContained, jailedProgram, kosPorts, kosSecretFiles } from "../sandbox/jail.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
+import { realOf } from "../secrets/vault.js";
 import {
   disconnect,
   forget,
@@ -449,7 +450,8 @@ export class GoogleConnection {
 /**
  * The server's command, in KOS's jail where there is one: the network open
  * (it talks to Google), KOS's own ports shut but the callback's, writes only
- * to the server's own folders, the owner's home unreadable but for uv and
+ * inside the server's own folders (never their own entries, so none can be
+ * swapped for a link), the owner's home unreadable but for uv and
  * uvx themselves, and every other secret of KOS's (the vault, the rest of
  * ~/.kos, the owner's switches) denied. In the container the container is
  * the jail. On macOS a jail that cannot be set up stops the server; on a
@@ -477,6 +479,8 @@ export function jailed(
     const cmd = jailedProgram(uvx, args, {
       workspaceRoot: places.root,
       writes: serverDirs(places),
+      // Each folder's own entry is not the server's: it may write inside, never remove the folder or put a link in its place.
+      unwritable: serverDirs(places).map((d) => `^${regexOf(realOf(d))}$`),
       reads: [realpathSync(uvx), ...(existsSync(uv) ? [realpathSync(uv)] : [])],
       network: true,
       kosPorts: kosPorts().filter((p) => p !== port),
@@ -488,6 +492,11 @@ export function jailed(
   } catch (err) {
     return refuse(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** A path as a regex matching it exactly, for the jail's rules. */
+function regexOf(path: string): string {
+  return path.replace(/[.^$*+?()[\]{}|\\]/g, "\\$&");
 }
 
 /** The sign-in server, spawned as the tool server is, with the same environment hygiene. */
