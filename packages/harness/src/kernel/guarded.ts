@@ -7,8 +7,9 @@ import type { ToolExecution, ToolRegistry } from "../agent/registry.js";
 import { defang, type HeardWords } from "../models/heard.js";
 import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
-import type { PermissionContext } from "../ops/permissions.js";
+import type { Caller, PermissionContext } from "../ops/permissions.js";
 import { beyondAutoRule } from "../risk/beyondauto.js";
+import { learnable } from "../risk/learned.js";
 import type { RiskAssessment } from "../risk/tiers.js";
 import { hasSecretRef, placeSecrets, secretsNamed } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
@@ -58,6 +59,8 @@ export interface GuardedToolsDeps {
   ownWords?: boolean;
   /** The job whose run this is, for a schedule's run; see `scheduled`. */
   scheduled?: number;
+  /** When that job was made: a consent learned under its id before then was another job's. */
+  scheduledSince?: number;
   /** The guest's room, for a turn a guest's words started or work they passed on; see `guested`. */
   guest?: GuestOrigin;
   /** The surface the turn's words arrived on, and those words; see `origin`. */
@@ -73,7 +76,13 @@ export interface GuardedToolsDeps {
   permissions?: {
     allows(tool: string, input: Record<string, unknown>, project?: string, context?: PermissionContext): boolean;
     ruleFor?(tool: string, input: Record<string, unknown>, project: string | null, context?: PermissionContext): { tool: string; scope: string | null; project: string | null } | undefined;
+    /** A yes learned for this caller alone: the job's consent, or the same step a moment after the owner approved it here. */
+    learned?(tool: string, input: Record<string, unknown>, who: Caller, context?: PermissionContext): "job" | "burst" | false;
+    /** Hold the owner's yes to this call for the same step in this chat, a short while. */
+    holdBurst?(conversationId: string, tool: string, input: Record<string, unknown>, context?: PermissionContext): boolean;
   };
+  /** Whether a job's consent may cover this call now: false when the owner set scheduled jobs to ask before they post. */
+  jobConsentCovers?: (tool: string, input: Record<string, unknown>) => boolean;
   /** What the caller knows about a call that its arguments do not: the browser's site. */
   permissionContext?: (tool: string) => PermissionContext | undefined;
   /** What the owner said since the last call, while this turn runs: handed to the model with this call's result. */
@@ -565,7 +574,13 @@ export class GuardedTools implements ToolBox {
         return granted;
       }
       const session = !always && this.deps.autoApproves?.(name, context) === "site";
-      const yes = session || (!always && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true);
+      const standing = session || (!always && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true);
+      // Learned from the owner's own decisions, never from what a turn read, and never for what may not be learned (risk/learned.ts).
+      const learnedCall = { tool: name, input, assessment, guest: guest !== undefined, secret, strict, yours: context?.browser?.yours === true };
+      const asker: Caller = { ...(conversationId ? { conversationId } : {}), ...(job !== undefined && this.deps.scheduledSince !== undefined ? { job: { id: job, since: this.deps.scheduledSince } } : {}) };
+      const learned = standing || always ? false : this.deps.permissions?.learned?.(name, input, asker, context) || false;
+      const learnedOk = learned !== false && learnable(learnedCall, learned) && (learned !== "job" || this.deps.jobConsentCovers?.(name, input) !== false);
+      const yes = standing || learnedOk;
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
       const bound = yes ? context?.browser?.site : undefined;
       const allowed = yes && !(bound !== undefined && this.deps.leavesSite?.(name, input, bound) === true);
@@ -577,7 +592,7 @@ export class GuardedTools implements ToolBox {
           tool: name,
           ...audited(allowedResult),
           riskTier: "risky",
-          decidedVia: session ? "session" : "rule",
+          decidedVia: session ? "session" : standing ? "rule" : learned || "rule",
           ...(userId ? { userId } : {}),
           ...(conversationId ? { conversationId } : {}),
         });
@@ -611,6 +626,7 @@ export class GuardedTools implements ToolBox {
         owner,
         attended,
         ...(guest ? { guest } : {}),
+        ...(job !== undefined ? { job } : {}),
         waits: this.deps.waitForApproval !== false,
         ...(context?.browser?.yours ? { yours: true } : {}),
       });
@@ -665,6 +681,8 @@ export class GuardedTools implements ToolBox {
         return { content: undoneResult(decision === "denied" ? "denied" : "expired", summarizeAction(name, input)), isError: false };
       }
 
+      // The owner's yes holds for the same step in this chat a short while: a burst of one kind of work asks once.
+      if (conversationId && learnable(learnedCall, "burst")) this.deps.permissions?.holdBurst?.(conversationId, name, input, context);
       const unready = await readyNow();
       if (unready) return unready;
       const decided = approvals.get(action.id);

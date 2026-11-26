@@ -41,6 +41,8 @@ export interface EnqueueInput {
   beyondAuto?: boolean;
   /** The secret the call would place, and where, for its card; never a value. */
   secret?: AskSecret;
+  /** The scheduled job whose run asked: a yes to it becomes that job's consent. */
+  job?: number;
 }
 
 export interface PendingAction {
@@ -86,6 +88,8 @@ export interface PendingAction {
   decidedDevice: string | null;
   /** When the turn that waited on it went, for an ask kept to run with none waiting; null otherwise. */
   detachedAt: number | null;
+  /** The scheduled job whose run asked, when one did. */
+  job: number | null;
 }
 
 /** Where a decision was taken: the surface or rule (see DecidedVia), and the paired device, when one pressed it. */
@@ -145,10 +149,11 @@ interface Row {
   decided_via: string | null;
   decided_device: string | null;
   detached_at: number | null;
+  job: number | null;
 }
 
 /** Every column a listed action needs: the picture is only whether there is one, read on its own when shown. */
-const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret, decided_via, decided_device, detached_at`;
+const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret, decided_via, decided_device, detached_at, job`;
 
 /** The most decided asks one page may hold. */
 export const DECIDED_MAX = 500;
@@ -193,6 +198,7 @@ function toAction(row: Row): PendingAction {
     decidedVia: row.decided_via,
     decidedDevice: row.decided_device,
     detachedAt: row.detached_at,
+    job: row.job,
   };
 }
 
@@ -277,6 +283,9 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "detached_at")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN detached_at INTEGER`);
     }
+    if (!columns.some((c) => c.name === "job")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN job INTEGER`);
+    }
     // The decided history is read by outcome and time, a page at a time: one outcome by the first,
     // every outcome (the Inbox's default page, and its mark) by the second, which holds only what was decided.
     this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_status_decided ON pending_actions (status, decided_at, id)`);
@@ -294,8 +303,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret, job)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -316,6 +325,7 @@ export class ApprovalQueue {
         input.reached === true ? 1 : 0,
         input.beyondAuto === true ? 1 : 0,
         input.secret ? JSON.stringify(input.secret) : null,
+        input.job ?? null,
       );
     return this.get(Number(info.lastInsertRowid))!;
   }

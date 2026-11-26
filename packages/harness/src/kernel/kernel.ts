@@ -838,6 +838,7 @@ export class Kernel {
     this.roles = args.roles;
     // A schedule deleted by any path (the dashboard, cron.remove) lets its thread go.
     this.crons.onRemoved((id) => this.retireScheduleThread(id));
+    this.crons.onRemoved((id) => this.permissions.forgetJob(id));
     this.suggestions = args.suggestions;
     this.callers = args.callers;
     this.secretUses = args.secretUses;
@@ -851,6 +852,7 @@ export class Kernel {
       ownerId: args.profile.ownerId,
       approvals: args.approvals,
       permissions: args.permissions,
+      jobMadeAt: (id) => this.crons.get(id)?.createdAt,
       homeOf: (conversationId) => ({ home: this.fileHome(conversationId ?? undefined), root: args.workspace.root }),
       audit: args.audit,
       registry: args.registry,
@@ -1323,6 +1325,8 @@ export class Kernel {
           ...(guest ? { guest } : {}),
           // The job behind a schedule's run, whose unaddressed messages go to its place.
           ...(opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? { scheduled: Number(opts.from.id) } : {}),
+          // A repair KOS began on its own has nobody watching: what it asks waits in the Inbox for the owner rather than lapsing in half an hour.
+          ...(opts.via === "fix" && !owner ? { waitForApproval: false } : {}),
           // Where the words were said, for a start on that device that needs no ask from a tool.
           ...(opts.channel && text.trim() ? { origin: { surface: opts.channel, said: text } } : {}),
           heard: () => this.hear(sessionId, mark),
@@ -4307,6 +4311,9 @@ export class Kernel {
       ...(opts.owner === true ? { owner: true } : {}),
       ...(opts.ownWords === true ? { ownWords: true } : {}),
       ...(opts.scheduled !== undefined ? { scheduled: opts.scheduled } : {}),
+      ...(opts.scheduled !== undefined && this.crons.get(opts.scheduled) ? { scheduledSince: this.crons.get(opts.scheduled)!.createdAt } : {}),
+      // The owner may have scheduled jobs ask before every post, whatever they consented to.
+      jobConsentCovers: (tool) => tool !== "notify" || this.behaviour().jobsPostUnasked,
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
       onQueued: (action) => {

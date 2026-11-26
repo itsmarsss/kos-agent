@@ -1104,7 +1104,8 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/permissions") {
-    return ok({ rules: kernel.permissions.list() });
+    // A job's consent is shown with the job's name beside its id.
+    return ok({ rules: kernel.permissions.list().map((r) => (r.job === null ? r : { ...r, jobName: kernel.crons.get(r.job)?.name ?? null })) });
   }
 
   if (method === "POST" && path === "/api/permissions/revoke") {

@@ -361,6 +361,9 @@ export interface PermissionRule {
   tool: string;
   scope: string | null;
   project: string | null;
+  /** The scheduled job whose runs it covers alone, with its name; null for a standing rule. */
+  job: number | null;
+  jobName?: string | null;
   createdAt: number;
   /** False for a rule an older build kept that no call can match any more. */
   matches: boolean;
@@ -832,6 +835,8 @@ export interface Behaviour {
   /** "api" bills the provider; "sdk" spends a Claude Code subscription. */
   engine: "api" | "sdk";
   autoFix: boolean;
+  /** Scheduled jobs post where you consented without asking: places only you read, and channels you approved for that job. */
+  jobsPostUnasked: boolean;
   maxSteps: number;
   /** Round trips the owner's own turn on a screen may take in all, across fresh queries. */
   screenSteps: number;

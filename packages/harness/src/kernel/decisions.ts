@@ -6,6 +6,7 @@ import { SHARED_LANE } from "../ops/queue.js";
 import type { ToolRisk } from "../risk/tiers.js";
 import { placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
+import { deletesData } from "../risk/learned.js";
 import { approvedAs, attendance, caller, guested, ownership } from "./caller.js";
 import { primarySessionId } from "./session.js";
 
@@ -55,6 +56,26 @@ export function detachedAs(action: Pick<PendingAction, "tool" | "waits" | "detac
   return action.waits || action.tool.startsWith(BUILD_ACTION_PREFIX) ? undefined : "unwaited";
 }
 
+/**
+ * The consent a yes to a scheduled run's ask gives its job: the ask's own
+ * rule, for that job alone. None for a guest's, one that reached past the
+ * job's folder or placed a secret, one that deletes, one raised before the
+ * job that now has its id was made, or one that named no rule. What may
+ * never be learned is judged again on every run (risk/learned.ts).
+ */
+export function jobConsent(
+  action: Pick<PendingAction, "tool" | "rule" | "job" | "guest" | "reached" | "requestedAt">,
+  args: Record<string, unknown>,
+  placing: boolean,
+  madeAt: ((id: number) => number | undefined) | undefined,
+): { tool: string; scope: string | null; project: string | null; job: number } | undefined {
+  if (action.job === null || action.rule === null || action.guest !== null || action.reached || placing) return undefined;
+  if (deletesData(action.tool, args)) return undefined;
+  const made = madeAt?.(action.job);
+  if (made === undefined || action.requestedAt < made) return undefined;
+  return { ...action.rule, job: action.job };
+}
+
 /** How a resume begins, so a reader can show it as a note rather than as the owner's words. */
 export const RESUME_HEAD = "System: the owner decided on";
 
@@ -95,8 +116,10 @@ export interface DecisionsDeps {
     pending: () => PendingAction[];
   };
   permissions: {
-    add: (rule: { tool: string; scope: string | null; project: string | null }) => unknown;
+    add: (rule: { tool: string; scope: string | null; project: string | null; job?: number | null }) => unknown;
   };
+  /** When a scheduled job was made, while it exists: an ask raised before then was another job's. */
+  jobMadeAt?: (id: number) => number | undefined;
   /** Where the asking chat's file paths land, for the line that tells it the outcome. */
   homeOf?: (conversationId: string | null) => Pick<PermissionContext, "home" | "root">;
   audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string; decidedVia: DecidedVia; approvalId: number; conversationId?: string }) => unknown };
@@ -275,6 +298,9 @@ export class Decisions {
     // the site), where the secret's policy offered one.
     const kept = options.remember === true && (placing ? d.registry.keeps?.(action.tool, stored) === true : action.rule !== null && !action.reached);
     if (kept && !placing) d.permissions.add(action.rule!);
+    // A yes to a scheduled run's ask is the job's consent from now on: the same step on its later runs does not ask.
+    const consent = jobConsent(action, stored, placing, d.jobMadeAt);
+    if (consent) d.permissions.add(consent);
     // Asked to remember one that keeps nothing: said so, rather than taken as kept.
     const done = (r: DecisionResult): DecisionResult =>
       !options.remember ? r : kept ? { ...r, remembered: true } : { ...r, remembered: false, message: `Approved; nothing to remember for this one. ${r.message}` };

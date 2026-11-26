@@ -46,6 +46,7 @@ import { GROUPS, SECTIONS, SETTINGS, isSettingsSection, searchSettings, type Set
 const BEHAVIOUR_FALLBACK: Behaviour = {
   engine: "api",
   autoFix: false,
+  jobsPostUnasked: false,
   maxSteps: 10,
   screenSteps: 40,
   fixSteps: 24,
@@ -1109,6 +1110,12 @@ export function SettingsPage({
                 <Switch label="Try to fix failures on its own" on={how.autoFix} onChange={(on) => setHow({ ...how, autoFix: on })} />
               </FieldRow>
               <FieldRow
+                label="Scheduled jobs post without asking"
+                hint="A schedule posts to you, to channels only you can see, and to any channel you approved that job posting in, without asking each run. Posting anywhere new still asks once. Off, every post a schedule makes to a channel asks."
+              >
+                <Switch label="Scheduled jobs post without asking" on={how.jobsPostUnasked} onChange={(on) => setHow({ ...how, jobsPostUnasked: on })} />
+              </FieldRow>
+              <FieldRow
                 label="Set big results aside once read"
                 hint="A web page, a PDF or a long list stays whole for two messages. After that the chat keeps a short outline and KOS looks the rest up again when it needs it, so later messages stay quick and cheap. Off, all of it is sent with every message."
               >
@@ -1690,7 +1697,7 @@ export function SettingsPage({
           </Section>
         )}
         {active === "permissions" && (
-          <Section title="Permissions" blurb="Each rule is an Always you pressed when KOS asked. KOS now does that same thing without asking; anything else still asks. Revoke a rule and it asks again.">
+          <Section title="Permissions" blurb="Each rule is an Always you pressed when KOS asked, or a yes you gave a schedule, which that schedule keeps for its later runs. KOS now does that same thing without asking; anything else still asks. Revoke a rule and it asks again.">
             <Field group className="set-field" label="Secrets" hint="Logins, cards and keys KOS may fill in without seeing them, where each may be used, and when it asks.">
               <a className="btn btn--sm" href={hrefFor({ name: "secrets" })}>
                 Open Secrets
@@ -1703,7 +1710,7 @@ export function SettingsPage({
               <Field group className="set-field"
                 key={r.id}
                 label={`${toolWords(r.tool)}${r.scope ? ` · ${r.scope}` : ""}`}
-                hint={`${r.project ? `In project ${r.project}` : "Everywhere"}${r.matches ? "" : ". Matches nothing now, so it never stops an ask; revoke it"}`}
+                hint={`${r.job !== null ? `For the schedule ${r.jobName ?? "(gone)"} (#${r.job}) alone, from your yes to it` : r.project ? `In project ${r.project}` : "Everywhere"}${r.matches ? "" : ". Matches nothing now, so it never stops an ask; revoke it"}`}
               >
                 <button
                   type="button"

@@ -28,6 +28,8 @@ export interface PermissionRule {
   scope: string | null;
   /** The project slug it applies in, or null for everywhere. */
   project: string | null;
+  /** The scheduled job whose runs it covers, alone: the job's consent, learned from the owner's yes to it. Null for a standing rule. */
+  job: number | null;
   createdAt: number;
   /** False for a rule kept by an older build that no call can match any more: shown so in Settings. */
   matches: boolean;
@@ -61,6 +63,26 @@ CREATE TABLE IF NOT EXISTS permission_rules (
   created_at INTEGER NOT NULL
 );
 `;
+
+/** How long the owner's yes holds for the same step in the same chat: a burst of one kind of work asks once. */
+export const BURST_MS = 15 * 60_000;
+
+/** A rule as it is kept: a job's own, or a standing one (job null). */
+export type RuleInput = { tool: string; scope: string | null; project: string | null; job?: number | null };
+
+/** Who is calling, for the decisions that are not standing rules: a yes given a moment ago in this chat, a job's consent. */
+export interface Caller {
+  conversationId?: string;
+  /** The scheduled job whose run this is, and when it was made: a rule learned for a job before this one had its id covers nothing. */
+  job?: { id: number; since: number };
+}
+
+/** A yes the owner gave a moment ago, held for the same step in the same chat. */
+interface Burst {
+  tool: string;
+  scope: string | null;
+  until: number;
+}
 
 function parentDir(path: string): string {
   const norm = path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -207,6 +229,11 @@ export function scopeOf(tool: string, input: Record<string, unknown>, context?: 
   // the next, so it is never remembered, and a rule already kept for it
   // matches nothing.
   if (tool === "skills.commit") return undefined;
+  // By the skill: a yes to run one skill is not a yes to run another.
+  if (tool === "skills.run") {
+    const name = typeof input["name"] === "string" ? input["name"].trim() : "";
+    return name ? `skill:${name}` : undefined;
+  }
   if (tool === "systems.migrate") {
     const spec = input["spec"];
     const table = typeof spec === "object" && spec !== null ? (spec as { table?: unknown }).table : undefined;
@@ -229,11 +256,16 @@ export function scopeCovers(rule: string | null, call: string | null): boolean {
 }
 
 export class PermissionStore {
+  /** Yeses given a moment ago, by chat: held in memory, so a restart forgets them. */
+  private readonly bursts = new Map<string, Burst[]>();
+
   constructor(
     private readonly db: Db,
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
+    const columns = this.db.prepare(`PRAGMA table_info(permission_rules)`).all() as { name: string }[];
+    if (!columns.some((c) => c.name === "job")) this.db.exec(`ALTER TABLE permission_rules ADD COLUMN job INTEGER`);
   }
 
   list(): PermissionRule[] {
@@ -243,9 +275,10 @@ export class PermissionStore {
         tool: string;
         scope: string | null;
         project: string | null;
+        job: number | null;
         created_at: number;
       }[]
-    ).map((r) => ({ id: r.id, tool: r.tool, scope: r.scope, project: r.project, createdAt: r.created_at, matches: ruleMatches(r) }));
+    ).map((r) => ({ id: r.id, tool: r.tool, scope: r.scope, project: r.project, job: r.job, createdAt: r.created_at, matches: ruleMatches(r) }));
   }
 
   /**
@@ -261,7 +294,7 @@ export class PermissionStore {
       for (const rule of rules) {
         const dir = cleanDir(rule.scope!.slice(4));
         const to = `dir:${dir}`;
-        const kept = this.list().some((r) => r.id !== rule.id && r.tool === rule.tool && r.project === rule.project && r.scope === to);
+        const kept = this.list().some((r) => r.id !== rule.id && r.tool === rule.tool && r.project === rule.project && r.job === rule.job && r.scope === to);
         const result = dir === "" ? "removed: a rule for the workspace's root matches nothing" : kept ? `removed: the same rule is kept as ${to}` : `rescoped to ${to}`;
         if (dir === "" || kept) this.db.prepare(`DELETE FROM permission_rules WHERE id = ?`).run(rule.id);
         else this.db.prepare(`UPDATE permission_rules SET scope = ? WHERE id = ?`).run(to, rule.id);
@@ -272,15 +305,21 @@ export class PermissionStore {
   }
 
   /** Remember a decision. The same rule twice is one rule. */
-  add(rule: { tool: string; scope: string | null; project: string | null }): PermissionRule {
+  add(input: RuleInput): PermissionRule {
+    const rule = { tool: input.tool, scope: input.scope, project: input.project, job: input.job ?? null };
     const existing = this.list().find(
-      (r) => r.tool === rule.tool && r.scope === rule.scope && r.project === rule.project,
+      (r) => r.tool === rule.tool && r.scope === rule.scope && r.project === rule.project && r.job === rule.job,
     );
     if (existing) return existing;
     const info = this.db
-      .prepare(`INSERT INTO permission_rules (tool, scope, project, created_at) VALUES (?, ?, ?, ?)`)
-      .run(rule.tool, rule.scope, rule.project, this.now());
+      .prepare(`INSERT INTO permission_rules (tool, scope, project, job, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(rule.tool, rule.scope, rule.project, rule.job, this.now());
     return { id: Number(info.lastInsertRowid), ...rule, createdAt: this.now(), matches: ruleMatches(rule) };
+  }
+
+  /** A job's consent goes with the job. */
+  forgetJob(job: number): number {
+    return this.db.prepare(`DELETE FROM permission_rules WHERE job = ?`).run(job).changes;
   }
 
   revoke(id: number): boolean {
@@ -300,8 +339,47 @@ export class PermissionStore {
     // Past the turn's own folder, only a rule made at the root speaks: one made in the project was about the project.
     const inProject = !reaches(tool, input, context) && project !== undefined;
     return this.list().some(
-      (r) => (r.tool === tool || r.tool === family) && (r.project === null || (inProject && r.project === project)) && scopeCovers(r.scope, scope),
+      (r) => r.job === null && (r.tool === tool || r.tool === family) && (r.project === null || (inProject && r.project === project)) && scopeCovers(r.scope, scope),
     );
+  }
+
+  /**
+   * Has the owner said yes to this for this caller, though not for good?
+   *
+   * A job's consent: what the owner approved for that job's runs, or
+   * allowed when it was scheduled, covers its later runs and nothing else.
+   * A burst: the same step, in the same chat, within BURST_MS of the yes.
+   * Neither is consulted for what may never be learned (risk/learned.ts);
+   * the caller judges that.
+   */
+  learned(tool: string, input: Record<string, unknown>, who: Caller, context?: PermissionContext): "job" | "burst" | false {
+    const scope = scopeOf(tool, input, context);
+    if (scope === undefined) return false;
+    const family = familyOf(tool, context);
+    const job = who.job;
+    // A job's rule was made inside its project: past the turn's own folder it says nothing.
+    if (job && !reaches(tool, input, context)) {
+      const covered = this.list().some((r) => r.job === job.id && r.createdAt >= job.since && (r.tool === tool || r.tool === family) && scopeCovers(r.scope, scope));
+      if (covered) return "job";
+    }
+    const now = this.now();
+    const held = who.conversationId ? (this.bursts.get(who.conversationId) ?? []).filter((b) => b.until > now) : [];
+    return held.some((b) => (b.tool === tool || b.tool === family) && scopeCovers(b.scope, scope)) ? "burst" : false;
+  }
+
+  /**
+   * Hold the owner's yes to this call for the same step in the same chat,
+   * for BURST_MS. False when its scope cannot be named, or names the whole
+   * tool: a tool-wide yes is an Always the owner presses, never a moment's.
+   */
+  holdBurst(conversationId: string, tool: string, input: Record<string, unknown>, context?: PermissionContext): boolean {
+    const scope = scopeOf(tool, input, context);
+    if (scope === undefined || scope === null) return false;
+    const now = this.now();
+    const family = familyOf(tool, context);
+    const kept = (this.bursts.get(conversationId) ?? []).filter((b) => b.until > now && !(b.tool === family && b.scope === scope));
+    this.bursts.set(conversationId, [...kept, { tool: family, scope, until: now + BURST_MS }]);
+    return true;
   }
 
   /** The rule a decision would make, for showing before it is kept. */
