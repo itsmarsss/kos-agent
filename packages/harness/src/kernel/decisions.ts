@@ -1,4 +1,4 @@
-import { PRIVATE_TOOLS, summarizeAction, toolWords, typedVia, usesSecret, type ActionHome, type AskDetached, type DecidedVia, type LapseVia } from "@kos/shared";
+import { PRIVATE_TOOLS, summarizeAction, toolWords, typedVia, usesSecret, type ActionHome, type AskDetached, type DecidedVia, type LapseVia, type TaintSource } from "@kos/shared";
 
 import type { DecidedHow, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
@@ -7,6 +7,7 @@ import type { ToolRisk } from "../risk/tiers.js";
 import { placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { deletesData } from "../risk/learned.js";
+import { readFrom } from "../risk/untrusted.js";
 import { approvedAs, attendance, caller, guested, ownership } from "./caller.js";
 import { primarySessionId } from "./session.js";
 
@@ -147,7 +148,7 @@ export interface DecisionsDeps {
   /** Something a tool did that the kernel must notice, e.g. a schedule changed. */
   onToolRan: (tool: string) => void;
   /** Carry a held turn on; `unattended` when nobody started the turn that asked (a schedule's run), so it is resumed as that run. */
-  handleMessage: (text: string, opts: { sessionId: string; userId: string; origin: "system"; unattended?: boolean }) => Promise<{ reply: string }>;
+  handleMessage: (text: string, opts: { sessionId: string; userId: string; origin: "system"; unattended?: boolean; tainted?: readonly TaintSource[] }) => Promise<{ reply: string }>;
   /**
    * Why a yes on an ask that places a secret may be KOS's own hand, if it
    * may: decided on the device KOS is working on in that chat, or a moment
@@ -356,7 +357,10 @@ export class Decisions {
     let reply: string | undefined;
     let stuck: string | undefined;
     try {
-      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: by, origin: "system", ...(action.attended ? {} : { unattended: true }) })).reply;
+      // The turn carried on is as tainted as the one that asked, and by what the approved call itself read.
+      const read = readFrom(action.tool, stored, result.content);
+      const tainted = [...(action.taint ?? []), ...(read ? [read] : [])];
+      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: by, origin: "system", ...(action.attended ? {} : { unattended: true }), ...(tainted.length ? { tainted } : {}) })).reply;
     } catch (err) {
       stuck = err instanceof Error ? err.message : String(err);
       reply = `Approved @approval:${id} but resume failed: ${stuck}`;
@@ -383,7 +387,7 @@ export class Decisions {
     let reply: string | undefined;
     let stuck: string | undefined;
     try {
-      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: decidedBy ?? d.ownerId, origin: "system", ...(denied.attended ? {} : { unattended: true }) })).reply;
+      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: decidedBy ?? d.ownerId, origin: "system", ...(denied.attended ? {} : { unattended: true }), ...(denied.taint ? { tainted: denied.taint } : {}) })).reply;
     } catch (err) {
       stuck = err instanceof Error ? err.message : String(err);
       reply = `Denied @approval:${id}.`;

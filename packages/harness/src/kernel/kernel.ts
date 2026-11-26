@@ -55,6 +55,8 @@ import {
   type Tab,
   type Then,
 } from "@kos/browser";
+import { hostOf } from "../risk/rules.js";
+import { Taint } from "../risk/taint.js";
 import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, mcpBrowserStep, PAY_BUTTON, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
 
 /** What a checkout check reads of a page: the first checkout phrase anywhere in its words, a card field, a payment provider's frame. */
@@ -130,7 +132,7 @@ import { DB_FILENAME, Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { describeActive, describeProject, type ProjectSchema } from "../systems/schema.js";
-import { caller, guestOrigin, isAttended, isOwnerTurn, type GuestOrigin, type TurnOrigin } from "./caller.js";
+import { caller, guestOrigin, isAttended, isOwnerTurn, turnTaint, type GuestOrigin, type TurnOrigin } from "./caller.js";
 import {
   deleteProject as cascadeDeleteProject,
   type DeleteProjectResult,
@@ -172,7 +174,7 @@ import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { replyLine } from "./voice.js";
 import { pairedNote } from "./where.js";
 import { keepFile, readFile as readWorkspaceFile } from "./files.js";
-import { ASK, MODE_WORDS, UNCHANGED, liveMode, modeLabel, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
+import { ASK, MODE_WORDS, UNCHANGED, liveMode, modeLabel, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type TaintSource, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -1078,6 +1080,10 @@ export class Kernel {
       priorTurns?: ModelMessage[];
       /** Left waiting by the last process and run now: nothing on its surface is waiting to post the answer. */
       replayed?: boolean;
+      /** The taint of the turn passing this work on, shared: what either reads taints both (risk/taint.ts). */
+      taint?: Taint;
+      /** What the turn this carries on had read that the owner did not write: a decision's resume starts tainted with it. */
+      tainted?: readonly TaintSource[];
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -1235,6 +1241,10 @@ export class Kernel {
       replayed?: boolean;
       /** The waiting row these words were, when they waited. */
       pendingId?: number;
+      /** The taint of the turn passing this work on, shared. */
+      taint?: Taint;
+      /** What the turn this carries on had read that the owner did not write. */
+      tainted?: readonly TaintSource[];
       /** The secrets whose values were masked out of these words on the way in. */
       masked?: string[];
       /** The vault was locked then, so only shapes and the scrub index were looked for. */
@@ -1260,6 +1270,7 @@ export class Kernel {
       this.underAuto.set(sessionId, false);
       // A guest's words reach no further than their room's project, here and wherever the work is passed.
       const guest = opts.guested ?? (opts.guest ? this.guestRoomOf(sessionId) : undefined);
+      const taint = this.turnTaint(opts);
       const stop = this.stopFor(sessionId, turnId);
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
@@ -1333,6 +1344,7 @@ export class Kernel {
           owner,
           ownWords,
           ...(guest ? { guest } : {}),
+          taint,
           ...(scheduledId !== undefined ? { scheduled: scheduledId } : {}),
           // A repair KOS began on its own has nobody watching: what it asks waits in the Inbox for the owner rather than lapsing in half an hour.
           ...(opts.via === "fix" && !owner ? { waitForApproval: false } : {}),
@@ -1944,7 +1956,7 @@ export class Kernel {
    * unaddressed messages go to the job's place, and its answer is told as a
    * run's, once it ends, rather than as a conversation's.
    */
-  private async resumeDecided(text: string, opts: { sessionId: string; userId: string; origin: "system"; unattended?: boolean }): Promise<HandleResult> {
+  private async resumeDecided(text: string, opts: { sessionId: string; userId: string; origin: "system"; unattended?: boolean; tainted?: readonly TaintSource[] }): Promise<HandleResult> {
     const { unattended, ...resume } = opts;
     const job = unattended ? this.jobOfThread(opts.sessionId) : undefined;
     if (!job) return this.handleMessage(text, resume);
@@ -3292,9 +3304,11 @@ export class Kernel {
      * no more than: read from the call that sends it unless said, so a
      * guest's or a schedule's turn handing work on hands on none of the
      * owner's reach, and a guest's none past their room's project. A door
-     * outside any turn (the dashboard) says so itself.
+     * outside any turn (the dashboard) says so itself. The sender's taint
+     * is shared rather than copied: what the target reads taints the turn
+     * waiting on its reply too.
      */
-    as: { attended: boolean; owner: boolean; guest?: GuestOrigin } = { attended: isAttended(), owner: isOwnerTurn(), guest: guestOrigin() },
+    as: { attended: boolean; owner: boolean; guest?: GuestOrigin; taint?: Taint } = { attended: isAttended(), owner: isOwnerTurn(), guest: guestOrigin(), taint: turnTaint() },
   ): Promise<{ reply: string; conversationId: string }> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
@@ -3317,6 +3331,7 @@ export class Kernel {
         attended: as.attended,
         owner: as.owner,
         ...(as.guest ? { guested: as.guest } : {}),
+        ...(as.taint ? { taint: as.taint } : {}),
         ...(from ? { from } : {}),
         ...(trail.length ? { trail } : {}),
         // A guest's work is no orchestrator's: it runs with the guest tools the target's own scope allows.
@@ -4035,6 +4050,36 @@ export class Kernel {
   }
 
   /** Who may see each server channel, by what it is bound to; absent means the owner alone. */
+  /**
+   * A turn's taint as it starts: shared with the turn that passed the work
+   * on, else what the turn it carries on had read, and marked with what
+   * arrives with its words that the owner did not write: a guest's
+   * message, room talk, a quoted page, a file.
+   */
+  private turnTaint(opts: { taint?: Taint; tainted?: readonly TaintSource[]; guest?: Guest; guested?: GuestOrigin; roomTalk?: string; quote?: Quote; attachments?: Attachment[] }): Taint {
+    const taint = opts.taint ?? new Taint(opts.tainted ?? []);
+    if (opts.guest) taint.mark({ kind: "guest", where: opts.guest.name });
+    else if (opts.guested) taint.mark({ kind: "guest" });
+    if (opts.roomTalk?.trim()) taint.mark({ kind: "guest", where: "people in the room" });
+    if (opts.quote) {
+      const host = hostOf(opts.quote.from) ?? opts.quote.from;
+      taint.mark({ kind: "page", ...(host ? { where: host } : {}) });
+    }
+    for (const file of opts.attachments ?? []) taint.mark({ kind: "file", where: file.name });
+    return taint;
+  }
+
+  /** Table prefixes of the projects a guest may write in: every project with a place opened to guests. */
+  private guestTablePrefixes(): string[] {
+    const slugs = new Set<string>();
+    for (const [key, audience] of Object.entries(this.channelAudiences())) {
+      if (audience !== "guests") continue;
+      const slug = this.projectOf(key) ?? (key.startsWith("project:") ? key.slice("project:".length) : null);
+      if (slug) slugs.add(slug);
+    }
+    return [...slugs].map((slug) => `${slug}_`);
+  }
+
   channelAudiences(): Record<string, Audience> {
     const raw = this.settings.get(CHANNEL_AUDIENCE_KEY);
     if (typeof raw !== "object" || raw === null) return {};
@@ -4329,6 +4374,8 @@ export class Kernel {
     heard?: () => HeardWords | undefined;
     /** The turn's stop. */
     signal?: AbortSignal;
+    /** What the turn has read that the owner did not write. */
+    taint?: Taint;
   } = {}): GuardedTools {
     const shelf = this.shelf && this.behaviour().smartContext ? this.shelf : undefined;
     return new GuardedTools({
@@ -4381,6 +4428,8 @@ export class Kernel {
       ...(opts.scheduled !== undefined && this.crons.get(opts.scheduled) ? { scheduledSince: this.crons.get(opts.scheduled)!.createdAt } : {}),
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
+      ...(opts.taint ? { taint: opts.taint } : {}),
+      guestTables: () => this.guestTablePrefixes(),
       onQueued: (action) => {
         this.callTimer.asked(toolUse.getStore(), action.id);
         opts.onQueued?.(action);
