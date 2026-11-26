@@ -113,6 +113,95 @@ describe("sqlModule", () => {
     expect(now()).toEqual(before);
   });
 
+  it("runs only the read pragmas, and only in Maintenance", async () => {
+    ws.db.exec("CREATE INDEX books_tx_amount ON books_tx (amount)");
+    const maintenance = await harness("maintenance");
+    const reads = [
+      "PRAGMA table_info(books_tx)",
+      "PRAGMA table_xinfo('books_tx')",
+      "PRAGMA table_list",
+      'PRAGMA index_list("books_tx")',
+      "PRAGMA index_info([books_tx_amount])",
+      "PRAGMA index_xinfo(`books_tx_amount`)",
+      "PRAGMA foreign_key_list(books_tx);",
+      "pragma integrity_check",
+      "PRAGMA quick_check(books_tx) -- the one table",
+    ];
+    for (const sql of reads) {
+      const res = await maintenance.execute("sql", { sql });
+      expect(res.isError, `${sql}: ${res.content}`).toBe(false);
+      expect(Array.isArray(JSON.parse(res.content)), sql).toBe(true);
+      expect((await registry.execute("sql", { sql })).content, sql).toMatch(/schema is Maintenance's to read/);
+    }
+  });
+
+  it("refuses every other pragma, in any form, and no setting changes", async () => {
+    const maintenance = await harness("maintenance");
+    const settings = ["hard_heap_limit", "soft_heap_limit", "wal_autocheckpoint", "automatic_index", "foreign_keys", "journal_mode", "query_only", "user_version", "cache_size", "threads", "analysis_limit", "cell_size_check", "recursive_triggers"];
+    const now = (): unknown[] => settings.map((name) => ws.db.prepare(`PRAGMA ${name}`).get());
+    const before = now();
+    const refused = [
+      "PRAGMA hard_heap_limit(1000)",
+      "PRAGMA soft_heap_limit(1000)",
+      "PRAGMA wal_autocheckpoint(0)",
+      "PRAGMA case_sensitive_like(1)",
+      "PRAGMA automatic_index(0)",
+      "PRAGMA optimize",
+      "PRAGMA wal_checkpoint(TRUNCATE)",
+      "PRAGMA journal_mode(DELETE)",
+      "PRAGMA foreign_keys(0)",
+      "PRAGMA foreign_keys = OFF",
+      "PRAGMA query_only=1 /* update */",
+      "PRAGMA user_version = 9",
+      "PRAGMA cache_size(-1)",
+      "PRAGMA threads(4)",
+      "PRAGMA analysis_limit(1)",
+      "PRAGMA cell_size_check(1)",
+      "PRAGMA recursive_triggers = ON",
+      "PRAGMA shrink_memory",
+      "PRAGMA main.table_info(books_tx)",
+      "PRAGMA table_info = books_tx",
+      "PRAGMA table_info(1)",
+      "PRAGMA integrity_check(1)",
+      "PRAGMA quick_check(-1)",
+      "PRAGMA table_info(books_tx, 1)",
+      "PRAGMA table_info('books' || '_tx')",
+      "PRAGMA table_list; PRAGMA foreign_keys = OFF",
+    ];
+    for (const sql of refused) {
+      for (const chat of [maintenance, registry]) {
+        chat.classify("sql", { sql });
+        const res = await chat.execute("sql", { sql });
+        expect(res.isError, sql).toBe(true);
+      }
+      expect((await maintenance.execute("sql", { sql })).content, sql).toMatch(/no PRAGMA but these reads|multiple statements|DDL is not allowed/);
+    }
+    expect(now()).toEqual(before);
+  });
+
+  it("explains only a statement a plan is read for, so an EXPLAIN PRAGMA changes no setting", async () => {
+    const maintenance = await harness("maintenance");
+    const settings = ["query_only", "foreign_keys", "hard_heap_limit", "recursive_triggers", "user_version"];
+    const now = (): unknown[] => settings.map((name) => ws.db.prepare(`PRAGMA ${name}`).get());
+    const before = now();
+    for (const sql of [
+      "EXPLAIN QUERY PLAN PRAGMA query_only=1",
+      "explain pragma foreign_keys=OFF",
+      "EXPLAIN PRAGMA hard_heap_limit(1000)",
+      "EXPLAIN /* x */ PRAGMA recursive_triggers = ON",
+      "EXPLAIN EXPLAIN PRAGMA user_version = 9",
+      "EXPLAIN QUERY PLAN PRAGMA table_info(books_tx)",
+    ]) {
+      maintenance.classify("sql", { sql });
+      const res = await maintenance.execute("sql", { sql });
+      expect(res.isError, sql).toBe(true);
+      expect(res.content, sql).toMatch(/EXPLAIN explains one SELECT/);
+    }
+    expect(now()).toEqual(before);
+    expect((await maintenance.execute("sql", { sql: "EXPLAIN QUERY PLAN SELECT * FROM books_tx WHERE amount > ?", params: [1] })).isError).toBe(false);
+    expect((await maintenance.execute("sql", { sql: "EXPLAIN SELECT 1" })).isError).toBe(false);
+  });
+
   it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
     expect(registry.classify("sql", { sql: "SELECT 1" }).tier).toBe("safe");
     expect(registry.classify("sql", { sql: "INSERT INTO books_tx (a) VALUES (1)" }).tier).toBe("safe");
