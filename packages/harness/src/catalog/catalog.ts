@@ -346,9 +346,8 @@ export function mcpConfigFor(
 
 /**
  * A reference server, ready to add. `{workspace}` in an argument or an
- * environment value is the workspace root; `{secrets}` is a folder beside
- * the settings file, outside the workspace, where a server's credentials
- * and tokens belong so no tool of the agent's can read them.
+ * environment value is the workspace root. Google is not a pick: it is the
+ * owner's account under Settings > Connections (google/).
  */
 export interface McpPick {
   name: string;
@@ -357,18 +356,15 @@ export interface McpPick {
   server: McpServerConfig;
   /** Why a floor other than risky is right, when it is. */
   risk?: "safe";
-  /** What the owner has to do once by hand before it works, with the same placeholders. */
-  setup?: string;
 }
 
 /** Where a pick's placeholders point. */
 export interface PickPlaces {
   workspace: string;
-  secrets: string;
 }
 
-export function fillPlaces(text: string, places: PickPlaces): string {
-  return text.replace(/\{workspace\}/g, places.workspace).replace(/\{secrets\}/g, places.secrets);
+function fillPlaces(text: string, places: PickPlaces): string {
+  return text.replace(/\{workspace\}/g, places.workspace);
 }
 
 /**
@@ -422,64 +418,6 @@ export const MCP_PICKS: McpPick[] = [
     blurb: "Microsoft's Playwright browser server: pages, clicks, typing, snapshots. No live view.",
     needs: "node",
     server: { command: "npx", args: ["@playwright/mcp@latest"] },
-  },
-  /*
-   * Calendar and mail, for a morning brief and anything else that starts
-   * from what the day holds. Both are the owner's Google account through
-   * one OAuth client of their own; the client file and the tokens live in
-   * the secrets folder, outside the workspace, so no tool of the agent's
-   * can read them. Looking is safe; anything that sends, changes or
-   * deletes asks.
-   */
-  {
-    name: "google-calendar",
-    blurb: "Your Google Calendar: today's events, free time, invitations. Reading is safe; creating, changing or answering an event asks.",
-    needs: "node",
-    setup:
-      "Once, by hand: make a Google OAuth client (Desktop app) with the Calendar API enabled and save its JSON as {secrets}/google-oauth-client.json, " +
-      "then run GOOGLE_OAUTH_CREDENTIALS={secrets}/google-oauth-client.json GOOGLE_CALENDAR_MCP_TOKEN_PATH={secrets}/google-calendar-tokens.json npx @cocal/google-calendar-mcp auth " +
-      "and sign in. While the Google app is in test mode the sign-in lapses weekly; publishing the app in the Google console stops that.",
-    server: {
-      command: "npx",
-      args: ["-y", "@cocal/google-calendar-mcp"],
-      env: {
-        GOOGLE_OAUTH_CREDENTIALS: "{secrets}/google-oauth-client.json",
-        GOOGLE_CALENDAR_MCP_TOKEN_PATH: "{secrets}/google-calendar-tokens.json",
-      },
-      tools: {
-        "list-calendars": "safe",
-        "list-events": "safe",
-        "get-event": "safe",
-        "search-events": "safe",
-        "get-freebusy": "safe",
-        "get-current-time": "safe",
-        "list-colors": "safe",
-      },
-    },
-  },
-  {
-    name: "gmail",
-    blurb: "Your Gmail: search and read mail and threads. Reading is safe; sending, replying, labelling or deleting asks.",
-    needs: "node",
-    setup:
-      "Once, by hand: the same Google OAuth client with the Gmail API enabled (a Web client wants http://localhost:3000/oauth2callback as a redirect URI), saved as {secrets}/google-oauth-client.json, " +
-      "then run GMAIL_OAUTH_PATH={secrets}/google-oauth-client.json GMAIL_CREDENTIALS_PATH={secrets}/gmail-tokens.json npx @artymclabin/gmail-mcp auth and sign in.",
-    server: {
-      command: "npx",
-      args: ["-y", "@artymclabin/gmail-mcp"],
-      env: {
-        GMAIL_OAUTH_PATH: "{secrets}/google-oauth-client.json",
-        GMAIL_CREDENTIALS_PATH: "{secrets}/gmail-tokens.json",
-      },
-      tools: {
-        read_email: "safe",
-        search_emails: "safe",
-        list_email_labels: "safe",
-        get_thread: "safe",
-        list_inbox_threads: "safe",
-        get_inbox_with_threads: "safe",
-      },
-    },
   },
 ];
 
