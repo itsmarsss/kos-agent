@@ -867,6 +867,42 @@ describe("GuardedTools", () => {
       await asked;
     });
 
+    it("lets no site session cover a step after reading text from elsewhere", async () => {
+      read();
+      registry.register({ name: "browser.act", description: "a", inputSchema: { type: "object" } }, () => "clicked", { floor: "risky" });
+      const site = { browser: { prefix: "browser.", site: "shop.example" } };
+      const tools = guarded({ conversationId: "c1", waitForApproval: false, permissionContext: () => site, autoApproves: () => "site" });
+      expect((await tools.execute("browser.act", { actions: [{ click: "@e1" }] })).content).toBe("clicked");
+      await tools.execute("mcp.mail.read", {});
+      expect((await tools.execute("browser.act", { actions: [{ click: "@e2" }] })).content).toMatch(/Queued for approval/);
+    });
+
+    it("lets no job's consent cover a call after the run read outside text", async () => {
+      read();
+      registry.register({ name: "http.fetch", description: "h", inputSchema: { type: "object" } }, () => "fetched", { floor: "risky" });
+      const permissions = new PermissionStore(ws.db);
+      permissions.add({ tool: "http.fetch", scope: "host:api.example", project: null, job: 3 });
+      const run = (): GuardedTools => guarded({ conversationId: "cron:3", permissions, scheduled: 3, scheduledSince: 0, attended: false, waitForApproval: false });
+      expect((await run().execute("http.fetch", { url: "https://api.example/a" })).content).toBe("fetched");
+      const tainted = run();
+      await tainted.execute("mcp.mail.read", {});
+      expect((await tainted.execute("http.fetch", { url: "https://api.example/a" })).content).toMatch(/Queued for approval/);
+    });
+
+    it("holds no burst from a yes given in a tainted turn, for the chat's next turn either", async () => {
+      read();
+      registry.register({ name: "http.fetch", description: "h", inputSchema: { type: "object" } }, () => "fetched", { floor: "risky" });
+      const permissions = new PermissionStore(ws.db);
+      const first = guarded({ conversationId: "c1", permissions });
+      await first.execute("mcp.mail.read", {});
+      const asked = first.execute("http.fetch", { url: "https://api.example/a" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      approvals.approve(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
+      await asked;
+      const next = guarded({ conversationId: "c1", permissions, waitForApproval: false });
+      expect((await next.execute("http.fetch", { url: "https://api.example/b" })).content).toMatch(/Queued for approval/);
+    });
+
     it("starts tainted when handed a turn's taint, so work passed on asks as its sender would", async () => {
       post();
       const permissions = new PermissionStore(ws.db);

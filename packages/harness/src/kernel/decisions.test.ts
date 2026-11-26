@@ -79,6 +79,14 @@ describe("approving", () => {
     expect(seen.at(-1)).toBeUndefined();
   });
 
+  it("carries the asking turn's taint into the turn a denial resumes", async () => {
+    const seen: unknown[] = [];
+    const resume = { handleMessage: async (_text: string, opts: { tainted?: unknown }) => { seen.push(opts.tainted); return { reply: "ok" }; } };
+    const asked = pending({ taint: [{ kind: "guest", where: "Sam" }] });
+    await new Decisions(deps(asked, false, resume).d).deny(5, undefined, { surface: "dashboard" });
+    expect(seen).toEqual([[{ kind: "guest", where: "Sam" }]]);
+  });
+
   it("runs an orphaned action as the turn that asked: the owner's reach only if it was theirs", async () => {
     const as = async (asked: { owner: boolean; attended: boolean }): Promise<{ owner: boolean; attended: boolean }> => {
       let seen = { owner: true, attended: true };
