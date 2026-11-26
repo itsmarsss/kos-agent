@@ -198,6 +198,7 @@ describe("who let a risky step run", () => {
   it("says the ask's place and number, a rule or Auto, and unknown for a step from before", () => {
     const at = Date.now();
     expect(allowedWords({ decidedVia: "discord", approvalId: 742, createdAt: at })).toMatch(/^Approved on Discord, .+, #742$/);
+    expect(allowedWords({ decidedVia: "cli", approvalId: 743, createdAt: at })).toMatch(/^Approved on the command line, .+, #743$/);
     expect(allowedWords({ decidedVia: "rule", approvalId: null, createdAt: at })).toMatch(/^Approved by a remembered rule, /);
     expect(allowedWords({ decidedVia: null, approvalId: null, createdAt: at })).toMatch(/; where is unknown$/);
   });
@@ -207,6 +208,12 @@ describe("who let a risky step run", () => {
     render(<Inspector target={{ kind: "tool", data: { id: 9, tool: "sql", args: "{}", result: "", isError: false, riskTier: "risky", decidedVia: "phone", approvalId: 12, createdAt: Date.now() } }} onClose={() => {}} />);
     expect(screen.getByText("Allowed")).toBeTruthy();
     expect(screen.getByText(/^Approved on KOS for iPhone, .+, #12$/)).toBeTruthy();
+  });
+
+  it("says a yes given on the command line as the command line's", () => {
+    vi.spyOn(api, "call").mockRejectedValue(new Error("offline"));
+    render(<Inspector target={{ kind: "tool", data: { id: 10, tool: "sql", args: "{}", result: "", isError: false, riskTier: "risky", decidedVia: "cli", approvalId: 13, createdAt: Date.now() } }} onClose={() => {}} />);
+    expect(screen.getByText(/^Approved on the command line, .+, #13$/)).toBeTruthy();
   });
 });
 
