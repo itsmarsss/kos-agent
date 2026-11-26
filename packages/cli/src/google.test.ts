@@ -14,6 +14,7 @@ const VIEW: GoogleView = {
   missing: [],
   signingIn: false,
   redirectUri: "http://localhost:4327/oauth2callback",
+  email: "me@example.com",
   server: { connected: true, tools: 24 },
 };
 
@@ -66,7 +67,8 @@ describe("kos google", () => {
     const url = "https://accounts.google.com/o/oauth2/auth?x=1";
     const h = host({ "POST /api/google/signin": [{ ...VIEW, url, signingIn: true }], "GET /api/google": [{ ...VIEW, signingIn: true }, VIEW] });
     const out = io();
-    await runGoogle(h, ["signin"], out);
+    await runGoogle(h, ["signin", "me@example.com"], out);
+    expect(h.calls[0]).toBe('POST /api/google/signin {"email":"me@example.com"}');
     expect(out.opened).toEqual([url]);
     expect(out.said).toContain(url);
     expect(h.calls.filter((c) => c === "GET /api/google")).toHaveLength(2);

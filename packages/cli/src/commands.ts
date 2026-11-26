@@ -72,7 +72,7 @@ Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.
   files tidy [--yes]   move projects' files written loose at the workspace root into their folders, after asking
   mcp add <name> (--command "<cmd args>" | --url <url>) [--risk safe] | add --json '<config>'
   mcp list | enable <name> | disable <name> | remove <name>
-  google [status] | import <client_secret.json> | signin | mode read|changes|send | on | off | disconnect
+  google [status] | import <client_secret.json> | signin [you@gmail.com] | mode read|changes|send | on | off | disconnect
                        your Google account (Calendar, Gmail, Drive, Docs), read-only until mode changes`;
 
 export function statusLine(kernel: Kernel): string {

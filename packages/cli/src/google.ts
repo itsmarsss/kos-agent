@@ -9,7 +9,7 @@ import { GOOGLE_PREFIX, type GoogleView } from "@kos/harness";
  * far KOS may go, disconnect.
  */
 
-export const GOOGLE_USAGE = "usage: kos google [status] | import <client_secret.json> | signin | mode read|changes|send | on | off | disconnect";
+export const GOOGLE_USAGE = "usage: kos google [status] | import <client_secret.json> | signin [you@gmail.com] | mode read|changes|send | on | off | disconnect";
 
 /** What the command needs of the host: the KosClient's two calls. */
 export interface GoogleHost {
@@ -31,12 +31,12 @@ const SCOPE_PREFIX = "https://www.googleapis.com/auth/";
 /** The connection in a few lines: client, account, mode, server. */
 export function describe(view: GoogleView): string[] {
   const lines = [`client: ${view.client ? view.client.id : `none${view.vault ? ` (${view.vault})` : ""}`}`];
-  if (!view.account) lines.push("account: not signed in");
+  if (!view.account) lines.push(`account: not signed in${view.email ? ` (signs in as ${view.email})` : ""}`);
   else {
     lines.push(`account: ${view.account.email}`);
     lines.push(`scopes: ${view.account.scopes.map((s) => s.replace(SCOPE_PREFIX, "")).join(" ")}`);
   }
-  const mode = !view.settings.changes ? "read only" : view.settings.send ? "changes and sending mail" : "changes, no sending";
+  const mode = !view.settings.changes ? "read only" : view.settings.send ? "changes, and mail drafts, labels and sending" : "changes; mail read only";
   lines.push(`mode: ${view.settings.on ? mode : "off"}`);
   if (view.missing.length) lines.push(`sign in again to grant: ${view.missing.map((s) => s.replace(SCOPE_PREFIX, "")).join(" ")}`);
   if (view.signingIn) lines.push("signing in: waiting for the browser");
@@ -66,7 +66,7 @@ export async function runGoogle(host: GoogleHost, rest: string[], io: GoogleIo):
   }
 
   if (sub === "signin") {
-    const { url } = await host.post<GoogleView & { url: string }>(`${GOOGLE_PREFIX}/signin`);
+    const { url } = await host.post<GoogleView & { url: string }>(`${GOOGLE_PREFIX}/signin`, arg ? { email: arg } : {});
     io.say("sign in in your browser; if it did not open, go to:");
     io.say(url);
     io.open(url);
