@@ -2,7 +2,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { tokenize } from "../memory/facts.js";
 import { heardWith } from "../models/heard.js";
-import { saidText } from "../models/types.js";
+import { saidText, toolUsesOf } from "../models/types.js";
 import { guestOrigin } from "../kernel/caller.js";
 import { reachesAll } from "../kernel/caretaker.js";
 import { blobOf, standingKind, type Conversation, type ConversationStore, type Standing } from "../kernel/conversations.js";
@@ -188,14 +188,16 @@ function str(input: Record<string, unknown>, key: string): string {
   return v;
 }
 
-/** Flatten a transcript to spoken turns; tool round-trips are noise here. */
+/** Flatten a transcript to spoken turns; tool round-trips, and the words narrating them, are noise here. */
 function spokenTurns(
   sessions: SessionStore,
   id: string,
 ): Array<{ role: string; text: string }> {
   const out: Array<{ role: string; text: string }> = [];
   for (const message of sessions.get(id)) {
-    const text = saidText(message.content).trim();
+    // Words beside a call narrate that step; the turn's reply is a message of its own, on both engines.
+    const step = message.role === "assistant" && toolUsesOf(message.content).length > 0;
+    const text = step ? "" : saidText(message.content).trim();
     if (text) out.push({ role: message.role === "user" ? "owner" : "kos", text });
     // What the owner said while a turn ran, heard with a result: spoken too, and theirs.
     for (const block of message.content) {

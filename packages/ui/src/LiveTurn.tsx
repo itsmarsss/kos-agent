@@ -142,8 +142,9 @@ export function LiveTurn({
       {live.congregation && <Congregation members={live.congregation.members} />}
 
       {answering && (
-        // The reply as it is written, in the shape it will keep once it lands.
-        <div className="bubble bubble--kos">
+        // The reply as it is written, in the shape it will keep once it lands. Muted until the turn ends: words
+        // a step follows are that step's narration, and move up to the steps rather than stay the reply.
+        <div className={`bubble bubble--kos${live.ended ? "" : " bubble--unsettled"}`}>
           <Markdown text={live.text} />
         </div>
       )}

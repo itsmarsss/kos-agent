@@ -4,7 +4,8 @@ import type { ModelMessage } from "../models/types.js";
 import { decidedLine } from "./decisions.js";
 import { approvedResult, undoneResult } from "./guarded.js";
 import { ownerWords } from "../models/heard.js";
-import { conversationEvents, historyEvents, spokenTurns } from "./transcript.js";
+import { conversationEvents, historyEvents } from "./transcript.js";
+import { sdkCallMessages } from "../chat/sdkchat.js";
 
 const withTool: ModelMessage[] = [
   { role: "user", content: [{ type: "text", text: "what did I spend" }] },
@@ -43,14 +44,27 @@ describe("a tool card knows its call", () => {
 });
 
 describe("conversationEvents", () => {
-  it("keeps the tool call in order between the turns", () => {
+  it("keeps the tool call in order between the turns, its narration with it", () => {
     const events = conversationEvents(withTool);
     expect(events.map((e) => e.kind)).toEqual([
       "message",
-      "message",
+      "reasoning",
       "tool",
       "message",
     ]);
+  });
+
+  it("shows the words before a step with the step on both engines, and only the answer as KOS's reply", () => {
+    const step = { id: "s1", name: "sql", input: { sql: "SELECT 1" }, result: "[]", isError: false };
+    const api: ModelMessage[] = [
+      { role: "assistant", content: [{ type: "text", text: "I'll run the scanner." }, { type: "tool_use", id: "s1", name: "sql", input: { sql: "SELECT 1" } }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "s1", content: "[]" }] },
+      { role: "assistant", content: [{ type: "text", text: "Nothing new." }] },
+    ];
+    const sdk: ModelMessage[] = [...sdkCallMessages({ ...step, said: "I'll run the scanner." }), { role: "assistant", content: [{ type: "text", text: "Nothing new." }] }];
+    const shown = (messages: ModelMessage[]) => conversationEvents(messages).map((e) => (e.kind === "tool" ? "tool" : `${e.kind}:${"text" in e ? e.text : ""}`));
+    expect(shown(api)).toEqual(["reasoning:I'll run the scanner.", "tool", "message:Nothing new."]);
+    expect(shown(sdk)).toEqual(shown(api));
   });
 
   it("pairs a call with the result that answered it", () => {
@@ -292,16 +306,6 @@ describe("when a message was written", () => {
       { role: "assistant", content: [{ type: "text", text: "ok" }] },
     ]);
     expect(events.every((e) => !("at" in e))).toBe(true);
-  });
-});
-
-describe("spokenTurns", () => {
-  it("returns only what was said", () => {
-    expect(spokenTurns(withTool)).toEqual([
-      { role: "you", text: "what did I spend" },
-      { role: "kos", text: "Let me check." },
-      { role: "kos", text: "$3,410." },
-    ]);
   });
 });
 
