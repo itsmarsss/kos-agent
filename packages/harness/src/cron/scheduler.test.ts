@@ -42,6 +42,7 @@ describe("CronScheduler", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     ws.close();
     rmSync(root, { recursive: true, force: true });
   });
@@ -131,12 +132,14 @@ describe("CronScheduler", () => {
   });
 
   it("says when a held job fires next, and nothing for one it does not hold", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-11-25T14:20:00Z"));
     const hourly = store.create({ name: "hourly", schedule: "0 * * * *", type: "actions" });
     const sched = new CronScheduler(store, async () => undefined);
     sched.start();
     const runs = sched.nextRuns(hourly.id, 2);
     expect(runs).toHaveLength(2);
-    expect(runs[0]!).toBeGreaterThan(Date.now());
+    expect(runs[0]!).toBe(Date.parse("2026-11-25T15:00:00Z"));
     expect(runs[1]! - runs[0]!).toBe(3_600_000);
     expect(sched.nextRuns(hourly.id + 99, 2)).toEqual([]);
     sched.stop();
@@ -154,9 +157,13 @@ describe("running what fell due while nothing was listening", () => {
     ws = Workspace.open(root);
     store = new CronStore(ws.db);
     fired = [];
+    // Date, node-cron's own clock and its timers, at a fixed instant: no real tick, no minute rolling over mid-test.
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(NOW);
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     ws.close();
     rmSync(root, { recursive: true, force: true });
   });
@@ -164,24 +171,22 @@ describe("running what fell due while nothing was listening", () => {
   const MINUTE_MS = 60_000;
   const HOUR_MS = 3_600_000;
   const DAY_MS = 24 * HOUR_MS;
-
-  /** The start of this minute: late is then exactly what a test says, to the second. */
-  const minuteNow = (): number => Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
+  /** Now, on the minute and clear of every tick these jobs have: late is exactly what a test says, to the second. */
+  const NOW = Date.parse("2026-11-25T14:20:00Z");
 
   function scheduler(options: SchedulerOptions = {}): CronScheduler {
-    const now = minuteNow();
     return new CronScheduler(
       store,
       async (j) => {
         fired.push(j.id);
       },
-      { timezone: () => "UTC", catchUpGapMs: 0, clock: () => now, ...options },
+      { timezone: () => "UTC", catchUpGapMs: 0, clock: () => NOW, ...options },
     );
   }
 
-  /** A daily job whose time came round `lateMs` before this minute, last run `ranBeforeMs` before that. */
+  /** A daily job whose time came round `lateMs` before now, last run `ranBeforeMs` before that. */
   function daily(lateMs: number, ranBeforeMs = DAY_MS - HOUR_MS): number {
-    const due = new Date(minuteNow() - lateMs);
+    const due = new Date(NOW - lateMs);
     const created = store.create({
       name: "daily",
       schedule: `${due.getUTCMinutes()} ${due.getUTCHours()} * * *`,
@@ -202,7 +207,7 @@ describe("running what fell due while nothing was listening", () => {
       actions: [{ tool: "notify", args: {} }],
       enabled: true,
     });
-    store.markRun(created.id, Date.now() - agoMs);
+    store.markRun(created.id, NOW - agoMs);
     return created.id;
   }
 
@@ -223,7 +228,7 @@ describe("running what fell due while nothing was listening", () => {
     sched.start();
 
     expect(sched.catchUp()).toBe(1);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(fired.length).toBe(1);
     sched.stop();
   });
@@ -244,10 +249,10 @@ describe("running what fell due while nothing was listening", () => {
     );
     sched.start();
     expect(sched.catchUp()).toBe(2);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(running).toHaveLength(1);
     finish!();
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(running).toHaveLength(2);
     finish!();
     sched.stop();
@@ -260,7 +265,7 @@ describe("running what fell due while nothing was listening", () => {
     sched.start();
 
     expect(sched.catchUp()).toBe(1);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(fired.length).toBe(1);
     sched.stop();
   });
@@ -273,7 +278,7 @@ describe("running what fell due while nothing was listening", () => {
     sched.start();
 
     expect(sched.catchUp()).toBe(0);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(fired).toEqual([]);
     sched.stop();
   });
@@ -285,7 +290,7 @@ describe("running what fell due while nothing was listening", () => {
     sched.start();
 
     expect(sched.catchUp()).toBe(1);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(fired).toHaveLength(1);
     expect(skipped).toEqual([]);
     sched.stop();
@@ -299,11 +304,11 @@ describe("running what fell due while nothing was listening", () => {
     sched.start();
 
     expect(sched.catchUp()).toBe(0);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(fired).toEqual([]);
     expect(skipped).toHaveLength(1);
     expect(skipped[0]!.id).toBe(id);
-    expect(minuteNow() - skipped[0]!.at).toBe(4 * HOUR_MS);
+    expect(NOW - skipped[0]!.at).toBe(4 * HOUR_MS);
     expect(skipped[0]!.why).toBe(`missed by 4h; next run at ${nextWords(sched, id)}`);
     sched.stop();
   });
@@ -311,7 +316,7 @@ describe("running what fell due while nothing was listening", () => {
   it("says a run just past the limit is over it, never a whole number that reads as within it", () => {
     const id = daily(3 * HOUR_MS);
     const skipped: string[] = [];
-    const sched = scheduler({ clock: () => minuteNow() + 30_000, onSkip: (_j, _at, why) => skipped.push(why) });
+    const sched = scheduler({ clock: () => NOW + 30_000, onSkip: (_j, _at, why) => skipped.push(why) });
     sched.start();
 
     expect(sched.catchUp()).toBe(0);
@@ -344,7 +349,7 @@ describe("running what fell due while nothing was listening", () => {
     sched.start();
 
     expect(sched.catchUp()).toBe(0);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(fired).toEqual([]);
     expect(skipped).toEqual([`missed by 10m; next run at ${nextWords(sched, id)}`]);
     sched.stop();
@@ -354,13 +359,13 @@ describe("running what fell due while nothing was listening", () => {
     // Its next tick is as good as a late run.
     hourly(5 * HOUR_MS);
     const often = store.create({ name: "often", schedule: "*/15 * * * *", type: "actions", enabled: true });
-    store.markRun(often.id, Date.now() - 2 * HOUR_MS);
+    store.markRun(often.id, NOW - 2 * HOUR_MS);
     const skipped: string[] = [];
     const sched = scheduler({ onSkip: (_j, _at, why) => skipped.push(why) });
     sched.start();
 
     expect(sched.catchUp()).toBe(0);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(fired).toEqual([]);
     expect(skipped).toEqual([]);
     sched.stop();
@@ -378,33 +383,28 @@ describe("running what fell due while nothing was listening", () => {
         running.push(j.id);
         return new Promise<void>((resolve) => (finish = resolve));
       },
-      { timezone: () => "UTC", catchUpGapMs: 0, clock: () => minuteNow() },
+      { timezone: () => "UTC", catchUpGapMs: 0, clock: () => NOW },
     );
     sched.start();
     expect(sched.catchUp()).toBe(3);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(running).toEqual([first]);
     // While the first runs, the second's own tick runs it and the third is turned off.
     store.markRun(ranMeanwhile, Date.now());
     store.setEnabled(turnedOff, false);
     finish!();
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(running).toEqual([first]);
     sched.stop();
   });
 
   describe("after a sleep", () => {
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
     /**
      * Asleep through a job's time, node-cron wakes more than a second late,
      * does not run the tick, and says it missed it. The scheduler takes that
      * as a restart for the job: run within the limit, skipped past it.
      */
     async function wake(lateMs: number, lastRunAt: number | null): Promise<{ id: number; skipped: string[]; sched: CronScheduler }> {
-      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
       vi.setSystemTime(Date.parse("2026-11-25T08:59:30Z"));
       const created = store.create({ name: "kickoff", schedule: "0 9 * * *", type: "actions", enabled: true });
       if (lastRunAt !== null) store.markRun(created.id, lastRunAt);
@@ -457,7 +457,7 @@ describe("running what fell due while nothing was listening", () => {
     sched.start();
 
     expect(sched.catchUp()).toBe(0);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.advanceTimersByTimeAsync(20);
     expect(fired).toEqual([]);
     sched.stop();
   });
@@ -494,9 +494,13 @@ describe("what a schedule really missed, in the profile's timezone", () => {
     root = mkdtempSync(join(tmpdir(), "kos-missed-"));
     ws = Workspace.open(root);
     store = new CronStore(ws.db);
+    // node-cron reads a schedule's next runs off the real clock: each case sets it to its own now.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-11-25T14:20:00Z"));
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     ws.close();
     rmSync(root, { recursive: true, force: true });
   });
@@ -505,9 +509,9 @@ describe("what a schedule really missed, in the profile's timezone", () => {
   function missed(schedule: string, ranAt: string, now: string, timezone = "UTC"): number {
     const created = store.create({ name: "j", schedule, type: "actions", actions: [{ tool: "notify", args: {} }], enabled: true });
     store.markRun(created.id, Date.parse(ranAt));
+    vi.setSystemTime(Date.parse(now));
     let skipped = 0;
     const sched = new CronScheduler(store, async () => undefined, {
-      clock: () => Date.parse(now),
       timezone: () => timezone,
       catchUpGapMs: 0,
       onSkip: () => (skipped += 1),
@@ -525,9 +529,9 @@ describe("what a schedule really missed, in the profile's timezone", () => {
   function caught(schedule: string, ranAt: string, now: string, timezone = "UTC", limit = 3): "ran" | "skipped" | "nothing" {
     const created = store.create({ name: "j", schedule, type: "actions", enabled: true });
     store.markRun(created.id, Date.parse(ranAt));
+    vi.setSystemTime(Date.parse(now));
     let skipped = false;
     const sched = new CronScheduler(store, async () => undefined, {
-      clock: () => Date.parse(now),
       timezone: () => timezone,
       catchUpGapMs: 0,
       catchUpLimitHours: () => limit,
