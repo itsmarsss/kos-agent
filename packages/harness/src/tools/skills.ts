@@ -321,8 +321,16 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
           assertOn(skill);
+          // Judged as the files were when it was stamped: changed since, a yes to that code is not a yes to this. Checked again at the spawn.
+          const judged = typeof input["hash"] === "string" ? input["hash"] : undefined;
+          const unchanged = (): void => {
+            if (judged !== undefined && judged !== skillHashNow(ws, skill)) {
+              throw new Error(`${skill.manifest.name} changed after this run was judged, so it was not run. Run it again to be asked about the code as it is now.`);
+            }
+          };
+          unchanged();
           const args = strings(input, "args");
-          const result = await runSkillLive({ workspaceRoot: ws.root, entry: skill.file, ...(args ? { args } : {}), ...(deps.jail ? { jail: deps.jail } : {}) });
+          const result = await runSkillLive({ workspaceRoot: ws.root, entry: skill.file, verify: unchanged, ...(args ? { args } : {}), ...(deps.jail ? { jail: deps.jail } : {}) });
           return JSON.stringify(sandboxReport(result));
         },
         // Promoted once, run free: the owner's yes to the code is the yes
@@ -331,6 +339,13 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           floor: "risky",
           why: "runs a skill that was not promoted",
           refuse: () => noJail(),
+          // The hash of the files it would run, set by the harness before it is judged: the run checks they are still those.
+          stamp: (input: Record<string, unknown>) => {
+            const { hash: _said, ...rest } = input;
+            const skill = scriptNamed(rest);
+            const hash = skill ? hashNow(skill) : undefined;
+            return hash ? { ...rest, hash } : rest;
+          },
           relax: (input) => {
             const skill = scriptNamed(input);
             return skill !== undefined && !off().has(skill.manifest.name) && isPromoted(skill);

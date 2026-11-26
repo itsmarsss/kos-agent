@@ -1113,7 +1113,8 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/permissions") {
-    return ok({ rules: kernel.permissions.list() });
+    // A job's consent is shown with the job's name beside its id.
+    return ok({ rules: kernel.permissions.list().map((r) => (r.job === null ? r : { ...r, jobName: kernel.crons.get(r.job)?.name ?? null })) });
   }
 
   if (method === "POST" && path === "/api/permissions/revoke") {
@@ -1534,6 +1535,13 @@ export async function handleApiRequest(
         body: { error: err instanceof Error ? err.message : String(err) },
       };
     }
+  }
+
+  // A schedule's saved yeses stay when what it does is edited; the owner clears them here, and its runs ask again.
+  if (method === "POST" && path === "/api/crons/forget-permissions") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    return ok({ id, cleared: kernel.permissions.forgetJob(id) });
   }
 
   if (method === "POST" && path === "/api/crons/delete") {
@@ -3002,6 +3010,12 @@ export async function handleApiRequest(
   }
 
   /** The Discord server's text channels as KOS last saw them, so a "#name" in a chat can be the channel. */
+  // Which channels a schedule may post in unasked now, read live from the server's permissions.
+  if (method === "GET" && path === "/api/discord/owner-only") {
+    const report = kernel.discord?.connected() ? kernel.discord.ownerOnlyReport?.() : undefined;
+    return ok(report ? { connected: true, ...report } : { connected: false, channels: [] });
+  }
+
   if (method === "GET" && path === "/api/discord/channels") {
     return ok({ channels: knownChannels(kernel) });
   }

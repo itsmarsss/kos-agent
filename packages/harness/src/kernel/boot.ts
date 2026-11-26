@@ -97,6 +97,9 @@ import { createStatusModule } from "../tools/status.js";
 import { ensureProfile } from "./profile.js";
 import { RETENTION_KEY, SessionStore, primarySessionId, type Retention } from "./session.js";
 import { TurnMade } from "./turnmade.js";
+import { grandfatherJobConsent } from "../ops/jobconsent.js";
+import { withBeyondAuto } from "../risk/beyondauto.js";
+import { scheduledJob } from "./caller.js";
 import { ConversationStore } from "./conversations.js";
 import { BUILD_SETTINGS_KEY, Kernel, orchestratorId, type KernelOptions } from "./kernel.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
@@ -426,6 +429,13 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
           ...(button.ephemeral ? { ephemeral: true } : {}),
         }),
       projectOf: (conversationId) => conversations.get(conversationId)?.projectSlug ?? undefined,
+      // A channel only the owner reads, as the server says; a schedule's post there asks unless the owner let schedules post unasked.
+      ownerAlone: (target) =>
+        target.kind === "channel" &&
+        (target.surface === undefined || target.surface === "discord") &&
+        target.id !== undefined &&
+        options.discord?.ownerAlone?.(target.id) === true &&
+        (scheduledJob() === undefined || kernelRef?.behaviour().jobsPostUnasked !== false),
     }),
     createCronModule({
       // The same path the schedule uses, so a job tried by hand is a job
@@ -669,6 +679,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const features = [...BUILTIN_FEATURES, ...(options.features ?? [])];
   const switchable = new Set(features.map((f) => f.name));
   const loadReport = await loader.load(modules, { skip: parseModuleSettings(settings.get(MODULES_KEY)).disabledBuiltins.filter((name) => switchable.has(name)) });
+  // Jobs that ran before a job's consent was kept keep what the owner approved for their runs, once, judged by today's rules.
+  grandfatherJobConsent(workspace.db, permissions, settings, audit, (tool, args) => withBeyondAuto(registry.classify(tool, args), tool, args), profile.ownerId);
 
   // A blob's job was named agent:<name> when blobs were agents, then
   // blob:<name>; it is blob.<name> now, as KOS's own jobs are kos.<name>.

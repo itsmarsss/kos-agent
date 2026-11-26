@@ -21,6 +21,8 @@ import {
   approvalCard,
   approvalText,
   noPreviews,
+  othersMaySeeAll,
+  ownerAloneBy,
   settledText,
   storyText,
   buildButtons,
@@ -1671,7 +1673,8 @@ describe("DiscordAdapter authorization", () => {
   it("asks only where the owner alone reads: never a place guests or anyone else read, a room's own asks included", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "chat-board" });
     const posts: Record<string, Record<string, unknown>[]> = { ny: [], c8: [], c9: [], c10: [] };
-    const sendable = (id: string, topic: string, perms: ReturnType<typeof overwrites>) => ({ id, topic, guildId: "g1", permissionOverwrites: perms, isThread: () => false, isSendable: () => true, send: async (p: Record<string, unknown>) => { posts[id]!.push(p); return { id: `m${posts[id]!.length}`, edit: async () => undefined }; } });
+    const guild = { id: "g1", ownerId: "owner-id", roles: { cache: new Map() } };
+    const sendable = (id: string, topic: string, perms: ReturnType<typeof overwrites>) => ({ id, topic, guildId: "g1", guild, permissionOverwrites: perms, isThread: () => false, isSendable: () => true, send: async (p: Record<string, unknown>) => { posts[id]!.push(p); return { id: `m${posts[id]!.length}`, edit: async () => undefined }; } });
     const mine = overwrites(["g1"], ["owner-id"]);
     const places: Record<string, unknown> = {
       ny: sendable("ny", "kos:needs-you · Approvals", mine),
@@ -1705,7 +1708,7 @@ describe("DiscordAdapter authorization", () => {
 
   it("counts the server's administrators as readers of a place shut to everyone", async () => {
     const admin = PermissionFlagsBits.Administrator;
-    const role = (id: string, members: string[], perms = admin) => [id, { id, permissions: { has: (b: bigint) => b === perms }, members: new Map(members.map((m) => [m, {}])) }] as const;
+    const role = (id: string, members: string[], perms = admin, tags?: { botId: string }) => [id, { id, name: id, managed: tags !== undefined, tags: tags ?? null, permissions: { has: (b: bigint) => b === perms }, members: new Map(members.map((m) => [m, {}])) }] as const;
     const asked = async (guild: unknown): Promise<"ny" | "dm"> => {
       const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
       let where: "ny" | "dm" = "dm";
@@ -1719,10 +1722,14 @@ describe("DiscordAdapter authorization", () => {
       await adapter.requestApproval("owner-id", { id: "6", text: "x", tool: "shell.run", args: { command: "ls" } });
       return where;
     };
-    expect(await asked({ ownerId: "owner-id", roles: { cache: new Map([role("r-bot", ["bot-id"]), role("r-mods", ["ana"], PermissionFlagsBits.ManageMessages)]) } })).toBe("ny");
-    expect(await asked({ ownerId: "owner-id", roles: { cache: new Map([role("r-admin", ["owner-id", "ana"])]) } })).toBe("dm");
-    expect(await asked({ ownerId: "owner-id", roles: { cache: new Map([role("r-admin", [])]) } })).toBe("dm");
-    expect(await asked({ ownerId: "someone-else", roles: { cache: new Map() } })).toBe("dm");
+    expect(await asked({ id: "g1", ownerId: "owner-id", roles: { cache: new Map([role("r-bot", ["bot-id"], admin, { botId: "bot-id" }), role("r-mods", ["ana"], PermissionFlagsBits.ManageMessages)]) } })).toBe("ny");
+    expect(await asked({ id: "g1", ownerId: "owner-id", roles: { cache: new Map([role("r-admin", ["owner-id", "ana"])]) } })).toBe("dm");
+    expect(await asked({ id: "g1", ownerId: "owner-id", roles: { cache: new Map([role("r-admin", [])]) } })).toBe("dm");
+    // A role that grants Administrator is someone else's to hold until known otherwise, even when only the owner is seen in it.
+    expect(await asked({ id: "g1", ownerId: "owner-id", roles: { cache: new Map([role("r-admin", ["owner-id"])]) } })).toBe("dm");
+    // A role named for KOS but not KOS's own managed one is not KOS.
+    expect(await asked({ id: "g1", ownerId: "owner-id", roles: { cache: new Map([role("r-bot", ["bot-id"])]) } })).toBe("dm");
+    expect(await asked({ id: "g1", ownerId: "someone-else", roles: { cache: new Map() } })).toBe("dm");
   });
 
   it("asks in the DM when #needs-you has been opened to others", async () => {
@@ -3280,5 +3287,74 @@ describe("two first posts at once", () => {
     // Once made and let go, a later ask makes a new one.
     adapter.forgetPlace("t1");
     expect(await adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge")).toBe("t2");
+  });
+});
+
+describe("a channel only the owner reads", () => {
+  const bits = (...set: bigint[]) => ({ has: (bit: bigint) => set.includes(bit) });
+  const V = PermissionFlagsBits.ViewChannel;
+  const ids = { everyone: "g", owner: "o", bot: "b", botRoles: new Set(["kosrole"]) };
+  const shut = { id: "g", allow: bits(), deny: bits(V) };
+
+  it("is one where everyone is kept out and only the owner and KOS are let back in", () => {
+    expect(ownerAloneBy([shut, { id: "o", allow: bits(V), deny: bits() }, { id: "b", allow: bits(V), deny: bits() }, { id: "kosrole", allow: bits(V), deny: bits() }], ids, false)).toBe(true);
+  });
+
+  it("is not one anyone else is let into, or everyone may see", () => {
+    expect(ownerAloneBy([shut, { id: "guests", allow: bits(V), deny: bits() }], ids, false)).toBe(false);
+    expect(ownerAloneBy([{ id: "g", allow: bits(V), deny: bits() }], ids, false)).toBe(false);
+    expect(ownerAloneBy([], ids, false)).toBe(false);
+  });
+
+  it("is not one when someone else sees every channel, or the owner is unknown", () => {
+    expect(ownerAloneBy([shut], ids, true)).toBe(false);
+    expect(ownerAloneBy([shut], { ...ids, owner: undefined }, false)).toBe(false);
+  });
+});
+
+describe("who may see every channel", () => {
+  const ids = { owner: "o", botRoles: new Set(["kosrole"]) };
+
+  it("is nobody else on the owner's own server with no role granting Administrator but KOS's", () => {
+    expect(othersMaySeeAll([{ id: "g", administrator: false }, { id: "kosrole", administrator: true }], "o", ids)).toBe(false);
+  });
+
+  it("is someone, unconfirmed, whenever another role grants Administrator, even one the owner seems alone to hold", () => {
+    expect(othersMaySeeAll([{ id: "admins", administrator: true }], "o", ids)).toBe(true);
+    expect(othersMaySeeAll([{ id: "g", administrator: true }], "o", ids)).toBe(true);
+  });
+
+  it("is someone when the server is not the owner's, or the owner is unknown", () => {
+    expect(othersMaySeeAll([], "someone", ids)).toBe(true);
+    expect(othersMaySeeAll([], "o", { botRoles: new Set() })).toBe(true);
+  });
+});
+
+describe("which channels are the owner's alone, for Settings", () => {
+  const V = PermissionFlagsBits.ViewChannel;
+  const bits = (...set: bigint[]) => ({ has: (bit: bigint) => set.includes(bit) });
+  const shut = new Map([["g1", { deny: bits(V), allow: bits() }], ["owner-id", { deny: bits(), allow: bits(V) }]]);
+  const open = new Map([["g1", { deny: bits(), allow: bits(V) }]]);
+
+  function adapterWith(roles: Map<string, unknown>): DiscordAdapter {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    const guild: Record<string, unknown> = { id: "g1", ownerId: "owner-id", roles: { cache: roles } };
+    const channel = (id: string, name: string, cache: Map<string, unknown>) => ({ id, name, type: ChannelType.GuildText, guildId: "g1", guild, isThread: () => false, permissionOverwrites: { cache } });
+    guild["channels"] = { cache: new Map([["c1", channel("c1", "school", shut)], ["c2", channel("c2", "leetcode", open)]]) };
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot-id" }, guilds: { cache: new Map([["g1", guild]]) } };
+    return adapter;
+  }
+
+  it("lists the channels only the owner reads", () => {
+    expect(adapterWith(new Map()).ownerOnlyReport()).toEqual({ channels: [{ id: "c1", name: "school" }] });
+    expect(adapterWith(new Map()).ownerAlone("c1")).toBe(true);
+    expect(adapterWith(new Map()).ownerAlone("c2")).toBe(false);
+  });
+
+  it("names the role that keeps any from counting", () => {
+    const roles = new Map([["r1", { id: "r1", name: "Mods", managed: false, tags: null, permissions: bits(PermissionFlagsBits.Administrator) }]]);
+    const report = adapterWith(roles).ownerOnlyReport();
+    expect(report?.channels).toEqual([]);
+    expect(report?.blocked).toMatch(/^The role Mods grants Administrator/);
   });
 });

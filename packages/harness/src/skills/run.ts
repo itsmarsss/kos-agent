@@ -30,12 +30,15 @@ export async function runSkillLive(options: {
   args?: string[];
   timeoutMs?: number;
   jail?: SkillJail;
+  /** Throws to refuse the run, checked at the last moment before the program starts: the files still being the ones judged. */
+  verify?: () => void;
 }): Promise<SandboxResult> {
   const root = options.workspaceRoot;
   const entryAbs = resolvePath(root, options.entry);
   const liveDb = resolvePath(root, DB_FILENAME);
   const tmp = join(root, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
+  options.verify?.();
   return runJailedNode(entryAbs, options.args ?? [], {
     cwd: root,
     // An allow-list, not the host's environment: see childEnv. A promoted

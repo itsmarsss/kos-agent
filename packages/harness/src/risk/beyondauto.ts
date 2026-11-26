@@ -1,3 +1,5 @@
+import type { RiskAssessment } from "./tiers.js";
+
 /**
  * What a chat's Auto mode never lets through without the owner, decided
  * deterministically from the tool and its arguments, as every risk rule is.
@@ -75,6 +77,13 @@ export function beyondAutoRule(tool: string, input: Record<string, unknown>): st
   if (tool === "discord.audience" && input["audience"] !== "owner") return "lets people besides you see a channel";
   if (tool === "discord.access") return "changes who may see a place on the server";
   return false;
+}
+
+/** A risky call's assessment with KOS's own rules for Auto beside the tool's, as GuardedTools judges it. */
+export function withBeyondAuto(assessment: RiskAssessment, tool: string, input: Record<string, unknown>): RiskAssessment {
+  if (assessment.tier !== "risky" || assessment.beyondAuto) return assessment;
+  const barred = beyondAutoRule(tool, input);
+  return barred ? { ...assessment, beyondAuto: barred } : assessment;
 }
 
 /**

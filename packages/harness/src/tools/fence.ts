@@ -133,8 +133,22 @@ export interface Plan {
   elsewhere: boolean;
 }
 
-/** The plan of a statement, or nothing for one that does not compile: no such table, a syntax error, the wrong count of params. */
+/** The statements whose plan is read: what SQLite compiles for one of these changes nothing as it compiles. */
+const EXPLAINABLE = /^\s*(?:select|insert|update|delete|replace|with|values)\b/i;
+
+/**
+ * Whether a statement may be compiled to read its plan. A PRAGMA takes
+ * effect as it compiles, EXPLAIN or not (foreign_keys, query_only,
+ * trusted_schema), so only the statements a plan is read for are compiled,
+ * judged by their first word once values and comments are out.
+ */
+export function explainable(sql: string): boolean {
+  return EXPLAINABLE.test(codeOf(sql));
+}
+
+/** The plan of a statement, or nothing for one that does not compile (no such table, a syntax error, the wrong count of params) or is not one a plan is read for. */
 export function planOf(db: Db, sql: string, params: readonly unknown[] = []): Plan | undefined {
+  if (!explainable(sql)) return undefined;
   let ops: { opcode: string; p1: number; p2: number; p3: number }[];
   try {
     ops = db.prepare(`EXPLAIN ${sql}`).all(...params) as typeof ops;
@@ -183,6 +197,26 @@ export function planOf(db: Db, sql: string, params: readonly unknown[] = []): Pl
 export function writesKernelTable(db: Db, sql: string, params: readonly unknown[] = []): boolean {
   const plan = planOf(db, sql, params);
   return plan !== undefined && (plan.virtual || plan.elsewhere || plan.writes.some(isKernelTable));
+}
+
+/** Opcodes by which SQLite's plan removes rows or a table: a row deleted, a table emptied, a table or index dropped. */
+const DELETING_OPS = new Set(["Delete", "Clear", "Destroy", "DropTable", "DropIndex", "DropTrigger"]);
+
+/**
+ * Whether a statement removes anything as SQLite would run it, read from
+ * its plan rather than its words, so a quoted name or a comment cannot
+ * hide a DELETE. An UPDATE that moves a row by its key shows a delete too,
+ * which is the safe side. A statement that does not compile removes nothing.
+ */
+export function removesRows(db: Db, sql: string, params: readonly unknown[] = []): boolean {
+  // Not compiled, and so not known not to remove anything: taken as removing, which only asks.
+  if (!explainable(sql)) return true;
+  try {
+    const ops = db.prepare(`EXPLAIN ${sql}`).all(...params) as { opcode: string }[];
+    return ops.some((op) => DELETING_OPS.has(op.opcode));
+  } catch {
+    return false;
+  }
 }
 
 /** A project as the fence knows it: what its tables start with, and what to call it. */
@@ -255,6 +289,11 @@ export interface FenceVerdict {
 
 const refuse = (reason: string): FenceVerdict => ({ ok: false, reason });
 
+/** Said to a guest's turn in a chat that is not their room's project's. */
+const GUEST_ELSEWHERE =
+  "a guest's words started this work, so sql reaches only the tables of the project whose channel they spoke in, and this chat is not that project's. " +
+  "Answer them with what you know, or tell the owner (notify) what was asked.";
+
 /** Where to send what is not this chat's: the owning project, or Maintenance when something looks wrong. */
 export const HAND_ON = "hand the question to the project that owns the data (chats.handoff to @project:<slug>), or to Maintenance (chats.handoff to @project:maintenance) when something looks wrong";
 
@@ -273,8 +312,15 @@ export function fence(db: Db, sql: string, reach: Reach, params: readonly unknow
   if (/^\s*pragma\b/i.test(code) && (code.includes("=") || WRITABLE_PRAGMAS.test(code))) {
     return refuse("A PRAGMA that changes SQLite's settings is never run through sql: they are KOS's to set.");
   }
+  // A PRAGMA that only reads (table_info, table_list) is the schema, and only Maintenance reads it; it is never compiled to judge it.
+  if (/^\s*pragma\b/i.test(code)) {
+    if (maintains(reach)) return { ok: true };
+    return refuse(reach.guest && !reachable(reach).length ? GUEST_ELSEWHERE : "the schema is Maintenance's to read, not yours: your project's tables and their columns are listed in your prompt.");
+  }
+  if (/^\s*explain\b/i.test(code)) return maintains(reach) ? { ok: true } : refuse("EXPLAIN is Maintenance's: send the statement itself.");
+  if (!explainable(sql)) return refuse("sql runs one SELECT, INSERT, UPDATE or DELETE.");
   const plan = planOf(db, sql, params);
-  if (!plan) return /^\s*explain\b/i.test(codeOf(sql)) && !maintains(reach) ? refuse("EXPLAIN is Maintenance's: send the statement itself.") : { ok: true };
+  if (!plan) return { ok: true };
   // The schema's own table, written only by migrate's DDL.
   if (plan.writes.some((t) => /^sqlite_(master|schema|temp_master|temp_schema)$/i.test(t))) {
     return refuse("sqlite_master is SQLite's own catalogue: it is changed only through migrate, never written through sql.");
@@ -287,12 +333,7 @@ export function fence(db: Db, sql: string, reach: Reach, params: readonly unknow
   const reached = [...new Set([...plan.reads, ...plan.writes])];
   const schema = plan.virtual || plan.elsewhere || readsSchema(codeOf(sql)) || reached.some((t) => t.toLowerCase().startsWith("sqlite_"));
   const mine = reachable(reach);
-  if (reach.guest && !mine.length && (schema || reached.length)) {
-    return refuse(
-      "a guest's words started this work, so sql reaches only the tables of the project whose channel they spoke in, and this chat is not that project's. " +
-        "Answer them with what you know, or tell the owner (notify) what was asked.",
-    );
-  }
+  if (reach.guest && !mine.length && (schema || reached.length)) return refuse(GUEST_ELSEWHERE);
   if (schema) {
     return refuse(
       "the schema is Maintenance's to read, not yours: your project's tables and their columns are listed in your prompt. " +

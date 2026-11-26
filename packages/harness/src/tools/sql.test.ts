@@ -73,6 +73,46 @@ describe("sqlModule", () => {
     expect(registry.classify("sql", { sql: "INSERT INTO books_shelf (pages, settings, memory_mb) VALUES (?, 'pages', sqlite_version())", params: [40] }).tier).toBe("safe");
   });
 
+  it("lets no learned yes cover a write to KOS's own tables, and leaves a project's writes learnable", () => {
+    ws.db.exec("CREATE TABLE IF NOT EXISTS daemons (id INTEGER PRIMARY KEY, args TEXT)");
+    const kernel = registry.classify("sql", { sql: "UPDATE daemons SET args = ? WHERE id = 1", params: ["[]"] });
+    expect(kernel).toMatchObject({ tier: "risky", neverLearned: true });
+    expect(registry.classify("sql", { sql: "INSERT INTO daemons (args) VALUES ('x')" }).neverLearned).toBe(true);
+    expect(registry.classify("sql", { sql: "UPDATE books_tx SET a = 2 WHERE id = 1" }).neverLearned).toBeUndefined();
+  });
+
+  it("lets no learned yes cover a statement whose plan removes rows, however its words read", () => {
+    ws.db.exec('CREATE TABLE IF NOT EXISTS books_notes (id INTEGER PRIMARY KEY, body TEXT)');
+    for (const sql of [
+      'WITH "a--" AS (SELECT 1) DELETE FROM books_notes WHERE id IN (SELECT 1 FROM "a--")',
+      'WITH "a/*" AS (SELECT 1) DELETE FROM books_notes WHERE id IN (SELECT 1 FROM "a/*")',
+      "WITH \"a'\" AS (SELECT 1) DELETE FROM books_notes WHERE id IN (SELECT 1 FROM \"a'\")",
+      "DELETE FROM books_notes",
+    ]) {
+      expect(registry.classify("sql", { sql }).neverLearned, sql).toBe(true);
+    }
+    expect(registry.classify("sql", { sql: "UPDATE books_notes SET body = 'x' WHERE id = 1" }).neverLearned).toBeUndefined();
+  });
+
+  it("never compiles a PRAGMA to judge it, so judging one changes no setting", async () => {
+    const settings = ["foreign_keys", "query_only", "ignore_check_constraints", "trusted_schema", "recursive_triggers"];
+    const now = (): unknown[] => settings.map((name) => ws.db.prepare(`PRAGMA ${name}`).get());
+    const before = now();
+    const statements = [
+      "PRAGMA foreign_keys=OFF -- insert",
+      "PRAGMA ignore_check_constraints=1 -- update",
+      "PRAGMA query_only=1 /* update */",
+      "PRAGMA trusted_schema=0 -- delete",
+      "PRAGMA recursive_triggers=1 -- insert",
+      "/* insert */ PRAGMA foreign_keys = 0",
+    ];
+    for (const sql of statements) {
+      registry.classify("sql", { sql });
+      expect((await registry.execute("sql", { sql })).isError, sql).toBe(true);
+    }
+    expect(now()).toEqual(before);
+  });
+
   it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
     expect(registry.classify("sql", { sql: "SELECT 1" }).tier).toBe("safe");
     expect(registry.classify("sql", { sql: "INSERT INTO books_tx (a) VALUES (1)" }).tier).toBe("safe");

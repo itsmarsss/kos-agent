@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
-import { caller, ownership, scheduled } from "../kernel/caller.js";
+import { caller, guested, ownership, scheduled } from "../kernel/caller.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -398,5 +398,33 @@ describe("notifyModule", () => {
     const res = await registry.execute("notify", { text: "x" });
     expect(res.isError).toBe(true);
     expect(res.content).toMatch(/no notify channel/);
+  });
+
+  describe("a place only the owner reads", () => {
+    async function withAudience(ownerAlone: ((target: { kind: string; id?: string }) => boolean) | undefined): Promise<ToolRegistry> {
+      const registry = new ToolRegistry();
+      const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
+      await new ModuleLoader(ctx).load([createNotifyModule(ownerAlone ? { ownerAlone } : {})]);
+      return registry;
+    }
+
+    it("posts there without asking, as to the owner", async () => {
+      const registry = await withAudience((t) => t.kind === "channel" && t.id === "own");
+      expect(registry.classify("notify", { text: "x", to: "discord:channel:own" }).tier).toBe("safe");
+      expect(registry.classify("notify", { text: "x", to: "channel:own" }).tier).toBe("safe");
+      expect(scheduled.run(7, () => registry.classify("notify", { text: "x", to: "discord:channel:own" })).tier).toBe("safe");
+    });
+
+    it("still asks where others read, for a person, and when a guest's words are behind it", async () => {
+      const registry = await withAudience((t) => t.kind === "channel" && t.id === "own");
+      expect(registry.classify("notify", { text: "x", to: "discord:channel:pub" }).tier).toBe("risky");
+      expect(registry.classify("notify", { text: "x", to: "discord:user:own" }).tier).toBe("risky");
+      expect(guested.run({ project: "school", chat: "room" }, () => registry.classify("notify", { text: "x", to: "discord:channel:own" })).tier).toBe("risky");
+    });
+
+    it("asks when who reads it cannot be known: no server, or none wired", async () => {
+      expect((await withAudience(() => false)).classify("notify", { text: "x", to: "discord:channel:own" }).tier).toBe("risky");
+      expect((await withAudience(undefined)).classify("notify", { text: "x", to: "discord:channel:own" }).tier).toBe("risky");
+    });
   });
 });

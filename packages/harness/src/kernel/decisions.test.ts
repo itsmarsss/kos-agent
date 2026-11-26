@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { PendingAction } from "../ops/approvals.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { approvedAs, caller, isAttended, isOwnerTurn } from "./caller.js";
-import { Decisions, decidedHow, decidedLine, detachedAs, orphanFate, type DecisionsDeps } from "./decisions.js";
+import { Decisions, decidedHow, decidedLine, detachedAs, jobConsent, orphanFate, type DecisionsDeps } from "./decisions.js";
 
 function pending(over: Partial<PendingAction> = {}): PendingAction {
-  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, beyondAuto: false, secret: null, decidedVia: null, decidedDevice: null, detachedAt: null, ...over };
+  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, guest: null, waits: false, yours: false, reached: false, beyondAuto: false, secret: null, decidedVia: null, decidedDevice: null, detachedAt: null, job: null, ...over };
 }
 
 function deps(action: PendingAction | undefined, awaited: boolean, over: Partial<DecisionsDeps> = {}) {
@@ -308,5 +308,39 @@ describe("an ask whose turn has gone", () => {
     const r = await new Decisions(d).approve(5, "owner", { surface: "dashboard" });
     expect(r.ok).toBe(false);
     expect(log).toEqual(["lapse:5:turn-gone"]);
+  });
+});
+
+describe("the consent a yes gives a job", () => {
+  const rule = { tool: "http.fetch", scope: "host:api.example", project: "school", job: 7 };
+  const made = (id: number): number | undefined => (id === 7 ? 100 : undefined);
+  const ask = (over: Partial<PendingAction> = {}): PendingAction => pending({ tool: "http.fetch", rule, job: 7, requestedAt: 200, ...over });
+
+  it("is the ask's own rule, for that job alone", () => {
+    expect(jobConsent(ask(), { url: "https://api.example/x" }, made)).toEqual(rule);
+  });
+
+  it("is nothing for a chat's rule, a guest's, one past its folder, the whole tool or a delete", () => {
+    expect(jobConsent(ask({ rule: { ...rule, job: undefined } }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ guest: { project: "school", chat: "room" } }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ reached: true }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ rule: { ...rule, scope: null } }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ tool: "sql", rule: { tool: "sql", scope: "table:t", project: null, job: 7 } }), { sql: "DELETE FROM t" }, made)).toBeUndefined();
+  });
+
+  it("is nothing for a job that is gone, or one made after the ask under its id", () => {
+    expect(jobConsent(ask({ rule: { ...rule, job: 8 } }), {}, made)).toBeUndefined();
+    expect(jobConsent(ask({ requestedAt: 50 }), {}, made)).toBeUndefined();
+  });
+
+  it("is kept only on Always: Approve on its own runs it just this once and keeps nothing", async () => {
+    const asked = ask({ args: JSON.stringify({ url: "https://api.example/x" }) });
+    const once = deps(asked, true, { jobMadeAt: made });
+    await new Decisions(once.d).approve(5, "owner", { surface: "dashboard" });
+    expect(once.log.some((l) => l.startsWith("rule:"))).toBe(false);
+    const kept: unknown[] = [];
+    const always = deps(asked, true, { jobMadeAt: made, permissions: { add: (r) => void kept.push(r) } });
+    await new Decisions(always.d).approve(5, "owner", { remember: true, surface: "dashboard" });
+    expect(kept).toEqual([rule]);
   });
 });

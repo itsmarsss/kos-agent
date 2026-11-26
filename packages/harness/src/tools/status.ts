@@ -1,5 +1,9 @@
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { join } from "node:path";
+
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { guestOrigin } from "../kernel/caller.js";
+import { MAINTENANCE } from "../kernel/caretaker.js";
 import type { ApprovalQueue } from "../ops/approvals.js";
 import type { RunsLog } from "../ops/runs.js";
 import { costOf, sumSpend, type Rates, type SpendStore } from "../ops/spend.js";
@@ -18,6 +22,65 @@ import { scrubShapes } from "../secrets/shapes.js";
  */
 
 export const STATUS_TOOL = "kos.status";
+
+/** KOS's own log, read by Maintenance: what a repair reads first, without a shell that would ask for each look. */
+export const LOG_TOOL = "kos.log";
+
+/** Lines a look at the log gives by default, and at most. */
+const LOG_LINES = 100;
+const LOG_LINES_MAX = 400;
+/** A line is cut past this, so one huge line cannot fill the result. */
+const LOG_LINE_CHARS = 400;
+/** The most a look gives back in all, newest lines kept first. */
+const LOG_OUTPUT_CHARS = 24_000;
+/** How much of the log's end a look reads: the log runs to ten megabytes before it is rotated. */
+const LOG_TAIL_BYTES = 1024 * 1024;
+
+/** The last `bytes` of a file, from its first whole line; undefined when there is no file. */
+export function tailOf(path: string, bytes: number = LOG_TAIL_BYTES): string | undefined {
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return undefined;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    const start = Math.max(0, size - bytes);
+    const buffer = Buffer.alloc(size - start);
+    readSync(fd, buffer, 0, buffer.length, start);
+    const text = buffer.toString("utf8");
+    // A cut line at the start is dropped rather than shown half.
+    return start > 0 ? text.slice(text.indexOf("\n") + 1) : text;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * The last lines of the log, or the last that hold `match` (case
+ * folded, plain text, any of several split by |), each with its number
+ * from the start of what was read, and anything shaped like a secret
+ * scrubbed.
+ */
+export function logLines(text: string, opts: { lines?: number; match?: string }): string[] {
+  const want = Math.min(LOG_LINES_MAX, Math.max(1, Math.round(opts.lines ?? LOG_LINES)));
+  const needles = (opts.match ?? "").toLowerCase().split("|").map((n) => n.trim()).filter(Boolean);
+  const all = text.split("\n");
+  if (all[all.length - 1] === "") all.pop();
+  const picked: string[] = [];
+  let total = 0;
+  for (let i = all.length - 1; i >= 0 && picked.length < want; i -= 1) {
+    const line = all[i]!;
+    if (needles.length && !needles.some((n) => line.toLowerCase().includes(n))) continue;
+    const shown = scrubShapes(line).text;
+    const entry = `${i + 1}: ${shown.length > LOG_LINE_CHARS ? `${shown.slice(0, LOG_LINE_CHARS)}...` : shown}`;
+    total += entry.length + 1;
+    if (total > LOG_OUTPUT_CHARS) break;
+    picked.push(entry);
+  }
+  return picked.reverse();
+}
 
 const DEFAULT_HOURS = 24;
 const MAX_HOURS = 168;
@@ -133,7 +196,10 @@ export function createStatusModule(deps: StatusToolDeps): KosModule {
     manifest: {
       name: "kos",
       version: "1.0.0",
-      provides: [{ kind: "tool", name: STATUS_TOOL, version: "1.0.0" }],
+      provides: [
+        { kind: "tool", name: STATUS_TOOL, version: "1.0.0" },
+        { kind: "tool", name: LOG_TOOL, version: "1.0.0" },
+      ],
       riskTier: "safe",
     },
     activate(ctx: ModuleContext) {
@@ -166,6 +232,39 @@ export function createStatusModule(deps: StatusToolDeps): KosModule {
         {
           floor: "safe",
           refuse: () => (guestOrigin() ? "KOS's health is the owner's to read, and a guest's words started this work." : false),
+        },
+      );
+      const root = ctx.services?.workspace?.root;
+      if (!root) return;
+      ctx.registerTool(
+        {
+          name: LOG_TOOL,
+          description:
+            "Maintenance only: the end of KOS's own log (.kos/daemon.log, its last megabyte), its last lines or the last that contain `match` (plain text, case-insensitive, alternatives split by |), numbered within what was read. " +
+            "Read it first when repairing a failure; it asks nothing, where a shell line naming .kos asks every time.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              lines: { type: "number", description: `how many lines, default ${LOG_LINES}, at most ${LOG_LINES_MAX}` },
+              match: { type: "string", description: "only lines containing this text; several alternatives split by |" },
+            },
+          },
+        },
+        (input) => {
+          const text = tailOf(join(root, ".kos", "daemon.log"));
+          if (text === undefined) return "There is no log yet.";
+          const lines = logLines(text, { ...(typeof input["lines"] === "number" ? { lines: input["lines"] } : {}), ...(typeof input["match"] === "string" ? { match: input["match"] } : {}) });
+          return lines.length ? lines.join("\n") : "No line matches.";
+        },
+        {
+          floor: "safe",
+          // KOS's log is Maintenance's to read, on the owner's behalf: never a guest's, never another project's chat.
+          refuse: () =>
+            guestOrigin() !== undefined
+              ? "KOS's log is the owner's to read, and a guest's words started this work."
+              : ctx.services?.callerProject?.() !== MAINTENANCE.slug
+                ? "KOS's log is read in Maintenance, where repairs are made: hand the question there."
+                : false,
         },
       );
     },

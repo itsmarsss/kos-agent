@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
 import { writtenTables } from "../risk/rules.js";
-import { PermissionStore, familyOf, ruleMatches, scopeCovers, scopeOf } from "./permissions.js";
+import { BURST_MS, PermissionStore, familyOf, ruleMatches, scopeCovers, scopeOf } from "./permissions.js";
 
 describe("naming a call's scope", () => {
   it("names a file call by its directory, a fetch by its host, a write by its table", () => {
@@ -251,5 +251,87 @@ describe("remembered decisions from a turn's home", () => {
     expect(rules.ruleFor("files.write", { path: "projects/resume/cv.md" }, "school", school)).toBeUndefined();
     expect(rules.ruleFor("shell.run", { command: "touch a" }, "school", { ...school, reached: true })).toBeUndefined();
     expect(rules.ruleFor("files.rm", { path: "old/a.md" }, "school", school)).toEqual({ tool: "files.rm", scope: "dir:projects/school/old", project: "school" });
+  });
+});
+
+describe("a job's consent", () => {
+  const post = { to: "discord:channel:42", text: "digest" };
+
+  it("covers that job's runs alone, never a standing ask", () => {
+    const rules = new PermissionStore(new Database(":memory:"), () => 2_000);
+    rules.add({ tool: "notify", scope: "to:discord:channel:42", project: "school", job: 7 });
+    expect(rules.learned("notify", post, { job: { id: 7, since: 1_000 } })).toBe("job");
+    expect(rules.learned("notify", post, { job: { id: 8, since: 1_000 } })).toBe(false);
+    expect(rules.learned("notify", post, { conversationId: "c1" })).toBe(false);
+    // A standing rule is the owner's Always; a job's consent is not one.
+    expect(rules.allows("notify", post, "school")).toBe(false);
+    expect(rules.learned("notify", { ...post, to: "discord:channel:43" }, { job: { id: 7, since: 1_000 } })).toBe(false);
+  });
+
+  it("covers nothing for a job made after it under the same id", () => {
+    const rules = new PermissionStore(new Database(":memory:"), () => 2_000);
+    rules.add({ tool: "notify", scope: "to:discord:channel:42", project: null, job: 7 });
+    expect(rules.learned("notify", post, { job: { id: 7, since: 3_000 } })).toBe(false);
+  });
+
+  it("goes with its job", () => {
+    const rules = new PermissionStore(new Database(":memory:"));
+    rules.add({ tool: "notify", scope: "to:discord:channel:42", project: null, job: 7 });
+    rules.add({ tool: "notify", scope: "to:discord:channel:42", project: null });
+    expect(rules.forgetJob(7)).toBe(1);
+    expect(rules.list().map((r) => r.job)).toEqual([null]);
+  });
+
+  it("names no shape for a skill run, so no burst or job rule covers one", () => {
+    // A skill's code can load code from anywhere: it runs unasked only once promoted, or by an Always the owner pressed.
+    expect(scopeOf("skills.run", { name: "board", hash: "h1" })).toBeNull();
+    const rules = new PermissionStore(new Database(":memory:"), () => 2_000);
+    expect(rules.holdBurst("c1", "skills.run", { name: "board", hash: "h1" })).toBe(false);
+    rules.add({ tool: "skills.run", scope: null, project: null, job: 3 });
+    expect(rules.learned("skills.run", { name: "board", hash: "h1" }, { job: { id: 3, since: 0 }, conversationId: "c1" })).toBe(false);
+  });
+});
+
+describe("a burst", () => {
+  it("holds the yes for the same step in the same chat for fifteen minutes, and not beyond", () => {
+    let now = 0;
+    const rules = new PermissionStore(new Database(":memory:"), () => now);
+    const edit = { path: "skills/scan/run.mjs", text: "x" };
+    expect(rules.holdBurst("c1", "files.edit", edit)).toBe(true);
+    now = BURST_MS - 1;
+    expect(rules.learned("files.edit", edit, { conversationId: "c1" })).toBe("burst");
+    // Another chat, another tool or another place asks.
+    expect(rules.learned("files.edit", edit, { conversationId: "c2" })).toBe(false);
+    expect(rules.learned("files.write", edit, { conversationId: "c1" })).toBe(false);
+    expect(rules.learned("files.edit", { path: "projects/x/a.md" }, { conversationId: "c1" })).toBe(false);
+    now = BURST_MS;
+    expect(rules.learned("files.edit", edit, { conversationId: "c1" })).toBe(false);
+    // Nothing of it is kept as a rule.
+    expect(rules.list()).toEqual([]);
+  });
+
+  it("is never made for a whole tool or a shape it cannot name", () => {
+    const rules = new PermissionStore(new Database(":memory:"), () => 0);
+    expect(rules.holdBurst("c1", "chats.delete", { id: "x" })).toBe(false);
+    expect(rules.holdBurst("c1", "shell.run", { command: "git status && rm -rf ." })).toBe(false);
+    expect(rules.learned("chats.delete", { id: "y" }, { conversationId: "c1" })).toBe(false);
+  });
+});
+
+describe("what a learned yes never names", () => {
+  it("never lets a job's rule for the whole tool cover anything", () => {
+    const rules = new PermissionStore(new Database(":memory:"), () => 2_000);
+    rules.add({ tool: "mcp.git.git_push", scope: null, project: null, job: 4 });
+    expect(rules.learned("mcp.git.git_push", { remote: "origin" }, { job: { id: 4, since: 0 } })).toBe(false);
+  });
+
+  it("holds no burst past the turn's own folder, and lets none cover a call there", () => {
+    const rules = new PermissionStore(new Database(":memory:"), () => 0);
+    const edit = { path: "skills/scan/run.mjs", text: "x" };
+    expect(rules.holdBurst("c1", "files.edit", edit, { reached: true })).toBe(false);
+    expect(rules.holdBurst("c1", "files.edit", edit)).toBe(true);
+    expect(rules.learned("files.edit", edit, { conversationId: "c1" }, { reached: true })).toBe(false);
+    rules.add({ tool: "files.edit", scope: "dir:skills/scan", project: null, job: 4 });
+    expect(rules.learned("files.edit", edit, { job: { id: 4, since: 0 } }, { reached: true })).toBe(false);
   });
 });

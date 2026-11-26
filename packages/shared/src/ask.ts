@@ -17,6 +17,8 @@ export interface AskRule {
   tool: string;
   scope: string | null;
   project?: string | null;
+  /** The scheduled job it is kept for, alone, when a run of one asked. */
+  job?: number | null;
 }
 
 /** Where an ask would act, in words. */
@@ -258,6 +260,9 @@ export function alwaysTip(rule: AskRule, names?: ActionNames): string {
         keeps = `${calls} to the same place stops asking${project}.`;
     }
   }
+  if (rule.job !== undefined && rule.job !== null) {
+    return `Approves this, and from now on, on this schedule's runs alone, ${keeps.replace(project, "")} Approve on its own runs it just this once and keeps nothing. ${UNDO}`;
+  }
   return `Approves this, and from now on ${keeps} ${UNDO}`;
 }
 
@@ -324,7 +329,7 @@ export function askView(input: AskInput): AskView {
         : input.beyondAuto
           ? { alwaysNote: BEYOND_AUTO_NOTE }
           : rule
-            ? { always: alwaysWords(rule.scope, names), alwaysTip: alwaysTip(rule, names) }
+            ? { always: rule.job !== undefined && rule.job !== null ? `${alwaysWords(rule.scope, names)} for this schedule` : alwaysWords(rule.scope, names), alwaysTip: alwaysTip(rule, names) }
             : {}),
   };
 }

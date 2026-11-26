@@ -28,6 +28,12 @@ export interface Behaviour {
   engine: ChatEngine;
   /** Start a fix attempt on the first failure of an unattended job. */
   autoFix: boolean;
+  /**
+   * A scheduled job posts, without asking, where only the owner reads. A
+   * channel anyone else reads asks every time, whatever was approved
+   * before. Off, every post a job makes to a channel asks.
+   */
+  jobsPostUnasked: boolean;
   /** Model round-trips a turn may take before it stops and says so. */
   maxSteps: number;
   /**
@@ -94,6 +100,8 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   // second brain. The heartbeat stays off: it is the one setting that spends
   // on a timer with nobody asking, so it is always opt-in.
   autoFix: true,
+  // On: a job the owner scheduled to post in a channel was asking every run, and asks nobody answered at 7am lapsed undelivered.
+  jobsPostUnasked: true,
   maxSteps: 50,
   // Four queries' worth: a long task on a screen stopped at about forty calls with the turn's own limit.
   screenSteps: 200,
@@ -121,7 +129,7 @@ export const SCREEN_STEPS_PER_STEP = 4;
 
 /** Range for each number, as [min, max]. */
 export const BEHAVIOUR_LIMITS: Record<
-  Exclude<keyof Behaviour, "autoFix" | "engine" | "memoryExtraction" | "smartContext">,
+  Exclude<keyof Behaviour, "autoFix" | "jobsPostUnasked" | "engine" | "memoryExtraction" | "smartContext">,
   [number, number]
 > = {
   maxSteps: [1, 100],
@@ -164,6 +172,8 @@ export function parseBehaviour(raw: unknown): Behaviour {
     engine: input["engine"] === "sdk" ? "sdk" : "api",
     autoFix:
       typeof input["autoFix"] === "boolean" ? input["autoFix"] : BEHAVIOUR_DEFAULTS.autoFix,
+    jobsPostUnasked:
+      typeof input["jobsPostUnasked"] === "boolean" ? input["jobsPostUnasked"] : BEHAVIOUR_DEFAULTS.jobsPostUnasked,
     maxSteps: clamp(input["maxSteps"], "maxSteps"),
     // Unset, four times the steps in a turn, whatever those were set to; never fewer than those.
     screenSteps: Math.max(

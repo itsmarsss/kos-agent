@@ -79,3 +79,11 @@ describe("behaviour settings", () => {
   });
 
 });
+
+describe("scheduled jobs posting without asking", () => {
+  it("is on unless the owner turned it off", () => {
+    expect(parseBehaviour({}).jobsPostUnasked).toBe(true);
+    expect(parseBehaviour({ jobsPostUnasked: false }).jobsPostUnasked).toBe(false);
+    expect(parseBehaviour({ jobsPostUnasked: "no" }).jobsPostUnasked).toBe(true);
+  });
+});

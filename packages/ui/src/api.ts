@@ -83,7 +83,7 @@ export interface PendingAction {
   /** There is a picture of what it would act on, at /api/approvals/:id/picture. */
   picture?: boolean;
   /** What a yes-and-remember keeps. */
-  rule?: { tool: string; scope: string | null; project: string | null } | null;
+  rule?: { tool: string; scope: string | null; project: string | null; job?: number } | null;
   /** What the agent said just before it asked. */
   why?: string | null;
   /** Who is asking, by the name the owner knows the chat by: a blob's title, a project's name, KOS. */
@@ -361,6 +361,9 @@ export interface PermissionRule {
   tool: string;
   scope: string | null;
   project: string | null;
+  /** The scheduled job whose runs it covers alone, with its name; null for a standing rule. */
+  job: number | null;
+  jobName?: string | null;
   createdAt: number;
   /** False for a rule an older build kept that no call can match any more. */
   matches: boolean;
@@ -832,6 +835,8 @@ export interface Behaviour {
   /** "api" bills the provider; "sdk" spends a Claude Code subscription. */
   engine: "api" | "sdk";
   autoFix: boolean;
+  /** Scheduled jobs post without asking to places only you read; a channel others read always asks. */
+  jobsPostUnasked: boolean;
   maxSteps: number;
   /** Round trips the owner's own turn on a screen may take in all, across fresh queries. */
   screenSteps: number;
@@ -1520,6 +1525,8 @@ export const api = {
     post<{ dismissed: string }>("/api/health/dismiss", { key }),
   deleteCron: (id: number) =>
     post<{ id: number; removed: boolean }>("/api/crons/delete", { id }),
+  forgetCronPermissions: (id: number) =>
+    post<{ id: number; cleared: number }>("/api/crons/forget-permissions", { id }),
   failed: (limit = 100) => get<RunRecord[]>(`/api/failed?limit=${limit}`),
   runs: (limit = 100, failedOnly = false) =>
     get<RunRecord[]>(
@@ -1803,6 +1810,8 @@ export const api = {
   folders: () => get<{ folders: string[] }>("/api/folders"),
   /** The Discord server's channels, so "#name" in a chat is the channel; none when KOS lives in no server. */
   discordChannels: () => get<{ channels: DiscordChannel[] }>("/api/discord/channels"),
+  /** The channels only the owner reads now, as a schedule's post is judged; why none, when someone else sees every channel. */
+  ownerOnlyChannels: () => get<{ connected: boolean; channels: { id: string; name: string }[]; blocked?: string }>("/api/discord/owner-only"),
   /** Things to point at. With `project`, that project's own come first. */
   mentions: (q: string, kind?: string, limit?: number, project?: string) =>
     get<{

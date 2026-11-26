@@ -46,6 +46,13 @@ export type Audience = "owner" | "everyone" | "guests";
  */
 export type Listen = "always" | "mention";
 
+/** Which of the server's channels only the owner reads now, as notify judges them. */
+export interface OwnerOnlyReport {
+  channels: { id: string; name: string }[];
+  /** Why none counts as the owner's alone, when someone else may read every channel. */
+  blocked?: string;
+}
+
 export interface ServerChannel {
   /** The conversation the channel is bound to, or "needs-you". */
   key: string;
@@ -123,6 +130,10 @@ export type ChannelRef = string | { id: string };
 export interface DiscordServices {
   /** True while the server surface is up; the tools say so plainly when it is not. */
   connected: () => boolean;
+  /** Whether a channel or thread, by Discord's id, is read by the owner alone now; unknown is no. */
+  ownerAlone?: (id: string) => boolean;
+  /** The channels the owner alone reads now, and why none does when someone else sees every channel; undefined with no server. */
+  ownerOnlyReport?: () => OwnerOnlyReport | undefined;
   channels: () => Promise<ServerChannel[]>;
   /** The threads KOS made for chats, from the bindings it keeps; at once, since nothing on Discord need be asked. */
   threads: () => BoundThread[];
