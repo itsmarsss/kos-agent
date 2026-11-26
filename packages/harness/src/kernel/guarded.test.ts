@@ -110,6 +110,27 @@ describe("GuardedTools", () => {
       expect(result.content).toMatch(/^Queued for approval/);
     });
 
+    it("holds no burst from a plain Approve in a run nobody started, so the next step asks again", async () => {
+      registry.register({ name: "http.fetch", description: "h", inputSchema: { type: "object" } }, () => "fetched", { floor: "risky" });
+      const permissions = new PermissionStore(ws.db);
+      const tools = guarded({ conversationId: "cron:3", permissions, scheduled: 3, scheduledSince: 0, attended: false });
+      const first = tools.execute("http.fetch", { url: "https://api.example/a" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      approvals.approve(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
+      expect((await first).content).toContain("fetched");
+      const second = tools.execute("http.fetch", { url: "https://api.example/b" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      approvals.deny(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
+      await second;
+      // The same in a chat the owner is in holds the yes a while.
+      const chat = guarded({ conversationId: "c1", permissions });
+      const asked = chat.execute("http.fetch", { url: "https://api.example/a" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      approvals.approve(approvals.pending()[0]!.id, "owner", { via: "dashboard" });
+      await asked;
+      expect((await chat.execute("http.fetch", { url: "https://api.example/c" })).content).toBe("fetched");
+    });
+
     it("offers a scheduled run's Always for its job alone, and none for the whole tool", async () => {
       registry.register({ name: "http.fetch", description: "h", inputSchema: { type: "object" } }, () => "fetched", { floor: "risky" });
       registry.register({ name: "mcp.git.git_push", description: "g", inputSchema: { type: "object" } }, () => "pushed", { floor: "risky" });

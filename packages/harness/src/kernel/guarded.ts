@@ -684,7 +684,8 @@ export class GuardedTools implements ToolBox {
       }
 
       // The owner's yes holds for the same step in this chat a short while: a burst of one kind of work asks once.
-      if (conversationId && mayLearn && !assessment.reached) this.deps.permissions?.holdBurst?.(conversationId, name, input, context);
+      // Not in a run nobody started (a schedule's): there Approve is for this run alone, and Always is the job's.
+      if (attended && conversationId && mayLearn && !assessment.reached) this.deps.permissions?.holdBurst?.(conversationId, name, input, context);
       const unready = await readyNow();
       if (unready) return unready;
       const decided = approvals.get(action.id);
