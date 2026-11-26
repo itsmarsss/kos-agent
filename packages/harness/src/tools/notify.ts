@@ -59,6 +59,8 @@ export interface NotifyPayload {
   place?: string;
   /** Mention the owner where it lands in a place, as news they must not miss; a DM notifies them already. */
   ping?: boolean;
+  /** Posted without a notification and never with a ping: news the owner reads when they next look. */
+  silent?: boolean;
   /** The scheduled job whose run sent it, with its place: a blob's job speaks in the blob's channel, not a thread of its own. */
   job?: number;
 }
@@ -80,13 +82,16 @@ function endsQuietly(input: Record<string, unknown>): boolean {
 }
 
 /**
- * A scheduled run's "nothing to post this time", said rather than implied.
+ * A scheduled run's "nothing for the owner this time", said rather than
+ * implied, whatever the job was written to do.
  *
  * A job written to post with notify that ends having posted nothing is
  * judged as having failed: that is how a message written as the reply, or
  * a forgotten notify, is caught. A job that posts only when there is news
  * ends most runs with nothing to say, and its reply cannot tell that from
- * forgetting, so the run says so here, with why. It posts nothing.
+ * forgetting, so the run says so here, with why. It posts nothing, and the
+ * run's closing words are not shown either: a run that ends any other way
+ * with nothing sent has its reply shown to the owner as what it had to say.
  *
  * Refused outside a scheduled run, where nothing judges what was posted and
  * not calling notify already says it; and refused beside anything a message
@@ -107,7 +112,7 @@ function quietEnding(input: Record<string, unknown>): string {
 
 /** What a scheduled turn is told about the quiet ending, on either engine. */
 export const QUIET_ENDING_NOTE =
-  "A scheduled run written to post with notify that has nothing to post this time calls notify with quiet and the reason, and nothing else, instead of a message; this holds even when its instructions say to send nothing or end with no output.";
+  "A scheduled run with nothing for the owner this time ends with notify({quiet: why}) and nothing else, instead of a message or a reply saying so; this holds even when its instructions say to send nothing or end with no output.";
 
 export interface NotifyToolDeps {
   /** Mint the token a press comes back on, and record where it belongs. */
@@ -484,7 +489,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             'or the blob\'s channel); "owner" for the owner directly, "discord" for the owner on Discord, "discord:channel:<id>" ' +
             "to post in a channel, which needs approval. A press comes back as a message " +
             "in the conversation named by `replyTo`, so say what a button means in its " +
-            "label. A scheduled run written to post that has nothing to post this time calls notify " +
+            "label. A scheduled run with nothing for the owner this time calls notify " +
             "with `quiet` and the reason alone, instead of a message.",
           inputSchema: {
             type: "object",

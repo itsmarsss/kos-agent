@@ -23,6 +23,10 @@ describe("where a message came from, in words", () => {
     expect(originWords({ via: "dashboard" })).toBeNull();
     expect(originWords({ via: "dispatch" })).toBeNull();
   });
+
+  it("says nothing for KOS's own prompt, drawn as its note rather than under the owner's words", () => {
+    expect(originWords({ via: "fix", from: { kind: "kos", name: "KOS maintenance" } })).toBeNull();
+  });
 });
 
 describe("the line under a bubble", () => {

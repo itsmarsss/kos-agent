@@ -453,7 +453,7 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
     {
       name: "discord.bind",
       description:
-        "Make a channel the home of a chat: a project's orchestrator, a blob, or a chat by its id lives in that channel from then on, wherever the owner put it. What the chat says shows there, what the owner says there reaches it, its scheduled runs post there, and if the channel takes guests (discord.access or discord.audience), what members write reaches it as theirs. The channel KOS had laid out for the chat is let go. " +
+        "Make a channel the home of a chat: a project's orchestrator, a blob, or a chat by its id lives in that channel from then on, wherever the owner put it. What the chat says shows there, what the owner says there reaches it, its scheduled runs' messages land there (and the answer of a run that sent none), and if the channel takes guests (discord.access or discord.audience), what members write reaches it as theirs. The channel KOS had laid out for the chat is let go. " +
         "A channel other people will write in should be the home of a chat made for it (chats.create with a brief for the channel, then bind by that chat's id), not of the orchestrator: the project's own channel and threads stay private, and the handler reaches the orchestrator with chats.handoff. Asks the owner when the channel is open to other people, since the chat will show there.",
       inputSchema: {
         type: "object",

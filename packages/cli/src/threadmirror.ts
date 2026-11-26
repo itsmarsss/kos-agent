@@ -14,8 +14,8 @@ import { surfaceName, TurnNarrator, type MessageFrom, type OutboundMessage, type
  * answer lands when it is ready.
  *
  * Turns that came in from Discord already show there, so they are left to the
- * presence that is running them; a scheduled job posts its one result under
- * its own name and is left to the existing handler.
+ * presence that is running them; a scheduled run is shown once it ends, by
+ * the host, only when it sent nothing else.
  */
 
 /** A live, editable line, as the adapter's openStory returns. */
@@ -157,10 +157,10 @@ export class ThreadMirror {
   private async start(event: Extract<ProgressEvent, { kind: "turn-start" }>): Promise<void> {
     const conv = event.conversationId;
     // A turn from Discord is already shown there. A turn with no words is
-    // the harness prompting itself, which is what a scheduled run is: it
-    // posts its one result, with a Run now button, through the existing
-    // handler. Anything the owner says in a job's thread is a conversation
-    // like any other and is told here.
+    // the harness prompting itself, which is what a scheduled run is: its
+    // answer is shown, when it sent nothing else, once the run has ended.
+    // Anything the owner says in a job's thread is a conversation like any
+    // other and is told here.
     if (event.from === "discord" || !event.said?.trim()) return;
     // A place guests read shows only what was said in it: work done on the
     // dashboard or passed on stays the owner's.
@@ -176,9 +176,9 @@ export class ThreadMirror {
     }
     const files = event.files?.length ? this.deps.filesFor(event.files) : [];
     const passed = event.origin?.from;
-    if (passed && (passed.kind === "chat" || passed.kind === "schedule")) {
-      // Passed on by a chat or a schedule: under that sender's name, the line saying only that it was passed on.
-      await this.deps.postIn(target, { text: `${event.said.trim()}\n-# passed on`, from: this.deps.speakerFor(passed), silent: true, ...(files.length ? { files } : {}) });
+    if (passed && passed.kind !== "guest") {
+      // Passed on by a chat or a schedule, or KOS's own: under that sender's name, the line saying when it was passed on.
+      await this.deps.postIn(target, { text: passedText(event.said, passed), from: this.deps.speakerFor(passed), silent: true, ...(files.length ? { files } : {}) });
     } else {
       // The owner's own words, under their name and picture; quoted by the bot when they cannot be looked up.
       const owner = await this.deps.ownerSender();
@@ -223,6 +223,11 @@ export class ThreadMirror {
       t.story.close?.();
     }
   }
+}
+
+/** Words passed on, marked as such; KOS's own (a repair it asks of itself) were never passed on, and its name says whose they are. */
+export function passedText(said: string, from: MessageFrom): string {
+  return from.kind === "kos" ? said.trim() : `${said.trim()}\n-# passed on`;
 }
 
 /** The owner's words quoted by the bot, when their own name cannot be posted under, with the surface they said them on. */

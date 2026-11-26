@@ -65,7 +65,7 @@ import { deviceUpdates } from "./deviceupdates.js";
 import { credentialsDir, envFilePath } from "./env.js";
 import { tightenKosHome } from "./hygiene.js";
 import { ThreadMirror } from "./threadmirror.js";
-import { pingsOwner, postInPlace, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
+import { pingsOwner, postInPlace, postRun, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 import { PortTakenError, portTakenMessage } from "./porttaken.js";
@@ -273,24 +273,9 @@ export type PlaceSaid = { sent: NotifySent } | { dm: string };
 /**
  * A scheduled run's unaddressed message, said in its own place on the
  * server (the job's thread, the blob's channel) rather than the owner's DM.
- * It remembers which runs said their piece there, so the run's closing
- * words do not repeat it.
  */
 export class PlaceNotifier {
-  /** Conversations whose scheduled run has said its piece this turn: in its place, or in the DM when guests read its place. */
-  private readonly said = new Set<string>();
-
   constructor(private readonly deps: PlaceNotifierDeps) {}
-
-  /** A new turn has said nothing in its place yet. */
-  turnStarted(conversationId: string): void {
-    this.said.delete(conversationId);
-  }
-
-  /** Whether a scheduled run here already said its piece this turn; asking clears it. */
-  saidItsPiece(conversationId: string): boolean {
-    return this.said.delete(conversationId);
-  }
 
   /**
    * Said in the message's place, when it asks for one and has one the
@@ -300,15 +285,11 @@ export class PlaceNotifier {
    */
   async say(payload: NotifyPayload, msg: OutboundMessage): Promise<PlaceSaid | undefined> {
     if (!payload.place || payload.target.kind !== "owner" || payload.target.surface) return undefined;
-    // A place guests read is not the run's: the DM carries it, and the
-    // run's closing words would only be a second DM for the same turn.
-    if (!this.deps.ownerOnly(payload.place)) {
-      this.said.add(payload.place);
-      return { dm: "guests can read this run's place on Discord, so it was not posted there" };
-    }
+    // A place guests read is not the run's: the DM carries it.
+    if (!this.deps.ownerOnly(payload.place)) return { dm: "guests can read this run's place on Discord, so it was not posted there" };
     const job = this.deps.jobOf(payload);
-    // A fixed reminder, and news the owner must not miss (a job failing), ping them.
-    const ping = payload.ping || (job && pingsOwner(job)) ? `<@${this.deps.ownerId}> ` : "";
+    // A fixed reminder, and news the owner must not miss (a job failing), ping them; a silent message pings nobody.
+    const ping = !payload.silent && (payload.ping || (job && pingsOwner(job))) ? `<@${this.deps.ownerId}> ` : "";
     // A thread the owner could not join would not notify them: the DM carries it as well.
     let alsoDmed: boolean | undefined;
     const alsoDm = async (): Promise<void> => {
@@ -322,7 +303,6 @@ export class PlaceNotifier {
     };
     const placed = await postInPlace(payload.place, { ...msg, text: `${ping}${msg.text}` }, this.deps, alsoDm);
     if (!placed) return { dm: "this run has no place on Discord that took the post" };
-    this.said.add(payload.place);
     const pinging = ping ? ", pinging them" : "";
     if (placed === "held") {
       return { sent: { delivered: `Not posted yet: Discord is unreachable, so it is kept to post in this run's own place once Discord is back${pinging}. The owner is made a member of its thread then, or sent it in their DM when they cannot be or no place is found.` } };
@@ -546,6 +526,7 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
             ...(payload.card ? { card: payload.card } : {}),
             ...(payload.buttons ? { buttons: payload.buttons } : {}),
             ...(payload.from ? { from: payload.from } : {}),
+            ...(payload.silent ? { silent: true } : {}),
           };
           // A scheduled run that named nowhere speaks in its own place on the
           // server (the job's thread, the blob's channel) rather than the DM;
@@ -1363,16 +1344,10 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
         openStory: (target, from) => adapter!.openStory(target, from),
         warn: (message) => console.warn(`[discord] thread mirror: ${message}`),
       });
-      kernel.progress.subscribe((event) => {
-        // A new turn has said nothing in its place yet.
-        if (event.kind === "turn-start") placed.turnStarted(event.conversationId);
-        mirror.onProgress(event);
-      });
+      kernel.progress.subscribe((event) => mirror.onProgress(event));
       const saidDeps: SaidDeps = {
         ...placeOn,
-        jobOf: cronOf,
         ownerOnly,
-        saidItsPiece: (conv) => placed.saidItsPiece(conv),
         senderFor: (conv) => kernel.senderFor(conv),
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),
@@ -1382,12 +1357,17 @@ export async function runHost(options: HostOptions): Promise<RunningHost> {
       /*
        * A turn's exchange, told once it has happened. The mirror handles the
        * turns it has been narrating in a thread (it posts the answer and
-       * closes the story); everything else, a scheduled job's result or a
-       * resumed Discord turn, runs the handler below.
+       * closes the story); everything else, a resumed Discord turn or an
+       * answer after a decision, runs the handler below.
        */
       kernel.bus.on("turn:said", (said) => {
         if (!adapter) return;
         mirror.onSaid(said, () => postSaid(said, saidDeps));
+      });
+      // A scheduled run's answer, once it has ended and it is known whether it sent anything.
+      kernel.bus.on("run:said", async (run) => {
+        if (!adapter) return;
+        await postRun(run, { ...placeOn, job: (id) => kernel.crons.get(id), ownerOnly, sendOwner: (msg) => adapter!.send(creds.ownerId, msg) });
       });
       // A slash command typed on the dashboard is a small line in the chat's
       // channel or thread, with the first line of what it answered.

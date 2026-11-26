@@ -24,6 +24,8 @@ export function originWords(origin: MessageOrigin): { text: string; href?: strin
   if (from?.kind === "guest") return { text: `${from.name}, a guest${where ? ` in ${where}` : ""}`, ...named };
   if (from?.kind === "schedule") return { text: `Schedule · ${jobTitle(from.name)}`, ...(from.id ? { href: hrefFor({ name: "crons", job: from.id }) } : {}) };
   if (from?.kind === "chat") return { text: `sent by ${from.name}`, ...(from.id ? { href: hrefFor({ name: "chats", id: from.id }) } : {}) };
+  // KOS's own words are drawn as its note, which says whose they are.
+  if (from?.kind === "kos") return null;
   if (!where || via === "dispatch") return null;
   return { text: `via ${where}`, ...named };
 }

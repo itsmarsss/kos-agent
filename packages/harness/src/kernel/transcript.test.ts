@@ -4,7 +4,7 @@ import type { ModelMessage } from "../models/types.js";
 import { decidedLine } from "./decisions.js";
 import { approvedResult, undoneResult } from "./guarded.js";
 import { ownerWords } from "../models/heard.js";
-import { conversationEvents, historyEvents } from "./transcript.js";
+import { conversationEvents, historyEvents, ownerLinesIn } from "./transcript.js";
 import { sdkCallMessages } from "../chat/sdkchat.js";
 
 const withTool: ModelMessage[] = [
@@ -320,5 +320,13 @@ describe("historyEvents", () => {
     expect(events[1]).toMatchObject({ kind: "divider", text: expect.stringContaining("Cleared here") });
     expect(events[3]).toMatchObject({ kind: "divider", text: expect.stringContaining("Compacted here") });
     expect(historyEvents([], [])).toEqual([]);
+  });
+});
+
+describe("KOS's own prompt to itself", () => {
+  it("is drawn as KOS's note, never as a line the owner typed or can retry", () => {
+    const prompt: ModelMessage = { role: "user", content: [{ type: "text", text: "KOS maintenance: a scheduled job failed. Fix it." }], origin: { via: "fix", from: { kind: "kos", name: "KOS maintenance" } } };
+    expect(conversationEvents([prompt])).toEqual([{ kind: "message", role: "system", text: "KOS maintenance: a scheduled job failed. Fix it.", origin: prompt.origin }]);
+    expect(ownerLinesIn(prompt)).toBe(0);
   });
 });

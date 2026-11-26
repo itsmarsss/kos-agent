@@ -8,6 +8,7 @@ import type { Conversation } from "../kernel/conversations.js";
 import { whenWords } from "../kernel/when.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { answerCard, askedLine } from "./blobnotes.js";
+import { dispatchAsker, type DispatchAsker } from "./chats.js";
 
 /**
  * The `blobs` tool module: the standing helpers KOS makes from a sentence.
@@ -59,7 +60,7 @@ export interface AgentToolDeps {
   /** Run a turn inside a conversation and return its reply. The kernel owns the queue. */
   dispatch: (conversationId: string, text: string) => Promise<{ reply: string; conversationId: string }>;
   /** Told when a dispatched conversation answers, so the owner hears of it wherever they are. */
-  onDispatchDone?: (conversationId: string, title: string, reply: string, dispatchedFrom?: string) => void;
+  onDispatchDone?: (conversationId: string, title: string, reply: string, asker?: DispatchAsker) => void;
   /** A line kept in a chat's transcript: how the chat that asked shows the blob's work. */
   note?: (conversationId: string, text: string) => void;
 }
@@ -282,9 +283,10 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
       const target = project ? deps.spawnAgent(name, project) : deps.ensureAgent(name);
       // Read now, not when the answer lands: by then another chat may be calling.
       const asking = from();
+      const asker = dispatchAsker(asking);
       const tell = (outcome: { reply: string } | { error: string }): void => {
         if (asking) deps.note?.(asking, answerCard(target.title, target.id, task, outcome));
-        deps.onDispatchDone?.(target.id, target.title, "error" in outcome ? `It failed: ${outcome.error}` : outcome.reply, asking);
+        deps.onDispatchDone?.(target.id, target.title, "error" in outcome ? `It failed: ${outcome.error}` : outcome.reply, asker);
       };
       if (asking) deps.note?.(asking, askedLine(target.title, target.id, task));
       // Handed over, not waited on, as chats.dispatch does: the agent's turn

@@ -1,5 +1,7 @@
 import type { MessageFrom, OutboundMessage, Sender } from "@kos/harness";
 
+import { passedText } from "./threadmirror.js";
+
 /** A turn's exchange as the bus tells it, for the turns the thread mirror was not narrating. */
 export interface Said {
   conversationId: string;
@@ -12,8 +14,6 @@ export interface Said {
   from?: MessageFrom;
   /** The words came in the owner's DM. */
   dm?: boolean;
-  /** A scheduled run where something failed. */
-  failed?: boolean;
 }
 
 /** A scheduled job, as much of it as where its runs speak depends on. */
@@ -141,13 +141,47 @@ async function findPlace(conversationId: string, deps: PlaceDeps): Promise<strin
   return made ?? deps.targetFor(home);
 }
 
-export interface SaidDeps extends PlaceDeps {
-  /** The scheduled job a conversation is the thread of, when it is one. */
-  jobOf(conversationId: string): JobFacts | undefined;
-  /** Whether the owner alone reads a conversation's place: a run's words, and a turn not taken there, are the owner's, not a guest's. */
+/** A scheduled run's turn as it ended: its closing words, and whether it sent anything. */
+export interface RunSaid {
+  conversationId: string;
+  jobId: number;
+  reply: string;
+  sent: boolean;
+  /** Judged failed: its health notice is its one message. */
+  failed: boolean;
+}
+
+export interface RunDeps extends PlaceDeps {
+  /** The scheduled job by id, while it exists. */
+  job(id: number): JobFacts | undefined;
+  /** Whether the owner alone reads a conversation's place. */
   ownerOnly(conversationId: string): boolean;
-  /** Whether a scheduled run here already said its piece this turn, in its place or the DM; asking clears it. */
-  saidItsPiece(conversationId: string): boolean;
+  /** The owner's DM. */
+  sendOwner(msg: OutboundMessage): Promise<void>;
+}
+
+/**
+ * A scheduled run's answer, shown in its place under the job's name with a
+ * Run now button, only when the run sent nothing: a job that delivers by its
+ * reply (a weekly recap) reaches the owner this way. A run judged failed
+ * has its health notice instead. A run that posted (a digest to #school), or
+ * said it had nothing to post, has said its piece; its
+ * closing words ("Posted to #school") would only repeat it, and stay in Runs
+ * and its thread on the dashboard. KOS's upkeep keeps its runs to itself.
+ */
+export async function postRun(run: RunSaid, deps: RunDeps): Promise<void> {
+  if (run.sent || run.failed || !run.reply.trim()) return;
+  const job = deps.job(run.jobId);
+  if (!job || isUpkeep(job)) return;
+  const msg: OutboundMessage = { text: `-# ${job.name}\n${run.reply}`, buttons: [{ label: "Run now", cron: job.id }] };
+  // A place guests can read is not the run's: the owner hears it in the DM.
+  if (deps.ownerOnly(run.conversationId)) await postInPlace(run.conversationId, msg, deps);
+  else await deps.sendOwner(msg);
+}
+
+export interface SaidDeps extends Pick<PlaceDeps, "targetFor" | "postIn"> {
+  /** Whether the owner alone reads a conversation's place: a turn not taken there is the owner's, not a guest's. */
+  ownerOnly(conversationId: string): boolean;
   senderFor(conversationId: string): Sender | undefined;
   speakerFor(from: MessageFrom): Sender;
   ownerSender(): Promise<Sender | undefined>;
@@ -158,7 +192,7 @@ export interface SaidDeps extends PlaceDeps {
 
 /**
  * A turn's exchange shown on Discord, for a turn the thread mirror was not
- * narrating: a scheduled run's result, a resumed Discord turn's answer, a
+ * narrating: a resumed Discord turn's answer, an answer after a decision, a
  * dashboard turn in a chat with a channel or thread.
  */
 export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
@@ -166,27 +200,11 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   // that waited on an approval was answered "waiting on you" there, and
   // the answer after the decision has only this way back.
   if (said.channel === "discord" && !said.resumed) return;
-  // A run whose message already reached the owner (in its place, or in the
-  // DM when guests read its place) has said its piece; its closing words
-  // ("Digest sent") would only repeat it. A failure after it is news all
-  // the same.
-  const spoke = deps.saidItsPiece(said.conversationId) && said.origin === "system" && !said.failed;
-  // A scheduled run shows in the job's own thread, under the job's name: a
-  // project's job under the project's channel, one at the root under KOS's
-  // own. A daily post is what a schedule is for. Only a run the harness
-  // started gets the run format; anything the owner says in a job's thread
-  // is a conversation, told below. KOS's upkeep keeps its runs to itself.
-  const job = deps.jobOf(said.conversationId);
-  if (job && said.origin === "system") {
-    if (spoke || isUpkeep(job) || !said.reply.trim()) return;
-    // With a Run now button, the same path the dashboard's Run now takes.
-    const run: OutboundMessage = { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] };
-    // A place guests can read is not the run's: the owner hears it in the DM.
-    if (deps.ownerOnly(said.conversationId)) await postInPlace(said.conversationId, run, deps);
-    else await deps.sendOwner(run);
-    return;
-  }
-  if (spoke) return;
+  // A scheduled run, a job's or a blob's, resumed after an approval or not,
+  // is told by postRun once it ends, which knows whether it sent anything.
+  // Anything else in a job's thread (the owner's words, an answer after a
+  // decision) is a conversation, told below.
+  if (said.origin === "system" && said.from?.kind === "schedule") return;
   // A place guests read is shown only what was said in it, and the answers
   // to that: a turn taken on the dashboard or passed on stays the owner's.
   if (said.channel !== "discord" && !deps.ownerOnly(said.conversationId)) return;
@@ -205,9 +223,9 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
     const files = deps.filesFor(said.files);
     const attached = files.length ? { files } : {};
     if (said.from) {
-      // Passed on by a chat or a schedule: under that sender's name and
-      // face; the line says only that it was passed on.
-      await deps.postIn(target, { text: `${said.text.trim()}\n-# passed on`, from: deps.speakerFor(said.from), silent: true, ...attached });
+      // Passed on by a chat or a schedule, or KOS's own: under that
+      // sender's name and face, the line saying when it was passed on.
+      await deps.postIn(target, { text: passedText(said.text, said.from), from: deps.speakerFor(said.from), silent: true, ...attached });
     } else {
       // As the owner, under their own name and picture; quoted by the bot
       // only when the owner cannot be looked up.

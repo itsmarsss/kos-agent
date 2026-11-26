@@ -230,9 +230,11 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
               if (failed) call.isError = true;
             }
           }
+          // KOS's own words to itself (a repair it asked for) are a note too, never a line the owner typed.
+          const fromKos = message.role === "user" && message.origin?.from?.kind === "kos";
           events.push(
-            note
-              ? { kind: "message", role: "system", text: note, ...at }
+            note || fromKos
+              ? { kind: "message", role: "system", text: note ?? text, ...(fromKos && message.origin ? { origin: message.origin } : {}), ...at }
               : {
                   kind: "message",
                   role: message.role === "user" ? "you" : "kos",

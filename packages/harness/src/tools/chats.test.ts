@@ -10,7 +10,7 @@ import { SessionStore } from "../kernel/session.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { createChatsModule, MAX_CONGREGATION, type ChatToolDeps } from "./chats.js";
+import { createChatsModule, MAX_CONGREGATION, readsAnswerIn, type ChatToolDeps } from "./chats.js";
 
 /**
  * chats.congregate, driven through the registry with a scripted dispatch.
@@ -494,5 +494,22 @@ describe("chats.congregate", () => {
     const { members } = JSON.parse(res.content) as Members;
     expect(members[0]?.reply.length).toBeLessThan(9_000);
     expect(members[0]?.reply).toContain("full reply is in that conversation");
+  });
+});
+
+describe("whether the owner reads a handed-on answer where they asked", () => {
+  const chats: Record<string, { archived: boolean }> = { main: { archived: false }, old: { archived: true }, "cron:7": { archived: false } };
+  const chatOf = (id: string): { archived: boolean } | undefined => chats[id];
+
+  it("does for an open chat they asked in on the dashboard", () => {
+    expect(readsAnswerIn({ conversationId: "main", onDashboard: true }, chatOf)).toBe(true);
+  });
+
+  it("does not when they asked elsewhere, nobody asked, or the chat is gone, archived or a schedule's thread", () => {
+    expect(readsAnswerIn({ conversationId: "main", onDashboard: false }, chatOf)).toBe(false);
+    expect(readsAnswerIn(undefined, chatOf)).toBe(false);
+    expect(readsAnswerIn({ conversationId: "deleted", onDashboard: true }, chatOf)).toBe(false);
+    expect(readsAnswerIn({ conversationId: "old", onDashboard: true }, chatOf)).toBe(false);
+    expect(readsAnswerIn({ conversationId: "cron:7", onDashboard: true }, chatOf)).toBe(false);
   });
 });

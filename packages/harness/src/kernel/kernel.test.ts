@@ -1207,6 +1207,49 @@ describe("Kernel", () => {
     kernel.noteIn("nowhere", "lost");
   });
 
+  describe("a handed-on answer", () => {
+    const ask = async (tool: string, input: Record<string, unknown>, opts: { channel?: string; owner?: boolean }): Promise<{ told: string[]; asking: string }> => {
+      const told: string[] = [];
+      kernel = await boot(
+        {
+          async generate(_t, req: GenerateRequest): Promise<ModelResponse> {
+            const usage = { inputTokens: 0, outputTokens: 0 };
+            const last = req.messages.at(-1)?.content ?? [];
+            if (last.some((b) => b.type === "tool_result")) return { content: [{ type: "text", text: "Asked." }], stopReason: "end_turn", usage, model: "stub" };
+            if (JSON.stringify(last).includes("count the shelves")) return { content: [{ type: "text", text: "Twelve shelves." }], stopReason: "end_turn", usage, model: "stub" };
+            return { content: [{ type: "tool_use", id: "d1", name: tool, input }], stopReason: "tool_use", usage, model: "stub" };
+          },
+        },
+        async (payload) => void told.push(payload.text),
+      );
+      kernel.roles.write({ name: "follow-ups", description: "Writes follow-ups", brief: "You write follow-ups.", memory: "shared" });
+      const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+      kernel.conversations.create({ id: "shelf", userId: kernel.profile.ownerId, title: "Shelf", projectSlug: "books" });
+      await kernel.handleProjectTurn("books", "ask it to count", opts);
+      await vi.waitFor(() => expect(JSON.stringify(kernel.sessions.get(books.conversationId))).toContain("Twelve shelves."));
+      await kernel.queue.drain();
+      return { told, asking: books.conversationId };
+    };
+
+    it.each([
+      ["chats.dispatch", { id: "shelf", message: "count the shelves" }],
+      ["blobs.dispatch", { agent: "follow-ups", task: "count the shelves" }],
+    ])("from %s is told in the chat the owner asked in on the dashboard, and not in their DM as well", async (tool, input) => {
+      const { told } = await ask(tool, input, { channel: "dashboard", owner: true });
+      expect(told).toEqual([]);
+    });
+
+    it("is told in the owner's DM as well when they asked on Discord, where the chat's notes are not shown", async () => {
+      const { told } = await ask("chats.dispatch", { id: "shelf", message: "count the shelves" }, { channel: "discord", owner: true });
+      expect(told).toEqual(["Shelf answered: Twelve shelves."]);
+    });
+
+    it("is told in the owner's DM as well when the turn that asked was not the owner's own words", async () => {
+      const { told } = await ask("chats.dispatch", { id: "shelf", message: "count the shelves" }, {});
+      expect(told).toEqual(["Shelf answered: Twelve shelves."]);
+    });
+  });
+
   it("hands a brief to a project's orchestrator as an attributed message, and tells the source chat when it answers", async () => {
     const seen: string[] = [];
     kernel = await boot({
@@ -1412,23 +1455,6 @@ describe("Kernel", () => {
     kernel.stopCron();
   });
 
-  it("marks an actions run where something failed, so a message it already sent does not hide it", async () => {
-    kernel = await boot(stubInference([]), async () => undefined);
-    const told: { reply: string; failed?: boolean }[] = [];
-    kernel.bus.on("turn:said", (said) => void (said.conversationId.startsWith("cron:") && told.push({ reply: said.reply, ...(said.failed ? { failed: true } : {}) })));
-    const job = kernel.crons.create({
-      name: "Nudge",
-      schedule: "0 12 * * *",
-      type: "actions",
-      actions: [{ tool: "notify", args: { text: "read" } }, { tool: "files.read", args: { path: "nope/missing.md" } }],
-    });
-    kernel.startCron();
-    await kernel.fireCron(job.id);
-    await kernel.queue.drain();
-    kernel.stopCron();
-    expect(told).toEqual([{ reply: "Ran 2 actions; 1 failed.", failed: true }]);
-  });
-
   it("names the job behind a blob's run, whose place is the blob's channel, so its reminder can ping", async () => {
     const seen: NotifyPayload[] = [];
     kernel = await boot(stubInference([]), async (payload) => {
@@ -1462,6 +1488,58 @@ describe("Kernel", () => {
     expect(seen.map((p) => [p.text, p.place ?? null])).toEqual([
       ["kickoff", `cron:${job.id}`],
       ["dm", null],
+    ]);
+  });
+
+  it("tells the surfaces a prompted run's answer once it ends, with whether it sent anything and whether it failed", async () => {
+    const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const call = (id: string, input: Record<string, unknown>): ModelResponse => ({ content: [{ type: "tool_use", id, name: "notify", input }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    // Each job's prompt, the first time, gets its call or answer; after a call, its closing words.
+    const script: [RegExp, ModelResponse, string?][] = [
+      [/recap the week/, answer("This week: three things shipped.")],
+      [/post the board/, call("n1", { text: "board" }), "Posted the board."],
+      [/post new openings/, call("q1", { quiet: "nothing new this hour" }), "Nothing new this hour."],
+      [/Do not post anything/, call("q2", { quiet: "every row already had its id" }), "The update changed 0 rows."],
+      [/watch list/, answer("Nothing changed, no notification sent.")],
+      [/openings, again/, answer("Nothing new this hour, nothing sent.")],
+    ];
+    kernel = await boot(
+      {
+        async generate(task, req: GenerateRequest): Promise<ModelResponse> {
+          if (task === "cheap") return answer('{"facts":[]}');
+          const asked = req.messages.find((m) => m.role === "user")?.content.map((b) => (b.type === "text" ? b.text : "")).join("") ?? "";
+          const hit = script.find(([re]) => re.test(asked));
+          if (!hit) return answer("done");
+          const answered = req.messages.at(-1)?.content.some((b) => b.type === "tool_result");
+          return answered ? answer(hit[2] ?? "done") : hit[1];
+        },
+      },
+      async () => undefined,
+    );
+    const ran: { jobId: number; reply: string; sent: boolean; failed: boolean }[] = [];
+    kernel.bus.on("run:said", (e) => void ran.push({ jobId: e.jobId, reply: e.reply, sent: e.sent, failed: e.failed }));
+    // The blob's brief, not the job's prompt, says it posts with notify.
+    kernel.roles.write({ name: "watch", description: "Watches pages", brief: "Check the pages and notify the owner of what changed.", memory: "own" });
+    const recap = kernel.crons.create({ name: "Recap", schedule: "0 9 * * 1", type: "self_prompt", prompt: "recap the week" });
+    const board = kernel.crons.create({ name: "Board", schedule: "0 9 * * *", type: "self_prompt", prompt: "post the board with notify" });
+    const scan = kernel.crons.create({ name: "Scan", schedule: "0 * * * *", type: "self_prompt", prompt: "post new openings with notify, only when there are some" });
+    const backfill = kernel.crons.create({ name: "Backfill", schedule: "5 9 * * *", type: "self_prompt", prompt: "Fill in today's message id. Do not post anything." });
+    const watch = kernel.crons.create({ name: "blob.watch", schedule: "0 */6 * * *", type: "self_prompt", agent: "watch", prompt: "Check every page on the watch list." });
+    const forgot = kernel.crons.create({ name: "Scan again", schedule: "30 * * * *", type: "self_prompt", prompt: "Scan openings, again: post new ones with notify, only when there are some" });
+    kernel.startCron();
+    for (const job of [recap, board, scan, backfill, watch, forgot]) await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(ran).toEqual([
+      // Written as its reply: what the owner gets.
+      { jobId: recap.id, reply: "This week: three things shipped.", sent: false, failed: false },
+      // Posted, or ended quietly, whatever its prompt said: its piece is said.
+      { jobId: board.id, reply: "Posted the board.", sent: true, failed: false },
+      { jobId: scan.id, reply: "Nothing new this hour.", sent: true, failed: false },
+      { jobId: backfill.id, reply: "The update changed 0 rows.", sent: true, failed: false },
+      // Written (by its brief, or its prompt) to post, it neither posted nor ended quietly: failed, and told by its health notice.
+      { jobId: watch.id, reply: "Nothing changed, no notification sent.", sent: false, failed: true },
+      { jobId: forgot.id, reply: "Nothing new this hour, nothing sent.", sent: false, failed: true },
     ]);
   });
 

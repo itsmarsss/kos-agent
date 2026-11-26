@@ -313,18 +313,6 @@ export function ChatsPage({
   /** A row's link: a project's thread links into the project, the rest into Chats. */
   const hrefOf = (c: Conversation): string => hrefFor(placeOf(c.id, c));
   const [events, setEvents] = useState<ChatEvent[]>([]);
-  /**
-   * A message the server was given directly, shown until the transcript
-   * catches up. A fix attempt is started by the harness rather than typed
-   * here, so the chat opened on an agent apparently thinking about nothing
-   * and the question appeared a minute later when the turn recorded itself.
-   */
-  const seeded =
-    seed &&
-    seed.id === activeId &&
-    !events.some((e) => e.kind === "message" && e.role === "you")
-      ? ([{ kind: "message", role: "you", text: seed.text }] as ChatEvent[])
-      : [];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   // KOS not answering this tab: sending waits, and says so, until it is back.
@@ -499,6 +487,18 @@ export function ChatsPage({
   }, [showArchived, conversations]);
   const drop = useDropZone((l) => void attachments.add(l));
   const live = activeId ? progress[activeId] : undefined;
+  /**
+   * A message the server was given directly, shown until the transcript
+   * catches up. A fix attempt is started by the harness rather than typed
+   * here, so the chat opened on an agent apparently thinking about nothing
+   * and the question appeared a minute later when the turn recorded itself.
+   * It is KOS's prompt to itself, so it is drawn as KOS's note, and goes
+   * once the turn has ended or the transcript holds a note of its own.
+   */
+  const seeded =
+    seed && seed.id === activeId && !live?.ended && !events.some((e) => e.kind === "message" && e.role === "system")
+      ? ([{ kind: "message", role: "system", text: seed.text }] as ChatEvent[])
+      : [];
   // Said once as a turn starts here: the thread is busy until it ends, and its reply is then read as it lands.
   const workingSince = live && !live.ended ? live.since : undefined;
   useEffect(() => {
@@ -621,7 +621,9 @@ export function ChatsPage({
   const liveHasSteps = live?.steps.some((s) => s.kind === "tool") === true;
   const visible = [...seeded, ...(liveHasSteps ? events.slice(0, runningTail(events)) : events)];
   /** The owner's words a running turn is for, said somewhere else and not yet in the transcript. */
-  const liveSaid = live?.said && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) ? live.said : undefined;
+  const liveSaid = live?.said && !visible.some((e) => e.kind === "message" && e.role !== "kos" && e.text === live.said) ? live.said : undefined;
+  /** Those words are KOS's own (a repair it asked of itself): drawn as its note, never as the owner's. */
+  const liveRole = live?.origin?.from?.kind === "kos" ? "system" : "you";
   /** The day and pause lines over the messages, and over those words, from when each was said. */
   const times = [...visible.map((e) => (e.kind === "message" ? e.at : undefined)), liveSaid && live && !live.resumed ? live.since : undefined];
   // Worked out again only when a time changes, not on every stream tick.
@@ -2518,13 +2520,14 @@ export function ChatsPage({
                 {live && liveSaid && (
                   <>
                     {liveMark && <TimeLine mark={liveMark} />}
-                    <Timed className="turn turn--you">
+                    <Timed className={`turn turn--${liveRole}`}>
                       <div className="turn-said">
                         {/* A turn found running when the page loaded began at a time this page never saw. */}
-                        {live.resumed ? null : <MessageTime at={live.since} />}
-                        <div className="bubble bubble--you">
+                        {live.resumed || liveRole === "system" ? null : <MessageTime at={live.since} />}
+                        <div className={`bubble bubble--${liveRole}`}>
                           <Markdown text={liveSaid} />
                         </div>
+                        {liveRole === "system" && !live.resumed ? <MessageTime at={live.since} /> : null}
                       </div>
                       {live.origin ? <OriginLine origin={live.origin} linkFor={roomLink} /> : live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
                       {live.files && live.files.length > 0 && <AttachmentStrip items={live.files} />}

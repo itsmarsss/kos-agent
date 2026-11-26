@@ -45,9 +45,15 @@ export type KernelEvent =
       from?: MessageFrom;
       /** The words came in a direct message: an answer after an approval goes back there, whatever thread the chat has. */
       dm?: boolean;
-      /** A scheduled run where something failed: told even where the run already spoke. */
-      failed?: boolean;
     }
+  /**
+   * A scheduled run's turn ended (a job's or a blob's): its closing words,
+   * and whether that turn sent anything (a message with notify, a quiet
+   * ending saying it had none, or the answer reported to the owner). A run
+   * that sent nothing has only these words, unless it failed: then its
+   * health notice is what the owner hears.
+   */
+  | { kind: "run:said"; conversationId: string; jobId: number; reply: string; sent: boolean; failed: boolean }
   /** A slash command run in a chat: the line as typed and what it answered, with where it was typed. */
   | { kind: "command:ran"; conversationId: string; text: string; reply: string; channel: string | null }
   /** A chat was made: a project's orchestrator or a blob's thread is a channel to lay out now. */

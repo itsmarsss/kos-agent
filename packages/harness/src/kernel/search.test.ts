@@ -10,7 +10,7 @@ import { writePage } from "../memory/pages.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Vault } from "../secrets/vault.js";
 import { Kernel } from "./kernel.js";
-import { searchAll, type SearchSource } from "./search.js";
+import { messageSource, searchAll, type SearchSource } from "./search.js";
 import { handleApiRequest } from "./server.js";
 
 const stub: Inference = {
@@ -180,5 +180,20 @@ describe("searchAll", () => {
     expect(got.hits.map((h) => h.id)).toEqual(["m0", "m1", "m2"]);
     expect(got.truncated).toEqual(["msg"]);
     expect(got.late).toEqual([]);
+  });
+});
+
+describe("searching what was said", () => {
+  it("finds KOS's own repair prompt, and passes over the harness's other notes", async () => {
+    const source = messageSource({
+      conversations: () => [{ id: "fix", title: "Fix: Nightly", updatedAt: 1 }],
+      events: () => [
+        { kind: "message", role: "system", text: "KOS maintenance: a scheduled job failed. Fix it.", origin: { via: "fix", from: { kind: "kos", name: "KOS maintenance" } } },
+        { kind: "message", role: "system", text: "Approved #4 · sql ran, the scheduled job failed" },
+      ],
+      mentioning: () => undefined,
+    });
+    const found = await source.find("scheduled job", { until: Date.now() + 1000, cap: 8, signal: new AbortController().signal });
+    expect(found.hits.map((h) => h.id)).toEqual(["fix#0"]);
   });
 });

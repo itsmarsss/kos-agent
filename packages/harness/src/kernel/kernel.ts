@@ -7,7 +7,7 @@ import { BindingGoneError, LATE_RUN_MS, OWNER_THREAD_PREFIX, channelName, roomCo
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
-import { type CronActionResult, runCronJob, type CronExecResult, type JobTurn } from "../cron/executor.js";
+import { type CronActionResult, cronOutcome, runCronJob, selfPromptResult, writtenAs, type CronExecResult, type JobTurn } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import type { McpModule } from "../tools/mcp.js";
 import type { PermissionContext } from "../ops/permissions.js";
@@ -868,7 +868,7 @@ export class Kernel {
         }
       },
       onToolRan: (tool) => this.afterToolRan(tool),
-      handleMessage: (text, opts) => this.handleMessage(text, opts),
+      handleMessage: (text, opts) => this.resumeDecided(text, opts),
       handsOn: (device, conversationId) => this.handsOn?.(device, conversationId),
       halted: () => this.killSwitch.halted,
       codes: args.secrets.codes,
@@ -1916,6 +1916,55 @@ export class Kernel {
    * The thread is made the first time the job runs rather than when it is
    * written, so a schedule that never fires leaves no empty chat behind.
    */
+  /**
+   * A scheduled run's answer, told to the surfaces once its turn ends, with
+   * whether that turn sent anything (a message, a quiet ending saying it had
+   * none, or the answer reported to the owner) and whether the run failed.
+   * One that sent nothing and did not fail (a weekly recap written as its
+   * reply) has only these words to reach the owner with; a failed one has
+   * its health notice.
+   */
+  private tellRun(job: CronJob, conversationId: string, ran: JobTurn, reported = false): void {
+    const failed = cronOutcome(selfPromptResult(writtenAs(job, this.jobBrief(job)), ran)).status === "error";
+    this.bus.emit({ kind: "run:said", conversationId, jobId: job.id, reply: ran.reply, sent: reported || ran.delivered + ran.quiet > 0, failed });
+  }
+
+  /**
+   * A held turn carried on after a decision no turn waited for. A job's own
+   * run, carried on (after a restart, say), is still the job's: its
+   * unaddressed messages go to the job's place, and its answer is told as a
+   * run's, once it ends, rather than as a conversation's.
+   */
+  private async resumeDecided(text: string, opts: { sessionId: string; userId: string; origin: "system"; unattended?: boolean }): Promise<HandleResult> {
+    const { unattended, ...resume } = opts;
+    const job = unattended ? this.jobOfThread(opts.sessionId) : undefined;
+    if (!job) return this.handleMessage(text, resume);
+    const mark = this.audit.lastId();
+    const since = Date.now();
+    const res = await this.handleMessage(text, { ...resume, via: "schedule", from: { kind: "schedule", name: job.name, id: String(job.id) } });
+    const tell = (end: TurnEnd): void => this.tellRun(job, opts.sessionId, { reply: "reply" in end ? end.reply : "", ...this.jobTurnCalls(opts.sessionId, mark, since, res.turnId), ...("stopped" in end ? { stopped: end.stopped } : {}) });
+    if (res.ended) void res.ended.then(tell, () => undefined);
+    else tell({ reply: res.reply });
+    return res;
+  }
+
+  /** The brief of the blob a job runs as, when it is one's. */
+  private jobBrief(job: CronJob): string | undefined {
+    return job.agent ? this.roles.get(job.agent)?.brief : undefined;
+  }
+
+  /**
+   * The scheduled job whose own run a thread holds: a job's thread, or a
+   * blob's when that blob has one schedule. Undefined for any other chat.
+   */
+  private jobOfThread(conversationId: string): CronJob | undefined {
+    const id = /^cron:(\d+)$/.exec(conversationId)?.[1];
+    if (id) return this.crons.get(Number(id));
+    const blob = this.conversations.get(conversationId)?.role;
+    const jobs = blob && conversationId === agentConversationId(blob) ? this.crons.list().filter((j) => j.agent === blob) : [];
+    return jobs.length === 1 ? jobs[0] : undefined;
+  }
+
   /** The job's thread, made on its first run so an unfired schedule leaves none. */
   private jobThread(job: CronJob): string {
     // A role's schedule runs as the role: in its standing thread, under its
@@ -2036,16 +2085,6 @@ export class Kernel {
       { role: "assistant", content: [{ type: "text", text: summary }] },
     ]);
     this.conversations.touch(id);
-    /*
-     * Told to the surfaces, so the run shows in the job's thread with a Run
-     * now button, when the owner fired it by hand or something failed. A
-     * quiet scheduled tick says nothing: an actions job may run every minute,
-     * and its work (a notify, a post) already speaks for itself. A blob's
-     * job runs in the blob's own thread and is left out.
-     */
-    if (id.startsWith("cron:") && (failed > 0 || this.firedByHand.has(job.id))) {
-      this.said(id, "The schedule fired.", summary, "system", undefined, [], { failed: failed > 0 });
-    }
   }
 
   private async runJobTurn(prompt: string, job: CronJob): Promise<JobTurn & { later?: Promise<JobTurn> }> {
@@ -2069,11 +2108,13 @@ export class Kernel {
     const turn = (end: TurnEnd): JobTurn => {
       const reply = "reply" in end ? end.reply : "";
       // A blob that reports hands each run's answer to the owner, tagged as
-      // its own; otherwise the answer stays in its thread and the brief says
-      // what to tell.
+      // its own.
       const role = job.agent ? this.roles.get(job.agent) : undefined;
-      if (role?.report === "always" && reply.trim()) this.caretaker.tell(reply, { from: this.senderFor(id) });
-      return { reply, ...this.jobTurnCalls(id, mark, since, res.turnId), ...("stopped" in end ? { stopped: end.stopped } : {}) };
+      const reported = role?.report === "always" && reply.trim() !== "";
+      if (reported) this.caretaker.tell(reply, { from: this.senderFor(id) });
+      const ran: JobTurn = { reply, ...this.jobTurnCalls(id, mark, since, res.turnId), ...("stopped" in end ? { stopped: end.stopped } : {}) };
+      this.tellRun(job, id, ran, reported);
+      return ran;
     };
     if (!res.ended) return turn({ reply: res.reply });
     // Waiting on the owner: what it did so far now, and the rest when the turn ends.
@@ -4531,7 +4572,7 @@ export class Kernel {
     origin: "owner" | "system",
     channel: string | undefined,
     files: KeptFile[],
-    extra: { resumed?: boolean; from?: MessageFrom | undefined; dm?: boolean | undefined; failed?: boolean } = {},
+    extra: { resumed?: boolean; from?: MessageFrom | undefined; dm?: boolean | undefined } = {},
   ): void {
     this.bus.emit({
       kind: "turn:said",
@@ -4545,7 +4586,6 @@ export class Kernel {
       ...(extra.resumed ? { resumed: true } : {}),
       ...(extra.from ? { from: extra.from } : {}),
       ...(extra.dm ? { dm: true } : {}),
-      ...(extra.failed ? { failed: true } : {}),
     });
   }
 
@@ -5260,6 +5300,7 @@ export class Kernel {
         // In the job's own thread, so a run can be watched while it happens,
         // asked about afterwards, and read back next week.
         runInConversation: (prompt, j) => this.runJobTurn(prompt, j),
+        briefOf: (j) => this.jobBrief(j),
       });
       if (jobSession && result.ran && result.type === "actions") {
         this.recordActionRun(job, result.results);
@@ -5906,9 +5947,6 @@ export class Kernel {
   }
 
   /** Run one job now, through the same path the schedule uses. */
-  /** Jobs fired by hand right now (Run now on the dashboard or Discord, /run), so a quiet actions job's run is still shown. */
-  private readonly firedByHand = new Set<number>();
-
   fireCron(id: number): Promise<CronFireResult> {
     // Queued behind the very turn asking for it, a run from the job's own place would wait on itself for good.
     const job = this.crons.get(id);
@@ -5916,8 +5954,7 @@ export class Kernel {
       const error = "this job runs in this very chat, after the turn asking for it: it cannot be run by hand from here. Ask from another chat, or let its schedule run it.";
       return Promise.resolve({ outcome: { fired: false, reason: "error", error }, ok: false, error });
     }
-    this.firedByHand.add(id);
-    return this.cron.fire(id).finally(() => this.firedByHand.delete(id));
+    return this.cron.fire(id);
   }
 
   /** Jobs the running scheduler actually holds, as opposed to rows in the table. */

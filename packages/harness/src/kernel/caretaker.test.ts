@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
+import type { NotifyPayload } from "../tools/notify.js";
 import { guested } from "./caller.js";
-import { Caretaker, adoptFixes, isTransient, reachesAll, type CaretakerDeps } from "./caretaker.js";
+import { Caretaker, FIX_FROM, adoptFixes, isTransient, reachesAll, type CaretakerDeps } from "./caretaker.js";
 
 function deps(over: Partial<CaretakerDeps> = {}) {
   const log: string[] = [];
@@ -58,6 +59,40 @@ describe("finding the chat for a failure", () => {
 });
 
 describe("looking after failures", () => {
+  it("asks the fix in KOS's own voice, from KOS, never as the owner", async () => {
+    const asked: { text: string; from?: unknown }[] = [];
+    const c = new Caretaker(deps({ handleMessage: async (text, opts) => void asked.push({ text, from: opts.from }) }));
+    const { prompt } = await c.startFix({ label: "Nightly", error: "boom", what: "scheduled job", ref: "cron:7" });
+    expect(asked).toEqual([{ text: prompt, from: FIX_FROM }]);
+    expect(FIX_FROM.kind).toBe("kos");
+    expect(prompt.split("\n")[0]).toBe("KOS maintenance: a scheduled job failed. Fix it.");
+    expect(prompt).not.toMatch(/\b(I|me|my|mine)\b/);
+  });
+
+  it("pings the owner in the job's place for a failure, and tells its recovery silently, with no ping", async () => {
+    const sent: NotifyPayload[] = [];
+    const c = new Caretaker(deps({
+      behaviour: () => ({ autoFix: false, fixSteps: 24 }),
+      health: { observe: (_k, label, ok) => (ok ? { kind: "recovered", key: "cron:7", streak: 3, text: `${label} is working again.` } : { kind: "failing", key: "cron:7", streak: 1, text: `${label} failed.` }) },
+      notify: async (p) => void sent.push(p),
+    }));
+    c.report("cron:7", "Nightly", false, "boom", "cron:7");
+    c.report("cron:7", "Nightly", true, null, "cron:7");
+    await Promise.resolve();
+    expect(sent).toEqual([
+      { text: "Nightly failed.", target: { kind: "owner" }, place: "cron:7", ping: true },
+      { text: "Nightly is working again.", target: { kind: "owner" }, place: "cron:7", silent: true },
+    ]);
+  });
+
+  it("says nothing of a recovery the monitor does not report", async () => {
+    const sent: string[] = [];
+    const c = new Caretaker(deps({ health: { observe: () => null }, notify: async (p) => void sent.push(p.text) }));
+    c.report("cron:7", "Nightly", true, null, "cron:7");
+    await Promise.resolve();
+    expect(sent).toEqual([]);
+  });
+
   it("tells the owner once and starts a fix on the first failure", async () => {
     const d = deps();
     new Caretaker(d).report("cron:7", "Nightly", false, "boom");
@@ -76,7 +111,7 @@ describe("looking after failures", () => {
     const c = new Caretaker(d);
     const again = await c.startFix({ label: "Nightly", error: "boom again", what: "scheduled job", ref: "cron:7" });
     expect(again.conversationId).toBe("fix1");
-    expect(again.prompt).toMatch(/^The same scheduled job failed again/);
+    expect(again.prompt).toMatch(/^KOS maintenance: the same scheduled job failed again/);
     expect(again.prompt).toContain("This chat holds what was found and done last time");
     expect(d.log).toContain("turn:fix1:24:prompt");
     // A first failure noticed by the monitor goes to the same chat too.
@@ -159,8 +194,8 @@ describe("looking after failures", () => {
     const r = await new Caretaker(failing).startFix({ label: "l", error: "e", what: "run" });
     await new Promise((res) => setTimeout(res, 0));
     expect(failing.store.get(r.conversationId)?.at(-1)?.content[0]).toMatchObject({ text: "I could not finish looking into this: model down" });
-    // With the question it was asked, so the chat says what it was for.
-    expect(failing.store.get(r.conversationId)?.[0]).toMatchObject({ role: "user", content: [{ type: "text", text: expect.stringContaining("failed and I would like you to fix it") }] });
+    // With the question it was asked, so the chat says what it was for, as KOS's own.
+    expect(failing.store.get(r.conversationId)?.[0]).toMatchObject({ role: "user", content: [{ type: "text", text: expect.stringContaining("failed. Fix it.") }], origin: { via: "fix", from: FIX_FROM } });
     const closing = deps({ handleMessage: async () => { throw new Error("x"); }, isClosed: () => true });
     const r2 = await new Caretaker(closing).startFix({ label: "l", error: "e", what: "run" });
     await new Promise((res) => setTimeout(res, 0));
