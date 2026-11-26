@@ -96,6 +96,7 @@ import {
   type SkillListing,
 } from "../catalog/catalog.js";
 import { DEFAULT_SEARCH } from "@kos/browser";
+import { googleRoute } from "../google/routes.js";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize, picturesIn } from "./session.js";
 
@@ -1279,6 +1280,10 @@ export async function handleApiRequest(
       return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
     }
   }
+
+  // The owner's Google account: its client, sign-in, mode and disconnect (google/routes.ts).
+  const googled = await googleRoute(kernel, method, path, body);
+  if (googled) return googled;
 
   /*
    * Servers in mcp.json, with whether each is up. The file is the owner's;

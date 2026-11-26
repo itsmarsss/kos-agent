@@ -54,6 +54,7 @@ export {
   upsertMcpServers,
   type McpServerConfig,
 } from "./tools/mcp.js";
+export { GOOGLE_PREFIX, type GoogleView } from "./google/routes.js";
 export { SettingsStore } from "./store/settings.js";
 
 // Live turn narration and the progress stream, so a surface outside the
