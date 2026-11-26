@@ -65,11 +65,11 @@ const toolEnd = (conv: string, isError = false): ProgressEvent => ({ kind: "tool
 const turnEnd = (conv: string): ProgressEvent => ({ kind: "turn-end", conversationId: conv });
 
 describe("mirroring a turn's story into a thread", () => {
-  it("posts KOS's own repair prompt under KOS's name, never the owner's", async () => {
+  it("posts KOS's own repair prompt under KOS's name, never the owner's, and not as passed on", async () => {
     const h = harness();
     h.mirror.onProgress(start("c-thread", { said: "KOS maintenance: a scheduled job failed. Fix it.", from: "fix", origin: { via: "fix", from: { kind: "kos", name: "KOS maintenance" } } }));
     await h.mirror.settle();
-    expect(h.posts).toEqual([{ target: "t1", text: "KOS maintenance: a scheduled job failed. Fix it.\n-# passed on", from: "KOS maintenance" }]);
+    expect(h.posts).toEqual([{ target: "t1", text: "KOS maintenance: a scheduled job failed. Fix it.", from: "KOS maintenance" }]);
   });
 
   it("posts the passed-on message, narrates the step, then the answer, in order", async () => {

@@ -404,10 +404,12 @@ export class DevicePanel implements ChannelAdapter {
       if (event.from === this.name) this.turns.set(id, { ...(speaker ? { device: speaker } : {}), since: Date.now() });
       if (!chat || id !== chat.id) return;
       this.quiet();
-      const running: Running = { conversation: id, narrator: new TurnNarrator(), since: event.at ?? Date.now(), frames: [], shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
+      // KOS's own words to itself (a repair it asked for) are never drawn as the owner's.
+      const said = event.origin?.from?.kind === "kos" ? undefined : event.said;
+      const running: Running = { conversation: id, narrator: new TurnNarrator(), since: event.at ?? Date.now(), frames: [], shownAt: 0, ...(said ? { said } : {}), ...(speaker ? { speaker } : {}) };
       this.running = running;
       // Working from the start: the owner's words taken, or, for a turn on none, its story so far, which is nothing yet.
-      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true, command: false, since: running.since }), speaker);
+      if (said) void this.everyDevice("chat.status", this.statusOf(id, { said, taken: true, command: false, since: running.since }), speaker);
       else this.narrate(running, true);
       return;
     }

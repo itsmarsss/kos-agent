@@ -227,7 +227,7 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
           const fromKos = message.role === "user" && message.origin?.from?.kind === "kos";
           events.push(
             note || fromKos
-              ? { kind: "message", role: "system", text: note ?? text, ...at }
+              ? { kind: "message", role: "system", text: note ?? text, ...(fromKos && message.origin ? { origin: message.origin } : {}), ...at }
               : {
                   kind: "message",
                   role: message.role === "user" ? "you" : "kos",

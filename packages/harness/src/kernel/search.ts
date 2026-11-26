@@ -155,7 +155,8 @@ export function messageSource(deps: MessageSourceDeps): SearchSource {
           break;
         }
         deps.events(chat.id).forEach((event, index) => {
-          if (event.kind !== "message" || event.role === "system") return;
+          // A note is the harness's bookkeeping, except KOS's own words to itself (a repair it asked for).
+          if (event.kind !== "message" || (event.role === "system" && event.origin?.from?.kind !== "kos")) return;
           const text = oneLine(event.text);
           const match = matchText(text, query);
           if (!match) return;

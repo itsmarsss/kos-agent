@@ -313,19 +313,6 @@ export function ChatsPage({
   /** A row's link: a project's thread links into the project, the rest into Chats. */
   const hrefOf = (c: Conversation): string => hrefFor(placeOf(c.id, c));
   const [events, setEvents] = useState<ChatEvent[]>([]);
-  /**
-   * A message the server was given directly, shown until the transcript
-   * catches up. A fix attempt is started by the harness rather than typed
-   * here, so the chat opened on an agent apparently thinking about nothing
-   * and the question appeared a minute later when the turn recorded itself.
-   * It is KOS's prompt to itself, so it is drawn as KOS's note.
-   */
-  const seeded =
-    seed &&
-    seed.id === activeId &&
-    !events.some((e) => e.kind === "message" && e.text === seed.text)
-      ? ([{ kind: "message", role: "system", text: seed.text }] as ChatEvent[])
-      : [];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   // KOS not answering this tab: sending waits, and says so, until it is back.
@@ -500,6 +487,18 @@ export function ChatsPage({
   }, [showArchived, conversations]);
   const drop = useDropZone((l) => void attachments.add(l));
   const live = activeId ? progress[activeId] : undefined;
+  /**
+   * A message the server was given directly, shown until the transcript
+   * catches up. A fix attempt is started by the harness rather than typed
+   * here, so the chat opened on an agent apparently thinking about nothing
+   * and the question appeared a minute later when the turn recorded itself.
+   * It is KOS's prompt to itself, so it is drawn as KOS's note, and goes
+   * once the turn has ended or the transcript holds a note of its own.
+   */
+  const seeded =
+    seed && seed.id === activeId && !live?.ended && !events.some((e) => e.kind === "message" && e.role === "system")
+      ? ([{ kind: "message", role: "system", text: seed.text }] as ChatEvent[])
+      : [];
   // Said once as a turn starts here: the thread is busy until it ends, and its reply is then read as it lands.
   const workingSince = live && !live.ended ? live.since : undefined;
   useEffect(() => {

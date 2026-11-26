@@ -518,6 +518,17 @@ describe("a step's pictures on a device's chat", () => {
     expect(framed(mac)).toEqual([]);
   });
 
+  it("never draws KOS's own repair prompt as the owner's words", async () => {
+    const { panel, pair, setChat } = setup();
+    const one = pair();
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    panel.watch({ kind: "turn-start", conversationId: "chrome:owner", said: "KOS maintenance: a scheduled job failed. Fix it.", from: "fix", origin: { via: "fix", from: { kind: "kos", name: "KOS maintenance" } } });
+    panel.watch({ kind: "tool-start", conversationId: "chrome:owner", tool: "cron.list", summary: "List schedules" });
+    await flush();
+    const said = one.calls.filter((c) => c.method === "chat.status").map((c) => c.params["said"]);
+    expect(said.filter((s) => s !== undefined)).toEqual([]);
+  });
+
   it("shows a panel opened mid-turn what the turn's steps saw so far", async () => {
     const { panel, pair, setChat } = setup({ pictures });
     setChat({ id: "chrome:owner", title: "Chrome" });

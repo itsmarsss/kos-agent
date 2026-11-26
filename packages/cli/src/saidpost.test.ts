@@ -103,7 +103,7 @@ describe("KOS's own words in a mirrored chat", () => {
     const posted: { text: string; from?: string }[] = [];
     d.postIn = async (_target, msg) => void posted.push({ text: msg.text, ...(msg.from ? { from: msg.from.name } : {}) });
     await postSaid(said({ conversationId: "c-fix", text: "KOS maintenance: a scheduled job failed. Fix it.", reply: "Turned it off.", channel: null, from: { kind: "kos", name: "KOS maintenance" } }), d);
-    expect(posted).toEqual([{ text: "KOS maintenance: a scheduled job failed. Fix it.\n-# passed on", from: "KOS maintenance" }, { text: "Turned it off." }]);
+    expect(posted).toEqual([{ text: "KOS maintenance: a scheduled job failed. Fix it.", from: "KOS maintenance" }, { text: "Turned it off." }]);
   });
 });
 
