@@ -179,6 +179,29 @@ describe("sqlModule", () => {
     expect(now()).toEqual(before);
   });
 
+  it("explains only a statement a plan is read for, so an EXPLAIN PRAGMA changes no setting", async () => {
+    const maintenance = await harness("maintenance");
+    const settings = ["query_only", "foreign_keys", "hard_heap_limit", "recursive_triggers", "user_version"];
+    const now = (): unknown[] => settings.map((name) => ws.db.prepare(`PRAGMA ${name}`).get());
+    const before = now();
+    for (const sql of [
+      "EXPLAIN QUERY PLAN PRAGMA query_only=1",
+      "explain pragma foreign_keys=OFF",
+      "EXPLAIN PRAGMA hard_heap_limit(1000)",
+      "EXPLAIN /* x */ PRAGMA recursive_triggers = ON",
+      "EXPLAIN EXPLAIN PRAGMA user_version = 9",
+      "EXPLAIN QUERY PLAN PRAGMA table_info(books_tx)",
+    ]) {
+      maintenance.classify("sql", { sql });
+      const res = await maintenance.execute("sql", { sql });
+      expect(res.isError, sql).toBe(true);
+      expect(res.content, sql).toMatch(/EXPLAIN explains one SELECT/);
+    }
+    expect(now()).toEqual(before);
+    expect((await maintenance.execute("sql", { sql: "EXPLAIN QUERY PLAN SELECT * FROM books_tx WHERE amount > ?", params: [1] })).isError).toBe(false);
+    expect((await maintenance.execute("sql", { sql: "EXPLAIN SELECT 1" })).isError).toBe(false);
+  });
+
   it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
     expect(registry.classify("sql", { sql: "SELECT 1" }).tier).toBe("safe");
     expect(registry.classify("sql", { sql: "INSERT INTO books_tx (a) VALUES (1)" }).tier).toBe("safe");

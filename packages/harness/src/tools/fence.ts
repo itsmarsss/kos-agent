@@ -336,7 +336,12 @@ export function fence(db: Db, sql: string, reach: Reach, params: readonly unknow
     return refuse(reach.guest && !reachable(reach).length ? GUEST_ELSEWHERE : "the schema is Maintenance's to read, not yours: your project's tables and their columns are listed in your prompt.");
   }
   const code = codeOf(sql);
-  if (/^\s*explain\b/i.test(code)) return maintains(reach) ? { ok: true } : refuse("EXPLAIN is Maintenance's: send the statement itself.");
+  if (/^\s*explain\b/i.test(code)) {
+    if (!maintains(reach)) return refuse("EXPLAIN is Maintenance's: send the statement itself.");
+    // An EXPLAIN compiles what it explains, so a PRAGMA under one takes effect all the same: only a statement a plan is read for is explained.
+    const explained = code.replace(/^\s*explain\s+(?:query\s+plan\s+)?/i, "");
+    return explainable(explained) ? { ok: true } : refuse("EXPLAIN explains one SELECT, INSERT, UPDATE or DELETE, never a PRAGMA or another EXPLAIN.");
+  }
   if (!explainable(sql)) return refuse("sql runs one SELECT, INSERT, UPDATE or DELETE.");
   const plan = planOf(db, sql, params);
   if (!plan) return { ok: true };
