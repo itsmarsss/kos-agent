@@ -21,6 +21,7 @@ import {
   approvalCard,
   approvalText,
   noPreviews,
+  ownerAloneBy,
   settledText,
   storyText,
   buildButtons,
@@ -3280,5 +3281,27 @@ describe("two first posts at once", () => {
     // Once made and let go, a later ask makes a new one.
     adapter.forgetPlace("t1");
     expect(await adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge")).toBe("t2");
+  });
+});
+
+describe("a channel only the owner reads", () => {
+  const bits = (...set: bigint[]) => ({ has: (bit: bigint) => set.includes(bit) });
+  const V = PermissionFlagsBits.ViewChannel;
+  const ids = { everyone: "g", owner: "o", bot: "b", botRoles: new Set(["kosrole"]) };
+  const shut = { id: "g", allow: bits(), deny: bits(V) };
+
+  it("is one where everyone is kept out and only the owner and KOS are let back in", () => {
+    expect(ownerAloneBy([shut, { id: "o", allow: bits(V), deny: bits() }, { id: "b", allow: bits(V), deny: bits() }, { id: "kosrole", allow: bits(V), deny: bits() }], ids, false)).toBe(true);
+  });
+
+  it("is not one anyone else is let into, or everyone may see", () => {
+    expect(ownerAloneBy([shut, { id: "guests", allow: bits(V), deny: bits() }], ids, false)).toBe(false);
+    expect(ownerAloneBy([{ id: "g", allow: bits(V), deny: bits() }], ids, false)).toBe(false);
+    expect(ownerAloneBy([], ids, false)).toBe(false);
+  });
+
+  it("is not one when someone else sees every channel, or the owner is unknown", () => {
+    expect(ownerAloneBy([shut], ids, true)).toBe(false);
+    expect(ownerAloneBy([shut], { ...ids, owner: undefined }, false)).toBe(false);
   });
 });
