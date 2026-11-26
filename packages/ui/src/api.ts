@@ -201,6 +201,21 @@ export interface BrowserSettings {
   search: string;
 }
 
+/** The owner's Google account as Settings > Connections shows it: never the client secret or a token. */
+export interface GoogleInfo {
+  client: { id: string } | null;
+  /** Why the client cannot be read now: the vault is locked or missing. */
+  vault?: string;
+  account: { email: string; scopes: string[]; refreshable: boolean; savedAt: number } | null;
+  settings: { on: boolean; changes: boolean; send: boolean };
+  /** Scopes the mode needs that the sign-in did not grant. */
+  missing: string[];
+  signingIn: boolean;
+  error?: string;
+  redirectUri: string;
+  server: { connected: boolean; tools: number; error?: string } | null;
+}
+
 /** A server in mcp.json as the owner sees it in Settings, with whether it is up. */
 export interface McpServerInfo {
   name: string;
@@ -1463,6 +1478,13 @@ export const api = {
   updateSkill: (name: string) => post<{ updated: string; origin: string | null }>("/api/skills/update", { name }),
   removeSkill: (name: string) => post<{ removed: string }>("/api/skills/remove", { name }),
   mcpServers: () => get<{ servers: McpServerInfo[] }>("/api/mcp"),
+  google: () => get<GoogleInfo>("/api/google"),
+  /** The client JSON Google Cloud downloaded, into the vault. */
+  importGoogleClient: (json: string) => post<GoogleInfo>("/api/google/client", { json }),
+  /** The address to sign in at; the sign-in finishes when Google sends the browser back. */
+  googleSignIn: () => post<GoogleInfo & { url: string }>("/api/google/signin"),
+  setGoogle: (patch: Partial<GoogleInfo["settings"]>) => post<GoogleInfo>("/api/google/settings", patch),
+  disconnectGoogle: () => post<GoogleInfo & { revoked: boolean }>("/api/google/disconnect"),
   /** Skills in a repository folder, Anthropic's unless a source is given. */
   catalogSkills: (source?: string) =>
     get<CatalogSkills>(`/api/catalog/skills${source ? `?source=${encodeURIComponent(source)}` : ""}`),

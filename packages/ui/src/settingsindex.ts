@@ -19,6 +19,7 @@ export const SECTIONS = [
   { id: "appearance", group: "Conduct", label: "Appearance", blurb: "Light or dark for every surface, density for this browser" },
   { id: "skills", group: "Extensions", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
   { id: "modules", group: "Extensions", label: "Modules", blurb: "Features built as servers, and which are running" },
+  { id: "connections", group: "Extensions", label: "Connections", blurb: "Your Google account: Calendar, Gmail, Drive and Docs" },
   { id: "mcp", group: "Extensions", label: "MCP servers", blurb: "Outside tools, by the protocol they speak" },
   { id: "browser", group: "Extensions", label: "KOS's browser", blurb: "The Chrome KOS keeps for itself on this computer, apart from yours" },
   { id: "permissions", group: "Access", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
@@ -47,6 +48,9 @@ export interface SettingEntry {
 /** The settings the page writes out by hand, by section. */
 export const SETTINGS: SettingEntry[] = [
   { section: "permissions", label: "Secrets", words: "passwords logins cards keys vault" },
+  { section: "connections", label: "Google account", words: "calendar gmail mail drive docs oauth client sign in disconnect" },
+  { section: "connections", label: "Allow changes", words: "google write edit events drafts labels files" },
+  { section: "connections", label: "Allow sending mail", words: "google gmail send email" },
   { section: "you", label: "Name", words: "what KOS calls you" },
   { section: "you", label: "Timezone", words: "schedules today time zone" },
   { section: "you", label: "Owner id", words: "identifies you across channels" },

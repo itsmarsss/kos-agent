@@ -25,6 +25,7 @@ import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
 import { chooseTheme, isDensity, isTheme, readDensity, setDensity, useTheme, type Density } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
 import { DevicesPanel } from "./DevicesPanel.js";
+import { GooglePanel } from "./GooglePanel.js";
 import { GROUPS, SECTIONS, SETTINGS, isSettingsSection, searchSettings, type SettingEntry, type SettingHit, type SettingsSection } from "./settingsindex.js";
 
 /**
@@ -1499,6 +1500,11 @@ export function SettingsPage({
               </div>
             )}
             <SkillsAdd onInstalled={loadSkills} />
+          </Section>
+        )}
+        {active === "connections" && (
+          <Section title="Connections" blurb="Your Google account, for your calendar, mail, Drive and Docs. Reading only, until you allow changes here; sending mail is a switch of its own.">
+            <GooglePanel />
           </Section>
         )}
         {active === "mcp" && (
