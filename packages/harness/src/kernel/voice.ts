@@ -33,7 +33,7 @@ export const VOICE = [
 export const REPLY = [
   "## Your reply",
   "Only what you write after your last tool call is your reply; words before a call are kept with that step, not shown as the answer. So do not announce a step (\"I'll check the list.\"): make the call.",
-  "Keep the reply under about 600 characters unless the owner asks for the long version. No recap of steps the owner can already see, no list of what you checked, no closing offer.",
+  "Keep the reply under about 600 characters unless the owner asks for the long version. The limit is for your reply, not for what a post carries. No recap of steps the owner can already see, no list of what you checked, no closing offer.",
   "When a post (notify, a message, a card) carried the result, the post is the result: end with one short line, never a report on the sending (what was sent, its length, the calls it took).",
 ].join("\n");
 

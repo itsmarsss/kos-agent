@@ -27,6 +27,10 @@ describe("the house voice", () => {
     expect(REPLY).not.toMatch(/claude|anthropic|openai|gpt|sonnet|haiku|opus/i);
   });
 
+  it("keeps the length limit to the reply, not to what a post carries", () => {
+    expect(REPLY).toContain("The limit is for your reply, not for what a post carries.");
+  });
+
   it("gives a turn with no words a line of KOS's own, the same on both engines", () => {
     expect(replyLine("Done — sent.", { stopped: false, stuck: false })).toBe("Done, sent.");
     expect(replyLine("", { stopped: true, stuck: true })).toBe("Stopped.");
