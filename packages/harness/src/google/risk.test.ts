@@ -136,6 +136,28 @@ describe("Google tool risk", () => {
     }
   });
 
+  it("reads keys as the server does: camelCase and capitals are the same arguments", () => {
+    expect(googleEffect("modify_gmail_message_labels", { addLabelIds: ["TRASH"] })).toBe("delete");
+    expect(googleEffect("update_drive_file", { fileId: "f", TRASHED: true })).toBe("delete");
+    expect(googleEffect("manage_event", { ACTION: "delete", eventId: "e" })).toBe("delete");
+    expect(googleEffect("copy_drive_file", { fileId: "f", parentFolderId: "shared" })).toBe("person");
+    expect(googleEffect("create_doc", { title: "a", folderId: "shared" })).toBe("person");
+    expect(googleEffect("update_drive_file", { fileId: "f", addParents: "shared" })).toBe("person");
+    expect(googleEffect("update_drive_file", { fileId: "f", writersCanShare: true })).toBe("person");
+    expect(googleEffect("update_drive_file", { fileId: "f", "file-url": "x" })).toBe("person");
+  });
+
+  it("refuses a call naming another account, at any spelling of the key", () => {
+    const risk = googleToolRisk("get_events", () => "me@example.com");
+    expect(risk.refuse!({})).toBe(false);
+    expect(risk.refuse!({ user_google_email: "Me@Example.com" })).toBe(false);
+    expect(risk.refuse!({ user_google_email: "x@example.com" })).toMatch(/owner's own account/);
+    expect(risk.refuse!({ UserGoogleEmail: "x@example.com" })).toMatch(/owner's own account/);
+    expect(risk.refuse!({ user_google_email: ["me@example.com"] })).toMatch(/owner's own account/);
+    // With no owner known, any named account is refused.
+    expect(googleToolRisk("send_gmail_message").refuse!({ user_google_email: "me@example.com" })).toMatch(/owner's own account/);
+  });
+
   it("asks for an action it does not know as if it reached a person", () => {
     expect(googleEffect("manage_event", { action: "explode" })).toBe("person");
   });

@@ -182,10 +182,23 @@ export const GOOGLE_TOOLS: Readonly<Record<string, Judge>> = {
   manage_document_comment: byAction({ create: "person", reply: "person", update: "person", resolve: "person", delete: "delete" }),
 };
 
-/** What a call of a known tool does; undefined for a tool this table does not know. */
+/** A key as the server reads it (its camel_case middleware): addLabelIds, TRASHED and folder-id are add_label_ids, trashed and folder_id. */
+export function snakeKey(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/-/g, "_").toLowerCase();
+}
+
+/** The arguments with every key, at every depth, spelled as the server reads it. */
+export function serverArgs(value: unknown): Record<string, unknown> {
+  const walk = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(walk) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [snakeKey(k), walk(x)])) : v;
+  const out = walk(value);
+  return out && typeof out === "object" && !Array.isArray(out) ? (out as Record<string, unknown>) : {};
+}
+
+/** What a call of a known tool does, its arguments read as the server reads them; undefined for a tool this table does not know. */
 export function googleEffect(tool: string, input: Record<string, unknown>): GoogleEffect | undefined {
   const judge = GOOGLE_TOOLS[tool];
-  return judge ? reachCheck(judge)(input) : undefined;
+  return judge ? reachCheck(judge)(serverArgs(input)) : undefined;
 }
 
 /** Why an ask about each kind of call asks, in the owner's words. */
@@ -196,6 +209,11 @@ const WHY: Record<Exclude<GoogleEffect, "read">, string> = {
   send: "sends mail from your Google account",
 };
 
+/** Why a call naming another Google account is refused: the server would start a sign-in for it. */
+export function accountRefusal(owner: string | undefined): string {
+  return `KOS uses Google only as the owner's own account${owner ? `, ${owner}` : ""}. Leave user_google_email out; it is filled in.`;
+}
+
 /** Why a guest's work never touches the owner's Google account. */
 export const GUEST_REFUSAL = "Google is the owner's account; a guest's words started this work, and it never reads or changes it.";
 
@@ -204,8 +222,14 @@ export const GUEST_REFUSAL = "Google is the owner's account; a guest's words sta
  * asks with what it does said on the card, is beyond Auto, and is never
  * learned; a send asks every time.
  */
-export function googleToolRisk(tool: string): ToolRisk {
-  const refuse = (): string | false => (guestOrigin() ? GUEST_REFUSAL : false);
+export function googleToolRisk(tool: string, owner: () => string | undefined = () => undefined): ToolRisk {
+  const refuse = (input: Record<string, unknown>): string | false => {
+    if (guestOrigin()) return GUEST_REFUSAL;
+    const asked = serverArgs(input)["user_google_email"];
+    if (asked === undefined || asked === null || asked === "") return false;
+    const own = owner();
+    return own && typeof asked === "string" && asked.trim().toLowerCase() === own.toLowerCase() ? false : accountRefusal(own);
+  };
   if (!GOOGLE_TOOLS[tool]) {
     const why = `${tool} is a Google tool KOS does not know yet`;
     return { floor: "risky", why, refuse, beyondAuto: () => beyondAutoByName(tool) || why, neverLearned: () => true };
