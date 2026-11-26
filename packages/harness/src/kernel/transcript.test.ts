@@ -4,7 +4,7 @@ import type { ModelMessage } from "../models/types.js";
 import { decidedLine } from "./decisions.js";
 import { approvedResult, undoneResult } from "./guarded.js";
 import { ownerWords } from "../models/heard.js";
-import { conversationEvents, historyEvents, spokenTurns } from "./transcript.js";
+import { conversationEvents, historyEvents } from "./transcript.js";
 import { sdkCallMessages } from "../chat/sdkchat.js";
 
 const withTool: ModelMessage[] = [
@@ -306,15 +306,6 @@ describe("when a message was written", () => {
       { role: "assistant", content: [{ type: "text", text: "ok" }] },
     ]);
     expect(events.every((e) => !("at" in e))).toBe(true);
-  });
-});
-
-describe("spokenTurns", () => {
-  it("returns only what was said", () => {
-    expect(spokenTurns(withTool)).toEqual([
-      { role: "you", text: "what did I spend" },
-      { role: "kos", text: "$3,410." },
-    ]);
   });
 });
 

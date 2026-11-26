@@ -1,7 +1,7 @@
 import { outcomeOf, summarizeAction, type ActionHome, type CallOutcome } from "@kos/shared";
 
 import { heardWith } from "../models/heard.js";
-import { saidText, type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
+import { type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
 import { RESUME_HEAD } from "./decisions.js";
 import { parseQueuedApproval } from "./guarded.js";
 import type { EarlierHistory } from "./session.js";
@@ -144,10 +144,6 @@ function isStep(message: ModelMessage): boolean {
   return message.role === "assistant" && message.content.some((b) => b.type === "tool_use");
 }
 
-function textOf(content: ModelMessage["content"]): string {
-  return saidText(content).trim();
-}
-
 /**
  * How many of the owner's lines a stored message is on the page: what a
  * Retry or an Edit counts by, so its index means the line the owner pressed
@@ -288,19 +284,6 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
   }
 
   return events;
-}
-
-/** Just the spoken turns, for surfaces that only want the conversation. */
-export function spokenTurns(
-  messages: ModelMessage[],
-): Array<{ role: "you" | "kos"; text: string }> {
-  return messages
-    .filter((m) => !isStep(m))
-    .map((m) => ({
-      role: (m.role === "user" ? "you" : "kos") as "you" | "kos",
-      text: textOf(m.content),
-    }))
-    .filter((t) => t.text !== "");
 }
 
 /**
