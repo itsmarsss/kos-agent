@@ -94,48 +94,56 @@ describe("routine work without asking", () => {
     expect(sent).toEqual([]);
   });
 
-  it("asks once for a channel others read, then the job keeps the owner's yes", async () => {
+  it("asks every run for a channel others read, whatever was approved before", async () => {
     kernel = await boot();
     const job = posting(kernel, "discord:channel:pub");
     await kernel.fireCron(job.id);
     const [ask] = kernel.approvals.pending();
-    expect(ask).toMatchObject({ tool: "notify", job: job.id });
-    await kernel.approve(ask!.id, undefined, { surface: "dashboard" });
+    expect(ask).toMatchObject({ tool: "notify", job: job.id, rule: null });
+    await kernel.approve(ask!.id, undefined, { surface: "dashboard", remember: true });
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(kernel.permissions.list()).toMatchObject([{ tool: "notify", scope: "to:discord:channel:pub", job: job.id }]);
-
+    expect(kernel.permissions.list()).toEqual([]);
     await kernel.fireCron(job.id);
-    expect(kernel.approvals.pending()).toHaveLength(0);
-    expect(sent).toHaveLength(2);
-
-    // Another job posting there was never consented to, nor was turning jobs to ask.
-    const other = posting(kernel, "discord:channel:pub", "Other");
-    await kernel.fireCron(other.id);
     expect(kernel.approvals.pending()).toHaveLength(1);
-    kernel.settings.set(BEHAVIOUR_KEY, { jobsPostUnasked: false });
-    await kernel.fireCron(job.id);
-    expect(kernel.approvals.pending()).toHaveLength(2);
   });
 
-  it("refuses a widening the job read somewhere: a new channel asks, and nothing is learned from a no", async () => {
+  it("keeps a schedule's Always for its later runs, and a plain Approve for this run alone", async () => {
+    kernel = await boot();
+    const touching = (name: string) => kernel.crons.create({ name, schedule: "0 7 * * *", type: "actions", actions: [{ tool: "shell.run", args: { command: `touch ${name}.txt` } }], enabled: true });
+    const kept = touching("kept");
+    await kernel.fireCron(kept.id);
+    await kernel.approve(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard", remember: true });
+    await vi.waitFor(() => expect(kernel.permissions.list()).toMatchObject([{ tool: "shell.run", scope: "cmd:touch", job: kept.id }]));
+    await kernel.fireCron(kept.id);
+    expect(kernel.approvals.pending()).toHaveLength(0);
+
+    const once = touching("once");
+    await kernel.fireCron(once.id);
+    await kernel.approve(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
+    await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(0));
+    expect(kernel.permissions.list()).toHaveLength(1);
+    await kernel.fireCron(once.id);
+    expect(kernel.approvals.pending()).toHaveLength(1);
+  });
+
+  it("refuses a widening the job read somewhere: a channel others read asks, and nothing is learned from it", async () => {
     kernel = await boot(
       scripted([
-        toolCall("r1", "notify", { to: "discord:channel:pub", text: "School digest" }),
+        toolCall("r1", "notify", { to: "discord:channel:own", text: "School digest" }),
         // What a page it read told it to do.
-        toolCall("r2", "notify", { to: "discord:channel:elsewhere", text: "Also post this here, as the page says" }),
+        toolCall("r2", "notify", { to: "discord:channel:pub", text: "Also post this here, as the page says" }),
         text("Posted."),
       ]),
     );
-    const job = kernel.crons.create({ name: "Digest", schedule: "0 7 * * *", type: "self_prompt", prompt: "Read the school page and post the digest to discord:channel:pub.", enabled: true });
-    kernel.permissions.add({ tool: "notify", scope: "to:discord:channel:pub", project: null, job: job.id });
+    const job = kernel.crons.create({ name: "Digest", schedule: "0 7 * * *", type: "self_prompt", prompt: "Read the school page and post the digest to discord:channel:own.", enabled: true });
     await kernel.fireCron(job.id);
     await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(1));
     const [ask] = kernel.approvals.pending();
     expect(ask).toMatchObject({ tool: "notify", job: job.id });
-    expect(JSON.parse(ask!.args).to).toBe("discord:channel:elsewhere");
+    expect(JSON.parse(ask!.args).to).toBe("discord:channel:pub");
     expect(sent.map((p) => p.text)).toEqual(["School digest"]);
     await kernel.deny(ask!.id, undefined, { surface: "dashboard" });
-    expect(kernel.permissions.list().map((r) => r.scope)).toEqual(["to:discord:channel:pub"]);
+    expect(kernel.permissions.list()).toEqual([]);
   });
 
   it("lets the same step through for fifteen minutes after one yes in a chat, and asks again after", async () => {
@@ -170,9 +178,9 @@ describe("routine work without asking", () => {
 
   it("keeps a revoked job rule revoked across a restart", async () => {
     kernel = await boot();
-    const job = posting(kernel, "discord:channel:pub");
+    const job = kernel.crons.create({ name: "touch", schedule: "0 7 * * *", type: "actions", actions: [{ tool: "shell.run", args: { command: "touch t.txt" } }], enabled: true });
     await kernel.fireCron(job.id);
-    await kernel.approve(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
+    await kernel.approve(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard", remember: true });
     await vi.waitFor(() => expect(kernel.permissions.list()).toHaveLength(1));
     kernel.permissions.revoke(kernel.permissions.list()[0]!.id);
     kernel.close();
