@@ -158,8 +158,10 @@ In a chat:
   turn has read text you did not write (a page, an email, a guest's
   message, rows guests wrote), no Always, burst, job consent or Auto covers
   what it does next that reaches outside, and its card says what it read:
-  "After reading: an email from x@y, a page on example.com". See
-  [security](security.md#taint-the-turn).
+  "After reading: an email from x@y, a page on example.com". The chat
+  keeps that taint: its header says "Read outside text" with **Trust this
+  chat again** until you press it (or `/trust`, `/clear`, a new chat). See
+  [security](security.md#taint-the-chat).
 
 ## Browser
 
