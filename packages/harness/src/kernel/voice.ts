@@ -38,7 +38,7 @@ export const REPLY = [
 ].join("\n");
 
 /** A turn that ran out of steps, or failed, before it had anything to say. */
-export const STUCK_REPLY = "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down.";
+export const STUCK_REPLY = "I stopped before reaching an answer: I ran out of steps or hit an error. Tell me what to try instead, or narrow it down.";
 
 /**
  * What a turn says, on either engine: its reply in the house voice, or a line
