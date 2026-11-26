@@ -21,6 +21,7 @@ import {
   approvalCard,
   approvalText,
   noPreviews,
+  othersMaySeeAll,
   ownerAloneBy,
   settledText,
   storyText,
@@ -3303,5 +3304,23 @@ describe("a channel only the owner reads", () => {
   it("is not one when someone else sees every channel, or the owner is unknown", () => {
     expect(ownerAloneBy([shut], ids, true)).toBe(false);
     expect(ownerAloneBy([shut], { ...ids, owner: undefined }, false)).toBe(false);
+  });
+});
+
+describe("who may see every channel", () => {
+  const ids = { owner: "o", botRoles: new Set(["kosrole"]) };
+
+  it("is nobody else on the owner's own server with no role granting Administrator but KOS's", () => {
+    expect(othersMaySeeAll([{ id: "g", administrator: false }, { id: "kosrole", administrator: true }], "o", ids)).toBe(false);
+  });
+
+  it("is someone, unconfirmed, whenever another role grants Administrator, even one the owner seems alone to hold", () => {
+    expect(othersMaySeeAll([{ id: "admins", administrator: true }], "o", ids)).toBe(true);
+    expect(othersMaySeeAll([{ id: "g", administrator: true }], "o", ids)).toBe(true);
+  });
+
+  it("is someone when the server is not the owner's, or the owner is unknown", () => {
+    expect(othersMaySeeAll([], "someone", ids)).toBe(true);
+    expect(othersMaySeeAll([], "o", { botRoles: new Set() })).toBe(true);
   });
 });

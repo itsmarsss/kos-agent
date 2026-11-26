@@ -522,6 +522,18 @@ export function ownerAloneBy(overwrites: Iterable<SeenBy>, ids: { everyone: stri
   return all.every((o) => ours.has(o.id) || !o.allow.has(PermissionFlagsBits.ViewChannel));
 }
 
+/**
+ * Whether someone besides the owner and KOS may see every channel: the
+ * server is someone else's, or a role other than KOS's own grants
+ * Administrator. Who holds a role cannot be known for sure from the
+ * members the client happens to hold, so any such role counts, even one
+ * only the owner seems to hold: fails closed.
+ */
+export function othersMaySeeAll(roles: Iterable<{ id: string; administrator: boolean }>, serverOwner: string, ids: { owner?: string; botRoles: ReadonlySet<string> }): boolean {
+  if (!ids.owner || serverOwner !== ids.owner) return true;
+  return [...roles].some((r) => r.administrator && !ids.botRoles.has(r.id));
+}
+
 /** A blob's webhooks are named for it, so its face can be told from the shared one. */
 export function webhookPrefixFor(from: Sender): string {
   return `KOS·${from.name.replace(/[·\n]/g, " ").trim().slice(0, 40)}`;
@@ -2178,10 +2190,9 @@ export class DiscordAdapter implements ChannelAdapter {
     const bot = this.client.user?.id;
     const botRoles = new Set(guild.roles.cache.filter((r) => r.managed && r.tags?.botId === bot).map((r) => r.id));
     const ids = { ...this.permissionIds(guild.id), botRoles };
-    // A role that sees every channel, held by anyone but the owner and KOS, reads this one too.
-    const othersSeeAll = guild.roles.cache.some((r) => r.permissions.has(PermissionFlagsBits.Administrator) && r.members.some((m) => m.id !== ids.owner && m.id !== bot));
+    const roles = guild.roles.cache.map((r) => ({ id: r.id, administrator: r.permissions.has(PermissionFlagsBits.Administrator) }));
     const overwrites = [...channel.permissionOverwrites.cache.values()].map((o) => ({ id: o.id, allow: o.allow, deny: o.deny }));
-    return ownerAloneBy(overwrites, ids, othersSeeAll || guild.ownerId !== ids.owner);
+    return ownerAloneBy(overwrites, ids, othersMaySeeAll(roles, guild.ownerId, ids));
   }
 
   private async guild(): Promise<AdminGuild> {
