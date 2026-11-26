@@ -4312,8 +4312,6 @@ export class Kernel {
       ...(opts.ownWords === true ? { ownWords: true } : {}),
       ...(opts.scheduled !== undefined ? { scheduled: opts.scheduled } : {}),
       ...(opts.scheduled !== undefined && this.crons.get(opts.scheduled) ? { scheduledSince: this.crons.get(opts.scheduled)!.createdAt } : {}),
-      // The owner may have scheduled jobs ask before every post, whatever they consented to.
-      jobConsentCovers: (tool) => tool !== "notify" || this.behaviour().jobsPostUnasked,
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
       onQueued: (action) => {

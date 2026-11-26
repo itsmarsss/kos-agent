@@ -28,7 +28,7 @@ export interface PermissionRule {
   scope: string | null;
   /** The project slug it applies in, or null for everywhere. */
   project: string | null;
-  /** The scheduled job whose runs it covers, alone: the job's consent, learned from the owner's yes to it. Null for a standing rule. */
+  /** The scheduled job whose runs it covers, alone: the job's consent, an Always pressed on its ask. Null for a standing rule. */
   job: number | null;
   createdAt: number;
   /** False for a rule kept by an older build that no call can match any more: shown so in Settings. */
@@ -346,8 +346,8 @@ export class PermissionStore {
   /**
    * Has the owner said yes to this for this caller, though not for good?
    *
-   * A job's consent: what the owner approved for that job's runs, or
-   * allowed when it was scheduled, covers its later runs and nothing else.
+   * A job's consent: an Always the owner pressed on that job's ask (or an
+   * approval kept from before) covers its later runs and nothing else.
    * A burst: the same step, in the same chat, within BURST_MS of the yes.
    * Neither is consulted for what may never be learned (risk/learned.ts);
    * the caller judges that.
@@ -356,10 +356,12 @@ export class PermissionStore {
     const scope = scopeOf(tool, input, context);
     if (scope === undefined) return false;
     const family = familyOf(tool, context);
+    // A learned yes was made inside the turn's own folder: past it, it says nothing.
+    if (reaches(tool, input, context)) return false;
     const job = who.job;
-    // A job's rule was made inside its project: past the turn's own folder it says nothing.
-    if (job && !reaches(tool, input, context)) {
-      const covered = this.list().some((r) => r.job === job.id && r.createdAt >= job.since && (r.tool === tool || r.tool === family) && scopeCovers(r.scope, scope));
+    // Never the whole tool: a job's rule names a shape, as a burst does.
+    if (job) {
+      const covered = this.list().some((r) => r.job === job.id && r.createdAt >= job.since && r.scope !== null && (r.tool === tool || r.tool === family) && scopeCovers(r.scope, scope));
       if (covered) return "job";
     }
     const now = this.now();
@@ -370,9 +372,11 @@ export class PermissionStore {
   /**
    * Hold the owner's yes to this call for the same step in the same chat,
    * for BURST_MS. False when its scope cannot be named, or names the whole
-   * tool: a tool-wide yes is an Always the owner presses, never a moment's.
+   * tool (a tool-wide yes is an Always the owner presses, never a moment's),
+   * or the call reaches past the turn's own folder.
    */
   holdBurst(conversationId: string, tool: string, input: Record<string, unknown>, context?: PermissionContext): boolean {
+    if (reaches(tool, input, context)) return false;
     const scope = scopeOf(tool, input, context);
     if (scope === undefined || scope === null) return false;
     const now = this.now();

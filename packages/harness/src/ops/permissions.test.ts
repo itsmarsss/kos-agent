@@ -317,3 +317,21 @@ describe("a burst", () => {
     expect(rules.learned("chats.delete", { id: "y" }, { conversationId: "c1" })).toBe(false);
   });
 });
+
+describe("what a learned yes never names", () => {
+  it("never lets a job's rule for the whole tool cover anything", () => {
+    const rules = new PermissionStore(new Database(":memory:"), () => 2_000);
+    rules.add({ tool: "mcp.git.git_push", scope: null, project: null, job: 4 });
+    expect(rules.learned("mcp.git.git_push", { remote: "origin" }, { job: { id: 4, since: 0 } })).toBe(false);
+  });
+
+  it("holds no burst past the turn's own folder, and lets none cover a call there", () => {
+    const rules = new PermissionStore(new Database(":memory:"), () => 0);
+    const edit = { path: "skills/scan/run.mjs", text: "x" };
+    expect(rules.holdBurst("c1", "files.edit", edit, { reached: true })).toBe(false);
+    expect(rules.holdBurst("c1", "files.edit", edit)).toBe(true);
+    expect(rules.learned("files.edit", edit, { conversationId: "c1" }, { reached: true })).toBe(false);
+    rules.add({ tool: "files.edit", scope: "dir:skills/scan", project: null, job: 4 });
+    expect(rules.learned("files.edit", edit, { job: { id: 4, since: 0 } }, { reached: true })).toBe(false);
+  });
+});

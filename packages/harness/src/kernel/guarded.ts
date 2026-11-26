@@ -8,7 +8,7 @@ import { defang, type HeardWords } from "../models/heard.js";
 import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { Caller, PermissionContext } from "../ops/permissions.js";
-import { beyondAutoRule } from "../risk/beyondauto.js";
+import { withBeyondAuto } from "../risk/beyondauto.js";
 import { learnable } from "../risk/learned.js";
 import type { RiskAssessment } from "../risk/tiers.js";
 import { hasSecretRef, placeSecrets, secretsNamed } from "../secrets/inject.js";
@@ -81,8 +81,7 @@ export interface GuardedToolsDeps {
     /** Hold the owner's yes to this call for the same step in this chat, a short while. */
     holdBurst?(conversationId: string, tool: string, input: Record<string, unknown>, context?: PermissionContext): boolean;
   };
-  /** Whether a job's consent may cover this call now: false when the owner set scheduled jobs to ask before they post. */
-  jobConsentCovers?: (tool: string, input: Record<string, unknown>) => boolean;
+
   /** What the caller knows about a call that its arguments do not: the browser's site. */
   permissionContext?: (tool: string) => PermissionContext | undefined;
   /** What the owner said since the last call, while this turn runs: handed to the model with this call's result. */
@@ -492,8 +491,7 @@ export class GuardedTools implements ToolBox {
     const sends = using.length > 0 ? `sends secret ${using.join(", ")} to ${registry.secretSlots(name)?.host?.(input) ?? "an unknown host"}` : undefined;
     const classified: RiskAssessment = sends ? { tier: "risky", escalated: true, reason: sends, asksAlways: true } : await within(async () => registry.classify(name, input));
     // What KOS's own rules put beyond a chat's Auto, beside what the tool's own says.
-    const barred = classified.tier === "risky" && !classified.beyondAuto ? beyondAutoRule(name, input) : false;
-    const assessment = barred ? { ...classified, beyondAuto: barred } : classified;
+    const assessment = withBeyondAuto(classified, name, input);
     // A call that names a secret anywhere asks every time: Auto and remembered decisions never cover it.
     const secret = hasSecretRef(input);
 
@@ -578,9 +576,11 @@ export class GuardedTools implements ToolBox {
       // Learned from the owner's own decisions, never from what a turn read, and never for what may not be learned (risk/learned.ts).
       const learnedCall = { tool: name, input, assessment, guest: guest !== undefined, secret, strict, yours: context?.browser?.yours === true };
       const asker: Caller = { ...(conversationId ? { conversationId } : {}), ...(job !== undefined && this.deps.scheduledSince !== undefined ? { job: { id: job, since: this.deps.scheduledSince } } : {}) };
-      const learned = standing || always ? false : this.deps.permissions?.learned?.(name, input, asker, context) || false;
-      const learnedOk = learned !== false && learnable(learnedCall, learned) && (learned !== "job" || this.deps.jobConsentCovers?.(name, input) !== false);
-      const yes = standing || learnedOk;
+      const mayLearn = learnable(learnedCall);
+      const learned = standing || always || !mayLearn ? false : this.deps.permissions?.learned?.(name, input, asker, context) || false;
+      // A browser step a learned yes would let through is read for a checkout first, as Auto's is: money is never learned.
+      const pays = learned ? await this.deps.beyondAutoNow?.(name, input).catch(() => "could not check the page for a checkout") : undefined;
+      const yes = standing || (learned !== false && !pays);
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
       const bound = yes ? context?.browser?.site : undefined;
       const allowed = yes && !(bound !== undefined && this.deps.leavesSite?.(name, input, bound) === true);
@@ -602,7 +602,9 @@ export class GuardedTools implements ToolBox {
       // Named now, while the caller's situation is known: the rule a yes-
       // and-remember would keep, and a picture of the page a browser action
       // is aimed at, which the arguments alone cannot show.
-      const rule = always || beyond ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
+      const named = always || beyond ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
+      // A scheduled run's Always is kept for its job alone, and only for what a job may keep: a named shape, never the whole tool.
+      const rule = job === undefined ? named : named && named.scope !== null && mayLearn && !pays ? { ...named, job } : undefined;
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();
@@ -682,7 +684,7 @@ export class GuardedTools implements ToolBox {
       }
 
       // The owner's yes holds for the same step in this chat a short while: a burst of one kind of work asks once.
-      if (conversationId && learnable(learnedCall, "burst")) this.deps.permissions?.holdBurst?.(conversationId, name, input, context);
+      if (conversationId && mayLearn && !assessment.reached) this.deps.permissions?.holdBurst?.(conversationId, name, input, context);
       const unready = await readyNow();
       if (unready) return unready;
       const decided = approvals.get(action.id);

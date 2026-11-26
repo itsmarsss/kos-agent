@@ -87,6 +87,43 @@ describe("GuardedTools", () => {
     await asking;
   });
 
+  describe("a learned yes", () => {
+    const site = { browser: { prefix: "browser.", site: "shop.example" } };
+
+    it("lets the same step through after one yes in a chat, unless the page now reads as a checkout", async () => {
+      registry.register({ name: "browser.act", description: "b", inputSchema: { type: "object" } }, () => "clicked", { floor: "risky" });
+      const permissions = new PermissionStore(ws.db);
+      permissions.holdBurst("c1", "browser.act", {}, site);
+      const page: { reads?: string } = {};
+      const tools = (): GuardedTools => guarded({ conversationId: "c1", permissions, permissionContext: () => site, beyondAutoNow: async () => page.reads, waitForApproval: false });
+      expect((await tools().execute("browser.act", { actions: [{ click: "@e1" }] })).content).toBe("clicked");
+      page.reads = "acts on a checkout or payment page";
+      expect((await tools().execute("browser.act", { actions: [{ click: "@e9" }] })).content).toMatch(/^Queued for approval/);
+    });
+
+    it("never lets a call no learned yes may cover through, however recent the yes", async () => {
+      registry.register({ name: "kernelwrite", description: "k", inputSchema: { type: "object" } }, () => "wrote", { floor: "risky", neverLearned: () => true });
+      const permissions = new PermissionStore(ws.db);
+      permissions.add({ tool: "kernelwrite", scope: null, project: null, job: 3 });
+      expect(permissions.holdBurst("c1", "files.edit", { path: "a/b.md" })).toBe(true);
+      const result = await guarded({ conversationId: "c1", permissions, scheduled: 3, scheduledSince: 0, waitForApproval: false }).execute("kernelwrite", { x: 1 });
+      expect(result.content).toMatch(/^Queued for approval/);
+    });
+
+    it("offers a scheduled run's Always for its job alone, and none for the whole tool", async () => {
+      registry.register({ name: "http.fetch", description: "h", inputSchema: { type: "object" } }, () => "fetched", { floor: "risky" });
+      registry.register({ name: "mcp.git.git_push", description: "g", inputSchema: { type: "object" } }, () => "pushed", { floor: "risky" });
+      const permissions = new PermissionStore(ws.db);
+      const tools = guarded({ conversationId: "cron:3", permissions, scheduled: 3, scheduledSince: 0, attended: false, waitForApproval: false });
+      await tools.execute("http.fetch", { url: "https://api.example/x" });
+      await tools.execute("mcp.git.git_push", {});
+      const [fetch, push] = approvals.pending();
+      expect(fetch?.rule).toEqual({ tool: "http.fetch", scope: "host:api.example", project: null, job: 3 });
+      expect(fetch?.job).toBe(3);
+      expect(push?.rule).toBeNull();
+    });
+  });
+
   describe("a chat set to Auto", () => {
     const AUTO = { mode: "auto" } as const;
     const yours = { browser: { prefix: "browser.", site: "shop.example", strict: ["browser.eval", "browser.handoff"], yours: true } };
