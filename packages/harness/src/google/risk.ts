@@ -182,9 +182,9 @@ export const GOOGLE_TOOLS: Readonly<Record<string, Judge>> = {
   manage_document_comment: byAction({ create: "person", reply: "person", update: "person", resolve: "person", delete: "delete" }),
 };
 
-/** A key as the server reads it (its camel_case middleware): addLabelIds, TRASHED and folder-id are add_label_ids, trashed and folder_id. */
+/** A key as the server reads it (core/camel_case_middleware.py, the same boundaries): addLabelIds, TRASHED and userGOOGLEEmail are add_label_ids, trashed and user_google_email. */
 export function snakeKey(key: string): string {
-  return key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/-/g, "_").toLowerCase();
+  return key.replace(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/g, "_").toLowerCase();
 }
 
 /** The arguments with every key, at every depth, spelled as the server reads it. */

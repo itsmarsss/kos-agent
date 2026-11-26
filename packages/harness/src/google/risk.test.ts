@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { guested } from "../kernel/caller.js";
 import { learnable } from "../risk/learned.js";
 import { classifyRisk } from "../risk/tiers.js";
-import { GOOGLE_TOOLS, GUEST_REFUSAL, googleEffect, googleToolRisk } from "./risk.js";
+import { GOOGLE_TOOLS, GUEST_REFUSAL, googleEffect, googleToolRisk, snakeKey } from "./risk.js";
 
 /** The tools workspace-mcp 2.7.0 lists for calendar, gmail, drive and docs in send mode, the widest KOS runs. */
 const LISTED = [
@@ -145,6 +145,11 @@ describe("Google tool risk", () => {
     expect(googleEffect("update_drive_file", { fileId: "f", addParents: "shared" })).toBe("person");
     expect(googleEffect("update_drive_file", { fileId: "f", writersCanShare: true })).toBe("person");
     expect(googleEffect("update_drive_file", { fileId: "f", "file-url": "x" })).toBe("person");
+    // The server's own boundaries: a run of capitals ends where a word begins.
+    expect(snakeKey("userGOOGLEEmail")).toBe("user_google_email");
+    expect(snakeKey("addLABELIds")).toBe("add_label_ids");
+    expect(googleEffect("modify_gmail_message_labels", { addLABELIds: ["TRASH"] })).toBe("delete");
+    expect(googleToolRisk("get_events", () => "me@example.com").refuse!({ userGOOGLEEmail: "x@example.com" })).toMatch(/owner's own account/);
   });
 
   it("refuses a call naming another account, at any spelling of the key", () => {
