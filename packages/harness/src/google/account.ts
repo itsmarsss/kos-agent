@@ -1,4 +1,4 @@
-import { closeSync, constants, fchmodSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -84,35 +84,89 @@ function realDir(dir: string): void {
   }
 }
 
-/** The regular files in a folder, by lstat: a link in it is not one. */
+/** A folder as it was when KOS opened it, without following a link: what it acts in must still be this one. */
+interface Held {
+  path: string;
+  dev: number;
+  ino: number;
+}
+
+function hold(dir: string): Held | undefined {
+  try {
+    const fd = openSync(dir, constants.O_RDONLY | constants.O_DIRECTORY | NOFOLLOW);
+    try {
+      const st = fstatSync(fd);
+      return { path: dir, dev: st.dev, ino: st.ino };
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+/** The folder at its path is still the one held: not swapped for a link or another folder since. */
+function stillHeld(held: Held): boolean {
+  try {
+    const st = lstatSync(held.path);
+    return st.isDirectory() && st.dev === held.dev && st.ino === held.ino;
+  } catch {
+    return false;
+  }
+}
+
+/** A file KOS may act on: regular, with no other name (a hard link to a file elsewhere has two). */
+const lone = (st: { isFile(): boolean; nlink: number }): boolean => st.isFile() && st.nlink === 1;
+
+/** The lone regular files in a folder, by lstat: a link in it is not one, nor is a file with another name. */
 export function regularFiles(dir: string): string[] {
+  const held = hold(dir);
+  if (!held) return [];
   let names: string[];
   try {
     names = readdirSync(dir);
   } catch {
     return [];
   }
-  return names.filter((n) => {
+  const files = names.filter((n) => {
     try {
-      return lstatSync(join(dir, n)).isFile();
+      return lone(lstatSync(join(dir, n)));
     } catch {
       return false;
     }
   });
+  return stillHeld(held) ? files : [];
 }
 
-/** Do something to a regular file through a descriptor opened without following a link; nothing for a link or a file gone. */
-function onFile(path: string, flags: number, act: (fd: number) => void): void {
+/**
+ * Do something to a lone regular file in a folder, through a descriptor
+ * opened without following a link, and only while the folder is still the
+ * one opened: nothing for a link, a hard link, a file gone or a folder swapped.
+ */
+function onFile(dir: string, name: string, flags: number, act: (fd: number) => void): void {
+  const held = hold(dir);
+  if (!held) return;
   let fd: number;
   try {
-    fd = openSync(path, flags | NOFOLLOW);
+    fd = openSync(join(dir, name), flags | NOFOLLOW);
   } catch {
     return;
   }
   try {
-    if (fstatSync(fd).isFile()) act(fd);
+    if (lone(fstatSync(fd)) && stillHeld(held)) act(fd);
   } finally {
     closeSync(fd);
+  }
+}
+
+/** Delete a lone regular file in a folder, the folder still the one held; a link or a hard link is left where it is. */
+function removeFile(dir: string, name: string): void {
+  const held = hold(dir);
+  if (!held) return;
+  try {
+    if (lone(lstatSync(join(dir, name))) && stillHeld(held)) unlinkSync(join(dir, name));
+  } catch {
+    // Gone already.
   }
 }
 
@@ -120,9 +174,9 @@ function onFile(path: string, flags: number, act: (fd: number) => void): void {
 export function preparePlaces(places: GooglePlaces): void {
   realDir(places.root);
   for (const dir of serverDirs(places)) realDir(dir);
-  for (const file of regularFiles(places.credentials)) onFile(join(places.credentials, file), constants.O_RDONLY, (fd) => fchmodSync(fd, 0o600));
+  for (const file of regularFiles(places.credentials)) onFile(places.credentials, file, constants.O_RDONLY, (fd) => fchmodSync(fd, 0o600));
   for (const file of regularFiles(places.logs)) {
-    onFile(join(places.logs, file), constants.O_WRONLY, (fd) => {
+    onFile(places.logs, file, constants.O_WRONLY, (fd) => {
       if (fstatSync(fd).size > LOG_MAX_BYTES) ftruncateSync(fd, 0);
     });
   }
@@ -182,10 +236,10 @@ interface TokenFile {
 }
 
 /** The token files, by account: `<url-encoded email>.json`, skipping the server's own state file. */
-function accountFiles(places: GooglePlaces): { email: string; path: string }[] {
+function accountFiles(places: GooglePlaces): { email: string; name: string; path: string }[] {
   return regularFiles(places.credentials)
     .filter((f) => f.endsWith(".json"))
-    .map((f) => ({ email: safeDecode(f.slice(0, -".json".length)), path: join(places.credentials, f) }))
+    .map((f) => ({ email: safeDecode(f.slice(0, -".json".length)), name: f, path: join(places.credentials, f) }))
     .filter((a) => a.email.includes("@"))
     .sort((a, b) => a.email.localeCompare(b.email));
 }
@@ -198,9 +252,11 @@ function safeDecode(name: string): string {
   }
 }
 
-function readToken(path: string): TokenFile | undefined {
+function readToken(dir: string, name: string): TokenFile | undefined {
+  let text: string | undefined;
+  onFile(dir, name, constants.O_RDONLY, (fd) => (text = readFileSync(fd, "utf8")));
   try {
-    const parsed = JSON.parse(readNoFollow(path)) as unknown;
+    const parsed = text === undefined ? undefined : (JSON.parse(text) as unknown);
     return parsed && typeof parsed === "object" ? (parsed as TokenFile) : undefined;
   } catch {
     return undefined;
@@ -213,7 +269,7 @@ const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCas
 export function readAccount(places: GooglePlaces, email?: string): GoogleAccount | undefined {
   for (const file of accountFiles(places)) {
     if (email !== undefined && !same(file.email, email)) continue;
-    const token = readToken(file.path);
+    const token = readToken(places.credentials, file.name);
     if (!token) continue;
     const scopes = Array.isArray(token.scopes) ? token.scopes.filter((s): s is string => typeof s === "string").sort() : [];
     return { email: file.email, scopes, refreshable: typeof token.refresh_token === "string" && token.refresh_token !== "", savedAt: lstatSync(file.path).mtimeMs };
@@ -239,8 +295,8 @@ export type RevokeFetch = (url: string, init: { method: "POST"; headers: Record<
 export async function forget(places: GooglePlaces, fetchFn: RevokeFetch, only?: string[]): Promise<{ accounts: string[]; revoked: boolean }> {
   const files = accountFiles(places).filter((f) => !only || only.some((e) => same(e, f.email)));
   let revoked = true;
-  for (const { path } of files) {
-    const token = readToken(path);
+  for (const { name } of files) {
+    const token = readToken(places.credentials, name);
     const value = token?.refresh_token || token?.token;
     if (value) {
       try {
@@ -255,7 +311,7 @@ export async function forget(places: GooglePlaces, fetchFn: RevokeFetch, only?: 
         revoked = false;
       }
     }
-    rmSync(path, { force: true });
+    removeFile(places.credentials, name);
   }
   return { accounts: files.map((f) => f.email), revoked };
 }
