@@ -437,28 +437,44 @@ export class GuardedTools implements ToolBox {
       }
     };
 
+    /*
+     * A call refused before it ran, on the record as a failed step.
+     *
+     * Kept out of the audit, a refusal was no step at all: a job whose
+     * shell call its allow-list refused, which then ended quietly, read as
+     * a clean run. Recorded with what the model asked for; secrets in it
+     * are redacted by the log as any call's are.
+     */
+    const refuse = (content: string, args: Record<string, unknown> = called): ToolExecution => {
+      audit.record({
+        tool: name,
+        args,
+        result: content,
+        isError: true,
+        ...(turnId ? { turnId } : {}),
+        ...(userId ? { userId } : {}),
+        ...(conversationId ? { conversationId } : {}),
+      });
+      return { content, isError: true };
+    };
+
     const repeated = this.repeatGuard(name, called);
-    if (repeated) return { content: repeated, isError: true };
+    if (repeated) return refuse(repeated);
 
     this.deps.onStarted?.(name, called);
 
     // Nothing runs while the kill switch is thrown, safe or not: a turn or a job still going when it was thrown does no more.
-    if (this.deps.halted?.()) return { content: "KOS is halted (kill switch engaged): nothing runs until the owner resumes it.", isError: true };
+    if (this.deps.halted?.()) return refuse("KOS is halted (kill switch engaged): nothing runs until the owner resumes it.");
 
     // Enforced here too, not only in defs(): a model can name any tool it
     // likes, and an offered-but-not-executable list would be a fiction.
-    if (!this.permitted(name)) {
-      return {
-        content: `tool not available in this conversation: ${name}`,
-        isError: true,
-      };
-    }
+    if (!this.permitted(name)) return refuse(`tool not available in this conversation: ${name}`);
 
     // Refused before it is judged: a rule that refuses is the fence, and an
     // ask would only invite the owner to open a gate the harness keeps shut.
     // Judged inside the turn's stores, so a rule that asks who is calling hears this turn.
     const refused = await within(async () => registry.refusal(name, called));
-    if (refused) return { content: refused, isError: true };
+    if (refused) return refuse(refused);
 
     // Judged, asked about and run as stamped: what the owner says yes to is
     // what runs, and the call can check it still holds.
@@ -471,7 +487,7 @@ export class GuardedTools implements ToolBox {
 
     // A secret where its tool declared no slot for one, or bound for another host: refused before anyone is asked.
     const misplaced = placeSecrets(name, input, registry.secretSlots(name), secrets, who);
-    if ("refused" in misplaced) return { content: misplaced.refused, isError: true };
+    if ("refused" in misplaced) return refuse(misplaced.refused, input);
 
     /*
      * A call that sends a secret asks the owner every time, until the
@@ -498,8 +514,9 @@ export class GuardedTools implements ToolBox {
      */
     const ready = async (): Promise<ToolExecution | undefined> => {
       const unready = this.deps.prepare ? await within(() => this.deps.prepare!(name)).catch((err: unknown) => (err instanceof Error ? err.message : String(err))) : undefined;
-      if (unready) return { content: unready, isError: true };
+      if (unready) return refuse(unready, input);
       // A Stop while the owner was being asked: the turn has answered, and nothing runs for it now.
+      // Not a refused step: a stopped turn is judged as stopped.
       if (signal?.aborted) return { content: STOPPED_RESULT, isError: true };
       return undefined;
     };

@@ -464,6 +464,19 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.runs.recent(10).find((r) => r.kind === "cron")).toMatchObject({ status: "ok", error: null });
   });
 
+  it("fails a schedule's run whose call was refused before it ran, then ended quietly", async () => {
+    const model = scripted([
+      toolCall("c1", "shell", { command: "./scan.sh" }),
+      toolCall("c2", "notify", { quiet: "the scan did not run" }),
+      text("Nothing to post."),
+    ]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({ name: "Scan", schedule: "0 * * * *", type: "self_prompt", prompt: "Run the scan with shell, post with notify.", toolAllow: ["notify", "sql"], enabled: true });
+    const fired = await kernel.fireCron(job.id);
+    expect(fired).toMatchObject({ ok: false, error: "It ended without posting after a step failed: shell: tool not available in this conversation: shell" });
+    expect(kernel.health.report().ok).toBe(false);
+  });
+
   it("judges a waiting schedule's run by its own calls, not those of the next run in its thread", async () => {
     const model = scripted([
       toolCall("a1", "shell", { command: "rm -rf build" }),
