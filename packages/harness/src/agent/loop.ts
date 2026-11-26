@@ -13,7 +13,7 @@ import type {
 } from "../models/types.js";
 import { textOf, toolUsesOf } from "../models/types.js";
 import { keepRecentPictures } from "./pictures.js";
-import { replyFrom, type SaidCall } from "./reply.js";
+import { replyFrom, type SaidCall, type TurnEnd } from "./reply.js";
 import { isScreenTool } from "./screen.js";
 import type { ToolExecution } from "./registry.js";
 
@@ -113,7 +113,7 @@ export async function runAgent(
    */
   const before = messages.length;
   /** The turn's reply, written into its messages where it is not already the last message's words. */
-  const saidThisTurn = (): string => settleReply(messages, before);
+  const saidThisTurn = (end: TurnEnd): string => settleReply(messages, before, end);
 
   let iterations = 0;
   let stopReason: StopReason = "end_turn";
@@ -124,7 +124,7 @@ export async function runAgent(
     if (options.shouldStop?.()) {
       return {
         messages,
-        finalText: saidThisTurn(),
+        finalText: saidThisTurn("cut"),
         iterations,
         stopReason,
         exhausted: false,
@@ -164,7 +164,7 @@ export async function runAgent(
         if (streamed.trim()) messages.push({ role: "assistant", content: [{ type: "text", text: streamed }], at: Date.now() });
         return {
           messages,
-          finalText: saidThisTurn(),
+          finalText: saidThisTurn("cut"),
           iterations,
           stopReason,
           exhausted: false,
@@ -182,7 +182,7 @@ export async function runAgent(
     if (toolUses.length === 0) {
       return {
         messages,
-        finalText: saidThisTurn(),
+        finalText: saidThisTurn("done"),
         iterations,
         stopReason,
         exhausted: false,
@@ -229,45 +229,48 @@ export async function runAgent(
   // Hit the iteration cap with tool calls still pending: the last words were about a step, not an answer.
   return {
     messages,
-    finalText: saidThisTurn(),
+    finalText: saidThisTurn("cut"),
     iterations,
     stopReason,
     exhausted: true,
   };
 }
 
-/** A turn's calls in order, each first call of a message with the words beside it, and the words after the last. */
-function turnWords(turn: ModelMessage[]): { calls: SaidCall[]; final: string } {
-  const calls: SaidCall[] = [];
+/** A turn's calls in order, each first call of a message with the words beside it and that message's place, and the words after the last. */
+function turnWords(turn: ModelMessage[]): { calls: (SaidCall & { at: number })[]; final: string } {
+  const calls: (SaidCall & { at: number })[] = [];
   let final = "";
-  for (const message of turn) {
-    if (message.role !== "assistant") continue;
+  turn.forEach((message, at) => {
+    if (message.role !== "assistant") return;
     const uses = toolUsesOf(message.content);
     if (uses.length === 0) {
       final = textOf(message.content);
-      continue;
+      return;
     }
     const said = textOf(message.content).trim();
-    uses.forEach((use, i) => calls.push({ name: use.name, ...(i === 0 && said ? { said } : {}) }));
+    uses.forEach((use, i) => calls.push({ name: use.name, at, ...(i === 0 && said ? { said } : {}) }));
     final = "";
-  }
+  });
   return { calls, final };
 }
 
 /**
  * A turn's reply, by the rule both engines share (replyFrom): the words after
- * its last call, or the answer it wrote before saving or posting it. Words
- * beside a call otherwise narrate that step and stay with it; a turn that
- * ends on a step has no reply.
+ * its last call, or, on a turn that ended on its own, the answer it wrote
+ * before saving or posting it. Words beside a call otherwise narrate that
+ * step and stay with it; a turn that ends on a step has no reply.
  *
- * Put where a reader of the transcript finds it: when it is not
- * the last message's words (an answer written before a save or a post), the
- * last message says it, or a message of its own does after a final call.
+ * Put where a reader of the transcript finds it: when it is not the last
+ * message's words, the last message says it, or a message of its own does
+ * after a final call; and the step it was written beside no longer carries
+ * it, so the history says it once.
  */
-function settleReply(messages: ModelMessage[], before: number): string {
+function settleReply(messages: ModelMessage[], before: number, end: TurnEnd): string {
   const { calls, final } = turnWords(messages.slice(before));
-  const { text } = replyFrom(calls, final);
-  if (!text || text === final.trim()) return text;
+  const { text, from } = replyFrom(calls, final, end);
+  if (from === undefined) return text;
+  const source = before + calls[from]!.at;
+  messages[source] = { ...messages[source]!, content: messages[source]!.content.filter((b) => b.type !== "text") };
   const last = messages.at(-1);
   const replyBlock: ContentBlock = { type: "text", text };
   if (last?.role === "assistant" && toolUsesOf(last.content).length === 0) {

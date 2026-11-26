@@ -291,6 +291,8 @@ describe("a turn on the SDK", () => {
   });
 });
 
+const SPEND = "You spent $3,410 in October, $600 over budget. Groceries ran $180 over and dining $420 over; rent, transit and the phone bill were on plan. The two subscriptions you meant to cancel billed again, $34 together, so those are still live.";
+
 describe("the reply on the SDK: only what follows the last step", () => {
   const say = (t: string) => ({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: t }] } });
   const use = (name: string, text?: string) => ({
@@ -378,14 +380,42 @@ describe("the reply on the SDK: only what follows the last step", () => {
       yield use("sql", "I'll add it up.");
       await tools.get("sql")!({});
       yield { type: "user", parent_tool_use_id: null };
-      yield use("memory_remember", "You spent $3,410 in October, $600 over budget.");
+      yield use("memory_remember", SPEND);
       await tools.get("memory_remember")!({});
       yield { type: "user", parent_tool_use_id: null };
       yield result(3);
     };
     const r = await runSdkChat({ prompt: "spend?", system: "s", tools: box(["sql", "memory.remember"], () => ({ content: "ok" })), cwd: process.cwd() });
-    expect(r.text).toBe("You spent $3,410 in October, $600 over budget.");
+    expect(r.text).toBe(SPEND);
     expect(r.calls.map((c) => c.said)).toEqual(["I'll add it up.", undefined]);
+  });
+
+  it("says nothing of its own for a turn cut short after a save, and keeps the words with the save", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("memory_remember", SPEND);
+      await tools.get("memory_remember")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield result(1, "error_max_turns");
+    };
+    const r = await runSdkChat({ prompt: "spend?", system: "s", tools: box(["memory.remember"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(r).toMatchObject({ text: "", stopped: true });
+    expect(r.calls[0]!.said).toBe(SPEND);
+  });
+
+  it("loses no words that arrive after their call has started: they read as said after it", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("sql");
+      await tools.get("sql")!({});
+      yield say("I'll check the board.");
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("Nothing new.");
+      yield result(2);
+    };
+    const r = await runSdkChat({ prompt: "board", system: "s", tools: box(["sql"], () => ({ content: "[]" })), cwd: process.cwd() });
+    expect(r.text).toBe("I'll check the board. Nothing new.");
+    expect(r.calls[0]!.said).toBeUndefined();
   });
 
   it("keeps an answer posted with buttons, and the short line after the post", async () => {
@@ -409,7 +439,7 @@ describe("the reply on the SDK: only what follows the last step", () => {
     expect(r.calls.every((c) => c.said === undefined)).toBe(true);
   });
 
-  it("takes the words before a hand-on to a subagent as that step's, not the subagent's first call's", async () => {
+  it("keeps the words before a hand-on to a subagent with the subagent's first call", async () => {
     run.queries = [];
     run.script = async function* (_q, tools) {
       yield { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: "Handing this to the screen agent." }, { type: "tool_use", id: "h1", name: "Task", input: {} }] } };
@@ -421,7 +451,7 @@ describe("the reply on the SDK: only what follows the last step", () => {
     };
     const r = await runSdkChat({ prompt: "send the form", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked." })), cwd: process.cwd(), screen: { model: "screen-model" } });
     expect(r.text).toBe("The form is sent.");
-    expect(r.calls).toEqual([expect.not.objectContaining({ said: expect.anything() })]);
+    expect(r.calls.map((c) => c.said)).toEqual(["Handing this to the screen agent."]);
   });
 
   it("puts the closing reply rule last in what it adds to the engine's prompt, with or without a screen agent", async () => {

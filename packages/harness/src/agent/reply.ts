@@ -8,11 +8,28 @@
  * words before that trailing bookkeeping, not the line after it.
  */
 
-/** Calls that keep a record or deliver what was already said, and change nothing the answer reports. */
-const BOOKKEEPING: readonly RegExp[] = [/^memory\./, /^tasks\./, /^cron\./, /^notify$/, /^discord\.react$/];
+/**
+ * Calls that only write down or deliver what was already said: a save, a
+ * task, a schedule, a post. Reads (memory.recall, tasks.list, cron.list) and
+ * actions (cron.run) are not: what follows them answers what they found.
+ */
+const BOOKKEEPING: ReadonlySet<string> = new Set([
+  "memory.remember",
+  "memory.observe",
+  "memory.forget",
+  "memory.merge",
+  "memory.mark_read",
+  "tasks.add",
+  "tasks.complete",
+  "tasks.create_list",
+  "cron.schedule",
+  "cron.remove",
+  "notify",
+  "discord.react",
+]);
 
 export function isBookkeeping(tool: string): boolean {
-  return BOOKKEEPING.some((pattern) => pattern.test(tool));
+  return BOOKKEEPING.has(tool);
 }
 
 /** A final line this short after bookkeeping is a coda ("Buttons sent above."), not the answer. */
@@ -26,21 +43,25 @@ export interface SaidCall {
   said?: string;
 }
 
+/** How a turn ended: on its own, or cut short by a Stop, the step limit or an error. */
+export type TurnEnd = "done" | "cut";
+
 export interface TurnReply {
   text: string;
   /** The call whose narration became the reply, by its place in the turn: no longer that step's to keep. */
   from?: number;
 }
 
-/** The reply to a turn of `calls` that ended with `final` said after the last of them. */
-export function replyFrom(calls: readonly SaidCall[], final: string): TurnReply {
+/** The reply to a turn of `calls` that ended (`end`) with `final` said after the last of them. */
+export function replyFrom(calls: readonly SaidCall[], final: string, end: TurnEnd): TurnReply {
   const last = final.trim();
   // The calls at the end that only saved or posted.
   let run = calls.length;
   while (run > 0 && isBookkeeping(calls[run - 1]!.name)) run -= 1;
   if (!last) {
-    const said = run < calls.length ? calls[run]!.said?.trim() : undefined;
-    return said ? { text: said, from: run } : { text: "" };
+    // Only a turn that ended on its own was done saving its answer; a cut-short one says why it stopped instead.
+    const said = end === "done" && run < calls.length ? calls[run]!.said?.trim() : undefined;
+    return said && said.length > ANSWER_MIN ? { text: said, from: run } : { text: "" };
   }
   if (last.length < CODA_MAX) {
     let answer: number | undefined;

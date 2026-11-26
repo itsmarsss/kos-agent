@@ -18,7 +18,7 @@ import type { ModelMessage } from "../models/types.js";
 import { toolUse } from "../kernel/caller.js";
 import { STOPPED_RESULT } from "../kernel/guarded.js";
 import { beforeReply } from "../kernel/voice.js";
-import { replyFrom, type SaidCall } from "../agent/reply.js";
+import { replyFrom, type SaidCall, type TurnEnd } from "../agent/reply.js";
 import { ONLY_OWN_MCP, credentials } from "../builds/runner.js";
 import { toZodShape } from "./schema.js";
 
@@ -384,17 +384,12 @@ export class TurnWords {
     return this.since;
   }
 
-  /** The turn's reply, and the call whose narration it took, by id. */
-  answer(): { text: string; fromId?: string } {
-    const { text, from } = replyFrom(this.calls, this.since);
+  /** The turn's reply, by how it ended, and the call whose narration it took, by id. */
+  answer(end: TurnEnd): { text: string; fromId?: string } {
+    const { text, from } = replyFrom(this.calls, this.since, end);
     const fromId = from === undefined ? undefined : this.calls[from]!.id;
     return { text, ...(fromId ? { fromId } : {}) };
   }
-}
-
-/** A tool the SDK names as one of KOS's own, served by the in-process server. */
-function isOwnTool(name: unknown): boolean {
-  return typeof name === "string" && name.startsWith(`mcp__${SERVER}__`);
 }
 
 export function sdkName(name: string): string {
@@ -760,8 +755,8 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
           for (const block of content) {
             const b = block as { type?: string; text?: string; name?: string };
             if (b.type === "text" && b.text) words.say(b.text);
-            // A built-in (the hand-on to a subagent) is no call of KOS's: its narration is its own, taken here, and not the subagent's first call's.
-            else if (b.type === "tool_use") void (isOwnTool(b.name) ? words.step() : words.call(String(b.name)));
+            // A step began. Before a hand-on to a subagent (a built-in, no call of KOS's), the words stay for the subagent's first call.
+            else if (b.type === "tool_use") words.step();
           }
           continue;
         }
@@ -842,7 +837,7 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
 
   // A copy: a call stopped under the turn still records itself when it ends, after this has gone.
   // The narration that became the reply is the reply's, not also its step's.
-  const { text, fromId } = words.answer();
+  const { text, fromId } = words.answer(stopped ? "cut" : "done");
   const kept = calls.map(({ said, ...call }) => (said && call.id !== fromId ? { ...call, said } : call));
   return { text: text.trim(), calls: kept, usage, models, costUSD, stopped };
 }
