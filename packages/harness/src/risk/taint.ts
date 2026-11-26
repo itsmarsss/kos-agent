@@ -177,6 +177,7 @@ export function taintBars(call: TaintedCall, taint: Taint): TaintBar | false {
     if (host && reads && readOnlyFrom(taint, host)) return false;
     return { why: host ? `reaches ${host}` : "reaches the network" };
   }
+  if (tool === "skills.run" || tool === "skills.test") return { why: "runs a skill's code, which can reach the network" };
   if (inFamily(tool, KOS_FAMILIES) || tool.startsWith("secrets.")) return { why: "changes KOS itself" };
   if (tool.startsWith("computer.") || tool.startsWith("chrome.")) return { why: "acts on your computer" };
   const mcp = /^mcp\.([^.]+)\./.exec(tool);

@@ -34,6 +34,7 @@ describe("what a tainted turn's saved yes no longer covers", () => {
     expect(taintBars(call("mcp.gmail.send_message"), mail)).toEqual({ why: "sends through gmail" });
     expect(taintBars(call("mcp.git.git_push"), mail)).toEqual({ why: "changes something through git" });
     expect(taintBars(call("skills.commit"), mail)).toEqual({ why: "changes KOS itself" });
+    expect(taintBars(call("skills.run", { name: "board" }), mail)).toEqual({ why: "runs a skill's code, which can reach the network" });
     expect(taintBars(call("secrets.allow_site"), mail)).toEqual({ why: "changes KOS itself" });
     expect(taintBars(call("computer.act"), mail)).toEqual({ why: "acts on your computer" });
     expect(taintBars(call("x.unknown"), mail)).toEqual({ why: "reaches outside the workspace" });
