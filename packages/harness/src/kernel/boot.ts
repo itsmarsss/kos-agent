@@ -98,6 +98,7 @@ import { ensureProfile } from "./profile.js";
 import { RETENTION_KEY, SessionStore, primarySessionId, type Retention } from "./session.js";
 import { TurnMade } from "./turnmade.js";
 import { grandfatherJobConsent } from "../ops/jobconsent.js";
+import { withBeyondAuto } from "../risk/beyondauto.js";
 import { scheduledJob } from "./caller.js";
 import { ConversationStore } from "./conversations.js";
 import { BUILD_SETTINGS_KEY, Kernel, orchestratorId, type KernelOptions } from "./kernel.js";
@@ -241,8 +242,6 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   // Rules an older build kept that no call can match: cleared or respelled, on the record.
   permissions.migrateScopes(audit);
   const settings = new SettingsStore(workspace.db);
-  // Jobs that ran before a job's consent was kept keep what the owner approved for their runs, once.
-  grandfatherJobConsent(workspace.db, permissions, settings, audit);
   const retired = retireBrowserEngine(workspace.root, settings, workspace.db);
   if (retired) console.log(`browser: KOS drives Chrome itself now; the ${retired} server is out of mcp.json, its settings and trusted sites kept`);
   /*
@@ -678,6 +677,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const features = [...BUILTIN_FEATURES, ...(options.features ?? [])];
   const switchable = new Set(features.map((f) => f.name));
   const loadReport = await loader.load(modules, { skip: parseModuleSettings(settings.get(MODULES_KEY)).disabledBuiltins.filter((name) => switchable.has(name)) });
+  // Jobs that ran before a job's consent was kept keep what the owner approved for their runs, once, judged by today's rules.
+  grandfatherJobConsent(workspace.db, permissions, settings, audit, (tool, args) => withBeyondAuto(registry.classify(tool, args), tool, args), profile.ownerId);
 
   // A blob's job was named agent:<name> when blobs were agents, then
   // blob:<name>; it is blob.<name> now, as KOS's own jobs are kos.<name>.
