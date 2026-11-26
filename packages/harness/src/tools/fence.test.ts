@@ -231,8 +231,9 @@ describe("the fence around the tables", () => {
     expect(fence(db, "UPDATE 'pending_actions' SET status = 'approved'", reach("books")).reason).toMatch(/trust tables/);
     expect(fence(db, "SELECT * FROM pending_actions", reach("maintenance")).ok).toBe(true);
     // Settings SQLite keeps, and its catalogue: refused to everyone.
-    for (const sql of ["PRAGMA writable_schema = 1", "pragma foreign_keys=OFF", "PRAGMA journal_mode(DELETE)", "PRAGMA main.writable_schema", "PRAGMA user_version = 9"]) {
-      expect(fence(db, sql, reach("maintenance")).reason, sql).toMatch(/PRAGMA that changes/);
+    for (const sql of ["PRAGMA writable_schema = 1", "pragma foreign_keys=OFF", "PRAGMA journal_mode(DELETE)", "PRAGMA main.writable_schema", "PRAGMA user_version = 9", "PRAGMA hard_heap_limit(1000)", "PRAGMA wal_checkpoint(TRUNCATE)", "PRAGMA optimize", "PRAGMA table_info(1)"]) {
+      expect(fence(db, sql, reach("maintenance")).reason, sql).toMatch(/no PRAGMA but these reads/);
+      expect(fence(db, sql, reach("books")).reason, sql).toMatch(/no PRAGMA but these reads/);
     }
     expect(fence(db, "PRAGMA table_info(books_notes)", reach("maintenance")).ok).toBe(true);
     expect(fence(db, "PRAGMA table_list", reach("maintenance")).ok).toBe(true);

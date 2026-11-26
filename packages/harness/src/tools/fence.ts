@@ -297,26 +297,45 @@ const GUEST_ELSEWHERE =
 /** Where to send what is not this chat's: the owning project, or Maintenance when something looks wrong. */
 export const HAND_ON = "hand the question to the project that owns the data (chats.handoff to @project:<slug>), or to Maintenance (chats.handoff to @project:maintenance) when something looks wrong";
 
+/** The pragmas sql may run, all reads of the schema or the file's health; every other one is a setting, and KOS's to set. */
+export const READ_PRAGMAS = ["table_info", "table_xinfo", "table_list", "index_list", "index_info", "index_xinfo", "foreign_key_list", "integrity_check", "quick_check"] as const;
+
+/** A name as SQLite reads one: plain, or quoted any of the four ways. Never a number or an expression. */
+const PRAGMA_NAME = String.raw`(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")*"|\`(?:[^\`]|\`\`)*\`|\[[^\]]*\]|'(?:[^']|'')*')`;
+
+const READ_PRAGMA = new RegExp(String.raw`^\s*pragma\s+(?:${READ_PRAGMAS.join("|")})\s*(?:\(\s*${PRAGMA_NAME}\s*\)\s*)?;?\s*$`, "i");
+
+/** A statement that is a PRAGMA, by its first word once comments are out. */
+export function isPragma(sql: string): boolean {
+  return /^\s*pragma\b/i.test(codeOf(sql));
+}
+
+/**
+ * Whether a PRAGMA is one sql may run: a name on READ_PRAGMAS, with no
+ * schema before it and at most one argument, a table or index name. An
+ * allow-list, since a setter needs no `=`: `hard_heap_limit(1000)` and
+ * `wal_checkpoint(TRUNCATE)` set as surely as `foreign_keys = OFF`.
+ */
+export function readPragma(sql: string): boolean {
+  return READ_PRAGMA.test(codeOf(sql, "keep"));
+}
+
+const PRAGMA_REFUSED = `sql runs no PRAGMA but these reads, in Maintenance, each with at most one table or index name: ${READ_PRAGMAS.join(", ")}. Every other PRAGMA is one of SQLite's settings, and KOS's to set.`;
+
 /**
  * Judge one statement for the chat asking, by what SQLite's plan for it
  * opens, with `params` bound as the statement will run. One that does not
  * compile is let through for SQLite to say why, but an EXPLAIN of its own
  * has no plan to judge, so only Maintenance runs one.
  */
-/** Pragmas that change how SQLite keeps the database, whatever their form. */
-const WRITABLE_PRAGMAS = /^\s*pragma\s+(?:\w+\.)?(writable_schema|foreign_keys|journal_mode|synchronous|locking_mode|legacy_alter_table|recursive_triggers|trusted_schema|cell_size_check|ignore_check_constraints|defer_foreign_keys|auto_vacuum|secure_delete|schema_version|user_version|application_id|page_size|max_page_count|temp_store|mmap_size|cache_size|busy_timeout|query_only)\b/i;
-
 export function fence(db: Db, sql: string, reach: Reach, params: readonly unknown[] = []): FenceVerdict {
-  // A pragma that sets something (=), or one that changes how the database is kept in any form, run by nobody.
-  const code = codeOf(sql);
-  if (/^\s*pragma\b/i.test(code) && (code.includes("=") || WRITABLE_PRAGMAS.test(code))) {
-    return refuse("A PRAGMA that changes SQLite's settings is never run through sql: they are KOS's to set.");
-  }
-  // A PRAGMA that only reads (table_info, table_list) is the schema, and only Maintenance reads it; it is never compiled to judge it.
-  if (/^\s*pragma\b/i.test(code)) {
+  // A PRAGMA off the read list is run by nobody; one on it is the schema, and only Maintenance reads it. Neither is compiled to judge it.
+  if (isPragma(sql)) {
+    if (!readPragma(sql)) return refuse(PRAGMA_REFUSED);
     if (maintains(reach)) return { ok: true };
     return refuse(reach.guest && !reachable(reach).length ? GUEST_ELSEWHERE : "the schema is Maintenance's to read, not yours: your project's tables and their columns are listed in your prompt.");
   }
+  const code = codeOf(sql);
   if (/^\s*explain\b/i.test(code)) return maintains(reach) ? { ok: true } : refuse("EXPLAIN is Maintenance's: send the statement itself.");
   if (!explainable(sql)) return refuse("sql runs one SELECT, INSERT, UPDATE or DELETE.");
   const plan = planOf(db, sql, params);
