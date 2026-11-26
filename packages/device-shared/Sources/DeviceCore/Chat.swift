@@ -198,12 +198,14 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public let expiresAt: Double?
   /// The secret a secrets tool's ask places, and where; never its value.
   public let secret: ChatSecret?
+  /// Why approving runs it for no waiting turn, warned of before any yes; never on a secret's ask.
+  public let detached: String?
 
   public init(
     id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
     steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, tooLong: Bool? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
     always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expiresAt: Double? = nil,
-    secret: ChatSecret? = nil
+    secret: ChatSecret? = nil, detached: String? = nil
   ) {
     self.id = id
     self.tool = tool
@@ -224,6 +226,7 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
     self.asker = asker
     self.expiresAt = expiresAt
     self.secret = secret
+    self.detached = detached
   }
 }
 

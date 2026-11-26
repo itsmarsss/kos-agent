@@ -37,6 +37,8 @@ public struct AskSummary: View {
       if let secret = ask.secret { AskSecretBlock(secret) }
       AskStepList(steps)
       if let risk = ask.risk ?? ask.reason.flatMap(AskWords.risk) { RiskTag(risk) }
+      // Before any yes: no turn waits on this one, so its result goes to its chat unread.
+      if let detached = ask.detached { WarnNote(detached) }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
