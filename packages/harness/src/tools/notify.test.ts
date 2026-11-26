@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
-import { caller, guested, ownership, scheduled } from "../kernel/caller.js";
+import { caller, guested, ownership, scheduled, tainting } from "../kernel/caller.js";
+import { Taint } from "../risk/taint.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -49,6 +50,21 @@ describe("notifyModule", () => {
     ]);
     return registry;
   }
+
+  it("sends nothing a surface fetches from a turn that read outside text: no link or picture on the card, no previews", async () => {
+    const sent: NotifyPayload[] = [];
+    const registry = await load(async (p) => {
+      sent.push(p);
+      return undefined;
+    });
+    const card = { title: "Hi", imageUrl: "https://attacker.example/x.png?d=memory", thumbnailUrl: "https://attacker.example/t.png", url: "https://attacker.example/" };
+    await tainting.run(new Taint([{ kind: "page", where: "attacker.example" }]), () => registry.execute("notify", { text: "done", card }));
+    await registry.execute("notify", { text: "done", card });
+    expect(sent[0]).toMatchObject({ card: { title: "Hi" }, noPreviews: true });
+    expect(sent[0]!.card).toEqual({ title: "Hi" });
+    expect(sent[1]).toMatchObject({ card });
+    expect(sent[1]!.noPreviews).toBeUndefined();
+  });
 
   it("sends a scheduled run's unaddressed message to the job's place, and an addressed one where it says", async () => {
     const sent: NotifyPayload[] = [];

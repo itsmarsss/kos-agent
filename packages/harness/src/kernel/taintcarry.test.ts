@@ -42,6 +42,30 @@ describe("a turn's taint, carried", () => {
     expect(given.get(target.id)).toBe(taint);
   });
 
+  it("keeps what a turn read with its chat: the next turn starts tainted, a fork too, until the owner trusts it or clears it", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Reading" });
+    await kernel.handleMessage("look", { sessionId: chat.id, userId: kernel.profile.ownerId, owner: true, quote: { text: "x", from: "https://evil.example/p" } });
+    expect(kernel.chatTaint(chat.id)).toEqual([{ kind: "page", where: "evil.example" }]);
+    await kernel.handleMessage("thanks, carry on", { sessionId: chat.id, userId: kernel.profile.ownerId, owner: true });
+    expect(given.get(chat.id)?.sources).toEqual([{ kind: "page", where: "evil.example" }]);
+    const fork = await kernel.runCommandIn(chat.id, kernel.profile.ownerId, "/fork");
+    expect(kernel.chatTaint(fork!.switchedTo!)).toEqual([{ kind: "page", where: "evil.example" }]);
+    // Loosening is the owner's, from where they are proved: never a text message.
+    expect((await kernel.runCommandIn(chat.id, kernel.profile.ownerId, "/trust", "sms"))?.reply).toMatch(/text message|dashboard|Discord/i);
+    expect(kernel.chatTaint(chat.id)).not.toEqual([]);
+    expect((await kernel.runCommandIn(chat.id, kernel.profile.ownerId, "/trust"))?.reply).toMatch(/^Trusted again/);
+    await kernel.handleMessage("next", { sessionId: chat.id, userId: kernel.profile.ownerId, owner: true });
+    expect(given.get(chat.id)?.tainted).toBe(false);
+    await kernel.runCommandIn(fork!.switchedTo!, kernel.profile.ownerId, "/clear");
+    expect(kernel.chatTaint(fork!.switchedTo!)).toEqual([]);
+  });
+
+  it("starts the turn a suggestion's yes opens tainted with what the turn that raised it read", async () => {
+    const raised = kernel.suggestions.add("other", "Forward mail", "d", "post it", [{ kind: "mail", where: "x@evil.example" }]);
+    const opened = kernel.actOnSuggestion(raised.id)!;
+    await vi.waitFor(() => expect(given.get(opened.conversationId)?.sources).toEqual([{ kind: "mail", where: "x@evil.example" }]));
+  });
+
   it("marks a turn with a guest's words, room talk, a quoted page and a file sent with it", async () => {
     const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Room" });
     await kernel.handleMessage("look", {

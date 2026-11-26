@@ -691,6 +691,15 @@ describe("who a message may ping", () => {
     await adapter.postIn("t7", { text: "<@222> Call The Centre now." });
     expect(payloads[0]?.allowedMentions).toEqual({ parse: [], users: ["222"] });
   });
+
+  it("posts a tainted chat's addresses in angle brackets, so Discord fetches no preview of them", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
+    const thread = { id: "t7", isSendable: () => true, send: async (p: Record<string, unknown>) => { payloads.push(p); return { id: "m1" }; } };
+    (adapter as unknown as { client: { channels: unknown } }).client = { channels: { fetch: async () => thread } };
+    await adapter.postIn("t7", { text: "see https://attacker.example/x.png?d=memory", noPreviews: true });
+    expect(payloads.map((p) => p["content"])).toEqual(["see <https://attacker.example/x.png?d=memory>"]);
+  });
 });
 
 describe("a prompt with a picture", () => {
