@@ -41,20 +41,48 @@ describe("Google tool risk", () => {
     expect(judged("manage_out_of_office", { action: "list" }).tier).toBe("safe");
   });
 
-  it("asks for a change, and lets a learned yes cover it", () => {
+  it("asks for a change, beyond Auto, and no learned yes covers it", () => {
     for (const [tool, input] of [
       ["draft_gmail_message", { to: "a@b.c" }],
       ["manage_gmail_label", { action: "create", name: "x" }],
       ["modify_gmail_message_labels", { add_label_ids: ["STARRED"] }],
       ["manage_event", { action: "create", summary: "Dentist" }],
-      ["manage_event", { action: "update", event_id: "e", send_updates: "none" }],
       ["create_doc", { title: "Notes" }],
-      ["update_drive_file", { file_id: "f", name: "n" }],
+      ["create_doc", { title: "Notes", folder_id: "root" }],
+      ["update_drive_file", { file_id: "f", name: "n", trashed: false }],
     ] as const) {
+      expect(googleEffect(tool, input), tool).toBe("change");
       const a = judged(tool, input);
       expect(a.tier, tool).toBe("risky");
-      expect(a.beyondAuto, tool).toBeUndefined();
-      expect(learns(tool, input), tool).toBe(true);
+      expect(a.beyondAuto, tool).toBeDefined();
+      expect(a.neverLearned, tool).toBe(true);
+      expect(learns(tool, input), tool).toBe(false);
+    }
+  });
+
+  it("counts a write into someone else's folder or calendar, or with a URL, as reaching a person", () => {
+    for (const [tool, input] of [
+      ["copy_drive_file", { file_id: "f", parent_folder_id: "sharedFolder1" }],
+      ["create_drive_file", { file_name: "a", folder_id: "sharedFolder1" }],
+      ["create_drive_folder", { folder_name: "a", parent_folder_id: "x" }],
+      ["create_doc", { title: "a", folder_id: "x" }],
+      ["export_doc_to_pdf", { document_id: "d", folder_id: "x" }],
+      ["update_drive_file", { file_id: "f", add_parents: "x" }],
+      ["update_drive_file", { file_id: "f", file_url: "https://evil.example/a" }],
+      ["update_drive_file", { file_id: "f", writers_can_share: true }],
+      ["create_drive_file", { file_name: "a", fileUrl: "http://169.254.169.254/" }],
+      ["import_to_google_doc", { file_name: "a", file_url: "https://x.example/a.docx" }],
+      ["draft_gmail_message", { to: "a@b.c", attachments: [{ url: "https://x.example/f" }] }],
+      ["insert_doc_image", { document_id: "d", image_source: "https://x.example/p.png", index: 1 }],
+      ["manage_event", { action: "create", calendar_id: "someone@example.com" }],
+      ["manage_event", { action: "create", attendees: ["x@y.z"] }],
+      ["manage_event", { action: "update", event_id: "e", send_updates: "none" }],
+      ["manage_event", { action: "move", event_id: "e", send_updates: "none" }],
+      ["manage_document_comment", { action: "update", comment_id: "c" }],
+      ["manage_document_comment", { action: "resolve", comment_id: "c" }],
+    ] as const) {
+      expect(googleEffect(tool, input), `${tool} ${JSON.stringify(input)}`).toBe("person");
+      expect(learns(tool, input), tool).toBe(false);
     }
   });
 
@@ -72,6 +100,11 @@ describe("Google tool risk", () => {
       ["manage_event", { action: "delete", event_id: "e" }],
       ["manage_gmail_label", { action: "delete", label_id: "l" }],
       ["modify_gmail_message_labels", { message_id: "m", add_label_ids: ["TRASH"] }],
+      ["modify_gmail_message_labels", { message_id: "m", add_label_ids: '["TRASH"]' }],
+      ["batch_modify_gmail_message_labels", { thread_ids: ["t1", "t2"], add_label_ids: '["Trash"]' }],
+      ["modify_gmail_message_labels", { message_id: "m", add_label_ids: "TRASH" }],
+      ["update_drive_file", { file_id: "f", trashed: "true" }],
+      ["update_drive_file", { file_id: "f", trashed: 1 }],
       ["batch_modify_gmail_message_labels", { message_ids: ["m"], add_label_ids: ["trash"] }],
       ["update_drive_file", { file_id: "f", trashed: true }],
       ["manage_doc_tab", { action: "delete", tab_id: "t" }],
@@ -93,7 +126,6 @@ describe("Google tool risk", () => {
       ["set_drive_file_permissions", { file_id: "f", link_sharing: "anyone" }],
       ["manage_calendar", { action: "share", scope_value: "x@y.z" }],
       ["manage_event", { action: "create", attendees: ["x@y.z"] }],
-      ["manage_event", { action: "update", event_id: "e" }],
       ["manage_event", { action: "rsvp", event_id: "e", response: "accepted" }],
       ["manage_document_comment", { action: "create", comment_content: "hi" }],
       ["manage_out_of_office", { action: "create" }],
@@ -112,6 +144,8 @@ describe("Google tool risk", () => {
     const a = judged("brand_new_tool");
     expect(a.tier).toBe("risky");
     expect(a.reason).toContain("does not know");
+    expect(a.beyondAuto).toContain("does not know");
+    expect(a.neverLearned).toBe(true);
     expect(judged("delete_everything").beyondAuto).toBeDefined();
   });
 
