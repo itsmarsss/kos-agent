@@ -1,4 +1,4 @@
-import type { AskSecret, DecidedVia, LapseVia } from "@kos/shared";
+import { readSources, type AskSecret, type DecidedVia, type LapseVia, type TaintSource } from "@kos/shared";
 
 import type { ToolRegistry } from "../agent/registry.js";
 import type { GuestOrigin } from "../kernel/caller.js";
@@ -43,6 +43,8 @@ export interface EnqueueInput {
   secret?: AskSecret;
   /** The scheduled job whose run asked: a yes to it becomes that job's consent. */
   job?: number;
+  /** What the asking turn had read that the owner did not write (risk/taint.ts): said on its card, and carried by the turn a decision resumes. */
+  taint?: readonly TaintSource[];
 }
 
 export interface PendingAction {
@@ -90,6 +92,8 @@ export interface PendingAction {
   detachedAt: number | null;
   /** The scheduled job whose run asked, when one did. */
   job: number | null;
+  /** What the asking turn had read that the owner did not write; null for an untainted turn, and for a row from before. */
+  taint: TaintSource[] | null;
 }
 
 /** Where a decision was taken: the surface or rule (see DecidedVia), and the paired device, when one pressed it. */
@@ -150,10 +154,11 @@ interface Row {
   decided_device: string | null;
   detached_at: number | null;
   job: number | null;
+  taint: string | null;
 }
 
 /** Every column a listed action needs: the picture is only whether there is one, read on its own when shown. */
-const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret, decided_via, decided_device, detached_at, job`;
+const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret, decided_via, decided_device, detached_at, job, taint`;
 
 /** The most decided asks one page may hold. */
 export const DECIDED_MAX = 500;
@@ -199,7 +204,19 @@ function toAction(row: Row): PendingAction {
     decidedDevice: row.decided_device,
     detachedAt: row.detached_at,
     job: row.job,
+    taint: taintOf(row.taint),
   };
+}
+
+/** A stored taint, read back: none when there was none or it no longer parses. */
+function taintOf(stored: string | null): TaintSource[] | null {
+  if (!stored) return null;
+  try {
+    const sources = readSources(JSON.parse(stored));
+    return sources.length ? sources : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -286,6 +303,9 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "job")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN job INTEGER`);
     }
+    if (!columns.some((c) => c.name === "taint")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN taint TEXT`);
+    }
     // The decided history is read by outcome and time, a page at a time: one outcome by the first,
     // every outcome (the Inbox's default page, and its mark) by the second, which holds only what was decided.
     this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_status_decided ON pending_actions (status, decided_at, id)`);
@@ -303,8 +323,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret, job)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits, yours, reached, beyond_auto, secret, job, taint)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -326,6 +346,7 @@ export class ApprovalQueue {
         input.beyondAuto === true ? 1 : 0,
         input.secret ? JSON.stringify(input.secret) : null,
         input.job ?? null,
+        input.taint?.length ? (this.secrets ? this.secrets.redact(JSON.stringify(input.taint)) : JSON.stringify(input.taint)) : null,
       );
     return this.get(Number(info.lastInsertRowid))!;
   }

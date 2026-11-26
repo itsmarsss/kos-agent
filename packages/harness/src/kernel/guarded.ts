@@ -10,10 +10,12 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { Caller, PermissionContext } from "../ops/permissions.js";
 import { withBeyondAuto } from "../risk/beyondauto.js";
 import { learnable } from "../risk/learned.js";
+import { Taint, TAINT_REASON, taintBars, taintRaises, type TaintBar } from "../risk/taint.js";
 import type { RiskAssessment } from "../risk/tiers.js";
+import { readFrom } from "../risk/untrusted.js";
 import { hasSecretRef, placeSecrets, secretsNamed } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { allowsTool, approvedAs, attendance, caller, guested, onSite, origin, ownership, scheduled, toolScope, turn, turnStop, underAuto, type GuestOrigin, type TurnOrigin } from "./caller.js";
+import { allowsTool, approvedAs, attendance, caller, guested, onSite, origin, ownership, scheduled, tainting, toolScope, turn, turnStop, underAuto, type GuestOrigin, type TurnOrigin } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -65,6 +67,14 @@ export interface GuardedToolsDeps {
   guest?: GuestOrigin;
   /** The surface the turn's words arrived on, and those words; see `origin`. */
   origin?: TurnOrigin;
+  /**
+   * What the turn has read that the owner did not write (risk/taint.ts):
+   * marked as calls answer, carried to work the turn passes on. Its own
+   * when not given, starting clean.
+   */
+  taint?: Taint;
+  /** Table-name prefixes of projects a guest may write in: rows read from them taint the turn. */
+  guestTables?: () => readonly string[];
   /**
    * The turn's stop. Once it aborts, a call that is running answers at once
    * (what it started is told through `turnStop`, and its own end is still
@@ -291,7 +301,19 @@ export class GuardedTools implements ToolBox {
    */
   cutHuge = false;
 
-  constructor(private readonly deps: GuardedToolsDeps) {}
+  /** What this turn has read that the owner did not write. */
+  readonly taint: Taint;
+
+  constructor(private readonly deps: GuardedToolsDeps) {
+    this.taint = deps.taint ?? new Taint();
+  }
+
+  /** Mark the turn with what a call that ran read, if it read outside text. */
+  private noteRead(name: string, input: Record<string, unknown>, result: ToolExecution): void {
+    const site = name.startsWith("browser.") ? this.deps.permissionContext?.(name)?.browser?.site : undefined;
+    const source = readFrom(name, input, result.content, { ...(site ? { site } : {}), guestTables: this.deps.guestTables?.() ?? [] }) ?? this.deps.registry.untrusted(name, input, result);
+    if (source) this.taint.mark(source);
+  }
 
   /** Does this tool survive the conversation's allow-list? */
   private permitted(name: string): boolean {
@@ -428,8 +450,9 @@ export class GuardedTools implements ToolBox {
     // Who a vault secret's policy judges this call for.
     const who = { conversationId: conversationId ?? null, attended, guest: guest !== undefined };
     const scope = { allow: this.deps.allow };
+    const taint = this.taint;
     const within = <T>(work: () => Promise<T>): Promise<T> =>
-      toolScope.run(scope, () => scheduled.run(job, () => guested.run(guest, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))))))));
+      tainting.run(taint, () => toolScope.run(scope, () => scheduled.run(job, () => guested.run(guest, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))))))));
     const run = async (n: string, i: Record<string, unknown>, site?: string, yes?: { id: number; by: string }): Promise<ToolExecution> => {
       // Placed at the last moment, so a key changed while the owner was asked is the one sent.
       const placed = placeSecrets(n, i, registry.secretSlots(n), secrets, who);
@@ -439,7 +462,9 @@ export class GuardedTools implements ToolBox {
       try {
         const execute = (): Promise<ToolExecution> => (site ? onSite.run(site, () => registry.execute(n, placed.input)) : registry.execute(n, placed.input));
         const done = await within(() => (yes ? approvedAs.run(yes, execute) : execute()));
-        return { ...done, content: secrets.scrub(done.content) };
+        const scrubbed = { ...done, content: secrets.scrub(done.content) };
+        this.noteRead(n, placed.input, scrubbed);
+        return scrubbed;
       } finally {
         ended?.();
       }
@@ -506,10 +531,21 @@ export class GuardedTools implements ToolBox {
     const using = secretsNamed(input);
     const sends = using.length > 0 ? `sends secret ${using.join(", ")} to ${registry.secretSlots(name)?.host?.(input) ?? "an unknown host"}` : undefined;
     const classified: RiskAssessment = sends ? { tier: "risky", escalated: true, reason: sends, asksAlways: true } : await within(async () => registry.classify(name, input));
-    // What KOS's own rules put beyond a chat's Auto, beside what the tool's own says.
-    const assessment = withBeyondAuto(classified, name, input);
     // A call that names a secret anywhere asks every time: Auto and remembered decisions never cover it.
     const secret = hasSecretRef(input);
+    /*
+     * A turn that has read what the owner did not write: a call that would
+     * open a site it has not been on or set up work for later asks, and no
+     * saved yes covers one that reaches outside (risk/taint.ts).
+     */
+    const tabSite = this.deps.permissionContext?.(name)?.browser?.site;
+    const said = owner && this.deps.ownWords === true ? from?.said : undefined;
+    const judged = { tool: name, input, secret, ...(tabSite ? { site: tabSite } : {}), ...(said ? { said } : {}) };
+    const raised = classified.tier === "safe" ? taintRaises(judged, taint) : false;
+    const lifted: RiskAssessment = raised ? { tier: "risky", escalated: true, reason: raised, neverLearned: true } : classified;
+    // What KOS's own rules put beyond a chat's Auto, beside what the tool's own says.
+    const assessment = withBeyondAuto(lifted, name, input);
+    const bar: TaintBar | false = raised ? { why: raised } : assessment.tier === "risky" ? taintBars({ ...judged, assessment }, taint) : false;
 
     /*
      * Readied before it is judged on where it runs: a browser call from the
@@ -550,7 +586,7 @@ export class GuardedTools implements ToolBox {
       const context = assessment.reached ? { ...given, reached: true } : given;
       // A chat set to Auto, for the owner's own turn: decided by auto mode, kept in the Inbox as such, and said to the model.
       const mode = this.deps.chatMode?.();
-      const covered = autoCovers({ mode, assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
+      const covered = (!bar || bar.auto === true) && autoCovers({ mode, assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
       // Why Auto held back after all, from what the call would act on: said on the card, so the owner knows why it asked.
       const heldBack = covered ? await this.deps.beyondAutoNow?.(name, input).catch(() => "could not check the page for a checkout") : undefined;
       // Why a chat in Auto asks anyway, from its rules or what the call acts on: the card says so and offers no remembered yes.
@@ -582,19 +618,20 @@ export class GuardedTools implements ToolBox {
       // What asks every time is covered by no session's yes and no remembered decision either.
       const always = assessment.asksAlways === true || secret;
       // Only by a yes its own tool keeps (a secret's grant on this site, or for this turn): run, and audited as such.
-      if (always && (await within(async () => registry.granted(name, input)))) {
+      if (always && !bar && (await within(async () => registry.granted(name, input)))) {
         const granted = await run(name, input);
         audit.record({ tool: name, ...audited(granted), ...(turnId ? { turnId } : {}), riskTier: "risky", approvedBy: GRANT_DECIDER, decidedVia: "grant", ...(userId ? { userId } : {}), ...(conversationId ? { conversationId } : {}) });
         this.deps.onExecuted?.(name, granted);
         return granted;
       }
-      const session = !always && this.deps.autoApproves?.(name, context) === "site";
-      const standing = session || (!always && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true);
+      // In a tainted turn, a call that reaches outside is the owner's to decide now: no session's yes or saved rule covers it.
+      const session = !always && !bar && this.deps.autoApproves?.(name, context) === "site";
+      const standing = session || (!always && !bar && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true);
       // Learned from the owner's own decisions, never from what a turn read, and never for what may not be learned (risk/learned.ts).
       const learnedCall = { tool: name, input, assessment, guest: guest !== undefined, secret, strict, yours: context?.browser?.yours === true };
       const asker: Caller = { ...(conversationId ? { conversationId } : {}), ...(job !== undefined && this.deps.scheduledSince !== undefined ? { job: { id: job, since: this.deps.scheduledSince } } : {}) };
       const mayLearn = learnable(learnedCall);
-      const learned = standing || always || !mayLearn ? false : this.deps.permissions?.learned?.(name, input, asker, context) || false;
+      const learned = standing || always || !mayLearn || bar ? false : this.deps.permissions?.learned?.(name, input, asker, context) || false;
       // A browser step a learned yes would let through is read for a checkout first, as Auto's is: money is never learned.
       const pays = learned ? await this.deps.beyondAutoNow?.(name, input).catch(() => "could not check the page for a checkout") : undefined;
       const yes = standing || (learned !== false && !pays);
@@ -624,6 +661,8 @@ export class GuardedTools implements ToolBox {
       // A scheduled run's Always is kept for its job alone, for what a job may keep: a named shape. One that names the whole
       // tool (a skill run, an MCP tool) is the standing Always it always was, the owner's to press; nothing learned covers it.
       const rule = job === undefined ? named : named && mayLearn && !pays ? (named.scope !== null ? { ...named, job } : named) : undefined;
+      // Said on the card where only the taint kept a saved yes from it: what asks every time, or is beyond Auto, says its own reason.
+      const heldByTaint = bar !== false && !always && !beyond;
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();
@@ -635,7 +674,7 @@ export class GuardedTools implements ToolBox {
         args: input,
         riskTier: "risky",
         // The rule's own words first; the old labels only where a rule has none.
-        reason: `${beyond ? `asked though the chat is in Auto: ${beyond}` : (assessment.reason ?? (assessment.escalated ? "argument escalation" : site ? `on ${site}` : "risky tool"))}${context?.browser?.yours ? ", in your Chrome" : ""}`,
+        reason: `${beyond ? `asked though the chat is in Auto: ${beyond}` : (assessment.reason ?? (assessment.escalated ? "argument escalation" : site ? `on ${site}` : "risky tool"))}${context?.browser?.yours ? ", in your Chrome" : ""}${heldByTaint ? (bar.why !== assessment.reason ? `; ${bar.why}, and ${TAINT_REASON}` : `; ${TAINT_REASON}`) : ""}`,
         ...(userId ? { userId } : {}),
         ...(conversationId ? { conversationId } : {}),
         ...(rule ? { rule } : {}),
@@ -644,6 +683,7 @@ export class GuardedTools implements ToolBox {
         ...(picture ? { picture } : {}),
         ...(why ? { why } : {}),
         ...(placing ? { secret: placing } : {}),
+        ...(taint.tainted ? { taint: taint.sources } : {}),
         owner,
         attended,
         ...(guest ? { guest } : {}),
@@ -704,7 +744,7 @@ export class GuardedTools implements ToolBox {
 
       // The owner's yes holds for the same step in this chat a short while: a burst of one kind of work asks once.
       // Not in a run nobody started (a schedule's): there Approve is for this run alone, and Always is the job's.
-      if (attended && conversationId && mayLearn && !assessment.reached) this.deps.permissions?.holdBurst?.(conversationId, name, input, context);
+      if (attended && conversationId && mayLearn && !assessment.reached && !bar) this.deps.permissions?.holdBurst?.(conversationId, name, input, context);
       const unready = await readyNow();
       if (unready) return unready;
       const decided = approvals.get(action.id);
