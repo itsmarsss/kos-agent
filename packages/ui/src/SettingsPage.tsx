@@ -13,6 +13,7 @@ import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { PageHead } from "./PageHead.js";
 import { useEdgeFade } from "./edgefade.js";
+import { ownerOnlyWords } from "./owneronly.js";
 import { FieldRow } from "./kit.js";
 import { useLeaveGuard } from "./leaveguard.js";
 import { useOpenTab } from "./opentab.js";
@@ -415,6 +416,8 @@ export function SettingsPage({
     return () => window.clearTimeout(timer);
   }, [found]);
   const [how, setHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
+  /** Which channels count as the owner's alone now, said under the switch that depends on it. */
+  const [ownerOnly, setOwnerOnly] = useState<string | undefined>(undefined);
   /** The last values the server confirmed, so an edit can be seen as one. */
   const [savedHow, setSavedHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
   const [defaults, setDefaults] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
@@ -1069,6 +1072,7 @@ export function SettingsPage({
           </Section>
         )}
 
+        {active === "behaviour" && <OwnerOnlyProbe onRead={setOwnerOnly} />}
         {active === "behaviour" && (
           /* One card, like every other tab. It was three chained cards and a
              footer of its own, which is why this tab read as a different
@@ -1111,7 +1115,7 @@ export function SettingsPage({
               </FieldRow>
               <FieldRow
                 label="Scheduled jobs post without asking where only you read"
-                hint="A schedule posts to you, and to channels only you can see, without asking each run. A channel anyone else can read asks every time, since a schedule may read what others wrote. Off, every post a schedule makes to a channel asks."
+                hint={`A schedule posts to you, and to channels only you can see, without asking each run. A channel anyone else can read asks every time, since a schedule may read what others wrote. Off, every post a schedule makes to a channel asks.${ownerOnly ? ` ${ownerOnly}` : ""}`}
               >
                 <Switch label="Scheduled jobs post without asking where only you read" on={how.jobsPostUnasked} onChange={(on) => setHow({ ...how, jobsPostUnasked: on })} />
               </FieldRow>
@@ -1924,3 +1928,15 @@ const SOURCE_WORDS: Record<"env" | "vault" | "check", { label: string; title: st
   vault: { label: "in the vault", title: "Read from the encrypted vault" },
   check: { label: "kept as a check", title: "KOS keeps only a check of it, never the value: it can tell it apart, not show it" },
 };
+
+/** Reads, once shown, which channels count as the owner's alone now, in one line for the Behaviour switch. */
+function OwnerOnlyProbe({ onRead }: { onRead: (line: string | undefined) => void }): null {
+  useEffect(() => {
+    void api.ownerOnlyChannels().then(
+      (r) => onRead(ownerOnlyWords(r)),
+      () => onRead(undefined),
+    );
+  }, [onRead]);
+  return null;
+}
+

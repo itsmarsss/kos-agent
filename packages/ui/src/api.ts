@@ -1808,6 +1808,8 @@ export const api = {
   folders: () => get<{ folders: string[] }>("/api/folders"),
   /** The Discord server's channels, so "#name" in a chat is the channel; none when KOS lives in no server. */
   discordChannels: () => get<{ channels: DiscordChannel[] }>("/api/discord/channels"),
+  /** The channels only the owner reads now, as a schedule's post is judged; why none, when someone else sees every channel. */
+  ownerOnlyChannels: () => get<{ connected: boolean; channels: { id: string; name: string }[]; blocked?: string }>("/api/discord/owner-only"),
   /** Things to point at. With `project`, that project's own come first. */
   mentions: (q: string, kind?: string, limit?: number, project?: string) =>
     get<{

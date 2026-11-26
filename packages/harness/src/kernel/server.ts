@@ -3010,6 +3010,12 @@ export async function handleApiRequest(
   }
 
   /** The Discord server's text channels as KOS last saw them, so a "#name" in a chat can be the channel. */
+  // Which channels a schedule may post in unasked now, read live from the server's permissions.
+  if (method === "GET" && path === "/api/discord/owner-only") {
+    const report = kernel.discord?.connected() ? kernel.discord.ownerOnlyReport?.() : undefined;
+    return ok(report ? { connected: true, ...report } : { connected: false, channels: [] });
+  }
+
   if (method === "GET" && path === "/api/discord/channels") {
     return ok({ channels: knownChannels(kernel) });
   }
