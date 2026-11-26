@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
@@ -31,10 +31,37 @@ const LOG_LINES = 100;
 const LOG_LINES_MAX = 400;
 /** A line is cut past this, so one huge line cannot fill the result. */
 const LOG_LINE_CHARS = 400;
+/** The most a look gives back in all, newest lines kept first. */
+const LOG_OUTPUT_CHARS = 24_000;
+/** How much of the log's end a look reads: the log runs to ten megabytes before it is rotated. */
+const LOG_TAIL_BYTES = 1024 * 1024;
+
+/** The last `bytes` of a file, from its first whole line; undefined when there is no file. */
+export function tailOf(path: string, bytes: number = LOG_TAIL_BYTES): string | undefined {
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return undefined;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    const start = Math.max(0, size - bytes);
+    const buffer = Buffer.alloc(size - start);
+    readSync(fd, buffer, 0, buffer.length, start);
+    const text = buffer.toString("utf8");
+    // A cut line at the start is dropped rather than shown half.
+    return start > 0 ? text.slice(text.indexOf("\n") + 1) : text;
+  } finally {
+    closeSync(fd);
+  }
+}
 
 /**
  * The last lines of the log, or the last that hold `match` (case
- * folded, plain text, any of several split by |), each with its line number.
+ * folded, plain text, any of several split by |), each with its number
+ * from the start of what was read, and anything shaped like a secret
+ * scrubbed.
  */
 export function logLines(text: string, opts: { lines?: number; match?: string }): string[] {
   const want = Math.min(LOG_LINES_MAX, Math.max(1, Math.round(opts.lines ?? LOG_LINES)));
@@ -42,10 +69,15 @@ export function logLines(text: string, opts: { lines?: number; match?: string })
   const all = text.split("\n");
   if (all[all.length - 1] === "") all.pop();
   const picked: string[] = [];
+  let total = 0;
   for (let i = all.length - 1; i >= 0 && picked.length < want; i -= 1) {
     const line = all[i]!;
     if (needles.length && !needles.some((n) => line.toLowerCase().includes(n))) continue;
-    picked.push(`${i + 1}: ${line.length > LOG_LINE_CHARS ? `${line.slice(0, LOG_LINE_CHARS)}...` : line}`);
+    const shown = scrubShapes(line).text;
+    const entry = `${i + 1}: ${shown.length > LOG_LINE_CHARS ? `${shown.slice(0, LOG_LINE_CHARS)}...` : shown}`;
+    total += entry.length + 1;
+    if (total > LOG_OUTPUT_CHARS) break;
+    picked.push(entry);
   }
   return picked.reverse();
 }
@@ -208,7 +240,7 @@ export function createStatusModule(deps: StatusToolDeps): KosModule {
         {
           name: LOG_TOOL,
           description:
-            "Maintenance only: KOS's own log (.kos/daemon.log), its last lines or the last that contain `match` (plain text, case-insensitive, alternatives split by |), each with its line number. " +
+            "Maintenance only: the end of KOS's own log (.kos/daemon.log, its last megabyte), its last lines or the last that contain `match` (plain text, case-insensitive, alternatives split by |), numbered within what was read. " +
             "Read it first when repairing a failure; it asks nothing, where a shell line naming .kos asks every time.",
           inputSchema: {
             type: "object",
@@ -219,12 +251,8 @@ export function createStatusModule(deps: StatusToolDeps): KosModule {
           },
         },
         (input) => {
-          let text: string;
-          try {
-            text = readFileSync(join(root, ".kos", "daemon.log"), "utf8");
-          } catch {
-            return "There is no log yet.";
-          }
+          const text = tailOf(join(root, ".kos", "daemon.log"));
+          if (text === undefined) return "There is no log yet.";
           const lines = logLines(text, { ...(typeof input["lines"] === "number" ? { lines: input["lines"] } : {}), ...(typeof input["match"] === "string" ? { match: input["match"] } : {}) });
           return lines.length ? lines.join("\n") : "No line matches.";
         },

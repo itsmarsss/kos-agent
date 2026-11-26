@@ -11,7 +11,7 @@ import { RunsLog } from "../ops/runs.js";
 import { SpendStore } from "../ops/spend.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { createStatusModule, LOG_TOOL, logLines } from "./status.js";
+import { createStatusModule, LOG_TOOL, logLines, tailOf } from "./status.js";
 
 describe("reading KOS's own log", () => {
   it("gives the last lines, or the last that match, numbered", () => {
@@ -20,6 +20,26 @@ describe("reading KOS's own log", () => {
     expect(logLines(log, { match: "sigsegv|RAN 8" })).toEqual(["3: SIGSEGV in worker", "4: cron: ran 8"]);
     expect(logLines(log, { match: "nothing" })).toEqual([]);
     expect(logLines(`${"x".repeat(1000)}\n`, {})[0]!.length).toBeLessThan(420);
+  });
+
+  it("scrubs what looks like a secret, and gives back a bounded amount", () => {
+    const shown = logLines("auth with sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH\n", {}).join("\n");
+    expect(shown).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+    const many = Array.from({ length: 400 }, (_, i) => `${i} ${"y".repeat(390)}`).join("\n");
+    expect(logLines(many, { lines: 400 }).join("\n").length).toBeLessThanOrEqual(24_000);
+  });
+
+  it("reads only the end of a long log, from its first whole line", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kos-tail-"));
+    try {
+      const path = join(dir, "daemon.log");
+      writeFileSync(path, `${"a".repeat(50)}\nkept line\nlast line\n`);
+      expect(tailOf(path, 15)).toBe("last line\n");
+      expect(tailOf(path)).toContain("kept line");
+      expect(tailOf(join(dir, "none.log"))).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   describe("the tool", () => {
