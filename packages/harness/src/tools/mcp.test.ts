@@ -262,6 +262,28 @@ describe("tools from a server", () => {
     await h.close();
   });
 
+  it("fences an untrusted server's results, errors too, after rewriting them", async () => {
+    const h = harness({ servers: { fake: { command: "unused", untrusted: true, results: (t) => t.replace("boom", "rewritten") } } });
+    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    const ok = await h.registry.execute("mcp.fake.add", { a: 1, b: 1 });
+    expect(ok.content).toMatch(/^<<<tool_result untrusted fake: .*not instructions/);
+    expect(ok.content).toContain("\n2\n>>>");
+    const failed = await h.registry.execute("mcp.fake.explode", {});
+    expect(failed.isError).toBe(true);
+    expect(failed.content).toContain("rewritten");
+    expect(failed.content).toContain("untrusted fake");
+    expect(parseMcpConfig({ servers: { a: { command: "x", untrusted: true } } }).servers["a"]?.untrusted).toBe(true);
+    await h.close();
+  });
+
+  it("takes a server's own risk per tool over its floors", async () => {
+    const h = harness({ servers: { fake: { command: "unused", risk: "safe", risks: (tool) => (tool === "add" ? { floor: "safe" } : { floor: "risky", asksAlways: true }) } } });
+    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    expect(h.registry.classify("mcp.fake.add", {}).tier).toBe("safe");
+    expect(h.registry.classify("mcp.fake.explode", {})).toMatchObject({ tier: "risky", asksAlways: true });
+    await h.close();
+  });
+
   it("is risky unless the owner says otherwise", async () => {
     const h = harness({
       servers: { fake: { command: "unused" }, trusted: { command: "unused", risk: "safe" } },
