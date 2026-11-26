@@ -172,13 +172,18 @@ export class CronScheduler {
   /**
    * Catch one job up, or skip it: true when a run was queued.
    *
+   * Under a minute late is on time, whatever the limit: a stalled event
+   * loop, not a missed run. Otherwise, a job whose next run is under an hour
+   * away waits for it: its next tick is as good as a late one, and a
+   * catch-up just before it would run the job twice in a row. That covers
+   * every job that runs hourly or more often.
+   *
    * Not any run, however late: the morning kickoff caught up at midnight
    * reads as noise, and the real one follows nine hours later. A run more
    * than the catch-up limit late is skipped, said so in Runs only, and the
-   * next one runs on time. A job that runs hourly or more often never
-   * catches up: its next tick is as good as a late one. One that runs less
-   * often than daily always does, however late: next month's run is no
-   * substitute for this month's. Zero, the owner's "never", holds for all.
+   * next one runs on time. One that runs less often than daily always
+   * catches up, however late: next month's run is no substitute for this
+   * month's. Zero, the owner's "never", holds for all.
    */
   private catchUpJob(id: number, since?: number): boolean {
     const task = this.tasks.get(id);
@@ -192,22 +197,27 @@ export class CronScheduler {
     const now = this.now();
     const missedAt = lastOccurrence(task, job.schedule, timezone, now, after);
     if (missedAt === null) return false;
-    const period = shortestGap(task.getNextRuns(PERIOD_RUNS).map((d) => d.getTime()), timezone);
-    if (period <= HOUR_MS) return false;
-    const limitMs = (this.options.catchUpLimitHours?.() ?? DEFAULT_CATCH_UP_LIMIT_HOURS) * HOUR_MS;
     const late = now - missedAt;
-    if (limitMs === 0 || (period <= DAY_MS && late > limitMs)) {
-      this.options.onSkip?.(job, missedAt, skipReason(late, task.getNextRuns(1)[0]?.getTime(), timezone));
-      return false;
+    if (late >= MINUTE_MS) {
+      const nextWithinTheHour = lastOccurrence(task, job.schedule, timezone, now + HOUR_MS - 1, now) !== null;
+      if (nextWithinTheHour) return false;
+      const limitMs = (this.options.catchUpLimitHours?.() ?? DEFAULT_CATCH_UP_LIMIT_HOURS) * HOUR_MS;
+      const lessThanDaily = shortestGap(task.getNextRuns(PERIOD_RUNS).map((d) => d.getTime()), timezone) > DAY_MS;
+      if (limitMs === 0 || (!lessThanDaily && late > limitMs)) {
+        this.options.onSkip?.(job, missedAt, skipReason(late, task.getNextRuns(1)[0]?.getTime(), timezone));
+        return false;
+      }
     }
     this.queued.add(id);
     const gap = this.options.catchUpGapMs ?? DEFAULT_CATCH_UP_GAP_MS;
-    this.catching = this.catching
-      .then(() => this.fire(job))
-      .then(() => {
-        this.queued.delete(id);
-        return new Promise((resolve) => setTimeout(resolve, gap));
-      });
+    this.catching = this.catching.then(async () => {
+      // As it is now, not as it was when queued: turned off, or run by its own tick while this waited.
+      const current = this.store.get(id);
+      const due = current?.enabled === true && (current.lastRunAt ?? 0) < missedAt;
+      if (due) await this.fire(current);
+      this.queued.delete(id);
+      if (due) await new Promise((resolve) => setTimeout(resolve, gap));
+    });
     return true;
   }
 

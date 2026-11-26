@@ -366,14 +366,30 @@ describe("running what fell due while nothing was listening", () => {
     sched.stop();
   });
 
-  it("catches up a job that runs less often than hourly", async () => {
-    // Every two hours, last run a day ago: one catch-up, for the latest slot.
-    const created = store.create({ name: "two-hourly", schedule: "0 */2 * * *", type: "actions", enabled: true });
-    store.markRun(created.id, Date.now() - DAY_MS);
-    const sched = scheduler();
+  it("fires the job as it is when its turn comes, and not at all once its own tick ran it or it was turned off", async () => {
+    const first = daily(HOUR_MS);
+    const ranMeanwhile = daily(HOUR_MS);
+    const turnedOff = daily(HOUR_MS);
+    let finish: (() => void) | undefined;
+    const running: number[] = [];
+    const sched = new CronScheduler(
+      store,
+      (j) => {
+        running.push(j.id);
+        return new Promise<void>((resolve) => (finish = resolve));
+      },
+      { timezone: () => "UTC", catchUpGapMs: 0, clock: () => minuteNow() },
+    );
     sched.start();
-
-    expect(sched.catchUp()).toBe(1);
+    expect(sched.catchUp()).toBe(3);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(running).toEqual([first]);
+    // While the first runs, the second's own tick runs it and the third is turned off.
+    store.markRun(ranMeanwhile, Date.now());
+    store.setEnabled(turnedOff, false);
+    finish!();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(running).toEqual([first]);
     sched.stop();
   });
 
@@ -526,13 +542,24 @@ describe("what a schedule really missed, in the profile's timezone", () => {
     }
   }
 
-  it("reads hourly from the schedule's own period, not from the hour before the run it missed", () => {
-    // Twice an hour apart is hourly, whichever of the two was missed: neither is caught up.
+  it("leaves a missed run to a next run under an hour away, and catches up the rest within the limit", () => {
+    // Every two hours: booted at 11:59, the 12:00 run is a minute off, so 10:00 is not caught up just before it.
+    expect(caught("0 */2 * * *", "2026-11-19T08:00:30Z", "2026-11-19T11:59:00Z")).toBe("nothing");
+    expect(caught("0 */2 * * *", "2026-11-19T08:00:30Z", "2026-11-19T10:30:00Z")).toBe("ran");
+    // Missed 10:00, next 9:00 tomorrow: caught up. Missed 9:00 with 10:00 half an hour off: left to 10:00.
+    expect(caught("0 9,10 * * *", "2026-11-19T09:00:30Z", "2026-11-19T10:30:00Z")).toBe("ran");
     expect(caught("0 9,10 * * *", "2026-11-18T10:00:30Z", "2026-11-19T09:30:00Z")).toBe("nothing");
-    expect(caught("0 9,10 * * *", "2026-11-19T09:00:30Z", "2026-11-19T10:30:00Z")).toBe("nothing");
-    // Hourly through the working day, the 8:00 after a night included.
-    expect(caught("0 8-17 * * *", "2026-11-18T17:00:30Z", "2026-11-19T08:30:00Z")).toBe("nothing");
+    // The last of the working day, with tomorrow's 8:00 far off: caught up.
+    expect(caught("0 8-17 * * *", "2026-11-19T16:00:30Z", "2026-11-19T17:30:00Z")).toBe("ran");
+    // Hourly and quarter-hourly always have their next run within the hour.
+    expect(caught("0 * * * *", "2026-11-19T05:00:30Z", "2026-11-19T08:20:00Z")).toBe("nothing");
     expect(caught("*/15 * * * *", "2026-11-19T07:00:30Z", "2026-11-19T08:20:00Z")).toBe("nothing");
+  });
+
+  it("runs a run under a minute late as on time, whatever the limit: a stall, not a miss", () => {
+    expect(caught("0 9 * * *", "2026-11-18T09:00:05Z", "2026-11-19T09:00:02Z", "UTC", 0)).toBe("ran");
+    expect(caught("0 * * * *", "2026-11-19T08:00:05Z", "2026-11-19T09:00:02Z")).toBe("ran");
+    expect(caught("0 9 * * *", "2026-11-18T09:00:05Z", "2026-11-19T09:01:00Z", "UTC", 0)).toBe("skipped");
   });
 
   it("does not take a spring change for an hourly schedule", () => {
