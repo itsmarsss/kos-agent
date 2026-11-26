@@ -12,7 +12,6 @@ import {
   readSkills,
   skillHash,
   skillHashNow,
-  skillSelfContained,
   type SkillKind,
   type SkillRecord,
 } from "../skills/manifest.js";
@@ -340,14 +339,12 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           floor: "risky",
           why: "runs a skill that was not promoted",
           refuse: () => noJail(),
-          // The hash of the files it would run, set by the harness before it is judged: a yes to it is a yes to this code.
-          // Held to its own folder (`contained`), the hash is all it runs, and only then may a yes to it be learned.
+          // The hash of the files it would run, set by the harness before it is judged: the run checks they are still those.
           stamp: (input: Record<string, unknown>) => {
-            const { hash: _said, contained: _claimed, ...rest } = input;
+            const { hash: _said, ...rest } = input;
             const skill = scriptNamed(rest);
             const hash = skill ? hashNow(skill) : undefined;
-            if (!skill || !hash) return rest;
-            return { ...rest, hash, ...(skillSelfContained(ws, skill) ? { contained: true } : {}) };
+            return hash ? { ...rest, hash } : rest;
           },
           relax: (input) => {
             const skill = scriptNamed(input);

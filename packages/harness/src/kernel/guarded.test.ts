@@ -131,7 +131,7 @@ describe("GuardedTools", () => {
       expect((await chat.execute("http.fetch", { url: "https://api.example/c" })).content).toBe("fetched");
     });
 
-    it("offers a scheduled run's Always for its job alone, and none for the whole tool", async () => {
+    it("offers a scheduled run's Always for its job alone, and a whole tool's only as the standing Always", async () => {
       registry.register({ name: "http.fetch", description: "h", inputSchema: { type: "object" } }, () => "fetched", { floor: "risky" });
       registry.register({ name: "mcp.git.git_push", description: "g", inputSchema: { type: "object" } }, () => "pushed", { floor: "risky" });
       const permissions = new PermissionStore(ws.db);
@@ -141,7 +141,8 @@ describe("GuardedTools", () => {
       const [fetch, push] = approvals.pending();
       expect(fetch?.rule).toEqual({ tool: "http.fetch", scope: "host:api.example", project: null, job: 3 });
       expect(fetch?.job).toBe(3);
-      expect(push?.rule).toBeNull();
+      // A whole tool is never a job's: its Always is the standing one the owner presses.
+      expect(push?.rule).toEqual({ tool: "mcp.git.git_push", scope: null, project: null });
     });
   });
 

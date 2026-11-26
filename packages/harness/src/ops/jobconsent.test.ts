@@ -34,9 +34,9 @@ describe("the consent jobs that ran before it was kept keep", () => {
       w.approvals.enqueue({ tool, args, riskTier: "risky", conversationId: over.conversationId ?? `cron:${job.id}`, rule: { tool, scope, project: "school" }, ...(over.guest ? { guest: { project: "school", chat: "room" } } : {}), ...(over.reached ? { reached: true } : {}), ...(over.owner ? { owner: true } : {}), ...(over.attended ? { attended: true } : {}) }).id;
     const fetch = asked("http.fetch", { url: "https://api.example/a" }, "host:api.example");
     const again = asked("http.fetch", { url: "https://api.example/b" }, "host:api.example");
-    // A skill's yes from before its code was kept with it is not known to be to this code.
+    // A skill run is never kept as a job's consent: it names no shape.
     const skill = asked("skills.run", { name: "board" }, null);
-    const stamped = asked("skills.run", { name: "board", hash: "h1", contained: true }, "skill:board@h1");
+    const stamped = asked("skills.run", { name: "board", hash: "h1" }, null);
     const post = asked("notify", { to: "discord:channel:42", text: "a" }, "to:discord:channel:42");
     const kernel = asked("sql", { sql: "UPDATE daemons SET args = '[]' WHERE id = 1" }, "table:daemons");
     const gone = asked("sql", { sql: "DELETE FROM school_items" }, "table:school_items");
@@ -51,11 +51,8 @@ describe("the consent jobs that ran before it was kept keep", () => {
     w.approvals.approve(byOther, "auto", { via: "auto" });
     w.approvals.deny(denied, "owner", { via: "dashboard" });
 
-    expect(run(w)).toBe(2);
-    expect(w.rules.list().map((r) => [r.job, r.tool, r.scope])).toEqual([
-      [job.id, "http.fetch", "host:api.example"],
-      [job.id, "skills.run", "skill:board@h1"],
-    ]);
+    expect(run(w)).toBe(1);
+    expect(w.rules.list().map((r) => [r.job, r.tool, r.scope])).toEqual([[job.id, "http.fetch", "host:api.example"]]);
   });
 
   it("keys on the job an ask was raised for, where that was kept", () => {

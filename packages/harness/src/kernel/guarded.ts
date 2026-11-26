@@ -621,8 +621,9 @@ export class GuardedTools implements ToolBox {
       // and-remember would keep, and a picture of the page a browser action
       // is aimed at, which the arguments alone cannot show.
       const named = always || beyond ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
-      // A scheduled run's Always is kept for its job alone, and only for what a job may keep: a named shape, never the whole tool.
-      const rule = job === undefined ? named : named && named.scope !== null && mayLearn && !pays ? { ...named, job } : undefined;
+      // A scheduled run's Always is kept for its job alone, for what a job may keep: a named shape. One that names the whole
+      // tool (a skill run, an MCP tool) is the standing Always it always was, the owner's to press; nothing learned covers it.
+      const rule = job === undefined ? named : named && mayLearn && !pays ? (named.scope !== null ? { ...named, job } : named) : undefined;
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();

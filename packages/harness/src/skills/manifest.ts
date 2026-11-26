@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { isBuiltin } from "node:module";
-import { dirname, extname, join, posix } from "node:path";
+import { join } from "node:path";
 
 import type { Workspace } from "../store/workspace.js";
 
@@ -201,49 +200,4 @@ export function skillHashNow(ws: Workspace, skill: SkillRecord): string | undefi
   } catch {
     return undefined;
   }
-}
-
-/** Files that are code a run reads as code, by what they are named. */
-const SCRIPT_EXTS = new Set([".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"]);
-/** Code of any other kind, which this cannot read for what it reaches. */
-const OTHER_CODE = new Set([".py", ".sh", ".bash", ".zsh", ".rb", ".pl", ".php", ".lua", ".wasm", ".node", ".so", ".dylib", ".exe", ".bat"]);
-/** Built-ins that run or load code from elsewhere: a skill using one is not held to its own folder. */
-const LOADS_CODE = new Set(["child_process", "worker_threads", "vm", "module", "cluster", "inspector", "wasi"]);
-const SPECIFIER = /\b(?:import\s*(?:[^'"()]*?\sfrom\s*)?|import\s*\(\s*|require\s*\(\s*)['"]([^'"]+)['"]/g;
-/** A load whose name is worked out as it runs, or code made from text. */
-const OPAQUE = /\b(?:require|import)\s*\(\s*[^'"\s)]|\beval\s*\(|\bnew\s+Function\b|\bprocess\.dlopen\b/;
-
-/**
- * Whether a script skill's code is all in its own folder, so its hash is a
- * hash of what it runs: every code file a script this can read, loading
- * only files inside the folder and Node's own modules, none of those that
- * run code from elsewhere, and nothing loaded by a name made at run time.
- * A skill that reaches out (../lib.js, a package, a Python file) is not,
- * and no learned yes is kept for it: it asks each run unless promoted.
- */
-export function skillSelfContained(ws: Workspace, skill: SkillRecord): boolean {
-  let files: string[];
-  try {
-    files = skillFiles(ws, skill.dir);
-  } catch {
-    return false;
-  }
-  for (const file of files) {
-    const ext = extname(file).toLowerCase();
-    if (OTHER_CODE.has(ext)) return false;
-    if (!SCRIPT_EXTS.has(ext)) continue;
-    const code = readFileSync(ws.resolve(file), "utf8");
-    if (OPAQUE.test(code)) return false;
-    for (const m of code.matchAll(SPECIFIER)) {
-      const spec = m[1]!;
-      if (spec.startsWith(".")) {
-        const target = posix.normalize(posix.join(dirname(file), spec));
-        if (target !== skill.dir && !target.startsWith(`${skill.dir}/`)) return false;
-        continue;
-      }
-      const bare = spec.startsWith("node:") ? spec.slice("node:".length) : spec;
-      if (!isBuiltin(spec) || LOADS_CODE.has(bare.split("/")[0]!)) return false;
-    }
-  }
-  return true;
 }
