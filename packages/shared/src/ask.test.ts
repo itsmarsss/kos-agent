@@ -153,6 +153,12 @@ describe("an ask, as a card lays it out", () => {
     expect(view.alwaysTip).not.toContain("in the project school");
   });
 
+  it("says a skill's Always holds for its code as it is now", () => {
+    const view = askView({ tool: "skills.run", args: { name: "board", hash: "abc" }, reason: "runs a skill that was not promoted", rule: { tool: "skills.run", scope: "skill:board@abc", project: null } });
+    expect(view.always).toBe("Always allow board as it is now");
+    expect(view.alwaysTip).toContain("once it is changed, it asks again");
+  });
+
   it("says no Always where nothing can be remembered", () => {
     const view = askView({ tool: "shell.run", args: { command: "rm -rf build" }, reason: "risky tool" });
     expect(view.always).toBeUndefined();

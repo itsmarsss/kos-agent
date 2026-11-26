@@ -282,13 +282,18 @@ describe("a job's consent", () => {
     expect(rules.list().map((r) => r.job)).toEqual([null]);
   });
 
-  it("names a skill run by its skill", () => {
-    expect(scopeOf("skills.run", { name: "board" })).toBe("skill:board");
+  it("names a skill run by its skill and its code as stamped, so an edit asks again", () => {
+    expect(scopeOf("skills.run", { name: "board", hash: "h1" })).toBe("skill:board@h1");
+    expect(scopeOf("skills.run", { name: "board" })).toBeUndefined();
     expect(scopeOf("skills.run", {})).toBeUndefined();
     const rules = new PermissionStore(new Database(":memory:"), () => 2_000);
-    rules.add({ tool: "skills.run", scope: "skill:board", project: null, job: 3 });
-    expect(rules.learned("skills.run", { name: "board" }, { job: { id: 3, since: 0 } })).toBe("job");
-    expect(rules.learned("skills.run", { name: "other" }, { job: { id: 3, since: 0 } })).toBe(false);
+    rules.add({ tool: "skills.run", scope: "skill:board@h1", project: null, job: 3 });
+    expect(rules.learned("skills.run", { name: "board", hash: "h1" }, { job: { id: 3, since: 0 } })).toBe("job");
+    expect(rules.learned("skills.run", { name: "board", hash: "h2" }, { job: { id: 3, since: 0 } })).toBe(false);
+    expect(rules.learned("skills.run", { name: "other", hash: "h1" }, { job: { id: 3, since: 0 } })).toBe(false);
+    expect(rules.holdBurst("c1", "skills.run", { name: "board", hash: "h1" })).toBe(true);
+    expect(rules.learned("skills.run", { name: "board", hash: "h1" }, { conversationId: "c1" })).toBe("burst");
+    expect(rules.learned("skills.run", { name: "board", hash: "h2" }, { conversationId: "c1" })).toBe(false);
   });
 });
 

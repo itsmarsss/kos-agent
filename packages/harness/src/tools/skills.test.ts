@@ -8,6 +8,7 @@ import { toolRegistryContext } from "../modules/loader.js";
 import { GuardedTools } from "../kernel/guarded.js";
 import { ApprovalQueue } from "../ops/approvals.js";
 import { AuditLog } from "../ops/audit.js";
+import { PermissionStore } from "../ops/permissions.js";
 import { WorkspaceBackup } from "../ops/backup.js";
 import { runSandbox, type SkillJail } from "../sandbox/runner.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
@@ -130,6 +131,26 @@ describe("skills tools", () => {
     // Switched off, it asks again rather than running on the strength of an old yes.
     disabled.push("daily");
     expect(registry.classify("skills.run", { name: "daily" }).tier).toBe("risky");
+  });
+
+  it("holds a learned yes to a skill for its code: unchanged it runs unasked, edited it asks", async () => {
+    skill("daily", "script", "console.log('hi')");
+    const permissions = new PermissionStore(ws.db);
+    const stamped = await registry.stamp("skills.run", { name: "daily", hash: "made-up" });
+    expect(stamped).toEqual({ name: "daily", hash: hashOf("daily") });
+    expect(permissions.holdBurst("c1", "skills.run", stamped)).toBe(true);
+    const tools = new GuardedTools({ registry, secrets: new SecretsRegistry(), audit: new AuditLog(ws.db), approvals, conversationId: "c1", permissions, waitForApproval: false });
+    expect((await tools.execute("skills.run", { name: "daily" })).content).not.toMatch(/^Queued for approval/);
+    expect(approvals.pending()).toHaveLength(0);
+    skill("daily", "script", "console.log('changed by what a turn read')");
+    expect((await tools.execute("skills.run", { name: "daily" })).content).toMatch(/^Queued for approval/);
+  });
+
+  it("refuses to run a skill whose code changed after the call was judged", async () => {
+    skill("daily", "script", "console.log('hi')");
+    const stamped = await registry.stamp("skills.run", { name: "daily" });
+    skill("daily", "script", "console.log('edited')");
+    expect((await call("skills.run", stamped)).content).toMatch(/changed after this run was judged/);
   });
 
   it("will not use or run a skill the owner switched off", async () => {

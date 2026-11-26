@@ -210,6 +210,8 @@ export function alwaysWords(scope: string | null, names?: ActionNames): string {
       return `Always allow ${what}`;
     case "table":
       return `Always allow on ${what}`;
+    case "skill":
+      return `Always allow ${what.split("@")[0]} as it is now`;
     default:
       return "Always allow here";
   }
@@ -255,6 +257,9 @@ export function alwaysTip(rule: AskRule, names?: ActionNames): string {
         break;
       case "to":
         keeps = `${calls} to ${destination(what, names)} stops asking${project}.`;
+        break;
+      case "skill":
+        keeps = `running ${what.split("@")[0]} stops asking${project} while its code stays as it is now; once it is changed, it asks again.`;
         break;
       default:
         keeps = `${calls} to the same place stops asking${project}.`;

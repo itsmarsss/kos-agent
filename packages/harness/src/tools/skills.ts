@@ -321,6 +321,10 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
           assertOn(skill);
+          // Judged as the files were when it was stamped: changed since, a yes to that code is not a yes to this.
+          if (typeof input["hash"] === "string" && input["hash"] !== skillHash(ws, skill)) {
+            throw new Error(`${skill.manifest.name} changed after this run was judged, so it was not run. Run it again to be asked about the code as it is now.`);
+          }
           const args = strings(input, "args");
           const result = await runSkillLive({ workspaceRoot: ws.root, entry: skill.file, ...(args ? { args } : {}), ...(deps.jail ? { jail: deps.jail } : {}) });
           return JSON.stringify(sandboxReport(result));
@@ -331,6 +335,13 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           floor: "risky",
           why: "runs a skill that was not promoted",
           refuse: () => noJail(),
+          // The hash of the files it would run, set by the harness before it is judged: a yes to it is a yes to this code.
+          stamp: (input: Record<string, unknown>) => {
+            const { hash: _said, ...rest } = input;
+            const skill = scriptNamed(rest);
+            const hash = skill ? hashNow(skill) : undefined;
+            return hash ? { ...rest, hash } : rest;
+          },
           relax: (input) => {
             const skill = scriptNamed(input);
             return skill !== undefined && !off().has(skill.manifest.name) && isPromoted(skill);
