@@ -132,7 +132,8 @@ export function notRunWords(job: Pick<CronJob, "enabled" | "nextRunAt">): string
 
 /** A run's line on its sheet: why it did not run, or what went wrong, in words. */
 export function runWhy(run: RunRecord): string | null {
-  if (run.status === "skipped") return "Its condition said not now, so it did nothing.";
+  // A skip with a reason is a missed run left for the next; one without is its condition saying not now.
+  if (run.status === "skipped") return run.error ? errorWords(run.error) : "Its condition said not now, so it did nothing.";
   return run.error ? errorWords(run.error) : null;
 }
 

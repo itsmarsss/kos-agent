@@ -13,7 +13,7 @@ import { saidText, type GenerateRequest, type ModelResponse } from "../models/ty
 import type { KosModule } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { BEHAVIOUR_KEY } from "./behaviour.js";
-import type { NotifyPayload } from "../tools/notify.js";
+import { QUIET_ENDING_NOTE, type NotifyPayload } from "../tools/notify.js";
 import { withoutTurnContext } from "./context.js";
 import { blobOf, isProjectChat } from "./conversations.js";
 import { Kernel } from "./kernel.js";
@@ -408,6 +408,95 @@ describe("KOS end-to-end flows", () => {
     await vi.waitFor(() => expect(cronRun()?.status).toBe("error"));
     expect(cronRun()?.error).toBe("It was written to post with notify, and posted nothing: shell: the owner said no");
     expect(chatRun()?.status).not.toBe("running");
+  });
+
+  it("records a schedule's run that chose not to post as ok, with no health failure, and one that said nothing as failed", async () => {
+    const model = scripted([
+      toolCall("c1", "notify", { quiet: "nothing new above the bar" }),
+      text("Nothing worth sending this hour."),
+      text("Nothing worth sending this hour."),
+    ]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "Opening scan",
+      schedule: "0 * * * *",
+      type: "self_prompt",
+      prompt: "Post any new opening with notify. If there is none, send nothing: silence is the correct result.",
+      enabled: true,
+    });
+    const cronRun = (): RunLike | undefined => kernel.runs.recent(10).find((r) => r.kind === "cron");
+
+    const quiet = await kernel.fireCron(job.id);
+    expect(quiet.ok).toBe(true);
+    expect(cronRun()).toMatchObject({ status: "ok", error: null });
+    expect(kernel.health.report().ok).toBe(true);
+    // The turn was told how to end with nothing to post.
+    expect(model.prompts[0]).toContain(QUIET_ENDING_NOTE);
+    // The choice is a step of the run, there to read back.
+    const uses = kernel.sessions.get(`cron:${job.id}`).flatMap((m) => m.content).filter((b) => b.type === "tool_use");
+    expect(uses).toEqual([expect.objectContaining({ name: "notify", input: { quiet: "nothing new above the bar" } })]);
+
+    // The same reply with no quiet ending is a message that never went.
+    const silent = await kernel.fireCron(job.id);
+    expect(silent).toMatchObject({ ok: false, error: "It was written to post with notify, and posted nothing." });
+    expect(kernel.health.report().ok).toBe(false);
+  });
+
+  it("fails a schedule's run that ends quietly after a step failed, and passes one that put a refused quiet ending right", async () => {
+    const model = scripted([
+      toolCall("c1", "files.read", { path: "missing/openings.md" }),
+      toolCall("c2", "notify", { quiet: "could not read the openings" }),
+      text("Nothing to post."),
+      toolCall("c3", "notify", { quiet: "nothing new", text: "Nothing new this hour." }),
+      toolCall("c4", "notify", { quiet: "nothing new" }),
+      text("Nothing to post."),
+    ]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({ name: "Opening scan", schedule: "0 * * * *", type: "self_prompt", prompt: "Post any new opening with notify.", enabled: true });
+
+    const hidden = await kernel.fireCron(job.id);
+    expect(hidden.ok).toBe(false);
+    expect(hidden.error).toMatch(/^It ended without posting after a step failed: files\.read: /);
+    expect(kernel.health.report().ok).toBe(false);
+
+    const corrected = await kernel.fireCron(job.id);
+    expect(corrected).toMatchObject({ ok: true });
+    expect(kernel.runs.recent(10).find((r) => r.kind === "cron")).toMatchObject({ status: "ok", error: null });
+  });
+
+  it("fails a schedule's run whose call was refused before it ran, then ended quietly", async () => {
+    const model = scripted([
+      toolCall("c1", "shell", { command: "./scan.sh" }),
+      toolCall("c2", "notify", { quiet: "the scan did not run" }),
+      text("Nothing to post."),
+    ]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({ name: "Scan", schedule: "0 * * * *", type: "self_prompt", prompt: "Run the scan with shell, post with notify.", toolAllow: ["notify", "sql"], enabled: true });
+    const fired = await kernel.fireCron(job.id);
+    expect(fired).toMatchObject({ ok: false, error: "It ended without posting after a step failed: shell: tool not available in this conversation: shell" });
+    expect(kernel.health.report().ok).toBe(false);
+  });
+
+  it("judges a waiting schedule's run by its own calls, not those of the next run in its thread", async () => {
+    const model = scripted([
+      toolCall("a1", "shell", { command: "rm -rf build" }),
+      toolCall("b1", "notify", { quiet: "nothing new" }),
+      text("Nothing to post."),
+      text("Not posted: the owner said no."),
+    ]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({ name: "Digest", schedule: "0 7 * * *", type: "self_prompt", prompt: "Clear the build, then post it with notify.", enabled: true });
+    const cronRuns = (): RunLike[] => kernel.runs.recent(10).filter((r) => r.kind === "cron");
+
+    expect((await kernel.fireCron(job.id)).ok).toBe(true);
+    const ask = kernel.approvals.pending()[0]!;
+    // The next run goes ahead in the same thread while the first waits, and ends quietly.
+    expect((await kernel.fireCron(job.id)).ok).toBe(true);
+    expect(cronRuns()[0]).toMatchObject({ status: "ok" });
+
+    await kernel.deny(ask.id, undefined, { surface: "dashboard" });
+    await vi.waitFor(() => expect(cronRuns()[1]?.status).toBe("error"));
+    expect(cronRuns()[1]?.error).toBe("It was written to post with notify, and posted nothing: shell: the owner said no");
   });
 
   it("says in the chat that a turn resumed after a decision stopped before it finished", async () => {

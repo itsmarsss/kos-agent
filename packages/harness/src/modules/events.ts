@@ -48,8 +48,9 @@ export type KernelEvent =
     }
   /**
    * A scheduled run's turn ended (a job's or a blob's): its closing words,
-   * and whether it sent anything (a notify that worked, or the answer
-   * reported to the owner). A run that sent nothing has only these words.
+   * and whether that turn sent anything (a message with notify, a quiet
+   * ending saying it had none, or the answer reported to the owner). A run
+   * that sent nothing has only these words.
    */
   | { kind: "run:said"; conversationId: string; jobId: number; reply: string; sent: boolean }
   /** A slash command run in a chat: the line as typed and what it answered, with where it was typed. */

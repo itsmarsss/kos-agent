@@ -150,9 +150,9 @@ import { STATUS_TOOL } from "../tools/status.js";
 import { ARTIFACT_TOOLS } from "../tools/systems.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
-import { outcomeOf, type StepTally } from "../ops/outcome.js";
+import { outcomeOf } from "../ops/outcome.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type FaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
-import { type NotifyPayload, type NotifySent, parseTarget } from "../tools/notify.js";
+import { type NotifyPayload, type NotifySent, parseTarget, QUIET_ENDING_NOTE } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
@@ -235,6 +235,8 @@ export interface HandleResult {
   steered?: boolean;
   /** Dropped or forked away while it waited, so it did not run here. */
   dropped?: boolean;
+  /** The turn that ran, when one did: what its calls are recorded under. */
+  turnId?: string;
 }
 
 /** How a turn that answered "waiting on you" ended: with its reply, or stopped short of it, and why. */
@@ -888,6 +890,7 @@ export class Kernel {
       crons: args.crons,
       killSwitch: this.killSwitch,
       selfPromptsPerHour: () => this.behaviour().selfPromptsPerHour,
+      catchUpHours: () => this.behaviour().catchUpHours,
       timezone: () => this.profile.timezone,
       enqueue: (work, lane) => this.queue.enqueue(work, lane),
       runs: args.runs,
@@ -1311,6 +1314,8 @@ export class Kernel {
 
         // The mark the owner's mid-turn words come under, this turn's alone.
         const mark = randomBytes(4).toString("hex");
+        // The job behind a schedule's run, whose unaddressed messages go to its place.
+        const scheduledId = opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? Number(opts.from.id) : undefined;
         const tools = this.guardedTools({
           userId,
           conversationId: sessionId,
@@ -1321,8 +1326,7 @@ export class Kernel {
           owner,
           ownWords,
           ...(guest ? { guest } : {}),
-          // The job behind a schedule's run, whose unaddressed messages go to its place.
-          ...(opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? { scheduled: Number(opts.from.id) } : {}),
+          ...(scheduledId !== undefined ? { scheduled: scheduledId } : {}),
           // Where the words were said, for a start on that device that needs no ask from a tool.
           ...(opts.channel && text.trim() ? { origin: { surface: opts.channel, said: text } } : {}),
           heard: () => this.hear(sessionId, mark),
@@ -1402,7 +1406,9 @@ export class Kernel {
           : null;
         // The devices the owner has paired, as they are now, so a Mac or a Chrome they name is known before a tool is called; never to a guest.
         const devicesNote = guest ? undefined : pairedNote(this.paired?.());
-        const pulled = [opts.context, mentioned, keptNote, guestNote, membersNote, hearingNote, maskedNote, devicesNote].filter((part): part is string => Boolean(part)).join("\n\n");
+        // A schedule's run, on either engine, learns how to end with nothing to post without reading as a failure.
+        const quietNote = scheduledId !== undefined ? QUIET_ENDING_NOTE : null;
+        const pulled = [opts.context, mentioned, keptNote, guestNote, membersNote, hearingNote, maskedNote, devicesNote, quietNote].filter((part): part is string => Boolean(part)).join("\n\n");
         const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
@@ -1728,7 +1734,7 @@ export class Kernel {
           // A failed SDK turn that took steps closes its chat with a line of its own (above).
           const outcome = await this.raceWithApproval(sdkRun, waiting, (r, resumed) => settleSdk(r, resumed), { sessionId, runId, signal: stop.signal, closesOwnFailure: useSession });
           suspended = outcome.ended !== undefined;
-          return { reply: outcome.reply, halted: false, sessionId, ...(outcome.ended ? { suspended: true, ended: outcome.ended } : {}) };
+          return { reply: outcome.reply, halted: false, sessionId, turnId, ...(outcome.ended ? { suspended: true, ended: outcome.ended } : {}) };
         }
 
         const running = runAgent(this.inference, tools, input, {
@@ -1785,7 +1791,7 @@ export class Kernel {
           { sessionId, runId, signal: stop.signal, closesOwnFailure: false },
         );
         suspended = outcome.ended !== undefined;
-        return { reply: outcome.reply, halted: false, sessionId, ...(outcome.ended ? { suspended: true, ended: outcome.ended } : {}) };
+        return { reply: outcome.reply, halted: false, sessionId, turnId, ...(outcome.ended ? { suspended: true, ended: outcome.ended } : {}) };
       } catch (err) {
         const why = err instanceof Error ? err.message : String(err);
         this.runs.finish(runId, "error", why);
@@ -2056,30 +2062,44 @@ export class Kernel {
       const role = job.agent ? this.roles.get(job.agent) : undefined;
       const reported = role?.report === "always" && reply.trim() !== "";
       if (reported) this.caretaker.tell(reply, { from: this.senderFor(id) });
-      const ran: JobTurn = { reply, steps: this.jobSteps(id, mark, since), delivered: this.audit.worked(id, mark, "notify"), ...("stopped" in end ? { stopped: end.stopped } : {}) };
-      // Otherwise its answer is told to the surfaces, with whether the run
-      // sent anything: one that sent nothing (a weekly recap written as its
-      // reply) has only these words to reach the owner with.
-      this.bus.emit({ kind: "run:said", conversationId: id, jobId: job.id, reply, sent: reported || ran.delivered > 0 });
+      const ran: JobTurn = { reply, ...this.jobTurnCalls(id, mark, since, res.turnId), ...("stopped" in end ? { stopped: end.stopped } : {}) };
+      // Otherwise its answer is told to the surfaces, with whether this turn
+      // sent anything (a message, or a quiet ending saying it had none): one
+      // that sent nothing (a weekly recap written as its reply) has only
+      // these words to reach the owner with.
+      this.bus.emit({ kind: "run:said", conversationId: id, jobId: job.id, reply, sent: reported || ran.delivered + ran.quiet > 0 });
       return ran;
     };
     if (!res.ended) return turn({ reply: res.reply });
     // Waiting on the owner: what it did so far now, and the rest when the turn ends.
-    return { reply: res.reply, steps: this.jobSteps(id, mark, since), delivered: 0, later: res.ended.then(turn) };
+    return { reply: res.reply, ...this.jobTurnCalls(id, mark, since, res.turnId), delivered: 0, quiet: 0, later: res.ended.then(turn) };
   }
 
   /**
-   * A job turn's steps: the calls it made, and the ones it asked for that
-   * never ran, denied or left undecided. Those are never in the audit log,
-   * so a digest whose post lapsed counted its reads and read as clean.
+   * A job turn's steps and what it posted, counted by the turn's own id: a
+   * run waiting on the owner while the next run of its thread goes ahead
+   * (or another job of the same blob) is not credited with that run's calls.
+   *
+   * The steps are the calls it made, and the ones it asked for that never
+   * ran, denied or left undecided: those are never in the audit log, so a
+   * digest whose post lapsed counted its reads and read as clean. A quiet
+   * ending refused (said with a message, or with no reason) is not a step:
+   * it did nothing, and a run that put it right did what it was for. Its
+   * words are kept as the reason only when nothing else failed.
    */
-  private jobSteps(conversationId: string, mark: number, since: number): StepTally {
-    const steps = this.audit.tally(conversationId, mark);
+  private jobTurnCalls(conversationId: string, mark: number, since: number, turnId: string | undefined): Pick<JobTurn, "steps" | "delivered" | "quiet"> {
+    const { quietRefused, ...posted } = this.audit.notified(conversationId, mark, turnId);
+    const calls = this.audit.tally(conversationId, mark, turnId);
     const unrun = this.approvals.unrunSince(conversationId, since);
-    if (!unrun.length) return steps;
+    const failed = calls.failed - quietRefused + unrun.length;
+    // The tally names a refused quiet ending first only when no other call failed.
+    const otherError = calls.failed > quietRefused ? calls.firstError : null;
     const [first] = unrun;
-    const why = `${first!.tool}: ${first!.status === "denied" ? "the owner said no" : "its approval was left undecided"}`;
-    return { total: steps.total + unrun.length, failed: steps.failed + unrun.length, firstError: steps.firstError ?? why };
+    const why = first ? `${first.tool}: ${first.status === "denied" ? "the owner said no" : "its approval was left undecided"}` : null;
+    return {
+      steps: { total: calls.total - quietRefused + unrun.length, failed, firstError: otherError ?? why ?? calls.firstError },
+      ...posted,
+    };
   }
 
 
@@ -4205,6 +4225,7 @@ export class Kernel {
         `You are running unattended as cron job "${job.name}".`,
         "There is no one to ask, so do not ask questions.",
         "Risky actions still queue for approval; say what you queued and stop.",
+        QUIET_ENDING_NOTE,
       ].join("\n"),
     });
     /*

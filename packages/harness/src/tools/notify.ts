@@ -1,3 +1,5 @@
+import { messageKeysIn, quietWords } from "@kos/shared";
+
 import { MESSAGE_LIMITS } from "../channels/types.js";
 import type {
   MessageButton,
@@ -73,6 +75,41 @@ export interface NotifySent {
 function addressed(raw: unknown): boolean {
   return raw !== undefined && raw !== null && raw !== "";
 }
+
+/** Whether a call ends its run quietly instead of sending: it names `quiet` at all, even wrongly. */
+function endsQuietly(input: Record<string, unknown>): boolean {
+  return input.quiet !== undefined && input.quiet !== null;
+}
+
+/**
+ * A scheduled run's "nothing to post this time", said rather than implied.
+ *
+ * A job written to post with notify that ends having posted nothing is
+ * judged as having failed: that is how a message written as the reply, or
+ * a forgotten notify, is caught. A job that posts only when there is news
+ * ends most runs with nothing to say, and its reply cannot tell that from
+ * forgetting, so the run says so here, with why. It posts nothing.
+ *
+ * Refused outside a scheduled run, where nothing judges what was posted and
+ * not calling notify already says it; and refused beside anything a message
+ * is made of, since a call that both posts and does not is a guess either way.
+ */
+function quietEnding(input: Record<string, unknown>): string {
+  if (scheduledJob() === undefined) {
+    throw new Error("quiet is for a scheduled run with nothing to post this time; here, just do not call notify");
+  }
+  const reason = quietWords(input);
+  if (!reason) throw new Error("quiet takes why nothing is posted, in a few words");
+  const sent = messageKeysIn(input);
+  if (sent.length) {
+    throw new Error(`quiet posts nothing, so it takes no ${sent.join(", ")}: send the message without quiet, or call quiet alone`);
+  }
+  return `Posted nothing: ${reason}. The run is recorded as choosing not to post.`;
+}
+
+/** What a scheduled turn is told about the quiet ending, on either engine. */
+export const QUIET_ENDING_NOTE =
+  "A scheduled run written to post with notify that has nothing to post this time calls notify with quiet and the reason, and nothing else, instead of a message; this holds even when its instructions say to send nothing or end with no output.";
 
 export interface NotifyToolDeps {
   /** Mint the token a press comes back on, and record where it belongs. */
@@ -449,7 +486,8 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             'or the blob\'s channel); "owner" for the owner directly, "discord" for the owner on Discord, "discord:channel:<id>" ' +
             "to post in a channel, which needs approval. A press comes back as a message " +
             "in the conversation named by `replyTo`, so say what a button means in its " +
-            "label.",
+            "label. A scheduled run written to post that has nothing to post this time calls notify " +
+            "with `quiet` and the reason alone, instead of a message.",
           inputSchema: {
             type: "object",
             properties: {
@@ -546,11 +584,16 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
                 description:
                   "conversation a press is delivered to; defaults to this one",
               },
+              quiet: {
+                type: "string",
+                description:
+                  "only in a scheduled run with nothing to post this time: why, in a few words, and nothing else in the call. Posts nothing; the run records that it chose not to post",
+              },
             },
-            required: ["text"],
           },
         },
         async (input) => {
+          if (endsQuietly(input)) return quietEnding(input);
           const text = typeof input.text === "string" ? input.text : "";
           const card = asCard(input.card);
           if (!text && !card) throw new Error("notify requires text or a card");
@@ -615,9 +658,10 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           // Messaging the owner is the whole point and asks nothing. Posting
           // anywhere else is KOS speaking in a place the owner did not choose,
           // which is a decision for the owner rather than for the agent.
-          escalate: (input) => (sendsElsewhere(input) ? "a message to somewhere other than you" : false),
+          // A quiet ending sends nothing, so it asks nothing; one that names a destination is refused in the tool.
+          escalate: (input) => (!endsQuietly(input) && sendsElsewhere(input) ? "a message to somewhere other than you" : false),
           // The same line holds a chat's Auto: a message anywhere but to the owner asks.
-          beyondAuto: (input) => (sendsElsewhere(input) ? "messages someone besides you" : false),
+          beyondAuto: (input) => (!endsQuietly(input) && sendsElsewhere(input) ? "messages someone besides you" : false),
           // The message is the point: once its chat has stopped, a yes still sends it, its card warning so.
           detached: "runs",
         },

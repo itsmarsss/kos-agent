@@ -57,6 +57,29 @@ describe("SettingsPage", () => {
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("shows the catch-up limit beside the other schedule limits and saves it", async () => {
+    const how = { engine: "api", autoFix: true, maxSteps: 50, screenSteps: 200, fixSteps: 24, selfPromptsPerHour: 10, catchUpHours: 3, agentMinutes: 15, agentTurns: 60, stallMinutes: 3, approvalMinutes: 30, approvalExpiryHours: 24, heartbeatMinutes: 0, memoryExtraction: true, smartContext: true, extractEveryChars: 6000, memoryDecideAbove: 80 } as const;
+    vi.spyOn(api, "behaviour").mockResolvedValue({ behaviour: how, defaults: how, limits: { catchUpHours: [0, 24], selfPromptsPerHour: [0, 120] } } as unknown as Awaited<ReturnType<typeof api.behaviour>>);
+    const save = vi.spyOn(api, "saveBehaviour").mockImplementation((b) => Promise.resolve({ behaviour: b }));
+    render(<SettingsPage section="behaviour" />);
+    const limit = async (name: RegExp): Promise<HTMLInputElement> => (await screen.findByLabelText(name)).querySelector("input")!;
+    const field = await limit(/^Hours a missed schedule may run late/);
+    await waitFor(() => expect(field.value).toBe("3"));
+    expect(field.min).toBe("0");
+    expect(field.max).toBe("24");
+    expect(document.body.textContent).toContain("0 never runs a missed one. Usually 3. Between 0 and 24.");
+    // Next to the other schedule limit.
+    const fields = [...document.querySelectorAll<HTMLInputElement>("input.set-limit")];
+    const perHour = await limit(/^Schedules that ask KOS, per hour/);
+    expect(fields.indexOf(field)).toBe(fields.indexOf(perHour) + 1);
+    fireEvent.change(field, { target: { value: "30" } });
+    expect(field.value).toBe("24");
+    fireEvent.change(field, { target: { value: "0" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0]![0].catchUpHours).toBe(0);
+  });
+
   it("points a standing rule to where it lives: Memory, or one chat's Brief", async () => {
     render(<SettingsPage section="you" />);
     await screen.findByDisplayValue("Ada");

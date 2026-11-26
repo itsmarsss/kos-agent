@@ -80,6 +80,9 @@ describe("a step as a row says it", () => {
     expect(stepLine("artifact.trash", { id: "reading-shelf" })).toEqual({ title: "Move an artifact to the trash" });
     expect(stepLine("secrets.write", { handle: "visa-ending-4242-d6xh", kind: "card", fields: ["number"] })).toEqual({ title: "Save a secret" });
     expect(stepLine("http.fetch", "not json")).toEqual({ title: "Fetch a web address" });
+    expect(stepLine("notify", { quiet: "nothing new above the bar" })).toEqual({ title: "Chose not to post", detail: "nothing new above the bar" });
+    // Refused beside a message, it is no quiet ending.
+    expect(stepLine("notify", { quiet: "nothing new", text: "but here" }).title).toBe("Send you a message");
   });
 
   it("cuts a long target to one short line", () => {
