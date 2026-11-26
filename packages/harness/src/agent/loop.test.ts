@@ -124,6 +124,38 @@ describe("runAgent", () => {
     expect(stopped.finalText).toBe("");
   });
 
+  it("answers with what it wrote before a silent save, written as the turn's last message", async () => {
+    const step = (text: string, id: string, name: string): ModelResponse => ({
+      content: [{ type: "text", text }, { type: "tool_use", id, name, input: { a: 1, b: 1 } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "mock",
+    });
+    const reg = addRegistry();
+    reg.register({ name: "memory.remember", description: "m", inputSchema: { type: "object", properties: {} } }, () => "kept");
+    const inference = new ScriptedInference([
+      step("I'll add them.", "t1", "add"),
+      step("The sum is 2.", "t2", "memory.remember"),
+      { content: [], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+    ]);
+    const result = await runAgent(inference, reg, "add and remember");
+    expect(result.finalText).toBe("The sum is 2.");
+    expect(result.messages.at(-1)).toMatchObject({ role: "assistant", content: [{ type: "text", text: "The sum is 2." }] });
+  });
+
+  it("answers with a long answer it posted and the short line after, in the last message", async () => {
+    const answer = "The sum is 2. ".repeat(20).trim();
+    const reg = addRegistry();
+    reg.register({ name: "notify", description: "n", inputSchema: { type: "object", properties: {} } }, () => "Sent.");
+    const inference = new ScriptedInference([
+      { content: [{ type: "text", text: answer }, { type: "tool_use", id: "t1", name: "notify", input: {} }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+      { content: [{ type: "text", text: "Posted above." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+    ]);
+    const result = await runAgent(inference, reg, "post it");
+    expect(result.finalText).toBe(`${answer}\n\nPosted above.`);
+    expect(result.messages.at(-1)!.content).toEqual([{ type: "text", text: `${answer}\n\nPosted above.` }]);
+  });
+
   it("stamps each message as it is made, so a step keeps its own time", async () => {
     const reg = new ToolRegistry();
     reg.register({ name: "slow", description: "takes a while", inputSchema: { type: "object" } }, async () => {

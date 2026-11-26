@@ -372,6 +372,58 @@ describe("the reply on the SDK: only what follows the last step", () => {
     expect(r.calls[0]!.said).toBe("Checking the board.");
   });
 
+  it("keeps an answer written before a silent save as the reply, not also as the save's narration", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("sql", "I'll add it up.");
+      await tools.get("sql")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield use("memory_remember", "You spent $3,410 in October, $600 over budget.");
+      await tools.get("memory_remember")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield result(3);
+    };
+    const r = await runSdkChat({ prompt: "spend?", system: "s", tools: box(["sql", "memory.remember"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(r.text).toBe("You spent $3,410 in October, $600 over budget.");
+    expect(r.calls.map((c) => c.said)).toEqual(["I'll add it up.", undefined]);
+  });
+
+  it("keeps an answer posted with buttons, and the short line after the post", async () => {
+    const answer = "There's no web URL to hand you: those pages are workspace pages, not a served site, and `sites.list` is empty. The `@page:book_crm_home` form is the clickable link here. For real https links I would publish the dashboard as a site.";
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield use("sites_list");
+      await tools.get("sites_list")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield use("pages_list");
+      await tools.get("pages_list")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield use("notify", answer);
+      await tools.get("notify")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("Buttons sent above, pick one.");
+      yield result(4);
+    };
+    const r = await runSdkChat({ prompt: "hyperlink me", system: "s", tools: box(["sites.list", "pages.list", "notify"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(r.text).toBe(`${answer}\n\nButtons sent above, pick one.`);
+    expect(r.calls.every((c) => c.said === undefined)).toBe(true);
+  });
+
+  it("takes the words before a hand-on to a subagent as that step's, not the subagent's first call's", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      yield { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: "Handing this to the screen agent." }, { type: "tool_use", id: "h1", name: "Task", input: {} }] } };
+      await tools.get("computer_act")!({});
+      yield { type: "user", parent_tool_use_id: "h1" };
+      yield { type: "user", parent_tool_use_id: null };
+      yield say("The form is sent.");
+      yield result(2);
+    };
+    const r = await runSdkChat({ prompt: "send the form", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked." })), cwd: process.cwd(), screen: { model: "screen-model" } });
+    expect(r.text).toBe("The form is sent.");
+    expect(r.calls).toEqual([expect.not.objectContaining({ said: expect.anything() })]);
+  });
+
   it("puts the closing reply rule last in what it adds to the engine's prompt, with or without a screen agent", async () => {
     const system = assembleSystemPrompt({ baseSystem: "You are KOS.", profile: { name: "O", timezone: "UTC", ownerId: "o", channels: {}, preferences: {} }, projects: [], recall: { facts: [], events: [] } }).system;
     for (const screen of [undefined, { model: "screen-model" }]) {

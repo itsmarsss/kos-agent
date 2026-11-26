@@ -18,6 +18,7 @@ import type { ModelMessage } from "../models/types.js";
 import { toolUse } from "../kernel/caller.js";
 import { STOPPED_RESULT } from "../kernel/guarded.js";
 import { beforeReply } from "../kernel/voice.js";
+import { replyFrom, type SaidCall } from "../agent/reply.js";
 import { ONLY_OWN_MCP, credentials } from "../builds/runner.js";
 import { toZodShape } from "./schema.js";
 
@@ -342,15 +343,16 @@ export function joinSaid(before: string, piece: string): string {
  * Every text block of a turn used to be joined into the reply, so the line
  * the model wrote before a tool call ("I'll run the scanner.") became the
  * first sentence of the answer, on the dashboard and on Discord. What is said
- * before a step is that step's narration; the reply is only what is said
- * after the last one, as on the API loop, where the reply is the last
- * message, the one that calls no tool.
+ * before a call is that call's narration; which words are the reply is
+ * replyFrom's to say, as on the API loop.
  */
 export class TurnWords {
-  /** Said since the last step: the reply, if no step follows. */
+  /** Said since the last step. */
   private since = "";
   /** Said before a step and not yet kept with one of its calls. */
   private aside = "";
+  /** The turn's calls in the order they started, each with the words said just before it. */
+  private readonly calls: (SaidCall & { id?: string })[] = [];
 
   /** Words the model said. */
   say(piece: string): void {
@@ -363,18 +365,36 @@ export class TurnWords {
     this.since = "";
   }
 
-  /** A call started: the step's narration, given to the first call to start and then gone. */
-  narration(): string | undefined {
+  /** A call started, by KOS's name for it: the step's narration, given to the first call to start and then gone. */
+  call(name: string, id?: string): string | undefined {
     this.step();
     const said = this.aside.trim();
     this.aside = "";
+    this.calls.push({ name, ...(said ? { said } : {}), ...(id ? { id } : {}) });
     return said || undefined;
   }
 
-  /** What is said after the last step. */
-  get reply(): string {
+  /** Whether the turn has said anything yet, or taken a step. */
+  get said(): boolean {
+    return this.since !== "" || this.aside !== "" || this.calls.length > 0;
+  }
+
+  /** What has been said since the last step, as it streams. */
+  get spoken(): string {
     return this.since;
   }
+
+  /** The turn's reply, and the call whose narration it took, by id. */
+  answer(): { text: string; fromId?: string } {
+    const { text, from } = replyFrom(this.calls, this.since);
+    const fromId = from === undefined ? undefined : this.calls[from]!.id;
+    return { text, ...(fromId ? { fromId } : {}) };
+  }
+}
+
+/** A tool the SDK names as one of KOS's own, served by the in-process server. */
+function isOwnTool(name: unknown): boolean {
+  return typeof name === "string" && name.startsWith(`mcp__${SERVER}__`);
 }
 
 export function sdkName(name: string): string {
@@ -391,7 +411,7 @@ function serverFor(
   tools: ToolBox,
   record: (call: SdkToolCall, images: { data: string; mediaType: string }[]) => void,
   /** What the model said before this call, taken as it starts. */
-  narration: () => string | undefined,
+  narration: (name: string, id: string) => string | undefined,
 ) {
   // An id per call, unique across turns: it is the call's id in the stored
   // history, and what keeps the picture a step took with that step's card.
@@ -406,7 +426,7 @@ function serverFor(
       toZodShape(spec.inputSchema),
       async (args: Record<string, unknown>) => {
         const id = `sdk-${turn}-${++n}`;
-        const said = narration();
+        const said = narration(spec.name, id);
         running.set(id, { name: spec.name, input: args ?? {}, ...(said ? { said } : {}) });
         const result = await toolUse.run(id, () => tools.execute(spec.name, args ?? {})).catch((err: unknown) => {
           running.delete(id);
@@ -543,7 +563,7 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
       lastPicture = images.at(-1);
       pictured += 1;
     }
-  }, () => words.narration());
+  }, (name, id) => words.call(name, id));
   const allowed = split.main;
   const { env, home } = credentials(options.cwd, options.env ?? process.env);
 
@@ -720,7 +740,7 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
           if (delta?.text && !inSubagent) {
             // A block's first piece is joined to what came before as the
             // stored reply joins whole blocks, so the live text reads the same.
-            const sofar = words.reply + streamed;
+            const sofar = words.spoken + streamed;
             const piece = blockStart ? joinSaid(sofar, delta.text).slice(sofar.length) : delta.text;
             blockStart = false;
             streamed += piece;
@@ -738,9 +758,10 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
           blockStart = true;
           const content = said?.content ?? [];
           for (const block of content) {
-            const b = block as { type?: string; text?: string };
+            const b = block as { type?: string; text?: string; name?: string };
             if (b.type === "text" && b.text) words.say(b.text);
-            else if (b.type === "tool_use") words.step();
+            // A built-in (the hand-on to a subagent) is no call of KOS's: its narration is its own, taken here, and not the subagent's first call's.
+            else if (b.type === "tool_use") void (isOwnTool(b.name) ? words.step() : words.call(String(b.name)));
           }
           continue;
         }
@@ -751,7 +772,8 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
           // answering: an error, or the turn limit.
           if (m["subtype"] !== "success" && !full) stopped = true;
           used += typeof m["num_turns"] === "number" ? m["num_turns"] : 1;
-          if (typeof m["result"] === "string" && !words.reply && !options.signal?.aborted) words.say(m["result"]);
+          // The result's text stands in only for a turn that said nothing at all: after a step it may be words already placed.
+          if (typeof m["result"] === "string" && !words.said && !options.signal?.aborted) words.say(m["result"]);
           /*
            * Accounting comes from here, not from adding up the assistant
            * messages. The result carries a running total for every model the
@@ -819,5 +841,8 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
   }
 
   // A copy: a call stopped under the turn still records itself when it ends, after this has gone.
-  return { text: words.reply.trim(), calls: [...calls], usage, models, costUSD, stopped };
+  // The narration that became the reply is the reply's, not also its step's.
+  const { text, fromId } = words.answer();
+  const kept = calls.map(({ said, ...call }) => (said && call.id !== fromId ? { ...call, said } : call));
+  return { text: text.trim(), calls: kept, usage, models, costUSD, stopped };
 }

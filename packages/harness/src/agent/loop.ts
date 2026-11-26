@@ -13,6 +13,7 @@ import type {
 } from "../models/types.js";
 import { textOf, toolUsesOf } from "../models/types.js";
 import { keepRecentPictures } from "./pictures.js";
+import { replyFrom, type SaidCall } from "./reply.js";
 import { isScreenTool } from "./screen.js";
 import type { ToolExecution } from "./registry.js";
 
@@ -111,7 +112,8 @@ export async function runAgent(
    * anything then answered with whatever it had said last time.
    */
   const before = messages.length;
-  const saidThisTurn = (): string => replyOf(messages.slice(before));
+  /** The turn's reply, written into its messages where it is not already the last message's words. */
+  const saidThisTurn = (): string => settleReply(messages, before);
 
   let iterations = 0;
   let stopReason: StopReason = "end_turn";
@@ -180,7 +182,7 @@ export async function runAgent(
     if (toolUses.length === 0) {
       return {
         messages,
-        finalText: textOf(response.content),
+        finalText: saidThisTurn(),
         iterations,
         stopReason,
         exhausted: false,
@@ -234,13 +236,44 @@ export async function runAgent(
   };
 }
 
+/** A turn's calls in order, each first call of a message with the words beside it, and the words after the last. */
+function turnWords(turn: ModelMessage[]): { calls: SaidCall[]; final: string } {
+  const calls: SaidCall[] = [];
+  let final = "";
+  for (const message of turn) {
+    if (message.role !== "assistant") continue;
+    const uses = toolUsesOf(message.content);
+    if (uses.length === 0) {
+      final = textOf(message.content);
+      continue;
+    }
+    const said = textOf(message.content).trim();
+    uses.forEach((use, i) => calls.push({ name: use.name, ...(i === 0 && said ? { said } : {}) }));
+    final = "";
+  }
+  return { calls, final };
+}
+
 /**
- * A turn's reply: the text of its last assistant message, when that message
- * called no tool. Words beside a call are narration of that step ("I'll run
- * the scanner."), kept in the transcript with the step and never the answer,
- * as on the SDK engine. A turn that ends on a call has no reply.
+ * A turn's reply, by the rule both engines share (replyFrom): the words after
+ * its last call, or the answer it wrote before saving or posting it. Words
+ * beside a call otherwise narrate that step and stay with it; a turn that
+ * ends on a step has no reply.
+ *
+ * Put where a reader of the transcript finds it: when it is not
+ * the last message's words (an answer written before a save or a post), the
+ * last message says it, or a message of its own does after a final call.
  */
-export function replyOf(turn: ModelMessage[]): string {
-  const last = [...turn].reverse().find((m) => m.role === "assistant");
-  return last && toolUsesOf(last.content).length === 0 ? textOf(last.content) : "";
+function settleReply(messages: ModelMessage[], before: number): string {
+  const { calls, final } = turnWords(messages.slice(before));
+  const { text } = replyFrom(calls, final);
+  if (!text || text === final.trim()) return text;
+  const last = messages.at(-1);
+  const replyBlock: ContentBlock = { type: "text", text };
+  if (last?.role === "assistant" && toolUsesOf(last.content).length === 0) {
+    messages[messages.length - 1] = { ...last, content: [...last.content.filter((b) => b.type !== "text"), replyBlock] };
+  } else {
+    messages.push({ role: "assistant", content: [replyBlock], at: Date.now() });
+  }
+  return text;
 }
