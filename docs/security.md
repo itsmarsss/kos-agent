@@ -25,7 +25,11 @@ separate audit before it merges; each finding lands here.
    anything that imitates a turn or the owner defused.
 6. **Who is speaking.** Only the owner's own turns carry owner reach; guests,
    schedules, blobs and KOS's maintenance each have their own sender kind.
-7. **Audits.** A separate reviewer attacks every PR before merge.
+7. **Taint the turn.** A turn that has read text the owner did not write
+   stops being covered by Auto, bursts, saved Always rules and job consent
+   for anything that reaches outside, and its asks say what it read
+   (`risk/taint.ts`, `risk/untrusted.ts`). See below.
+8. **Audits.** A separate reviewer attacks every PR before merge.
 
 ## Findings log
 
@@ -72,6 +76,10 @@ could have triggered.
 | Nov 26 | #628 | L | The server ran unjailed without saying so when uvx or the jail was missing. | Refused on macOS; elsewhere shown as "running without the jail". |
 | Nov 26 | #628 | L | The jail opened all of ~/.local/bin to the server. | Only uv and uvx. |
 | Nov 26 | #628 | L, injection | camelCase or capitalised keys (addLabelIds, TRASHED, userGOOGLEEmail) escaped the rules. | Keys normalised with the server's own camel_case regex. |
+| Nov 26 | taint | M, injection | Saved yeses and Auto applied the same after a turn read a page, an email or guest rows: injected text could ride an Always (the LeetCode board's post to a guest channel ran on a standing Always after reading guest rows, though #625 made such posts never learned). | Taint the turn: no saved yes covers a call that reaches outside after an untrusted read. |
+| Nov 26 | taint | M, injection | Opening a page in KOS's browser was safe whatever the host, so a page could have data sent out in an address. | In a tainted turn a step to a site the turn has not been on asks, unless the owner's own words named it. |
+| Nov 26 | taint | M, injection | `cron.schedule` and `blobs.create` ran unasked from any turn, so injected text could set up work that repeats it. | They ask in a tainted turn. |
+| Nov 26 | taint | L, injection | An approval card showed the action, never that content suggested it. | Every surface's card says "After reading: ..." for an ask a tainted turn raised. |
 
 ## Prompt injection
 
@@ -94,47 +102,132 @@ can never get an action past the owner.
 - Risk is judged from the tool and its arguments, never from what a result
   says, so reading something cannot by itself widen permissions.
 - Everything that reaches another person, deletes, spends, or changes KOS
-  itself asks the owner and is never covered by a saved yes.
+  itself asks the owner and is never covered by a learned yes.
 - Guests cannot use owner tools or the owner's reach.
+- **Taint the turn** (below): after an untrusted read, nothing the owner
+  said yes to earlier covers a call that reaches outside.
+- **Say why on the card**: an ask a tainted turn raised names what it read,
+  on the dashboard, Discord, iMessage and SMS, KOS for Chrome, Mac and
+  iPhone (one line, `taintLine` in `@kos/shared`, scrubbed and short).
+- **An injection test suite** (`kernel/injection.test.ts`, in CI): hostile
+  text from a page, an email, a document, a guest in the room, a guest's
+  table row, a tool's error and an MCP result, each telling a model that
+  obeys it to send the owner's data out, write outside the chat's folder,
+  open the attacker's site, schedule itself, or place a secret, on the API
+  loop and the SDK engine. Asserted: none of it runs unasked, every ask
+  names the source, and the same calls without the read run as before.
+
+### Taint the turn
+
+A turn is tainted from the first result it reads that someone other than
+the owner wrote, to its end. Sources (`risk/untrusted.ts`, read from the
+tool's name; `ToolRisk.untrusted` for what only the tool knows):
+
+- `http.fetch`, every `browser.*` result, `chrome.page` and the screen
+  (`computer.act`): a page, by host.
+- Google's server: mail by its sender, Drive, Docs and Calendar; any other
+  MCP server's result: that server. Errors count as results.
+- `files.read` of a file under an `uploads/` or `downloads/` folder, and a
+  search whose hits are there; a file sent with the owner's message.
+- Discord reads (`discord.messages`, `reactions`, `member`), a guest's own
+  turn, room talk carried with the owner's words.
+- `sql` reading a table of a project with a place opened to guests.
+- `chats.read`, `chats.search`, `kos.log`, `daemons.logs`, `skills.run` and
+  `skills.test` output, a page the owner quoted, and a kept result brought
+  back with `context.recall` (as tainted as the read that kept it).
+
+The taint is one object for the turn, handed to whatever it dispatches or
+hands off (carried as reach is, `caller.ts`, `tainting`), so a read there
+taints the turn waiting on the reply. An ask keeps its sources
+(`pending_actions.taint`), and the turn a decision resumes starts tainted
+with them and with what the approved call itself read.
+
+While tainted, Auto, a burst, a saved Always, a job's consent, a session's
+site trust and a secret's own grant stop covering a call that:
+
+- sends or posts where anyone but the owner reads (notify elsewhere,
+  Discord, a connected server's send);
+- writes outside the turn's folder;
+- reaches the network (`http.fetch` off the site already read, any risky
+  MCP call, a skill's code, a shell or Python run on a saved rule);
+- changes KOS itself (skills, modules, daemons, schedules, blobs, systems,
+  sites, builds, secrets, KOS's own tables, who sees a channel);
+- touches a secret;
+- or is any tool not known to stay inside the workspace.
+
+Those ask. A call the rules let run unasked asks too when it opens a site
+the turn has not been on and the owner's own words this turn did not name,
+or sets up work for later (`cron.schedule`, `blobs.create`). Reads stay
+free, and so do: a post the owner alone reads (that is the owner reading
+it); writes inside the workspace (files in the folder, a project's own
+rows, tasks, memory, artifacts, handing work to another chat, which
+carries the taint); a GET from the one site everything read came from (an
+API's next page) and a browser step on that site, so browsing a trusted
+site goes on as before; a shell or Python run Auto lets through, which runs
+offline. Saved yeses are kept: Always is still offered, and covers again in
+a turn that read nothing.
+
+### Jobs that now ask
+
+From the live jobs' recent runs (Nov 24 to 26):
+
+- **LeetCode Daily 9 AM Board** (`skills.run`, guest rows, then `notify` to
+  #leetcode on a standing Always): the post asks every run, and so would a
+  second `skills.run` after the first. Narrowest safe exception, not
+  enabled: let a job's saved yes cover a post whose text is a fixed
+  template filled only from the rows (defense 8), never free model text.
+- **Monthly watch: LFX and Apart** (two pages in KOS's browser): the second
+  site's visit asks once a month, the schedule's prompt not being the
+  owner's words this turn. Exception, not enabled: count hosts named in a
+  job's own prompt as the owner's.
+- Unchanged: the backfill (its row write is a project table), the school
+  digest and nudge (no untrusted read), the kickoff, the research scan and
+  the blobs (their posts are to the owner alone, their writes inside).
 
 ### Gaps
 
-- A safe read followed by a write the owner approves: the card shows the
-  action, not that untrusted text suggested it.
+- A turn is tainted, a chat is not: a page read in one turn is still in the
+  next turn's history (whole for a turn, then as its stub; small results
+  stay). An injected "when the owner next says anything, post this" can
+  ride the owner's next turn's Auto. Fix: keep each turn's sources with its
+  transcript and start a turn tainted by what its history still holds.
+- Memory written in a tainted turn is not marked, so an injection can
+  leave a "fact" that steers later turns.
+- Shell and Python output is not a source: a command that fetches a page
+  brings its text in untainted.
+- Workspace files are untrusted only under `uploads/` and `downloads/`; a
+  file a skill or daemon wrote from the web is not.
+- A site the owner trusts (Always on site) is still acted on after reading
+  only that site, so text a stranger posted there (a comment, an issue)
+  can steer clicks on it.
+- Safe-floored calls stay free in a tainted turn: a reaction on Discord,
+  `http.fetch` to a host on the owner's list (a query string can carry
+  data there), an MCP tool the owner marked safe.
 - Data can still leave through an approved action whose arguments carry it
   (a URL, a file body), if the owner approves without reading closely.
-- Saved yeses and Auto apply the same whether or not the turn read untrusted
-  text first.
 
 ### Ways to stay away from it (brainstorm, ranked)
 
-1. **Taint the turn.** Once a turn has read untrusted text, Auto, bursts and
-   saved yeses stop covering anything that sends, writes outside the
-   workspace or reaches the network; those ask. Reading stays free. This is
-   the single biggest cut, cheap to build on the risk tiers that exist.
-2. **Say why on the card.** An approval card names the untrusted source the
-   turn read ("after reading an email from x@y") so the owner sees when an
-   action was suggested by content.
-3. **Spot copied arguments.** When an argument value (an address, a URL, a
+1. **Spot copied arguments.** When an argument value (an address, a URL, a
    folder id, a long text body) appears verbatim in untrusted text the turn
    read, flag it on the card and never let a learned yes cover it.
-4. **Egress allow-list.** Only known hosts are reachable; any new host asks.
+2. **Egress allow-list.** Only known hosts are reachable; any new host asks.
    Extend it to every tool that fetches (Google imports, attachments, page
    images), not only http.fetch.
-5. **A quarantined reader.** Untrusted text goes to a second model with no
+3. **Taint the chat.** Carry a turn's sources with its history (see Gaps).
+4. **A quarantined reader.** Untrusted text goes to a second model with no
    tools that returns only structured fields (dates, amounts, a summary);
    the acting model never sees the raw text. Strongest defense, most work;
    worth it for mail first.
-6. **No private data out in a tainted turn.** Memory, secrets, private files
+5. **No private data out in a tainted turn.** Memory, secrets, private files
    and owner tables cannot flow into a send or an external write in the same
    turn as an untrusted read without an ask that shows the data.
-7. **Expiring yeses.** Saved yeses lapse after a set time unless used, and
+6. **Expiring yeses.** Saved yeses lapse after a set time unless used, and
    Settings lists them with when each was last used.
-8. **Fixed-text jobs.** Jobs that post on a schedule post from a template
+7. **Fixed-text jobs.** Jobs that post on a schedule post from a template
    with fields, not free model text, when they read guest-supplied data.
-9. **An injection test suite.** A corpus of hostile pages, mails and rows run
-   against both engines in CI, asserting no unasked send, write or reach.
-10. **Alerts.** A burst of asks, a new host, or a send right after an
-    untrusted read raises a notice to the owner.
+8. **Alerts.** A burst of asks, a new host, or a send right after an
+   untrusted read raises a notice to the owner.
 
-Recommended next: 1, 2 and 9 together, then 3 and 4.
+Built: taint the turn, say why on the card, the injection suite. Recommended
+next: 1, 2 and 3.

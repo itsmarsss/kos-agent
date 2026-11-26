@@ -154,7 +154,12 @@ In a chat:
 - A tool call that needs a yes shows who is asking (the blob, the project's
   chat, or KOS itself), then Approve, Always and Deny in place. The same
   name heads the prompt on Discord, iMessage and SMS.
-  Always remembers the decision for that shape in that project.
+  Always remembers the decision for that shape in that project. Once a
+  turn has read text you did not write (a page, an email, a guest's
+  message, rows guests wrote), no Always, burst, job consent or Auto covers
+  what it does next that reaches outside, and its card says what it read:
+  "After reading: an email from x@y, a page on example.com". See
+  [security](security.md#taint-the-turn).
 
 ## Browser
 
