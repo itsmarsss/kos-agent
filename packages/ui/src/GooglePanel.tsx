@@ -34,6 +34,7 @@ export function GooglePanel(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [json, setJson] = useState("");
+  const [address, setAddress] = useState("");
   const [replacing, setReplacing] = useState(false);
   const [signInUrl, setSignInUrl] = useState<string | null>(null);
 
@@ -64,22 +65,20 @@ export function GooglePanel(): ReactElement {
       setReplacing(false);
     });
 
-  /** Opened at the press, so the browser lets it; pointed at Google once the server gives the address. */
+  /** Google's page in a tab of its own, with no handle back to this one; the link stays for a browser that blocks it. */
   const signIn = (): void => {
-    const tab = window.open("", "_blank");
     setBusy(true);
     setError(null);
     setSignInUrl(null);
     void api
-      .googleSignIn()
+      .googleSignIn(info?.email ?? address.trim())
       .then(
         (next) => {
-          if (tab) tab.location.href = next.url;
+          window.open(next.url, "_blank", "noopener,noreferrer");
           setSignInUrl(next.url);
           setInfo(next);
         },
         (err: unknown) => {
-          tab?.close();
           setError(err instanceof Error ? err.message : String(err));
           load();
         },
@@ -138,7 +137,7 @@ export function GooglePanel(): ReactElement {
           <FieldRow
             label={info.account ? info.account.email : "Google account"}
             badge={info.account ? <Pill tone={state.tone}>{state.word}</Pill> : undefined}
-            hint={info.account ? state.hint : "Not signed in. Sign in opens Google in your browser; KOS never sees your password."}
+            hint={info.account ? state.hint : "Not signed in. Sign in opens Google in your browser; KOS never sees your password, and refuses any account but the address you give."}
             meta={
               info.account && (
                 <span className="set-origin">
@@ -151,7 +150,10 @@ export function GooglePanel(): ReactElement {
               )
             }
           >
-            <button type="button" className="btn btn--sm" disabled={busy || info.signingIn} onClick={signIn}>
+            {!info.email && (
+              <input className="kos-input" type="email" placeholder="you@gmail.com" aria-label="Your Google address" value={address} onChange={(e) => setAddress(e.target.value)} />
+            )}
+            <button type="button" className="btn btn--sm" disabled={busy || info.signingIn || (!info.email && !address.trim())} onClick={signIn}>
               {info.account ? "Sign in again" : "Sign in with Google"}
             </button>
             {info.account && (
@@ -189,11 +191,11 @@ export function GooglePanel(): ReactElement {
           <FieldRow label="Use Google" hint="Calendar, Gmail, Drive and Docs. Reading runs without asking; anything a guest starts never reaches it.">
             <Switch label="Use Google" on={info.settings.on} disabled={busy} onChange={(on) => run(api.setGoogle({ on }))} />
           </FieldRow>
-          <FieldRow label="Allow changes" hint="Creating, editing and deleting events, drafts, labels, Drive files and Docs. Each one asks you first. A delete, or anything another person would see (a share, an invitation), is never let through by a quick repeat, a schedule or Auto.">
+          <FieldRow label="Allow changes" hint="Creating, editing and deleting events, Drive files and Docs; mail stays read-only. Each change asks you, every time: no quick repeat, schedule or Auto lets one through.">
             <Switch label="Allow changes" on={info.settings.changes} disabled={busy} onChange={(changes) => run(api.setGoogle({ changes }))} />
           </FieldRow>
-          <FieldRow label="Allow sending mail" hint="Each email asks you, every time: no saved yes, schedule or Auto covers a send.">
-            <Switch label="Allow sending mail" on={info.settings.send} disabled={busy || !info.settings.changes} onChange={(send) => run(api.setGoogle({ send }))} />
+          <FieldRow label="Allow mail changes and sending" hint="Drafts, labels and sending, together: Google has no permission that drafts without also allowing a send. Each email asks you, every time: nothing you saved covers a send.">
+            <Switch label="Allow mail changes and sending" on={info.settings.send} disabled={busy || !info.settings.changes} onChange={(send) => run(api.setGoogle({ send }))} />
           </FieldRow>
         </div>
       )}

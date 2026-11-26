@@ -50,7 +50,7 @@ export const SETTINGS: SettingEntry[] = [
   { section: "permissions", label: "Secrets", words: "passwords logins cards keys vault" },
   { section: "connections", label: "Google account", words: "calendar gmail mail drive docs oauth client sign in disconnect" },
   { section: "connections", label: "Allow changes", words: "google write edit events drafts labels files" },
-  { section: "connections", label: "Allow sending mail", words: "google gmail send email" },
+  { section: "connections", label: "Allow mail changes and sending", words: "google gmail send email drafts labels" },
   { section: "you", label: "Name", words: "what KOS calls you" },
   { section: "you", label: "Timezone", words: "schedules today time zone" },
   { section: "you", label: "Owner id", words: "identifies you across channels" },

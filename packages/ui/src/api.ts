@@ -207,6 +207,8 @@ export interface GoogleInfo {
   /** Why the client cannot be read now: the vault is locked or missing. */
   vault?: string;
   account: { email: string; scopes: string[]; refreshable: boolean; savedAt: number } | null;
+  /** The address the owner signs in as, once said. */
+  email: string | null;
   settings: { on: boolean; changes: boolean; send: boolean };
   /** Scopes the mode needs that the sign-in did not grant. */
   missing: string[];
@@ -1482,7 +1484,8 @@ export const api = {
   /** The client JSON Google Cloud downloaded, into the vault. */
   importGoogleClient: (json: string) => post<GoogleInfo>("/api/google/client", { json }),
   /** The address to sign in at; the sign-in finishes when Google sends the browser back. */
-  googleSignIn: () => post<GoogleInfo & { url: string }>("/api/google/signin"),
+  /** Signing in as this address; any other account Google hands back is refused. */
+  googleSignIn: (email?: string) => post<GoogleInfo & { url: string }>("/api/google/signin", email ? { email } : {}),
   setGoogle: (patch: Partial<GoogleInfo["settings"]>) => post<GoogleInfo>("/api/google/settings", patch),
   disconnectGoogle: () => post<GoogleInfo & { revoked: boolean }>("/api/google/disconnect"),
   /** Skills in a repository folder, Anthropic's unless a source is given. */
