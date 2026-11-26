@@ -1,11 +1,12 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Vault } from "../secrets/vault.js";
-import { LOG_MAX_BYTES, googlePlaces, preparePlaces, readAccount, readSettingsFile, writeSettingsFile } from "./account.js";
+import { LOG_MAX_BYTES, forget, googlePlaces, preparePlaces, readAccount, readSettingsFile, writeSettingsFile } from "./account.js";
 import { GOOGLE_HARNESS } from "./client.js";
 import { GoogleConnection, RESOLVED_BEFORE, SIGN_IN_AGAIN, WORKSPACE_MCP, jailed, missingScopes, permissionArgs, presentResult, scopesFor, type AuthSession } from "./connection.js";
 
@@ -167,6 +168,21 @@ describe("the Google server", () => {
     expect(denied.some((l) => l.includes(`${join(root, "google")}"`))).toBe(false);
   });
 
+  it.runIf(process.platform === "darwin")("lets the jailed server work inside its folders but never remove or replace one", () => {
+    const places = googlePlaces({ KOS_GOOGLE_DIR: join(root, "google") });
+    preparePlaces(places);
+    const { command, args } = jailed(places, 4327, ["x"]);
+    if (command === "uvx") return; // no uvx on this machine: nothing to jail
+    const sh = (script: string): number => spawnSync("/usr/bin/sandbox-exec", ["-p", args[1]!, "/bin/sh", "-c", script], { stdio: "ignore", timeout: 20_000 }).status ?? -1;
+    const logs = places.logs;
+    expect(sh(`touch '${logs}/a' && rm '${logs}/a' && mkdir '${logs}/d' && rmdir '${logs}/d'`)).toBe(0);
+    expect(sh(`rmdir '${logs}'`)).not.toBe(0);
+    expect(sh(`mv '${logs}' '${logs}.gone'`)).not.toBe(0);
+    expect(sh(`rm -rf '${places.tmp}'`)).not.toBe(0);
+    expect(sh(`ln -s /etc '${places.root}/logs2'`)).not.toBe(0);
+    for (const dir of [places.logs, places.tmp]) expect(lstatSync(dir).isDirectory()).toBe(true);
+  });
+
   it("says when there is no jail, and never claims one", () => {
     const places = googlePlaces({ KOS_GOOGLE_DIR: join(root, "google") });
     expect(jailed(places, 4327, ["x"], "linux", true).jail).toBe("container");
@@ -323,6 +339,20 @@ describe("links the server plants", () => {
     expect(readFileSync(outside, "utf8")).toBe("untouched");
     expect(lstatSync(c.places.settings).isSymbolicLink()).toBe(false);
     expect(c.settings().changes).toBe(true);
+  });
+
+  it("leaves a hard link to a file elsewhere alone: never emptied, never deleted", async () => {
+    const c = connection({ fetch: async () => ({ ok: true, status: 200 }) });
+    preparePlaces(c.places);
+    const outside = join(root, "kos.sqlite");
+    writeFileSync(outside, "y".repeat(LOG_MAX_BYTES + 1));
+    linkSync(outside, join(c.places.logs, "big.log"));
+    linkSync(outside, join(c.places.credentials, "x@example.com.json"));
+    preparePlaces(c.places);
+    expect(statSync(outside).size).toBe(LOG_MAX_BYTES + 1);
+    await forget(c.places, async () => ({ ok: true, status: 200 }));
+    expect(existsSync(join(c.places.credentials, "x@example.com.json"))).toBe(true);
+    expect(statSync(outside).size).toBe(LOG_MAX_BYTES + 1);
   });
 
   it("does not empty a real log under the limit, and empties one past it", () => {
