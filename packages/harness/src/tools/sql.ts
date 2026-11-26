@@ -135,6 +135,8 @@ export function defineSqlTool(db: Db, ctx: ModuleContext): void {
         if (isSqlWrite(input.sql) && writesKernelTable(db, input.sql, paramsOf(input))) return "writes KOS's own tables";
         return isSqlDestructive(input.sql) ? "changes or removes rows" : false;
       },
+      // What a turn read must never write KOS's own tables on the strength of an earlier yes: a daemon's row becomes code on its next start.
+      neverLearned: (input) => typeof input.sql === "string" && isSqlWrite(input.sql) && writesKernelTable(db, input.sql, paramsOf(input)),
     },
   );
 }

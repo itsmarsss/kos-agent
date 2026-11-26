@@ -54,6 +54,12 @@ export interface ToolRisk {
    */
   asksAlways?: boolean;
   /**
+   * Arguments no learned yes may cover (a burst, a job's consent), though a
+   * remembered rule or Auto may: a write to KOS's own tables, which the
+   * owner decides each time unless they pressed Always for it.
+   */
+  neverLearned?: Escalation;
+  /**
    * For a tool that asks every time: whether this call runs without asking
    * on a yes the tool keeps itself (a secret's grant on a site, or for the
    * rest of a turn), never a permission rule or Auto. Still audited.
@@ -120,6 +126,8 @@ export interface RiskAssessment {
   asksAlways?: true;
   /** Why a risky call is beyond a chat's Auto mode, when it is. */
   beyondAuto?: string;
+  /** No learned yes (a burst, a job's consent) covers this call. */
+  neverLearned?: true;
   /** A risky call that starts a session on the owner's device. */
   startsSession?: true;
 }
@@ -157,9 +165,10 @@ export function classifyRisk(
 }
 
 /** What a risky call's rules say about Auto mode, read only once the call is risky: the tool's own word first, then where it reaches. */
-function autoFacts(risk: ToolRisk | undefined, input: Record<string, unknown>, reach: Reach | undefined): Pick<RiskAssessment, "asksAlways" | "beyondAuto" | "startsSession"> {
+function autoFacts(risk: ToolRisk | undefined, input: Record<string, unknown>, reach: Reach | undefined): Pick<RiskAssessment, "asksAlways" | "beyondAuto" | "startsSession" | "neverLearned"> {
   const beyond = risk?.beyondAuto?.(input) || reach?.beyondAuto;
   return {
+    ...(risk?.neverLearned?.(input) ? { neverLearned: true as const } : {}),
     ...(risk?.asksAlways ? { asksAlways: true as const } : {}),
     ...(beyond ? { beyondAuto: typeof beyond === "string" ? beyond : "beyond what Auto covers" } : {}),
     ...(risk?.startsSession ? { startsSession: true as const } : {}),

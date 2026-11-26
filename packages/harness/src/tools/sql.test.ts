@@ -73,6 +73,14 @@ describe("sqlModule", () => {
     expect(registry.classify("sql", { sql: "INSERT INTO books_shelf (pages, settings, memory_mb) VALUES (?, 'pages', sqlite_version())", params: [40] }).tier).toBe("safe");
   });
 
+  it("lets no learned yes cover a write to KOS's own tables, and leaves a project's writes learnable", () => {
+    ws.db.exec("CREATE TABLE IF NOT EXISTS daemons (id INTEGER PRIMARY KEY, args TEXT)");
+    const kernel = registry.classify("sql", { sql: "UPDATE daemons SET args = ? WHERE id = 1", params: ["[]"] });
+    expect(kernel).toMatchObject({ tier: "risky", neverLearned: true });
+    expect(registry.classify("sql", { sql: "INSERT INTO daemons (args) VALUES ('x')" }).neverLearned).toBe(true);
+    expect(registry.classify("sql", { sql: "UPDATE books_tx SET a = 2 WHERE id = 1" }).neverLearned).toBeUndefined();
+  });
+
   it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
     expect(registry.classify("sql", { sql: "SELECT 1" }).tier).toBe("safe");
     expect(registry.classify("sql", { sql: "INSERT INTO books_tx (a) VALUES (1)" }).tier).toBe("safe");
