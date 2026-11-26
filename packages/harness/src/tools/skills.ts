@@ -12,6 +12,7 @@ import {
   readSkills,
   skillHash,
   skillHashNow,
+  skillSelfContained,
   type SkillKind,
   type SkillRecord,
 } from "../skills/manifest.js";
@@ -321,12 +322,16 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
           assertOn(skill);
-          // Judged as the files were when it was stamped: changed since, a yes to that code is not a yes to this.
-          if (typeof input["hash"] === "string" && input["hash"] !== skillHash(ws, skill)) {
-            throw new Error(`${skill.manifest.name} changed after this run was judged, so it was not run. Run it again to be asked about the code as it is now.`);
-          }
+          // Judged as the files were when it was stamped: changed since, a yes to that code is not a yes to this. Checked again at the spawn.
+          const judged = typeof input["hash"] === "string" ? input["hash"] : undefined;
+          const unchanged = (): void => {
+            if (judged !== undefined && judged !== skillHashNow(ws, skill)) {
+              throw new Error(`${skill.manifest.name} changed after this run was judged, so it was not run. Run it again to be asked about the code as it is now.`);
+            }
+          };
+          unchanged();
           const args = strings(input, "args");
-          const result = await runSkillLive({ workspaceRoot: ws.root, entry: skill.file, ...(args ? { args } : {}), ...(deps.jail ? { jail: deps.jail } : {}) });
+          const result = await runSkillLive({ workspaceRoot: ws.root, entry: skill.file, verify: unchanged, ...(args ? { args } : {}), ...(deps.jail ? { jail: deps.jail } : {}) });
           return JSON.stringify(sandboxReport(result));
         },
         // Promoted once, run free: the owner's yes to the code is the yes
@@ -336,11 +341,13 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           why: "runs a skill that was not promoted",
           refuse: () => noJail(),
           // The hash of the files it would run, set by the harness before it is judged: a yes to it is a yes to this code.
+          // Held to its own folder (`contained`), the hash is all it runs, and only then may a yes to it be learned.
           stamp: (input: Record<string, unknown>) => {
-            const { hash: _said, ...rest } = input;
+            const { hash: _said, contained: _claimed, ...rest } = input;
             const skill = scriptNamed(rest);
             const hash = skill ? hashNow(skill) : undefined;
-            return hash ? { ...rest, hash } : rest;
+            if (!skill || !hash) return rest;
+            return { ...rest, hash, ...(skillSelfContained(ws, skill) ? { contained: true } : {}) };
           },
           relax: (input) => {
             const skill = scriptNamed(input);

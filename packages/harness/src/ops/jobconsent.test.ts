@@ -36,7 +36,7 @@ describe("the consent jobs that ran before it was kept keep", () => {
     const again = asked("http.fetch", { url: "https://api.example/b" }, "host:api.example");
     // A skill's yes from before its code was kept with it is not known to be to this code.
     const skill = asked("skills.run", { name: "board" }, null);
-    const stamped = asked("skills.run", { name: "board", hash: "h1" }, "skill:board@h1");
+    const stamped = asked("skills.run", { name: "board", hash: "h1", contained: true }, "skill:board@h1");
     const post = asked("notify", { to: "discord:channel:42", text: "a" }, "to:discord:channel:42");
     const kernel = asked("sql", { sql: "UPDATE daemons SET args = '[]' WHERE id = 1" }, "table:daemons");
     const gone = asked("sql", { sql: "DELETE FROM school_items" }, "table:school_items");

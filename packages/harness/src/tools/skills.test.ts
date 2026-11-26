@@ -137,13 +137,28 @@ describe("skills tools", () => {
     skill("daily", "script", "console.log('hi')");
     const permissions = new PermissionStore(ws.db);
     const stamped = await registry.stamp("skills.run", { name: "daily", hash: "made-up" });
-    expect(stamped).toEqual({ name: "daily", hash: hashOf("daily") });
+    expect(stamped).toEqual({ name: "daily", hash: hashOf("daily"), contained: true });
     expect(permissions.holdBurst("c1", "skills.run", stamped)).toBe(true);
     const tools = new GuardedTools({ registry, secrets: new SecretsRegistry(), audit: new AuditLog(ws.db), approvals, conversationId: "c1", permissions, waitForApproval: false });
     expect((await tools.execute("skills.run", { name: "daily" })).content).not.toMatch(/^Queued for approval/);
     expect(approvals.pending()).toHaveLength(0);
     skill("daily", "script", "console.log('changed by what a turn read')");
     expect((await tools.execute("skills.run", { name: "daily" })).content).toMatch(/^Queued for approval/);
+  });
+
+  it("keeps no learned yes for a skill whose code reaches outside its folder", async () => {
+    const reaches = async (body: string): Promise<boolean> => {
+      skill("reach", "script", body);
+      return (await registry.stamp("skills.run", { name: "reach", contained: true }))["contained"] === true;
+    };
+    expect(await reaches("import { readFileSync } from 'node:fs'; import './helper.mjs'; console.log(readFileSync)")).toBe(true);
+    expect(await reaches("import x from '../shared/x.mjs'; x()")).toBe(false);
+    expect(await reaches("const l = require('lodash'); l()")).toBe(false);
+    expect(await reaches("import { execSync } from 'node:child_process'; execSync('node ../x.js')")).toBe(false);
+    expect(await reaches("const m = 'x'; await import(m)")).toBe(false);
+    expect(await reaches("eval('1')")).toBe(false);
+    writeFileSync(join(ws.root, "skills", "reach", "helper.py"), "print(1)");
+    expect(await reaches("console.log(1)")).toBe(false);
   });
 
   it("refuses to run a skill whose code changed after the call was judged", async () => {

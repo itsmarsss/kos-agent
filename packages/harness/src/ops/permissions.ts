@@ -232,7 +232,8 @@ export function scopeOf(tool: string, input: Record<string, unknown>, context?: 
   // By the skill and its code, as stamped: a yes to run one skill is not a yes to another, nor to it once its code is changed.
   if (tool === "skills.run") {
     const name = typeof input["name"] === "string" ? input["name"].trim() : "";
-    const hash = typeof input["hash"] === "string" ? input["hash"] : "";
+    // A skill that reaches code outside its folder is not all in its hash: nothing is kept for it.
+    const hash = typeof input["hash"] === "string" && input["contained"] === true ? input["hash"] : "";
     return name && hash ? `skill:${name}@${hash}` : undefined;
   }
   if (tool === "systems.migrate") {
