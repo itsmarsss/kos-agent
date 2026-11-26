@@ -7,7 +7,7 @@ import { BindingGoneError, LATE_RUN_MS, OWNER_THREAD_PREFIX, channelName, roomCo
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
-import { type CronActionResult, runCronJob, type CronExecResult, type JobTurn } from "../cron/executor.js";
+import { type CronActionResult, cronOutcome, runCronJob, selfPromptResult, writtenAs, type CronExecResult, type JobTurn } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import type { McpModule } from "../tools/mcp.js";
 import type { PermissionContext } from "../ops/permissions.js";
@@ -1916,6 +1916,24 @@ export class Kernel {
    * The thread is made the first time the job runs rather than when it is
    * written, so a schedule that never fires leaves no empty chat behind.
    */
+  /**
+   * A scheduled run's answer, told to the surfaces once its turn ends, with
+   * whether that turn sent anything (a message, a quiet ending saying it had
+   * none, or the answer reported to the owner) and whether the run failed.
+   * One that sent nothing and did not fail (a weekly recap written as its
+   * reply) has only these words to reach the owner with; a failed one has
+   * its health notice.
+   */
+  private tellRun(job: CronJob, conversationId: string, ran: JobTurn, reported = false): void {
+    const failed = cronOutcome(selfPromptResult(writtenAs(job, this.jobBrief(job)), ran)).status === "error";
+    this.bus.emit({ kind: "run:said", conversationId, jobId: job.id, reply: ran.reply, sent: reported || ran.delivered + ran.quiet > 0, failed });
+  }
+
+  /** The brief of the blob a job runs as, when it is one's. */
+  private jobBrief(job: CronJob): string | undefined {
+    return job.agent ? this.roles.get(job.agent)?.brief : undefined;
+  }
+
   /** The job's thread, made on its first run so an unfired schedule leaves none. */
   private jobThread(job: CronJob): string {
     // A role's schedule runs as the role: in its standing thread, under its
@@ -2064,11 +2082,7 @@ export class Kernel {
       const reported = role?.report === "always" && reply.trim() !== "";
       if (reported) this.caretaker.tell(reply, { from: this.senderFor(id) });
       const ran: JobTurn = { reply, ...this.jobTurnCalls(id, mark, since, res.turnId), ...("stopped" in end ? { stopped: end.stopped } : {}) };
-      // Otherwise its answer is told to the surfaces, with whether this turn
-      // sent anything (a message, or a quiet ending saying it had none): one
-      // that sent nothing (a weekly recap written as its reply) has only
-      // these words to reach the owner with.
-      this.bus.emit({ kind: "run:said", conversationId: id, jobId: job.id, reply, sent: reported || ran.delivered + ran.quiet > 0 });
+      this.tellRun(job, id, ran, reported);
       return ran;
     };
     if (!res.ended) return turn({ reply: res.reply });
@@ -5255,6 +5269,7 @@ export class Kernel {
         // In the job's own thread, so a run can be watched while it happens,
         // asked about afterwards, and read back next week.
         runInConversation: (prompt, j) => this.runJobTurn(prompt, j),
+        briefOf: (j) => this.jobBrief(j),
       });
       if (jobSession && result.ran && result.type === "actions") {
         this.recordActionRun(job, result.results);

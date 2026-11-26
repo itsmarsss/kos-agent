@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cronOutcome, selfPromptResult } from "../cron/executor.js";
+import { cronOutcome, selfPromptResult, writtenAs } from "../cron/executor.js";
 import { outcomeOf } from "./outcome.js";
 
 const steps = (total: number, failed: number) => ({ total, failed, firstError: failed ? "files.read: ENOENT: no such file" : null });
@@ -39,6 +39,14 @@ describe("a schedule's outcome", () => {
     expect(cronOutcome(selfPromptResult(digest, { reply: "Posted.", steps: steps(5, 0), delivered: 1, quiet: 0 })).status).toBe("ok");
     // A job that never said notify is judged by its steps alone.
     expect(cronOutcome(selfPromptResult({ prompt: "Tidy the table." }, { reply: "Done.", steps: steps(2, 0), delivered: 0, quiet: 0 })).status).toBe("ok");
+  });
+
+  it("reads a blob's brief as part of what its job was written to do", () => {
+    const watch = writtenAs({ prompt: "Check every page on the watch list." }, "Check the pages and notify the owner of what changed.");
+    expect(cronOutcome(selfPromptResult(watch, { reply: "Nothing changed, no notification sent.", steps: steps(3, 0), delivered: 0, quiet: 0 })).status).toBe("error");
+    expect(cronOutcome(selfPromptResult(watch, { reply: "Nothing changed.", steps: steps(3, 0), delivered: 0, quiet: 1 })).status).toBe("ok");
+    // With no word of notify in either, the job is judged by its steps alone.
+    expect(cronOutcome(selfPromptResult(writtenAs({ prompt: "Check the pages." }, "Keep notes."), { reply: "Done.", steps: steps(1, 0), delivered: 0, quiet: 0 })).status).toBe("ok");
   });
 
   it("passes a job written to post with notify that said it chose not to, and still fails one that did not say", () => {

@@ -147,6 +147,8 @@ export interface RunSaid {
   jobId: number;
   reply: string;
   sent: boolean;
+  /** Judged failed: its health notice is its one message. */
+  failed: boolean;
 }
 
 export interface RunDeps extends PlaceDeps {
@@ -161,13 +163,14 @@ export interface RunDeps extends PlaceDeps {
 /**
  * A scheduled run's answer, shown in its place under the job's name with a
  * Run now button, only when the run sent nothing: a job that delivers by its
- * reply (a weekly recap) reaches the owner this way. A run that posted (a
- * digest to #school), or said it had nothing to post, has said its piece; its
+ * reply (a weekly recap) reaches the owner this way. A run judged failed
+ * has its health notice instead. A run that posted (a digest to #school), or
+ * said it had nothing to post, has said its piece; its
  * closing words ("Posted to #school") would only repeat it, and stay in Runs
  * and its thread on the dashboard. KOS's upkeep keeps its runs to itself.
  */
 export async function postRun(run: RunSaid, deps: RunDeps): Promise<void> {
-  if (run.sent || !run.reply.trim()) return;
+  if (run.sent || run.failed || !run.reply.trim()) return;
   const job = deps.job(run.jobId);
   if (!job || isUpkeep(job)) return;
   const msg: OutboundMessage = { text: `-# ${job.name}\n${run.reply}`, buttons: [{ label: "Run now", cron: job.id }] };

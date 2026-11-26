@@ -58,6 +58,8 @@ export interface CronExecutorDeps {
    * said. Absent for a caller with no conversations, such as a test.
    */
   runInConversation?: (prompt: string, job: CronJob) => Promise<JobTurn & { later?: Promise<JobTurn> }>;
+  /** The brief of the blob a job runs as, when it is one's: part of what the job was written to do. */
+  briefOf?: (job: CronJob) => string | undefined;
   maxIterations?: number;
 }
 
@@ -109,8 +111,9 @@ export async function runCronJob(
    */
   if (deps.runInConversation) {
     const { later, ...turn } = await deps.runInConversation(prompt, job);
-    if (!later) return selfPromptResult(job, turn);
-    return { ran: true, type: "self_prompt", finalText: turn.reply, steps: turn.steps, later: later.then((end) => selfPromptResult(job, end)) };
+    const written = writtenAs(job, deps.briefOf?.(job));
+    if (!later) return selfPromptResult(written, turn);
+    return { ran: true, type: "self_prompt", finalText: turn.reply, steps: turn.steps, later: later.then((end) => selfPromptResult(written, end)) };
   }
 
   const system = await deps.buildSystem?.(job);
@@ -122,9 +125,20 @@ export async function runCronJob(
   return { ran: true, type: "self_prompt", finalText: result.finalText, steps: NO_STEPS };
 }
 
-/** A job written to post with notify: one that ends having posted nothing, and not saying it chose to, did not do what it is for. */
-export function asksToNotify(job: Pick<CronJob, "prompt">): boolean {
-  return /\bnotify\b/i.test(job.prompt ?? "");
+/** What a job was written to do: its prompt, and the brief of the blob it runs as, when it is one's. */
+export interface WrittenJob {
+  prompt?: string | null;
+  brief?: string;
+}
+
+/** A job as written, its blob's brief with it. */
+export function writtenAs(job: Pick<CronJob, "prompt">, brief: string | undefined): WrittenJob {
+  return { prompt: job.prompt ?? null, ...(brief ? { brief } : {}) };
+}
+
+/** A job written to post with notify, in its prompt or its blob's brief: one that ends having posted nothing, and not saying it chose to, did not do what it is for. */
+export function asksToNotify(job: WrittenJob): boolean {
+  return /\bnotify\b/i.test(`${job.prompt ?? ""}\n${job.brief ?? ""}`);
 }
 
 /**
@@ -133,7 +147,7 @@ export function asksToNotify(job: Pick<CronJob, "prompt">): boolean {
  * news ends most runs with nothing to say; its quiet ending (notify with
  * quiet) says so, and is what tells that from a message never sent.
  */
-export function selfPromptResult(job: Pick<CronJob, "prompt">, turn: JobTurn): SelfPromptResult {
+export function selfPromptResult(job: WrittenJob, turn: JobTurn): SelfPromptResult {
   return {
     ran: true,
     type: "self_prompt",
@@ -152,7 +166,7 @@ export function selfPromptResult(job: Pick<CronJob, "prompt">, turn: JobTurn): S
  * not chosen silence, it has hidden the failure, and a run where only some
  * steps failed would otherwise read as healthy.
  */
-function undeliveredBy(job: Pick<CronJob, "prompt">, turn: JobTurn): { undelivered?: string } {
+function undeliveredBy(job: WrittenJob, turn: JobTurn): { undelivered?: string } {
   if (!asksToNotify(job) || turn.delivered > 0) return {};
   const why = turn.steps.firstError ? `: ${turn.steps.firstError}` : ".";
   if (turn.quiet === 0) return { undelivered: `It was written to post with notify, and posted nothing${why}` };

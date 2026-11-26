@@ -1491,27 +1491,55 @@ describe("Kernel", () => {
     ]);
   });
 
-  it("tells the surfaces a prompted run's answer once it ends, with whether it sent anything", async () => {
+  it("tells the surfaces a prompted run's answer once it ends, with whether it sent anything and whether it failed", async () => {
     const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
-    const notify: ModelResponse = { content: [{ type: "tool_use", id: "n1", name: "notify", input: { text: "board" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
-    const quiet: ModelResponse = { content: [{ type: "tool_use", id: "q1", name: "notify", input: { quiet: "nothing new this hour" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
-    kernel = await boot(stubInference([answer("This week: three things shipped."), notify, answer("Posted the board."), quiet, answer("Nothing new this hour.")]), async () => undefined);
-    const ran: { jobId: number; reply: string; sent: boolean }[] = [];
-    kernel.bus.on("run:said", (e) => void ran.push({ jobId: e.jobId, reply: e.reply, sent: e.sent }));
+    const call = (id: string, input: Record<string, unknown>): ModelResponse => ({ content: [{ type: "tool_use", id, name: "notify", input }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    // Each job's prompt, the first time, gets its call or answer; after a call, its closing words.
+    const script: [RegExp, ModelResponse, string?][] = [
+      [/recap the week/, answer("This week: three things shipped.")],
+      [/post the board/, call("n1", { text: "board" }), "Posted the board."],
+      [/post new openings/, call("q1", { quiet: "nothing new this hour" }), "Nothing new this hour."],
+      [/Do not post anything/, call("q2", { quiet: "every row already had its id" }), "The update changed 0 rows."],
+      [/watch list/, answer("Nothing changed, no notification sent.")],
+      [/openings, again/, answer("Nothing new this hour, nothing sent.")],
+    ];
+    kernel = await boot(
+      {
+        async generate(task, req: GenerateRequest): Promise<ModelResponse> {
+          if (task === "cheap") return answer('{"facts":[]}');
+          const asked = req.messages.find((m) => m.role === "user")?.content.map((b) => (b.type === "text" ? b.text : "")).join("") ?? "";
+          const hit = script.find(([re]) => re.test(asked));
+          if (!hit) return answer("done");
+          const answered = req.messages.at(-1)?.content.some((b) => b.type === "tool_result");
+          return answered ? answer(hit[2] ?? "done") : hit[1];
+        },
+      },
+      async () => undefined,
+    );
+    const ran: { jobId: number; reply: string; sent: boolean; failed: boolean }[] = [];
+    kernel.bus.on("run:said", (e) => void ran.push({ jobId: e.jobId, reply: e.reply, sent: e.sent, failed: e.failed }));
+    // The blob's brief, not the job's prompt, says it posts with notify.
+    kernel.roles.write({ name: "watch", description: "Watches pages", brief: "Check the pages and notify the owner of what changed.", memory: "own" });
     const recap = kernel.crons.create({ name: "Recap", schedule: "0 9 * * 1", type: "self_prompt", prompt: "recap the week" });
     const board = kernel.crons.create({ name: "Board", schedule: "0 9 * * *", type: "self_prompt", prompt: "post the board with notify" });
     const scan = kernel.crons.create({ name: "Scan", schedule: "0 * * * *", type: "self_prompt", prompt: "post new openings with notify, only when there are some" });
+    const backfill = kernel.crons.create({ name: "Backfill", schedule: "5 9 * * *", type: "self_prompt", prompt: "Fill in today's message id. Do not post anything." });
+    const watch = kernel.crons.create({ name: "blob.watch", schedule: "0 */6 * * *", type: "self_prompt", agent: "watch", prompt: "Check every page on the watch list." });
+    const forgot = kernel.crons.create({ name: "Scan again", schedule: "30 * * * *", type: "self_prompt", prompt: "Scan openings, again: post new ones with notify, only when there are some" });
     kernel.startCron();
-    await kernel.fireCron(recap.id);
-    await kernel.fireCron(board.id);
-    await kernel.fireCron(scan.id);
+    for (const job of [recap, board, scan, backfill, watch, forgot]) await kernel.fireCron(job.id);
     await kernel.queue.drain();
     kernel.stopCron();
-    // A recap written as its reply sent nothing, so its words are what the owner gets; a run that posted, or ended quietly, sent its piece.
     expect(ran).toEqual([
-      { jobId: recap.id, reply: "This week: three things shipped.", sent: false },
-      { jobId: board.id, reply: "Posted the board.", sent: true },
-      { jobId: scan.id, reply: "Nothing new this hour.", sent: true },
+      // Written as its reply: what the owner gets.
+      { jobId: recap.id, reply: "This week: three things shipped.", sent: false, failed: false },
+      // Posted, or ended quietly, whatever its prompt said: its piece is said.
+      { jobId: board.id, reply: "Posted the board.", sent: true, failed: false },
+      { jobId: scan.id, reply: "Nothing new this hour.", sent: true, failed: false },
+      { jobId: backfill.id, reply: "The update changed 0 rows.", sent: true, failed: false },
+      // Written (by its brief, or its prompt) to post, it neither posted nor ended quietly: failed, and told by its health notice.
+      { jobId: watch.id, reply: "Nothing changed, no notification sent.", sent: false, failed: true },
+      { jobId: forgot.id, reply: "Nothing new this hour, nothing sent.", sent: false, failed: true },
     ]);
   });
 

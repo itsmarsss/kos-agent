@@ -117,7 +117,7 @@ describe("a scheduled run on the server", () => {
   it("posts the answer of a run that sent nothing, under the job's name, as a recap delivered by its reply", async () => {
     const d = runDeps({ "agent:recap": "c-recap" });
     await postSaid(ran("agent:recap", "This week: shipped three things."), d);
-    await postRun({ conversationId: "agent:recap", jobId: 13, reply: "This week: shipped three things.", sent: false }, d);
+    await postRun({ conversationId: "agent:recap", jobId: 13, reply: "This week: shipped three things.", sent: false, failed: false }, d);
     expect(d.posts).toEqual([{ target: "c-recap", text: "-# blob.recap\nThis week: shipped three things." }]);
   });
 
@@ -125,7 +125,7 @@ describe("a scheduled run on the server", () => {
     const d = runDeps({ "cron:29": "t29" });
     await postSaid(ran("cron:29", "Posted to #school."), d);
     await postSaid(ran("cron:29", "Posted to #school.", { resumed: true }), d);
-    await postRun({ conversationId: "cron:29", jobId: 29, reply: "Posted to #school.", sent: true }, d);
+    await postRun({ conversationId: "cron:29", jobId: 29, reply: "Posted to #school.", sent: true, failed: false }, d);
     // Its one post went to #school through notify; nothing more lands on the server.
     expect(d.posts).toEqual([]);
     expect(d.dms).toEqual([]);
@@ -134,15 +134,22 @@ describe("a scheduled run on the server", () => {
   it("posts nothing for a quiet run, an empty answer, or KOS's upkeep", async () => {
     const d = runDeps({ "cron:62": "t62", "cron:9": "t9" }, { job: (id) => jobs[id] ?? { ...nudge, id } });
     // Said it had nothing to post (a quiet ending is a notify that worked).
-    await postRun({ conversationId: "cron:62", jobId: 62, reply: "Nothing new this hour.", sent: true }, d);
-    await postRun({ conversationId: "cron:62", jobId: 62, reply: "  ", sent: false }, d);
-    await postRun({ conversationId: "cron:9", jobId: 9, reply: "Nothing new to remember.", sent: false }, d);
+    await postRun({ conversationId: "cron:62", jobId: 62, reply: "Nothing new this hour.", sent: true, failed: false }, d);
+    await postRun({ conversationId: "cron:62", jobId: 62, reply: "  ", sent: false, failed: false }, d);
+    await postRun({ conversationId: "cron:9", jobId: 9, reply: "Nothing new to remember.", sent: false, failed: false }, d);
     expect(d.posts).toEqual([]);
+  });
+
+  it("posts nothing for a run judged failed: its health notice is its one message", async () => {
+    const d = runDeps({ "cron:62": "t62" }, { job: (id) => jobs[id] ?? { ...nudge, id, name: "Hourly scan" } });
+    await postRun({ conversationId: "cron:62", jobId: 62, reply: "Nothing new this hour, nothing sent.", sent: false, failed: true }, d);
+    expect(d.posts).toEqual([]);
+    expect(d.dms).toEqual([]);
   });
 
   it("sends a run's answer to the DM when guests can read its place", async () => {
     const d = runDeps({ "cron:29": "t29" }, { ownerOnly: () => false });
-    await postRun({ conversationId: "cron:29", jobId: 29, reply: "Nobody posted the board.", sent: false }, d);
+    await postRun({ conversationId: "cron:29", jobId: 29, reply: "Nobody posted the board.", sent: false, failed: false }, d);
     expect(d.posts).toEqual([]);
     expect(d.dms).toEqual(["-# School Evening Nudge\nNobody posted the board."]);
   });
