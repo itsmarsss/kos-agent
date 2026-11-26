@@ -270,7 +270,8 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
       const keepAsk = (verb: string) => ({
         floor: "risky" as const,
         asksAlways: true,
-        refuse: () => noJail(),
+        // Instructions are kept, never run: they need no jail.
+        refuse: (input: Record<string, unknown>) => (named(input)?.manifest.kind === "prompt" ? false : noJail()),
         why: (input: Record<string, unknown>) => {
           const skill = named(input);
           if (skill?.manifest.kind === "prompt") return `${verb} ${skill.manifest.name}'s instructions as they are, to be followed as yours from now on`;
