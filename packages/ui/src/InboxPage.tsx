@@ -149,6 +149,9 @@ export function InboxPage({
                     <Tag>{kindWord(s.kind)}</Tag> {s.title}
                   </span>
                   <span className="inbox-why">{s.detail}</span>
+                  {/* What a yes runs, in full: the instruction the chat it opens is given. */}
+                  {s.action && <span className="inbox-why inbox-suggestion-action">Do it runs: {s.action}</span>}
+                  {s.after && <span className="inbox-why inbox-suggestion-after">{s.after}</span>}
                 </div>
                 <span className="panel-approval-actions">
                   <button

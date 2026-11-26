@@ -1,3 +1,5 @@
+import { readSources, type TaintSource } from "@kos/shared";
+
 import type { Db } from "../store/db.js";
 
 /**
@@ -25,6 +27,8 @@ export interface Suggestion {
   detail: string;
   /** The instruction KOS would carry out if the owner says yes. Absent means detail is it. */
   action: string | null;
+  /** What the turn that raised it had read that the owner did not write: the turn a yes starts is tainted with it. */
+  taint: TaintSource[] | null;
   createdAt: number;
   resolvedAt: number | null;
   resolution: string | null;
@@ -49,6 +53,7 @@ interface Row {
   title: string;
   detail: string;
   action: string | null;
+  taint: string | null;
   created_at: number;
   resolved_at: number | null;
   resolution: string | null;
@@ -61,6 +66,7 @@ function toSuggestion(r: Row): Suggestion {
     title: r.title,
     detail: r.detail,
     action: r.action,
+    taint: r.taint ? readSources(JSON.parse(r.taint)) : null,
     createdAt: r.created_at,
     resolvedAt: r.resolved_at,
     resolution: r.resolution,
@@ -72,18 +78,20 @@ const KINDS: SuggestionKind[] = ["skill", "blueprint", "other"];
 export class SuggestionStore {
   constructor(private readonly db: Db, private readonly now: () => number = Date.now) {
     this.db.exec(SCHEMA);
+    const columns = this.db.prepare(`PRAGMA table_info(improvements)`).all() as { name: string }[];
+    if (!columns.some((c) => c.name === "taint")) this.db.exec(`ALTER TABLE improvements ADD COLUMN taint TEXT`);
   }
 
   /** Raise a suggestion, unless the same kind with the same title is already open. */
-  add(kind: SuggestionKind, title: string, detail: string, action?: string): Suggestion {
+  add(kind: SuggestionKind, title: string, detail: string, action?: string, taint?: readonly TaintSource[]): Suggestion {
     const safeKind: SuggestionKind = KINDS.includes(kind) ? kind : "other";
     const name = title.trim().slice(0, 120);
     if (!name) throw new Error("a suggestion needs a title");
     const open = this.pending().find((s) => s.kind === safeKind && s.title.toLowerCase() === name.toLowerCase());
     if (open) return open;
     const info = this.db
-      .prepare(`INSERT INTO improvements (kind, title, detail, action, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(safeKind, name, detail.slice(0, 2000), action?.trim().slice(0, 2000) || null, this.now());
+      .prepare(`INSERT INTO improvements (kind, title, detail, action, taint, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(safeKind, name, detail.slice(0, 2000), action?.trim().slice(0, 2000) || null, taint?.length ? JSON.stringify(taint) : null, this.now());
     return this.get(Number(info.lastInsertRowid))!;
   }
 
