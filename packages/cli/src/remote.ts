@@ -42,14 +42,14 @@ export async function runRemoteCommand(
     case "approve": {
       const id = Number(rest[0]);
       if (!Number.isInteger(id)) return "usage: approve <id>";
-      const res = await client.approve(id);
+      const res = await client.approve(id, { via: "cli" });
       return res.message;
     }
 
     case "deny": {
       const id = Number(rest[0]);
       if (!Number.isInteger(id)) return "usage: deny <id>";
-      return (await client.deny(id)).message;
+      return (await client.deny(id, { via: "cli" })).message;
     }
 
     case "halt":

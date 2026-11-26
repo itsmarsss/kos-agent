@@ -69,6 +69,19 @@ describe("KosClient", () => {
     expect(seen[1]).toMatchObject({ url: "/api/memory/delete" });
   });
 
+  it("says where an approve or deny was decided when the caller names the command line", async () => {
+    answer = () => ({ status: 200, body: { ok: true, message: "done" } });
+    const c = new KosClient({ baseUrl });
+    await c.approve(4, { via: "cli" });
+    await c.deny(5, { via: "cli" });
+    await c.deny(6);
+    expect(seen.map((s) => [s.url, JSON.parse(s.body)])).toEqual([
+      ["/api/approve", { id: 4, via: "cli" }],
+      ["/api/deny", { id: 5, via: "cli" }],
+      ["/api/deny", { id: 6 }],
+    ]);
+  });
+
   it("fires a hook with the hook secret, never the dashboard token", async () => {
     answer = () => ({ status: 202, body: { accepted: "nightly" } });
     const c = new KosClient({ baseUrl, token: "dash" });

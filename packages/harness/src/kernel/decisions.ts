@@ -49,11 +49,14 @@ export function orphanFate(action: Pick<PendingAction, "tool" | "waits">, detach
 /**
  * Why a pending ask would run with no turn waiting on it, for its card's
  * warning: its chat stopped and it was kept to run detached, or nothing
- * ever waited (a schedule's). None for a build's, which its build waits on.
+ * ever waited (a schedule's). None for a build's, which its build waits on,
+ * nor for one whose fate is to lapse (a secret's, a clipboard read): a yes
+ * to that runs nothing, so no card warns that it would.
  */
-export function detachedAs(action: Pick<PendingAction, "tool" | "waits" | "detachedAt">): AskDetached | undefined {
-  if (action.detachedAt !== null) return "stopped";
-  return action.waits || action.tool.startsWith(BUILD_ACTION_PREFIX) ? undefined : "unwaited";
+export function detachedAs(action: Pick<PendingAction, "tool" | "waits" | "detachedAt">, detached: ToolRisk["detached"]): AskDetached | undefined {
+  if (action.waits && action.detachedAt === null) return undefined;
+  if (action.tool.startsWith(BUILD_ACTION_PREFIX) || orphanFate(action, detached) === "lapses") return undefined;
+  return action.detachedAt !== null ? "stopped" : "unwaited";
 }
 
 /**

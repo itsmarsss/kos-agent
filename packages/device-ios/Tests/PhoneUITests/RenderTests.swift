@@ -222,6 +222,19 @@ struct RenderTests {
     }
   }
 
+  /// An Inbox ask as `/api/approvals` sends it keeps the host's warning into the sheet that decides it.
+  @Test func anInboxAskKeepsItsDetachedWarning() throws {
+    let words = "The chat that asked has stopped; approving runs it now and the result goes to its chat."
+    let row = #"{"id":31,"tool":"notify","title":"Message you","requestedAt":1761800000000,"detached":"\#(words)"}"#
+    let pending = try JSONDecoder().decode(Routes.Pending.self, from: Data(row.utf8))
+    #expect(pending.detached == words && pending.ask.detached == words)
+    try render("approval-inbox-detached", only: ["390"]) {
+      SheetOver(height: 0.6) { Tabbed { ChatScreen(phone: Phone.preview()) } } sheet: {
+        AskBody(ask: pending.ask, more: 0) { _, _, _ in }.frame(maxHeight: .infinity, alignment: .top)
+      }
+    }
+  }
+
   @Test func theChats() throws {
     let phone = Phone.preview()
     conversation(phone)

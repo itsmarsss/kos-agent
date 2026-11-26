@@ -77,6 +77,14 @@ describe("runCommand", () => {
     const out = await runCommand(kernel, "approve", ["1"]);
     expect(typeof out).toBe("string");
     expect(kernel.approvals.pending()).toHaveLength(0);
+    // Recorded as the command line's, as the Inbox's Decided list says it.
+    expect(kernel.approvals.get(1)?.decidedVia).toBe("cli");
+  });
+
+  it("records a deny from the command line as its own", async () => {
+    const ask = kernel.approvals.enqueue({ tool: "files.read", args: { path: "x" }, riskTier: "risky" });
+    await runCommand(kernel, "deny", [String(ask.id)]);
+    expect(kernel.approvals.get(ask.id)).toMatchObject({ status: "denied", decidedVia: "cli" });
   });
 
   it("rejects approve without a valid id", async () => {
