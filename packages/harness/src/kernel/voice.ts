@@ -37,6 +37,20 @@ export const REPLY = [
   "When a post (notify, a message, a card) carried the result, the post is the result: end with one short line, never a report on the sending (what was sent, its length, the calls it took).",
 ].join("\n");
 
+/** A turn that ran out of steps, or failed, before it had anything to say. */
+export const STUCK_REPLY = "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down.";
+
+/**
+ * What a turn says, on either engine: its reply in the house voice, or a line
+ * of KOS's own when it has none, so no surface is left with silence. `stopped`
+ * is the owner's Stop; `stuck` a turn the step limit or an error ended.
+ */
+export function replyLine(text: string, how: { stopped: boolean; stuck: boolean }): string {
+  if (text.trim()) return inHouseVoice(text);
+  if (how.stopped) return "Stopped.";
+  return how.stuck ? STUCK_REPLY : "I do not have anything to add to that.";
+}
+
 /** A system prompt with `sections` added in front of its closing reply rule, which stays last. */
 export function beforeReply(system: string, ...sections: string[]): string {
   const closing = system.endsWith(REPLY);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { beforeReply, inHouseVoice, REPLY, VOICE } from "./voice.js";
+import { beforeReply, inHouseVoice, REPLY, replyLine, STUCK_REPLY, VOICE } from "./voice.js";
 
 describe("the house voice", () => {
   it("is one section, short, and carries no em dash of its own", () => {
@@ -25,6 +25,14 @@ describe("the house voice", () => {
     expect(REPLY).not.toContain("—");
     // Model agnostic: no provider or model is named.
     expect(REPLY).not.toMatch(/claude|anthropic|openai|gpt|sonnet|haiku|opus/i);
+  });
+
+  it("gives a turn with no words a line of KOS's own, the same on both engines", () => {
+    expect(replyLine("Done — sent.", { stopped: false, stuck: false })).toBe("Done, sent.");
+    expect(replyLine("", { stopped: true, stuck: true })).toBe("Stopped.");
+    // A step-capped or failed turn says it got stuck, not that it had nothing to add.
+    expect(replyLine(" ", { stopped: false, stuck: true })).toBe(STUCK_REPLY);
+    expect(replyLine("", { stopped: false, stuck: false })).toBe("I do not have anything to add to that.");
   });
 
   it("adds a section in front of the closing reply rule, and at the end of a prompt without one", () => {
