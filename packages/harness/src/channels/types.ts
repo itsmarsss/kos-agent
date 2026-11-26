@@ -126,6 +126,8 @@ export interface InboundMessage {
    * already running, rather than holding them until that turn ends.
    */
   contextRides?: true;
+  /** The context quotes text the owner did not write (a tab's title, a reply to someone else): the turn it starts is tainted with it. */
+  contextTaint?: TaintSource;
   /** What the owner quoted with the words (text selected on a page) and where from: kept with the message, never as their words. */
   quote?: Quote;
   /**
@@ -280,6 +282,8 @@ export interface OutboundMessage {
   from?: Sender;
   /** Posted without a notification: the owner's own words shown back to them, which nobody needs to be buzzed for. */
   silent?: boolean;
+  /** From a turn that read text the owner did not write: the surface makes no link preview, which it would fetch. */
+  noPreviews?: boolean;
   /** The chat it was said in, for a surface whose buttons act back on it. */
   conversationId?: string;
 }

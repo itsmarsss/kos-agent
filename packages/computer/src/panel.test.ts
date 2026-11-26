@@ -448,7 +448,7 @@ describe("the KOS for Mac window", () => {
     mac.event("chat.send", { text: " what is this? ", beside: { kind: "app", name: "Keynote", bundle: "com.apple.iWork.Keynote", title: "Q3 deck" } });
     chrome.event("chat.send", { text: "not a Mac" });
     await flush();
-    expect(heard).toEqual([{ channel: "mac", senderId: mac.id, text: "what is this?", context: expect.stringContaining('in front of Keynote, its window titled "Q3 deck"'), contextRides: true }]);
+    expect(heard).toEqual([{ channel: "mac", senderId: mac.id, text: "what is this?", context: expect.stringContaining('in front of Keynote, its window titled "Q3 deck"'), contextRides: true, contextTaint: { kind: "doc", where: "Keynote's window" } }]);
     expect(panel.identity("owner").resolve("mac", mac.id)).toBe("owner");
     expect(panel.identity("owner").resolve("mac", chrome.id)).toBeNull();
     // The chat is drawn on Macs, never on a Chrome.
@@ -663,7 +663,7 @@ describe("a Chrome's side panel", () => {
     mac.event("chat.send", { text: "not a Chrome" });
     chrome.event("chat.send", { text: "   " });
     await flush();
-    expect(heard).toEqual([{ channel: "chrome", senderId: chrome.id, text: "what is this?", context: expect.stringContaining('beside their tab at https://shop.example/mugs, titled "Mugs"'), contextRides: true }]);
+    expect(heard).toEqual([{ channel: "chrome", senderId: chrome.id, text: "what is this?", context: expect.stringContaining('beside their tab at https://shop.example/mugs, titled "Mugs"'), contextRides: true, contextTaint: { kind: "page", where: "shop.example" } }]);
     const identity = panel.identity("owner");
     expect(identity.resolve("chrome", chrome.id)).toBe("owner");
     expect(identity.resolve("chrome", mac.id)).toBeNull();

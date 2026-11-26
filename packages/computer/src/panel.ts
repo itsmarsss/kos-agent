@@ -15,7 +15,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { ASK, askView, parseChatMode, runningTail, stepMechanics, summarizeAction, usesSecret, type ChatMode } from "@kos/shared";
+import { ASK, askView, parseChatMode, runningTail, stepMechanics, summarizeAction, usesSecret, type ChatMode, type TaintSource } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
@@ -639,6 +639,7 @@ export class DevicePanel implements ChannelAdapter {
           text,
           context: this.place.beside(data["beside"], named),
           contextRides: true,
+          ...(besideTaint(data["beside"]) ? { contextTaint: besideTaint(data["beside"])! } : {}),
           ...(quote ? { quote } : {}),
           ...(files.length ? { attachments: files } : {}),
         });
@@ -854,6 +855,28 @@ export function besideNote(beside: unknown): string {
     );
   }
   return `${lead}, beside one of their tabs: "this page" means that tab; chrome.page reads it and the browser.* tools work in it.`;
+}
+
+/**
+ * What a tab or a window beside the owner's words quotes that they did not
+ * write: a page's title, an app window's. The turn is tainted with it.
+ */
+export function besideTaint(beside: unknown): TaintSource | undefined {
+  const b = typeof beside === "object" && beside !== null ? (beside as Record<string, unknown>) : {};
+  if (b["kind"] === "page" && typeof b["url"] === "string") {
+    let host: string | undefined;
+    try {
+      host = new URL(b["url"]).hostname || undefined;
+    } catch {
+      host = undefined;
+    }
+    return { kind: "page", ...(host ? { where: host } : {}) };
+  }
+  if (b["kind"] === "app" && typeof b["title"] === "string" && b["title"].trim()) {
+    const app = said(b["name"], 80);
+    return { kind: "doc", ...(app ? { where: `${app}'s window` } : {}) };
+  }
+  return undefined;
 }
 
 /** What the owner quoted with their words, as a device sent it: the text and where from, cut to fit; none when either is missing. */
