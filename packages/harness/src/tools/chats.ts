@@ -3,7 +3,7 @@ import { requireServices } from "../modules/loader.js";
 import { tokenize } from "../memory/facts.js";
 import { heardWith } from "../models/heard.js";
 import { saidText } from "../models/types.js";
-import { guestOrigin } from "../kernel/caller.js";
+import { guestOrigin, isOwnerTurn, turnOrigin } from "../kernel/caller.js";
 import { reachesAll } from "../kernel/caretaker.js";
 import { blobOf, standingKind, type Conversation, type ConversationStore, type Standing } from "../kernel/conversations.js";
 import type { CongregationMember } from "../kernel/progress.js";
@@ -82,6 +82,36 @@ function listedFor(deps: ChatToolDeps): (c: { role: string | null }) => boolean 
   return (c) => blobOf(c, deps.standing()) === null || reachesAll(deps.scope?.());
 }
 
+/** The chat that handed work on, and whether the owner asked there from the dashboard, where its notes are read. */
+export interface DispatchAsker {
+  conversationId: string;
+  onDashboard: boolean;
+}
+
+/**
+ * Who is handing work on, read in the call: the calling chat, and whether
+ * the turn is the owner's own words on the dashboard (or a device showing
+ * the same chat), not a schedule, a dispatch, or a message on Discord or
+ * iMessage, whose sender is not looking at the chat.
+ */
+export function dispatchAsker(conversationId: string | undefined): DispatchAsker | undefined {
+  if (!conversationId) return undefined;
+  const surface = turnOrigin()?.surface;
+  return { conversationId, onDashboard: isOwnerTurn() && (surface === undefined || surface === "dashboard") };
+}
+
+/**
+ * Whether the owner will read a handed-on answer in the chat that asked:
+ * they asked there on the dashboard, and it is still an open chat, not a
+ * schedule's thread. Otherwise the answer is told to them as well, or it
+ * would reach nobody.
+ */
+export function readsAnswerIn(asker: DispatchAsker | undefined, chatOf: (id: string) => Pick<Conversation, "archived"> | undefined): boolean {
+  if (!asker?.onDashboard || asker.conversationId.startsWith("cron:")) return false;
+  const chat = chatOf(asker.conversationId);
+  return chat !== undefined && !chat.archived;
+}
+
 export interface ChatToolDeps {
   conversations: ConversationStore;
   sessions: SessionStore;
@@ -114,7 +144,7 @@ export interface ChatToolDeps {
     conversationId: string,
     title: string,
     reply: string,
-    dispatchedFrom?: string,
+    asker?: DispatchAsker,
   ) => void;
   /** Which conversation is dispatching, for routing the answer back to it. */
   currentConversationId?: () => string | undefined;
@@ -496,7 +526,8 @@ function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
     },
     async (input) => {
       const id = str(input, "id");
-      const from = (): string | undefined => deps.currentConversationId?.();
+      // Read now, not when the answer lands: by then another chat may be calling.
+      const asker = dispatchAsker(deps.currentConversationId?.());
       if (hidden.has(id)) throw new Error("cannot dispatch to this conversation");
       const target = conversations.get(id);
       // Out of scope reads as absent, on purpose: a project orchestrator
@@ -515,14 +546,14 @@ function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
       void deps
         .dispatch(id, str(input, "message"))
         .then((res) =>
-          deps.onDispatchDone?.(id, target.title, res.reply, from()),
+          deps.onDispatchDone?.(id, target.title, res.reply, asker),
         )
         .catch((err: unknown) =>
           deps.onDispatchDone?.(
             id,
             target.title,
             `It failed: ${err instanceof Error ? err.message : String(err)}`,
-            from(),
+            asker,
           ),
         );
 

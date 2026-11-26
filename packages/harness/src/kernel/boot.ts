@@ -67,7 +67,7 @@ import { join } from "node:path";
 import { createSkillsModule } from "../tools/skills.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillPromoted } from "../skills/settings.js";
 import { migratePromoted } from "../skills/migrate.js";
-import { createChatsModule } from "../tools/chats.js";
+import { createChatsModule, readsAnswerIn } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
 import { EXTRACTOR_KEY } from "../memory/extractor.js";
 import { ensureDefaultDreamCron, ensureDefaultMemoryCron, ensureDefaultObserveCron } from "../memory/job.js";
@@ -613,12 +613,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         const id = kernelRef?.callerConversationId;
         return (id && conversations.get(id)?.projectSlug) || undefined;
       },
-      // The answer lands as a line in the chat that delegated, which the
-      // owner reads; told to the owner only when no chat asked.
-      onDispatchDone: (id, title, reply, from) => {
+      // The answer lands as a line in the chat that delegated, and is told
+      // to the owner as well unless they are reading that chat.
+      onDispatchDone: (id, title, reply, asker) => {
         const summary = `${title} answered: ${reply.slice(0, 600)}`;
-        if (from) kernelRef?.noteIn(from, summary);
-        else kernelRef?.caretaker.tell(summary);
+        if (asker) kernelRef?.noteIn(asker.conversationId, summary);
+        if (!readsAnswerIn(asker, (id) => conversations.get(id))) kernelRef?.caretaker.tell(summary);
       },
       // The roster of a fan-out, shown in the chat that asked while it waits.
       onCongregation: (from, members) => {
@@ -654,9 +654,9 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       jobOf: (name) => kernelRef!.agentJob(name),
       setJobEnabled: (name, enabled) => kernelRef!.setAgentJobEnabled(name, enabled),
       dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
-      // The chat that asked gets its line and card from the tool; the owner is told here only when no chat asked.
-      onDispatchDone: (_id, title, reply, from) => {
-        if (!from) kernelRef?.caretaker.tell(`${title} answered: ${reply.slice(0, 600)}`);
+      // The chat that asked gets its line and card from the tool; the owner is told here unless they are reading that chat.
+      onDispatchDone: (_id, title, reply, asker) => {
+        if (!readsAnswerIn(asker, (id) => conversations.get(id))) kernelRef?.caretaker.tell(`${title} answered: ${reply.slice(0, 600)}`);
       },
       // The card quotes the blob's reply, so a secret in it is scrubbed before it is kept.
       note: (id, text) => kernelRef?.noteIn(id, kernelRef.secrets.scrub(text)),

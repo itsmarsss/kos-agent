@@ -75,7 +75,7 @@ async function harness(ws: Workspace, options: { scope?: string } = {}): Promise
         asked.push({ id, text });
         return { reply: "done", conversationId: id };
       },
-      onDispatchDone: (id, title, reply, from) => done.push(`${from} <- ${id} (${title}): ${reply}`),
+      onDispatchDone: (id, title, reply, asker) => done.push(`${asker?.conversationId} <- ${id} (${title}): ${reply}`),
       note: (id, text) => notes.push(`${id}: ${text}`),
     }),
   ]);
