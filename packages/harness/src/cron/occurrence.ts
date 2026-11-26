@@ -67,3 +67,26 @@ export function lastOccurrence(task: { match(date: Date): boolean }, schedule: s
   }
   return null;
 }
+
+/** The wall-clock time at `at` in `timezone`, as minutes since the epoch read as if that wall clock were UTC. */
+function wallMinutes(at: number, timezone: string | undefined): number {
+  const [date, time] = wallClock(at, timezone).split(", ") as [string, string];
+  const [month, day, year] = date.split("/").map(Number) as [number, number, number];
+  const [hour, minute] = time.split(":").map(Number) as [number, number];
+  return Date.UTC(year, month - 1, day, hour, minute) / MINUTE_MS;
+}
+
+/**
+ * The schedule's own period: the shortest gap between consecutive runs, by
+ * the wall clock in `timezone`, so a clock change does not make a twice-a-night
+ * job look hourly. A time the autumn change repeats is one run, not a gap of
+ * nothing. Infinity for fewer than two runs.
+ */
+export function shortestGap(runs: readonly number[], timezone: string | undefined): number {
+  let shortest = Infinity;
+  for (let i = 1; i < runs.length; i += 1) {
+    const gap = (wallMinutes(runs[i]!, timezone) - wallMinutes(runs[i - 1]!, timezone)) * MINUTE_MS;
+    if (gap > 0) shortest = Math.min(shortest, gap);
+  }
+  return shortest;
+}

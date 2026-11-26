@@ -158,3 +158,24 @@ describe("a run's chat", () => {
     expect(runs).toEqual([]);
   });
 });
+
+describe("a skipped schedule run", () => {
+  it("shows as not run, not failed, with why it was skipped", () => {
+    const crons = [{ id: 4, name: "Kickoff", schedule: "0 9 * * *", type: "self_prompt", enabled: true }] as CronJob[];
+    const reason = "missed by 14h; next run at Wed, Nov 26, 9:00 AM";
+    render(
+      <HistoryPage
+        tools={[]}
+        runs={[{ ...run(1, Date.now()), ref: "4", status: "skipped", error: reason }]}
+        crons={crons}
+        onOpenTool={() => {}}
+        onOpenRun={() => {}}
+      />,
+    );
+    expect(document.body.textContent).toContain("Missed by 14h; next run at Wed, Nov 26, 9:00 AM");
+    // The pill reads as not run, the run's skipped status, never as failed.
+    const row = screen.getByText(/^Missed by 14h/).closest("tr, [role=row], li") ?? document.body;
+    expect(row.textContent).toContain("Not run");
+    expect(row.textContent).not.toContain("Failed");
+  });
+});

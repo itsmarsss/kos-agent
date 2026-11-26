@@ -2,7 +2,7 @@ import { cronFailure, cronOutcome, type CronExecResult } from "../cron/executor.
 import { CronScheduler, type FireOutcome, type KillSwitch } from "../cron/scheduler.js";
 import type { CronStore } from "../cron/store.js";
 import type { CronJob } from "../cron/types.js";
-import type { RunStatus } from "../ops/runs.js";
+import type { RunRecord, RunStatus } from "../ops/runs.js";
 import { cronSessionId } from "./session.js";
 
 /**
@@ -28,6 +28,8 @@ export interface CronServiceDeps {
   crons: CronStore;
   killSwitch: KillSwitch;
   selfPromptsPerHour: () => number;
+  /** Hours late a missed run may still run after a restart; zero never catches up. */
+  catchUpHours: () => number;
   /** The profile's timezone: every schedule is read in it. */
   timezone: () => string;
   /**
@@ -39,6 +41,7 @@ export interface CronServiceDeps {
   runs: {
     start: (kind: string, ref: string) => number;
     finish: (id: number, status: RunStatus, error?: string | null) => void;
+    finishedFor: (kind: string, ref: string, limit: number) => RunRecord[];
   };
   health: { failing: () => { key: string }[]; forget: (key: string) => void };
   /** Tell the caretaker how the job did, so a failure is noticed and told. */
@@ -56,6 +59,11 @@ export interface CronServiceDeps {
 
 export const BACKUP_JOB = "kos.backup";
 
+/** How a missed run's skip reason starts, as the scheduler writes it. */
+const SKIP_PREFIX = "missed by ";
+/** Runs looked back over for a skip already noted. */
+const SKIP_LOOKBACK = 10;
+
 export class CronService {
   private scheduler?: CronScheduler;
 
@@ -69,6 +77,8 @@ export class CronService {
         killSwitch: this.deps.killSwitch,
         maxSelfPromptsPerHour: () => this.deps.selfPromptsPerHour(),
         timezone: () => this.deps.timezone(),
+        catchUpLimitHours: () => this.deps.catchUpHours(),
+        onSkip: (job, missedAt, reason) => this.skipped(job, missedAt, reason),
       },
     );
     this.scheduler.start();
@@ -168,6 +178,21 @@ export class CronService {
       this.fail(runId, job, err);
       throw err;
     }
+  }
+
+  /**
+   * A missed run left for the next one, on the record in Runs and nowhere
+   * else: it is not a failure, so the caretaker and Discord hear nothing.
+   * Noted once, however many restarts find the same run missed.
+   */
+  private skipped(job: CronJob, missedAt: number, reason: string): void {
+    const ref = String(job.id);
+    // Among the last few, not only the newest: a Run now that failed in between does not mark the job run.
+    const noted = this.deps.runs
+      .finishedFor("cron", ref, SKIP_LOOKBACK)
+      .some((r) => r.status === "skipped" && r.error?.startsWith(SKIP_PREFIX) && r.startedAt >= missedAt);
+    if (noted) return;
+    this.deps.runs.finish(this.deps.runs.start("cron", ref), "skipped", reason);
   }
 
   /**
